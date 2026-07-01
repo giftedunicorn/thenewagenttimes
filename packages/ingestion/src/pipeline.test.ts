@@ -9,7 +9,10 @@ import type {
 import { createFakeEmbeddingProvider } from "./embedding";
 import {
   embedPendingNewsItems,
+  getActiveRssSourceSlugs,
+  ingestActiveRssSources,
   ingestRssSource,
+  refreshActiveRssSources,
   seedSources,
 } from "./pipeline";
 
@@ -17,6 +20,7 @@ const sourceId = "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0";
 
 class FakeRepository implements NewsRepository {
   sourcesSeeded = 0;
+  requestedSourceSlugs: string[] = [];
   runFinished:
     | {
         status: "succeeded" | "failed" | "partial";
@@ -36,11 +40,12 @@ class FakeRepository implements NewsRepository {
     return Promise.resolve({ created: sources.length });
   }
 
-  findSourceBySlug() {
+  findSourceBySlug(slug: string) {
+    this.requestedSourceSlugs.push(slug);
     return Promise.resolve({
       id: sourceId,
-      slug: "openai-news",
-      feedUrl: "https://example.com/rss.xml",
+      slug,
+      feedUrl: `https://example.com/${slug}.xml`,
     });
   }
 
@@ -121,6 +126,72 @@ describe("ingestRssSource", () => {
       itemsUpdated: 0,
       errorMessage: undefined,
     });
+  });
+});
+
+describe("getActiveRssSourceSlugs", () => {
+  it("returns only active RSS-backed source slugs", () => {
+    expect(getActiveRssSourceSlugs()).toEqual(
+      expect.arrayContaining([
+        "openai-news",
+        "anthropic-news",
+        "google-ai-blog",
+        "deepmind-blog",
+      ]),
+    );
+    expect(getActiveRssSourceSlugs()).not.toContain("product-hunt-ai");
+  });
+});
+
+describe("ingestActiveRssSources", () => {
+  it("ingests every active RSS source and summarizes partial failures", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestActiveRssSources({
+        repository,
+        fetchFeed: (url) => {
+          if (url.includes("anthropic-news")) {
+            return Promise.reject(new Error("feed unavailable"));
+          }
+
+          return Promise.resolve(rssXml);
+        },
+      }),
+    ).resolves.toMatchObject({
+      sourcesAttempted: 9,
+      sourcesSucceeded: 8,
+      sourcesFailed: 1,
+      itemsSeen: 8,
+      itemsCreated: 8,
+      itemsUpdated: 0,
+    });
+
+    expect(repository.requestedSourceSlugs).toEqual(
+      expect.arrayContaining(["openai-news", "anthropic-news"]),
+    );
+  });
+});
+
+describe("refreshActiveRssSources", () => {
+  it("seeds the source registry before active RSS ingestion", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      refreshActiveRssSources({
+        repository,
+        fetchFeed: () => Promise.resolve(rssXml),
+      }),
+    ).resolves.toMatchObject({
+      sourcesSeeded: 12,
+      sourcesAttempted: 9,
+      sourcesSucceeded: 9,
+      sourcesFailed: 0,
+      itemsCreated: 9,
+    });
+
+    expect(repository.sourcesSeeded).toBe(12);
+    expect(repository.requestedSourceSlugs).toContain("openai-news");
   });
 });
 

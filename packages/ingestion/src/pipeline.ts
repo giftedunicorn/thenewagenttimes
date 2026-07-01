@@ -1,8 +1,19 @@
-import type { EmbeddingProvider, NewsRepository } from "./types";
+import type {
+  EmbeddingProvider,
+  NewsRepository,
+  NewsSourceInput,
+} from "./types";
 import { buildEmbeddingInput, hashEmbeddingInput } from "./embedding";
 import { normalizeFeedItem } from "./normalize";
 import { parseFeedXml } from "./rss";
 import { initialNewsSources } from "./sources";
+
+export const getActiveRssSourceSlugs = (
+  sources: readonly NewsSourceInput[] = initialNewsSources,
+) =>
+  sources
+    .filter((source) => source.isActive && source.feedUrl)
+    .map((source) => source.slug);
 
 export const seedSources = async (input: { repository: NewsRepository }) => {
   return input.repository.seedSources(initialNewsSources);
@@ -78,6 +89,77 @@ export const ingestRssSource = async (input: {
     });
     throw error;
   }
+};
+
+export const ingestActiveRssSources = async (input: {
+  repository: NewsRepository;
+  fetchFeed?: (url: string) => Promise<string>;
+}) => {
+  const sourceSlugs = getActiveRssSourceSlugs();
+  const results: {
+    sourceSlug: string;
+    status: "succeeded" | "failed";
+    itemsSeen: number;
+    itemsCreated: number;
+    itemsUpdated: number;
+    errorMessage?: string;
+  }[] = [];
+
+  for (const sourceSlug of sourceSlugs) {
+    try {
+      const result = await ingestRssSource({
+        repository: input.repository,
+        sourceSlug,
+        fetchFeed: input.fetchFeed,
+      });
+
+      results.push({
+        sourceSlug,
+        status: "succeeded",
+        ...result,
+      });
+    } catch (error) {
+      results.push({
+        sourceSlug,
+        status: "failed",
+        itemsSeen: 0,
+        itemsCreated: 0,
+        itemsUpdated: 0,
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return {
+    sourcesAttempted: results.length,
+    sourcesSucceeded: results.filter((result) => result.status === "succeeded")
+      .length,
+    sourcesFailed: results.filter((result) => result.status === "failed")
+      .length,
+    itemsSeen: results.reduce((total, result) => total + result.itemsSeen, 0),
+    itemsCreated: results.reduce(
+      (total, result) => total + result.itemsCreated,
+      0,
+    ),
+    itemsUpdated: results.reduce(
+      (total, result) => total + result.itemsUpdated,
+      0,
+    ),
+    results,
+  };
+};
+
+export const refreshActiveRssSources = async (input: {
+  repository: NewsRepository;
+  fetchFeed?: (url: string) => Promise<string>;
+}) => {
+  const seedResult = await seedSources({ repository: input.repository });
+  const ingestResult = await ingestActiveRssSources(input);
+
+  return {
+    sourcesSeeded: seedResult.created,
+    ...ingestResult,
+  };
 };
 
 export const embedPendingNewsItems = async (input: {

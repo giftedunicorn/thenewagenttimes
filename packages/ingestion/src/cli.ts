@@ -1,7 +1,9 @@
 import { createOpenAIEmbeddingProvider } from "./embedding";
 import {
   embedPendingNewsItems,
+  ingestActiveRssSources,
   ingestRssSource,
+  refreshActiveRssSources,
   seedSources,
 } from "./pipeline";
 import { createDbNewsRepository } from "./repository";
@@ -28,6 +30,22 @@ const main = async () => {
     return;
   }
 
+  if (command === "ingest:rss:active") {
+    const result = await ingestActiveRssSources({ repository });
+    console.log(
+      `Active RSS ingestion complete: sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated}`,
+    );
+    return;
+  }
+
+  if (command === "refresh:rss") {
+    const result = await refreshActiveRssSources({ repository });
+    console.log(
+      `RSS refresh complete: seeded=${result.sourcesSeeded} sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated}`,
+    );
+    return;
+  }
+
   if (command === "embed:pending") {
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("OPENAI_API_KEY is required");
@@ -44,7 +62,7 @@ const main = async () => {
   }
 
   throw new Error(
-    "Usage: cli.ts <seed:sources | ingest:rss <sourceSlug> | embed:pending [limit]>",
+    "Usage: cli.ts <seed:sources | ingest:rss <sourceSlug> | ingest:rss:active | refresh:rss | embed:pending [limit]>",
   );
 };
 

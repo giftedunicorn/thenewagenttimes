@@ -17,6 +17,8 @@
     "lint": "eslint --flag unstable_native_nodejs_ts_config",
     "seed:sources": "tsx src/cli.ts seed:sources",
     "ingest:rss": "tsx src/cli.ts ingest:rss",
+    "ingest:rss:active": "tsx src/cli.ts ingest:rss:active",
+    "refresh:rss": "tsx src/cli.ts refresh:rss",
     "embed:pending": "tsx src/cli.ts embed:pending",
     "test": "vitest run",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"

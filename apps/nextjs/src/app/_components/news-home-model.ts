@@ -1,4 +1,4 @@
-import type { RecommendableNewsItem } from "@acme/validators";
+import type { RankedNewsItem, RecommendableNewsItem } from "@acme/validators";
 
 export interface NewsHomeItem extends RecommendableNewsItem {
   summary: string;
@@ -161,6 +161,34 @@ export const shouldFetchServerRecommendations = ({
   status: NewsHomeStatus;
   visitorKey: string | null;
 }) => status === "ready" && Boolean(visitorKey);
+
+const recommendationReasonLabels = {
+  category: "Preferred topic",
+  source: "Trusted source",
+  entity: "Followed entity",
+} as const;
+
+type NewsRecommendationReason =
+  (typeof recommendationReasonLabels)[keyof typeof recommendationReasonLabels];
+
+export const getNewsRecommendationReasons = ({
+  item,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+}) => {
+  const reasons = item.matchedSignals
+    .map(
+      (signal) =>
+        recommendationReasonLabels[
+          signal as keyof typeof recommendationReasonLabels
+        ],
+    )
+    .filter((reason): reason is NewsRecommendationReason => Boolean(reason));
+
+  if (reasons.length > 0) return reasons;
+
+  return ["Trending now", "Recently published"];
+};
 
 export const getNewsDeskStatusSummary = (status: NewsDeskStatus) => {
   if (status.health === "unavailable") {

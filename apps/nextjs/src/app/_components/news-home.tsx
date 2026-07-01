@@ -24,6 +24,7 @@ import type {
 import { useTRPC } from "~/trpc/react";
 import {
   getNewsDeskStatusSummary,
+  getNewsRecommendationReasons,
   getNextNewsHomeCursor,
   mergeNewsHomeItems,
   selectNewsHomeItems,
@@ -536,6 +537,7 @@ export function NewsHome({
                   <p className="mt-5 max-w-2xl text-lg leading-8 text-[#4a4a4a] dark:text-[#c8c4ba]">
                     {leadStory.summary}
                   </p>
+                  <RecommendationReasons className="mt-5" item={leadStory} />
                 </div>
                 <StoryAction
                   item={leadStory}
@@ -693,7 +695,12 @@ export function NewsHome({
                   <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
                     {String(index + 1).padStart(2, "0")}
                   </span>
-                  <span className="leading-5">{story.title}</span>
+                  <span className="leading-5">
+                    {story.title}
+                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {getNewsRecommendationReasons({ item: story })[0]}
+                    </span>
+                  </span>
                   <span className="font-mono">{story.personalizedScore}</span>
                 </div>
               ))}
@@ -736,6 +743,33 @@ export function NewsHome({
         </aside>
       </section>
     </main>
+  );
+}
+
+function RecommendationReasons({
+  item,
+  className,
+}: {
+  item: RankedNewsHomeItem;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase",
+        className,
+      )}
+    >
+      <span className="text-[#5b5750] dark:text-[#bbb4aa]">Why this</span>
+      {getNewsRecommendationReasons({ item }).map((reason) => (
+        <span
+          key={reason}
+          className="border border-[#161616]/30 px-2 py-1 text-[#8a241c] dark:border-[#f4f1ea]/30 dark:text-[#ff8b7e]"
+        >
+          {reason}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -849,6 +883,7 @@ function StoryCard({
       <p className="line-clamp-4 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
         {item.summary}
       </p>
+      <RecommendationReasons item={item} />
       {!isPreview ? (
         <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
       ) : null}
@@ -875,6 +910,7 @@ function StoryRow({
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
           {item.summary}
         </p>
+        <RecommendationReasons className="mt-3" item={item} />
       </div>
       <div className="font-mono text-sm">
         <div>{formatTime(item.publishedAt)}</div>

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildNewsDeskStatus,
   getNewsDeskStatusSummary,
+  getNewsRecommendationReasons,
   getNextNewsHomeCursor,
   mergeNewsHomeItems,
   selectNewsHomeItems,
@@ -171,6 +172,32 @@ describe("shouldFetchServerRecommendations", () => {
         visitorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getNewsRecommendationReasons", () => {
+  it("turns matched ranking signals into reader-facing recommendation reasons", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["category", "source", "entity"],
+          personalizedScore: 128,
+        },
+      }),
+    ).toEqual(["Preferred topic", "Trusted source", "Followed entity"]);
+  });
+
+  it("falls back to trend and freshness reasons when no preference signals matched", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: [],
+          personalizedScore: 94,
+        },
+      }),
+    ).toEqual(["Trending now", "Recently published"]);
   });
 });
 

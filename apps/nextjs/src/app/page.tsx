@@ -9,6 +9,7 @@ export default async function HomePage() {
   return (
     <NewsHome
       generatedAt={new Date().toISOString()}
+      deskStatus={data.deskStatus}
       initialItems={data.items}
       status={data.status}
     />

@@ -9,9 +9,14 @@ import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
 import { rankNewsForReader } from "@acme/validators";
 
-import type { NewsHomeItem, NewsHomeStatus } from "./news-home-model";
+import type {
+  NewsDeskStatus,
+  NewsHomeItem,
+  NewsHomeStatus,
+} from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
+  getNewsDeskStatusSummary,
   selectNewsHomeItems,
   shouldFetchServerRecommendations,
 } from "./news-home-model";
@@ -20,6 +25,7 @@ type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
 
 interface NewsHomeProps {
   initialItems: NewsHomeItem[];
+  deskStatus: NewsDeskStatus;
   status: NewsHomeStatus;
   generatedAt: string;
 }
@@ -201,6 +207,25 @@ const formatTime = (date: string) =>
     minute: "2-digit",
   }).format(new Date(date));
 
+const numberFormatter = new Intl.NumberFormat("en");
+
+const formatCount = (value: number) => numberFormatter.format(value);
+
+const formatOptionalTime = (date: string | null) =>
+  date ? formatTime(date) : "None yet";
+
+const formatLastRun = (run: NewsDeskStatus["latestRun"]) => {
+  if (!run) return "No run yet";
+
+  return `${run.sourceName ?? run.runType} ${run.status}`;
+};
+
+const formatRunYield = (run: NewsDeskStatus["latestRun"]) => {
+  if (!run) return "No items yet";
+
+  return `${formatCount(run.itemsCreated)} new, ${formatCount(run.itemsUpdated)} updated`;
+};
+
 const toggleValue = (values: readonly string[], value: string) =>
   values.includes(value)
     ? values.filter((item) => item !== value)
@@ -212,7 +237,12 @@ const getUniqueValues = (items: readonly NewsHomeItem[], key: "sourceSlug") =>
 const getTopEntities = (items: readonly NewsHomeItem[]) =>
   Array.from(new Set(items.flatMap((item) => item.entities))).slice(0, 10);
 
-export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
+export function NewsHome({
+  initialItems,
+  deskStatus,
+  status,
+  generatedAt,
+}: NewsHomeProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
   const [profile, setProfile] =
@@ -242,6 +272,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
   });
   const isPreview =
     initialItems.length === 0 && !serverRecommendedItems?.length;
+  const deskStatusSummary = getNewsDeskStatusSummary(deskStatus);
 
   useEffect(() => {
     writeStoredProfile(profile);
@@ -476,16 +507,35 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
           </section>
 
           <section className="bg-[#161616] p-5 text-[#f4f1ea] dark:bg-[#f4f1ea] dark:text-[#161616]">
-            <h2 className="text-xl font-black">Desk Status</h2>
+            <div className="flex items-start justify-between gap-4">
+              <h2 className="text-xl font-black">Desk Status</h2>
+              <span className="border border-current px-2 py-1 font-mono text-xs">
+                {deskStatusSummary.label}
+              </span>
+            </div>
+            <p className="mt-3 text-sm leading-6 opacity-80">
+              {deskStatusSummary.detail}
+            </p>
             <dl className="mt-4 grid gap-3 text-sm">
               <StatusLine
-                label="Edition"
-                value={isPreview ? "Preview" : "Live"}
+                label="Sources"
+                value={`${formatCount(deskStatus.activeSources)}/${formatCount(deskStatus.totalSources)} active`}
               />
-              <StatusLine label="Stories" value={String(initialItems.length)} />
               <StatusLine
-                label="Data"
-                value={status === "unavailable" ? "Needs schema" : "Connected"}
+                label="Stories"
+                value={formatCount(deskStatus.publishedStories)}
+              />
+              <StatusLine
+                label="Latest story"
+                value={formatOptionalTime(deskStatus.latestPublishedAt)}
+              />
+              <StatusLine
+                label="Last refresh"
+                value={formatLastRun(deskStatus.latestRun)}
+              />
+              <StatusLine
+                label="Run yield"
+                value={formatRunYield(deskStatus.latestRun)}
               />
             </dl>
           </section>

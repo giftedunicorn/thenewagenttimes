@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildNewsDeskStatus,
+  getNewsDeskStatusSummary,
   selectNewsHomeItems,
   shouldFetchServerRecommendations,
 } from "./news-home-model";
@@ -68,5 +70,166 @@ describe("shouldFetchServerRecommendations", () => {
         visitorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getNewsDeskStatusSummary", () => {
+  it("summarizes a live desk with published stories", () => {
+    expect(
+      getNewsDeskStatusSummary({
+        health: "live",
+        activeSources: 9,
+        totalSources: 12,
+        publishedStories: 42,
+        latestPublishedAt: "2026-07-01T10:30:00.000Z",
+        latestRun: {
+          sourceName: "OpenAI",
+          status: "succeeded",
+          runType: "rss",
+          startedAt: "2026-07-01T10:00:00.000Z",
+          finishedAt: "2026-07-01T10:01:00.000Z",
+          itemsSeen: 12,
+          itemsCreated: 4,
+          itemsUpdated: 8,
+          errorMessage: null,
+        },
+      }),
+    ).toEqual({
+      label: "Live edition",
+      detail: "42 published stories from 9 active sources.",
+    });
+  });
+
+  it("summarizes a seeded desk that has not published live stories yet", () => {
+    expect(
+      getNewsDeskStatusSummary({
+        health: "seeded",
+        activeSources: 6,
+        totalSources: 8,
+        publishedStories: 0,
+        latestPublishedAt: null,
+        latestRun: null,
+      }),
+    ).toEqual({
+      label: "Ready to crawl",
+      detail:
+        "6 active sources are registered. Run the refresh job to collect stories.",
+    });
+  });
+
+  it("surfaces a failed refresh run", () => {
+    expect(
+      getNewsDeskStatusSummary({
+        health: "error",
+        activeSources: 6,
+        totalSources: 8,
+        publishedStories: 0,
+        latestPublishedAt: null,
+        latestRun: {
+          sourceName: "Anthropic",
+          status: "failed",
+          runType: "rss",
+          startedAt: "2026-07-01T10:00:00.000Z",
+          finishedAt: "2026-07-01T10:01:00.000Z",
+          itemsSeen: 0,
+          itemsCreated: 0,
+          itemsUpdated: 0,
+          errorMessage: "Feed request failed: 500",
+        },
+      }),
+    ).toEqual({
+      label: "Refresh failed",
+      detail: "Anthropic failed: Feed request failed: 500",
+    });
+  });
+
+  it("explains when the production schema is unavailable", () => {
+    expect(
+      getNewsDeskStatusSummary({
+        health: "unavailable",
+        activeSources: 0,
+        totalSources: 0,
+        publishedStories: 0,
+        latestPublishedAt: null,
+        latestRun: null,
+      }),
+    ).toEqual({
+      label: "Needs schema",
+      detail:
+        "News tables are not reachable yet. Apply the database schema before live collection.",
+    });
+  });
+});
+
+describe("buildNewsDeskStatus", () => {
+  it("marks the desk live when published stories exist", () => {
+    expect(
+      buildNewsDeskStatus({
+        activeSources: 3,
+        totalSources: 4,
+        publishedStories: 12,
+        latestPublishedAt: "2026-07-01T10:30:00.000Z",
+        latestRun: null,
+      }).health,
+    ).toBe("live");
+  });
+
+  it("marks the desk seeded when sources exist but no story is live", () => {
+    expect(
+      buildNewsDeskStatus({
+        activeSources: 3,
+        totalSources: 4,
+        publishedStories: 0,
+        latestPublishedAt: null,
+        latestRun: null,
+      }).health,
+    ).toBe("seeded");
+  });
+
+  it("marks the desk unavailable when the schema is not reachable", () => {
+    expect(
+      buildNewsDeskStatus({
+        activeSources: 0,
+        totalSources: 0,
+        publishedStories: 0,
+        latestPublishedAt: null,
+        latestRun: null,
+        unavailable: true,
+      }).health,
+    ).toBe("unavailable");
+  });
+
+  it("marks the desk empty when the schema is reachable but sources are not seeded", () => {
+    expect(
+      buildNewsDeskStatus({
+        activeSources: 0,
+        totalSources: 0,
+        publishedStories: 0,
+        latestPublishedAt: null,
+        latestRun: null,
+      }).health,
+    ).toBe("empty");
+  });
+
+  it("marks the desk in error when the latest refresh failed", () => {
+    expect(
+      buildNewsDeskStatus({
+        activeSources: 3,
+        totalSources: 4,
+        publishedStories: 12,
+        latestPublishedAt: "2026-07-01T10:30:00.000Z",
+        latestRun: {
+          sourceName: "OpenAI",
+          status: "failed",
+          runType: "rss",
+          startedAt: "2026-07-01T10:00:00.000Z",
+          finishedAt: "2026-07-01T10:01:00.000Z",
+          itemsSeen: 0,
+          itemsCreated: 0,
+          itemsUpdated: 0,
+          errorMessage: "Feed request failed: 500",
+        },
+      }).health,
+    ).toBe("error");
   });
 });

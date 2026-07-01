@@ -2,9 +2,11 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "RAILPACK",
-    "buildCommand": "pnpm run deploy:nextjs"
+    "buildCommand": "pnpm run build:nextjs"
   },
   "deploy": {
-    "startCommand": "pnpm run start:nextjs"
+    "startCommand": "pnpm run start:nextjs",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
   }
 }

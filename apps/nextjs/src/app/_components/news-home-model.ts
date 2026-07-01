@@ -97,6 +97,41 @@ export const selectVisibleNewsHomeItems = ({
   return items.filter((item) => !hiddenIds.has(item.id));
 };
 
+export const mergeNewsHomeItems = ({
+  currentItems,
+  nextItems,
+}: {
+  currentItems: readonly NewsHomeItem[];
+  nextItems: readonly NewsHomeItem[];
+}) => {
+  const seenIds = new Set(currentItems.map((item) => item.id));
+  const mergedItems = [...currentItems];
+
+  for (const item of nextItems) {
+    if (!seenIds.has(item.id)) {
+      seenIds.add(item.id);
+      mergedItems.push(item);
+    }
+  }
+
+  return mergedItems;
+};
+
+export const getNextNewsHomeCursor = (items: readonly NewsHomeItem[]) => {
+  const firstItem = items[0];
+  if (!firstItem) return null;
+
+  let oldest = firstItem.publishedAt;
+
+  for (const item of items) {
+    if (new Date(item.publishedAt).getTime() < new Date(oldest).getTime()) {
+      oldest = item.publishedAt;
+    }
+  }
+
+  return oldest;
+};
+
 export const shouldFetchServerRecommendations = ({
   status,
   visitorKey,

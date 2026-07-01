@@ -24,6 +24,8 @@ import type {
 import { useTRPC } from "~/trpc/react";
 import {
   getNewsDeskStatusSummary,
+  getNextNewsHomeCursor,
+  mergeNewsHomeItems,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -267,6 +269,9 @@ export function NewsHome({
     useState<NewsPreferenceProfile>(readStoredProfile);
   const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
   const [hiddenItemIds, setHiddenItemIds] = useState<string[]>([]);
+  const [loadedItems, setLoadedItems] = useState<NewsHomeItem[]>([]);
+  const [hasMoreItems, setHasMoreItems] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = status !== "unavailable";
   const forYouQuery = useQuery(
@@ -295,11 +300,15 @@ export function NewsHome({
     }),
   );
   const serverRecommendedItems = forYouQuery.data;
+  const baseItems = selectNewsHomeItems({
+    initialItems: fallbackItems,
+    serverRecommendedItems,
+  });
   const items = selectVisibleNewsHomeItems({
     hiddenItemIds,
-    items: selectNewsHomeItems({
-      initialItems: fallbackItems,
-      serverRecommendedItems,
+    items: mergeNewsHomeItems({
+      currentItems: baseItems,
+      nextItems: loadedItems,
     }),
   });
   const isPreview =
@@ -354,6 +363,33 @@ export function NewsHome({
         action,
         metadata: { surface: "home" },
       });
+    }
+  };
+
+  const loadMoreStories = async () => {
+    const cursor = getNextNewsHomeCursor(items);
+
+    if (!cursor || !visitorKey || isPreview || !hasMoreItems) return;
+
+    setIsLoadingMore(true);
+    try {
+      const nextItems = await queryClient.fetchQuery(
+        trpc.news.forYou.queryOptions({
+          cursor,
+          limit: 20,
+          visitorKey,
+        }),
+      );
+
+      setLoadedItems((current) =>
+        mergeNewsHomeItems({
+          currentItems: current,
+          nextItems,
+        }),
+      );
+      setHasMoreItems(nextItems.length > 0);
+    } finally {
+      setIsLoadingMore(false);
     }
   };
 
@@ -478,6 +514,24 @@ export function NewsHome({
               </div>
             )}
           </section>
+
+          {!isPreview ? (
+            <div className="flex justify-center border-b border-[#161616]/25 pb-6 dark:border-[#f4f1ea]/25">
+              <Button
+                className="rounded-none"
+                disabled={!visitorKey || isLoadingMore || !hasMoreItems}
+                type="button"
+                variant="outline"
+                onClick={() => void loadMoreStories()}
+              >
+                {isLoadingMore
+                  ? "Loading"
+                  : hasMoreItems
+                    ? "Load more"
+                    : "End of feed"}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
         <aside className="grid content-start gap-6">

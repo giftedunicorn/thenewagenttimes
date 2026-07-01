@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildNewsDeskStatus,
   getNewsDeskStatusSummary,
+  getNextNewsHomeCursor,
+  mergeNewsHomeItems,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -29,6 +31,12 @@ const serverItem = {
   ...localItem,
   id: "server-story",
   title: "Server-ranked recommendation",
+};
+
+const olderItem = {
+  ...localItem,
+  id: "older-story",
+  publishedAt: "2026-06-30T08:00:00.000Z",
 };
 
 describe("selectNewsHomeItems", () => {
@@ -68,6 +76,29 @@ describe("selectVisibleNewsHomeItems", () => {
         hiddenItemIds: [],
       }).map((item) => item.id),
     ).toEqual(["local-story", "server-story"]);
+  });
+});
+
+describe("mergeNewsHomeItems", () => {
+  it("appends newly loaded stories without duplicating existing stories", () => {
+    expect(
+      mergeNewsHomeItems({
+        currentItems: [localItem, serverItem],
+        nextItems: [serverItem, olderItem],
+      }).map((item) => item.id),
+    ).toEqual(["local-story", "server-story", "older-story"]);
+  });
+});
+
+describe("getNextNewsHomeCursor", () => {
+  it("uses the oldest story timestamp as the next pagination cursor", () => {
+    expect(getNextNewsHomeCursor([localItem, olderItem, serverItem])).toBe(
+      "2026-06-30T08:00:00.000Z",
+    );
+  });
+
+  it("returns null when there are no stories to paginate from", () => {
+    expect(getNextNewsHomeCursor([])).toBeNull();
   });
 });
 

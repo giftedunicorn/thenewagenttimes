@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildNewsDeskStatus,
+  buildNewsHomeFeedInput,
   getNewsDeskStatusSummary,
   getNewsRecommendationReasons,
   getNextNewsHomeCursor,
@@ -58,6 +59,41 @@ describe("selectNewsHomeItems", () => {
         serverRecommendedItems: [],
       }).map((item) => item.id),
     ).toEqual(["local-story"]);
+  });
+});
+
+describe("buildNewsHomeFeedInput", () => {
+  it("keeps only meaningful live feed filters in the tRPC query input", () => {
+    expect(
+      buildNewsHomeFeedInput({
+        category: "model_release",
+        cursor: "2026-06-30T08:00:00.000Z",
+        limit: 20,
+        q: "  agents  ",
+        sourceSlug: "openai-news",
+        visitorKey: "visitor-123",
+      }),
+    ).toEqual({
+      category: "model_release",
+      cursor: "2026-06-30T08:00:00.000Z",
+      limit: 20,
+      q: "agents",
+      sourceSlug: "openai-news",
+      visitorKey: "visitor-123",
+    });
+  });
+
+  it("omits blank optional filters before querying the recommendation API", () => {
+    expect(
+      buildNewsHomeFeedInput({
+        category: null,
+        cursor: null,
+        limit: 30,
+        q: "   ",
+        sourceSlug: null,
+        visitorKey: null,
+      }),
+    ).toEqual({ limit: 30 });
   });
 });
 

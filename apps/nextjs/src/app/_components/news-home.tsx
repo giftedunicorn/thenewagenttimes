@@ -1,5 +1,6 @@
 "use client";
 
+import type { FormEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -11,6 +12,7 @@ import type {
 } from "@acme/validators";
 import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
+import { Input } from "@acme/ui/input";
 import {
   rankNewsForReader,
   selectDiverseNewsFeed,
@@ -24,6 +26,7 @@ import type {
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
+  buildNewsHomeFeedInput,
   getNewsDeskStatusSummary,
   getNewsRecommendationReasons,
   getNextNewsHomeCursor,
@@ -71,8 +74,8 @@ const categoryLabels = {
 
 type NewsCategoryKey = keyof typeof categoryLabels;
 
-const isNewsCategoryKey = (value: string): value is NewsCategoryKey =>
-  value in categoryLabels;
+const isNewsCategoryKey = (category: string): category is NewsCategoryKey =>
+  category in categoryLabels;
 
 const getCategoryLabel = (category: string) =>
   isNewsCategoryKey(category) ? categoryLabels[category] : category;
@@ -275,13 +278,29 @@ export function NewsHome({
   const [loadedItems, setLoadedItems] = useState<NewsHomeItem[]>([]);
   const [hasMoreItems, setHasMoreItems] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [searchDraft, setSearchDraft] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<NewsCategoryKey | null>(
+    null,
+  );
+  const [activeSourceSlug, setActiveSourceSlug] = useState<string | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = status !== "unavailable";
+  const hasExploreFilters = Boolean(
+    activeCategory ?? activeSourceSlug ?? searchQuery.trim(),
+  );
   const forYouQuery = useQuery(
     trpc.news.forYou.queryOptions(
-      { limit: 30, visitorKey: visitorKey ?? undefined },
+      buildNewsHomeFeedInput({
+        category: activeCategory,
+        cursor: null,
+        limit: 30,
+        q: searchQuery,
+        sourceSlug: activeSourceSlug,
+        visitorKey,
+      }),
       {
         enabled: shouldFetchServerRecommendations({ status, visitorKey }),
       },
@@ -305,8 +324,9 @@ export function NewsHome({
     }),
   );
   const serverRecommendedItems = forYouQuery.data;
+  const initialFeedItems = hasExploreFilters ? [] : fallbackItems;
   const baseItems = selectNewsHomeItems({
-    initialItems: fallbackItems,
+    initialItems: initialFeedItems,
     serverRecommendedItems,
   });
   const items = selectVisibleNewsHomeItems({
@@ -317,13 +337,20 @@ export function NewsHome({
     }),
   });
   const isPreview =
-    initialItems.length === 0 && !serverRecommendedItems?.length;
+    !hasExploreFilters &&
+    initialItems.length === 0 &&
+    !serverRecommendedItems?.length;
   const nextCursor = getNextNewsHomeCursor(items);
   const deskStatusSummary = getNewsDeskStatusSummary(deskStatus);
 
   useEffect(() => {
     writeStoredProfile(profile);
   }, [profile]);
+
+  useEffect(() => {
+    setLoadedItems([]);
+    setHasMoreItems(true);
+  }, [activeCategory, activeSourceSlug, searchQuery]);
 
   const commitProfile = (
     createNextProfile: (
@@ -372,6 +399,18 @@ export function NewsHome({
     }
   };
 
+  const applyExploreSearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSearchQuery(searchDraft.trim());
+  };
+
+  const clearExploreFilters = () => {
+    setActiveCategory(null);
+    setActiveSourceSlug(null);
+    setSearchDraft("");
+    setSearchQuery("");
+  };
+
   const loadMoreStories = useCallback(async () => {
     const cursor = nextCursor;
 
@@ -394,11 +433,16 @@ export function NewsHome({
     setIsLoadingMore(true);
     try {
       const nextItems = await queryClient.fetchQuery(
-        trpc.news.forYou.queryOptions({
-          cursor,
-          limit: 20,
-          visitorKey,
-        }),
+        trpc.news.forYou.queryOptions(
+          buildNewsHomeFeedInput({
+            category: activeCategory,
+            cursor,
+            limit: 20,
+            q: searchQuery,
+            sourceSlug: activeSourceSlug,
+            visitorKey,
+          }),
+        ),
       );
 
       setLoadedItems((current) =>
@@ -413,10 +457,13 @@ export function NewsHome({
       setIsLoadingMore(false);
     }
   }, [
+    activeCategory,
+    activeSourceSlug,
     hasMoreItems,
     isPreview,
     nextCursor,
     queryClient,
+    searchQuery,
     trpc.news.forYou,
     visitorKey,
   ]);
@@ -465,13 +512,17 @@ export function NewsHome({
   const leadStory = rankedItems[0];
   const secondaryStories = rankedItems.slice(1, 4);
   const streamStories = rankedItems.slice(4);
+  const defaultCategories = Object.keys(categoryLabels) as NewsCategoryKey[];
   const availableCategories = Array.from(
     new Set([
-      ...Object.keys(categoryLabels).slice(0, 9),
-      ...items.map((item) => item.category),
+      ...defaultCategories.slice(0, 9),
+      ...items.map((item) => item.category).filter(isNewsCategoryKey),
     ]),
   );
   const availableSources = getUniqueValues(items, "sourceSlug");
+  const sourceFilterOptions = Array.from(
+    new Set([...fallbackItems, ...items].map((item) => item.sourceSlug)),
+  ).slice(0, 8);
   const availableEntities = getTopEntities(items);
 
   return (
@@ -520,6 +571,88 @@ export function NewsHome({
             </Button>
           ))}
         </nav>
+        <section className="container grid gap-3 border-t border-[#161616]/25 py-4 dark:border-[#f4f1ea]/25">
+          <form
+            className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+            onSubmit={applyExploreSearch}
+          >
+            <Input
+              aria-label="Search AI news"
+              className="h-10 rounded-none border-[#161616]/45 bg-[#fffdf7] dark:border-[#f4f1ea]/45 dark:bg-[#181818]"
+              placeholder="Search models, agents, funding"
+              value={searchDraft}
+              onChange={(event) => setSearchDraft(event.target.value)}
+            />
+            <Button className="rounded-none" type="submit">
+              Search
+            </Button>
+            <Button
+              className="rounded-none"
+              disabled={!hasExploreFilters && !searchDraft.trim()}
+              type="button"
+              variant="outline"
+              onClick={clearExploreFilters}
+            >
+              Reset
+            </Button>
+          </form>
+          <div className="flex gap-2 overflow-x-auto text-sm">
+            <Button
+              className="rounded-none"
+              size="sm"
+              type="button"
+              variant={!activeCategory ? "default" : "outline"}
+              onClick={() => setActiveCategory(null)}
+            >
+              All topics
+            </Button>
+            {availableCategories.slice(0, 10).map((category) => (
+              <Button
+                key={category}
+                className="rounded-none"
+                size="sm"
+                type="button"
+                variant={activeCategory === category ? "default" : "outline"}
+                onClick={() =>
+                  setActiveCategory((current) =>
+                    current === category ? null : category,
+                  )
+                }
+              >
+                {getCategoryLabel(category)}
+              </Button>
+            ))}
+          </div>
+          {sourceFilterOptions.length > 0 ? (
+            <div className="flex gap-2 overflow-x-auto text-sm">
+              <Button
+                className="rounded-none"
+                size="sm"
+                type="button"
+                variant={!activeSourceSlug ? "default" : "outline"}
+                onClick={() => setActiveSourceSlug(null)}
+              >
+                All sources
+              </Button>
+              {sourceFilterOptions.map((source) => (
+                <Button
+                  key={source}
+                  className="rounded-none"
+                  size="sm"
+                  type="button"
+                  variant={activeSourceSlug === source ? "default" : "outline"}
+                  onClick={() =>
+                    setActiveSourceSlug((current) =>
+                      current === source ? null : source,
+                    )
+                  }
+                >
+                  {source}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </section>
       </header>
 
       <section className="container grid gap-6 py-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
@@ -576,7 +709,9 @@ export function NewsHome({
               ))
             ) : (
               <div className="py-8 text-sm text-[#5b5750] dark:text-[#bbb4aa]">
-                More stories will appear here as the crawl volume increases.
+                {hasExploreFilters
+                  ? "No matching stories yet. Adjust filters or reset search."
+                  : "More stories will appear here as the crawl volume increases."}
               </div>
             )}
           </section>

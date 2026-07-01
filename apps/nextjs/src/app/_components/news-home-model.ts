@@ -84,6 +84,40 @@ export const selectNewsHomeItems = ({
     ? [...serverRecommendedItems]
     : [...initialItems];
 
+export const buildNewsHomeFeedInput = <TCategory extends string>({
+  category,
+  cursor,
+  limit,
+  q,
+  sourceSlug,
+  visitorKey,
+}: {
+  category: TCategory | null;
+  cursor: string | null;
+  limit: number;
+  q: string;
+  sourceSlug: string | null;
+  visitorKey: string | null;
+}) => {
+  const query = q.trim();
+  const input: {
+    category?: TCategory;
+    cursor?: string;
+    limit: number;
+    q?: string;
+    sourceSlug?: string;
+    visitorKey?: string;
+  } = { limit };
+
+  if (category) input.category = category;
+  if (cursor) input.cursor = cursor;
+  if (query) input.q = query;
+  if (sourceSlug) input.sourceSlug = sourceSlug;
+  if (visitorKey) input.visitorKey = visitorKey;
+
+  return input;
+};
+
 export const selectVisibleNewsHomeItems = ({
   items,
   hiddenItemIds,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 
 import type {
   NewsPreferenceProfile,
@@ -457,7 +458,7 @@ function StoryAction({
   item: NewsHomeItem;
   isPreview: boolean;
 }) {
-  if (!item.canonicalUrl || isPreview) {
+  if (isPreview) {
     return (
       <p className="max-w-xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
         Live collection will replace preview desk notes after sources and schema
@@ -468,13 +469,7 @@ function StoryAction({
 
   return (
     <Button asChild className="w-fit rounded-none">
-      <a
-        href={item.canonicalUrl}
-        rel="nofollow noopener noreferrer"
-        target="_blank"
-      >
-        Read source
-      </a>
+      <Link href={`/news/${item.id}`}>Read brief</Link>
     </Button>
   );
 }

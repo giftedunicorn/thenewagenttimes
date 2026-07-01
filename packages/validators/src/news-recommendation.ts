@@ -23,10 +23,40 @@ export type RankedNewsItem<TItem extends RecommendableNewsItem> = TItem & {
   matchedSignals: string[];
 };
 
+export type ReaderInteractionAction =
+  | "view"
+  | "click_source"
+  | "save"
+  | "share"
+  | "hide";
+
+export interface ReaderInteraction {
+  action: ReaderInteractionAction;
+}
+
 const normalizeSet = (values: readonly string[]) =>
   new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean));
 
 const clampBias = (value: number) => Math.min(Math.max(value, 0), 2);
+
+const uniqueAppend = (
+  values: readonly string[],
+  candidates: readonly string[],
+  limit: number,
+) => {
+  const normalizedValues = new Set(values.map((value) => value.toLowerCase()));
+  const nextValues = [...values];
+
+  for (const candidate of candidates) {
+    if (!candidate.trim()) continue;
+    if (normalizedValues.has(candidate.toLowerCase())) continue;
+
+    nextValues.push(candidate);
+    normalizedValues.add(candidate.toLowerCase());
+  }
+
+  return nextValues.slice(-limit);
+};
 
 const hoursSince = (date: string, now: Date) => {
   const timestamp = new Date(date).getTime();
@@ -95,4 +125,50 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
         new Date(left.publishedAt).getTime()
       );
     });
+};
+
+export const updateReaderProfileWithInteraction = <
+  TItem extends RecommendableNewsItem,
+>(
+  profile: NewsPreferenceProfile,
+  item: TItem,
+  interaction: ReaderInteraction,
+): NewsPreferenceProfile => {
+  if (interaction.action === "hide") {
+    return {
+      ...profile,
+      preferredCategories: profile.preferredCategories.filter(
+        (category) => category !== item.category,
+      ),
+      preferredSources: profile.preferredSources.filter(
+        (source) => source !== item.sourceSlug,
+      ),
+      preferredEntities: profile.preferredEntities.filter(
+        (entity) => !item.entities.includes(entity),
+      ),
+    };
+  }
+
+  const actionWeight = interaction.action === "view" ? 0.15 : 0.3;
+  const entityLimit = interaction.action === "view" ? 8 : 12;
+
+  return {
+    preferredCategories: uniqueAppend(
+      profile.preferredCategories,
+      [item.category],
+      8,
+    ),
+    preferredSources: uniqueAppend(
+      profile.preferredSources,
+      interaction.action === "view" ? [] : [item.sourceSlug],
+      8,
+    ),
+    preferredEntities: uniqueAppend(
+      profile.preferredEntities,
+      item.entities,
+      entityLimit,
+    ),
+    noveltyBias: clampBias(profile.noveltyBias + actionWeight),
+    recencyBias: clampBias(profile.recencyBias + actionWeight),
+  };
 };

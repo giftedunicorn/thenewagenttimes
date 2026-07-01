@@ -1,6 +1,9 @@
 import { describe, expect, test } from "vitest";
 
-import { rankNewsForReader } from "./news-recommendation";
+import {
+  rankNewsForReader,
+  updateReaderProfileWithInteraction,
+} from "./news-recommendation";
 
 const basePublishedAt = "2026-07-01T08:00:00.000Z";
 
@@ -28,6 +31,14 @@ const items = [
     publishedAt: "2026-06-29T08:00:00.000Z",
   },
 ] as const;
+
+const defaultProfile = {
+  preferredCategories: ["model_release"],
+  preferredSources: [],
+  preferredEntities: [],
+  noveltyBias: 1,
+  recencyBias: 1,
+};
 
 describe("rankNewsForReader", () => {
   test("boosts items matching preferred categories, sources, and entities", () => {
@@ -58,5 +69,42 @@ describe("rankNewsForReader", () => {
     });
 
     expect(ranked[0]?.id).toBe("funding");
+  });
+});
+
+describe("updateReaderProfileWithInteraction", () => {
+  test("learns from strong reader actions without duplicating signals", () => {
+    const profile = updateReaderProfileWithInteraction(
+      defaultProfile,
+      items[0],
+      {
+        action: "save",
+      },
+    );
+
+    expect(profile.preferredCategories).toContain("model_release");
+    expect(profile.preferredSources).toContain("openai-news");
+    expect(profile.preferredEntities).toContain("OpenAI");
+    expect(
+      profile.preferredCategories.filter((item) => item === "model_release"),
+    ).toHaveLength(1);
+  });
+
+  test("uses weaker actions to increase recency and novelty bias gradually", () => {
+    const profile = updateReaderProfileWithInteraction(
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      items[1],
+      { action: "view" },
+    );
+
+    expect(profile.preferredCategories).toContain("funding");
+    expect(profile.noveltyBias).toBeGreaterThan(1);
+    expect(profile.recencyBias).toBeGreaterThan(1);
   });
 });

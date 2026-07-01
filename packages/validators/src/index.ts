@@ -2,7 +2,10 @@ import { z } from "zod/v4";
 
 export {
   rankNewsForReader,
+  updateReaderProfileWithInteraction,
   type NewsPreferenceProfile,
+  type ReaderInteraction,
+  type ReaderInteractionAction,
   type RankedNewsItem,
   type RecommendableNewsItem,
 } from "./news-recommendation";

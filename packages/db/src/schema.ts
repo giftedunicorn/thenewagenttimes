@@ -3,6 +3,8 @@ import { pgEnum, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
+import { user } from "./auth-schema";
+
 export const newsSourceTypeValues = [
   "publication",
   "rss",
@@ -80,6 +82,14 @@ export const ingestionRunStatusValues = [
   "partial",
 ] as const;
 
+export const newsReaderInteractionActionValues = [
+  "view",
+  "click_source",
+  "save",
+  "share",
+  "hide",
+] as const;
+
 export const NewsSourceType = pgEnum("news_source_type", newsSourceTypeValues);
 export const NewsStatus = pgEnum("news_status", newsStatusValues);
 export const NewsCategory = pgEnum("news_category", newsCategoryValues);
@@ -95,6 +105,10 @@ export const IngestionRunType = pgEnum(
 export const IngestionRunStatus = pgEnum(
   "ingestion_run_status",
   ingestionRunStatusValues,
+);
+export const NewsReaderInteractionAction = pgEnum(
+  "news_reader_interaction_action",
+  newsReaderInteractionActionValues,
 );
 
 export const NewsSource = pgTable(
@@ -239,6 +253,67 @@ export const IngestionRun = pgTable("ingestion_run", (t) => ({
     .notNull(),
 }));
 
+export const NewsReaderProfile = pgTable(
+  "news_reader_profile",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    readerKey: t.varchar({ length: 200 }).notNull(),
+    userId: t.text().references(() => user.id, { onDelete: "cascade" }),
+    preferredCategories: t
+      .text()
+      .array()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
+    preferredSources: t
+      .text()
+      .array()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
+    preferredEntities: t
+      .text()
+      .array()
+      .default(sql`'{}'::text[]`)
+      .notNull(),
+    noveltyBias: t.real().default(1).notNull(),
+    recencyBias: t.real().default(1).notNull(),
+    createdAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .$onUpdateFn(() => sql`now()`),
+  }),
+  (table) => [
+    uniqueIndex("news_reader_profile_reader_key_idx").on(table.readerKey),
+  ],
+);
+
+export const NewsReaderInteraction = pgTable(
+  "news_reader_interaction",
+  (t) => ({
+    id: t.uuid().notNull().primaryKey().defaultRandom(),
+    readerProfileId: t
+      .uuid()
+      .notNull()
+      .references(() => NewsReaderProfile.id, { onDelete: "cascade" }),
+    newsItemId: t
+      .uuid()
+      .notNull()
+      .references(() => NewsItem.id, { onDelete: "cascade" }),
+    action: NewsReaderInteractionAction().notNull(),
+    metadata: t
+      .jsonb()
+      .$type<Record<string, unknown>>()
+      .default(sql`'{}'::jsonb`)
+      .notNull(),
+    occurredAt: t
+      .timestamp({ mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  }),
+);
+
 export const NewsSourceRelations = relations(NewsSource, ({ many }) => ({
   items: many(NewsItem),
   ingestionRuns: many(IngestionRun),
@@ -249,6 +324,7 @@ export const NewsItemRelations = relations(NewsItem, ({ many, one }) => ({
     fields: [NewsItem.sourceId],
     references: [NewsSource.id],
   }),
+  readerInteractions: many(NewsReaderInteraction),
   signals: many(NewsSignal),
   vectors: many(NewsItemVector),
 }));
@@ -274,9 +350,37 @@ export const IngestionRunRelations = relations(IngestionRun, ({ one }) => ({
   }),
 }));
 
+export const NewsReaderProfileRelations = relations(
+  NewsReaderProfile,
+  ({ many, one }) => ({
+    interactions: many(NewsReaderInteraction),
+    user: one(user, {
+      fields: [NewsReaderProfile.userId],
+      references: [user.id],
+    }),
+  }),
+);
+
+export const NewsReaderInteractionRelations = relations(
+  NewsReaderInteraction,
+  ({ one }) => ({
+    item: one(NewsItem, {
+      fields: [NewsReaderInteraction.newsItemId],
+      references: [NewsItem.id],
+    }),
+    profile: one(NewsReaderProfile, {
+      fields: [NewsReaderInteraction.readerProfileId],
+      references: [NewsReaderProfile.id],
+    }),
+  }),
+);
+
 export const NewsCategorySchema = z.enum(newsCategoryValues);
 export const NewsStatusSchema = z.enum(newsStatusValues);
 export const NewsEmbeddingStatusSchema = z.enum(newsEmbeddingStatusValues);
+export const NewsReaderInteractionActionSchema = z.enum(
+  newsReaderInteractionActionValues,
+);
 
 export const CreateNewsSourceSchema = createInsertSchema(NewsSource, {
   name: z.string().min(1).max(160),
@@ -346,6 +450,33 @@ export const CreateIngestionRunSchema = createInsertSchema(IngestionRun, {
 }).omit({
   id: true,
   startedAt: true,
+});
+
+export const CreateNewsReaderProfileSchema = createInsertSchema(
+  NewsReaderProfile,
+  {
+    preferredCategories: z.array(z.string().min(1).max(80)).optional(),
+    preferredEntities: z.array(z.string().min(1).max(160)).optional(),
+    preferredSources: z.array(z.string().min(1).max(160)).optional(),
+    readerKey: z.string().trim().min(8).max(200),
+    noveltyBias: z.number().min(0).max(2).optional(),
+    recencyBias: z.number().min(0).max(2).optional(),
+  },
+).omit({
+  createdAt: true,
+  id: true,
+  updatedAt: true,
+});
+
+export const CreateNewsReaderInteractionSchema = createInsertSchema(
+  NewsReaderInteraction,
+  {
+    action: NewsReaderInteractionActionSchema,
+    metadata: z.record(z.string(), z.unknown()).optional(),
+  },
+).omit({
+  id: true,
+  occurredAt: true,
 });
 
 export const Post = pgTable("post", (t) => ({

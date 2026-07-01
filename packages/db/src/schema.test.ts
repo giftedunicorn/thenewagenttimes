@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   CreateNewsItemSchema,
   CreateNewsItemVectorSchema,
+  CreateNewsReaderInteractionSchema,
+  CreateNewsReaderProfileSchema,
   newsCategoryValues,
   newsEmbeddingStatusValues,
+  newsReaderInteractionActionValues,
   newsSourceTypeValues,
 } from "./schema";
 
@@ -98,5 +101,39 @@ describe("AI news schema contracts", () => {
       "failed",
       "skipped",
     ]);
+  });
+
+  it("tracks reader interaction actions used by personalization", () => {
+    expect(newsReaderInteractionActionValues).toEqual([
+      "view",
+      "click_source",
+      "save",
+      "share",
+      "hide",
+    ]);
+  });
+
+  it("accepts a persisted reader preference profile", () => {
+    const result = CreateNewsReaderProfileSchema.safeParse({
+      readerKey: "visitor:test-reader",
+      preferredCategories: ["model_release", "agent_product"],
+      preferredSources: ["openai-news"],
+      preferredEntities: ["OpenAI", "Anthropic"],
+      noveltyBias: 1.2,
+      recencyBias: 0.8,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts a reader interaction event for a published story", () => {
+    const result = CreateNewsReaderInteractionSchema.safeParse({
+      readerProfileId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      newsItemId: "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0",
+      action: "save",
+      metadata: { surface: "article" },
+    });
+
+    expect(result.success).toBe(true);
   });
 });

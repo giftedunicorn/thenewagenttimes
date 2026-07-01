@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useMutation } from "@tanstack/react-query";
 
 import type {
   NewsPreferenceProfile,
@@ -14,6 +15,7 @@ import {
 } from "@acme/validators";
 
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
+import { useTRPC } from "~/trpc/react";
 
 interface NewsArticleProps {
   article: NewsArticleItem;
@@ -27,6 +29,9 @@ const defaultProfile: NewsPreferenceProfile = {
   noveltyBias: 1,
   recencyBias: 1,
 };
+
+const profileStorageKey = "new-ai-times-profile";
+const visitorStorageKey = "new-ai-times-visitor-key";
 
 const categoryLabels: Record<string, string> = {
   funding: "Funding",
@@ -48,7 +53,7 @@ const categoryLabels: Record<string, string> = {
 
 const readStoredProfile = (): NewsPreferenceProfile => {
   if (typeof window === "undefined") return defaultProfile;
-  const stored = window.localStorage.getItem("new-ai-times-profile");
+  const stored = window.localStorage.getItem(profileStorageKey);
   if (!stored) return defaultProfile;
 
   try {
@@ -80,8 +85,32 @@ const readStoredProfile = (): NewsPreferenceProfile => {
 };
 
 const writeStoredProfile = (profile: NewsPreferenceProfile) => {
-  window.localStorage.setItem("new-ai-times-profile", JSON.stringify(profile));
+  window.localStorage.setItem(profileStorageKey, JSON.stringify(profile));
 };
+
+const readOrCreateVisitorKey = () => {
+  if (typeof window === "undefined") return null;
+
+  const stored = window.localStorage.getItem(visitorStorageKey);
+  if (stored) return stored;
+
+  const next =
+    typeof window.crypto.randomUUID === "function"
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  window.localStorage.setItem(visitorStorageKey, next);
+  return next;
+};
+
+const stripPersistedFlag = (
+  profile: NewsPreferenceProfile & { persisted: boolean },
+): NewsPreferenceProfile => ({
+  preferredCategories: profile.preferredCategories,
+  preferredSources: profile.preferredSources,
+  preferredEntities: profile.preferredEntities,
+  noveltyBias: profile.noveltyBias,
+  recencyBias: profile.recencyBias,
+});
 
 const formatDate = (date: string) =>
   new Intl.DateTimeFormat("en", {
@@ -103,18 +132,40 @@ const paragraphsFromArticle = (article: NewsArticleItem) => {
 };
 
 export function NewsArticle({ article, related }: NewsArticleProps) {
+  const trpc = useTRPC();
   const [profile, setProfile] =
     useState<NewsPreferenceProfile>(readStoredProfile);
+  const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
+  const recordInteraction = useMutation(
+    trpc.news.recordInteraction.mutationOptions({
+      onSuccess: (serverProfile) => {
+        const nextProfile = stripPersistedFlag(serverProfile);
+        setProfile(nextProfile);
+        writeStoredProfile(nextProfile);
+      },
+    }),
+  );
 
   useEffect(() => {
-    const nextProfile = updateReaderProfileWithInteraction(profile, article, {
-      action: "view",
+    if (!visitorKey) return;
+
+    setProfile((current) => {
+      const nextProfile = updateReaderProfileWithInteraction(current, article, {
+        action: "view",
+      });
+      writeStoredProfile(nextProfile);
+      return nextProfile;
     });
-    setProfile(nextProfile);
-    writeStoredProfile(nextProfile);
-    // This should run once per article open; profile changes from buttons are separate actions.
+
+    recordInteraction.mutate({
+      visitorKey,
+      newsItemId: article.id,
+      action: "view",
+      metadata: { surface: "article" },
+    });
+    // This should run once per article open after the reader key is available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article.id]);
+  }, [article.id, visitorKey]);
 
   const rankedRelated = useMemo(
     () => rankNewsForReader(related, profile),
@@ -123,11 +174,22 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   const paragraphs = paragraphsFromArticle(article);
 
   const recordAction = (action: ReaderInteractionAction) => {
-    const nextProfile = updateReaderProfileWithInteraction(profile, article, {
-      action,
+    setProfile((current) => {
+      const nextProfile = updateReaderProfileWithInteraction(current, article, {
+        action,
+      });
+      writeStoredProfile(nextProfile);
+      return nextProfile;
     });
-    setProfile(nextProfile);
-    writeStoredProfile(nextProfile);
+
+    if (visitorKey) {
+      recordInteraction.mutate({
+        visitorKey,
+        newsItemId: article.id,
+        action,
+        metadata: { surface: "article" },
+      });
+    }
   };
 
   return (
@@ -191,6 +253,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             <Button asChild className="rounded-none" variant="outline">
               <a
                 href={article.canonicalUrl ?? article.originalUrl}
+                onClick={() => recordAction("click_source")}
                 rel="nofollow noopener noreferrer"
                 target="_blank"
               >

@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "@acme/db";
+import { and, desc, eq, sql } from "@acme/db";
 import { db } from "@acme/db/client";
 import { NewsItem, NewsSource } from "@acme/db/schema";
 
@@ -93,7 +93,7 @@ export const getNewsArticleData = async (
       })
       .from(NewsItem)
       .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-      .where(eq(NewsItem.id, id))
+      .where(and(eq(NewsItem.id, id), eq(NewsItem.status, "published")))
       .limit(1);
 
     if (!article) {

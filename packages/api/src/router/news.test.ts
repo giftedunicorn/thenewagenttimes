@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { NewsFeedInputSchema, NewsSearchCandidatesInputSchema } from "./news";
+import {
+  NewsFeedInputSchema,
+  NewsForYouInputSchema,
+  NewsReaderProfileInputSchema,
+  NewsRecordInteractionInputSchema,
+  NewsSearchCandidatesInputSchema,
+  NewsUpdateProfileInputSchema,
+} from "./news";
 
 describe("news router input contracts", () => {
   it("defaults the public feed limit to 20", () => {
@@ -32,5 +39,69 @@ describe("news router input contracts", () => {
     expect(
       NewsSearchCandidatesInputSchema.parse({ q: "agent launch" }).limit,
     ).toBe(10);
+  });
+
+  it("defaults personalized for-you feed limit to 20", () => {
+    expect(
+      NewsForYouInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
+    ).toBe(20);
+  });
+
+  it("accepts anonymous reader keys for persisted preference profiles", () => {
+    const result = NewsReaderProfileInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("requires useful anonymous reader keys before storing interactions", () => {
+    const result = NewsRecordInteractionInputSchema.safeParse({
+      visitorKey: "short",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      action: "save",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts the personalization interaction actions from the reader UI", () => {
+    const result = NewsRecordInteractionInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      action: "click_source",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts explicit reader profile updates from preference controls", () => {
+    const result = NewsUpdateProfileInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: ["openai-news"],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1.5,
+        recencyBias: 0.5,
+      },
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects profile bias values outside the supported ranking range", () => {
+    const result = NewsUpdateProfileInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 2.5,
+        recencyBias: 1,
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useMutation } from "@tanstack/react-query";
 
 import type {
   NewsPreferenceProfile,
@@ -11,6 +12,8 @@ import type {
 import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
 import { rankNewsForReader } from "@acme/validators";
+
+import { useTRPC } from "~/trpc/react";
 
 export interface NewsHomeItem extends RecommendableNewsItem {
   summary: string;
@@ -38,7 +41,7 @@ const defaultProfile: NewsPreferenceProfile = {
   recencyBias: 1,
 };
 
-const categoryLabels: Record<string, string> = {
+const categoryLabels = {
   funding: "Funding",
   product_hunt: "Product Hunt",
   model_release: "Models",
@@ -54,7 +57,18 @@ const categoryLabels: Record<string, string> = {
   open_source: "Open Source",
   market_map: "Market Maps",
   other: "Other",
-};
+} as const;
+
+type NewsCategoryKey = keyof typeof categoryLabels;
+
+const isNewsCategoryKey = (value: string): value is NewsCategoryKey =>
+  value in categoryLabels;
+
+const getCategoryLabel = (category: string) =>
+  isNewsCategoryKey(category) ? categoryLabels[category] : category;
+
+const profileStorageKey = "new-ai-times-profile";
+const visitorStorageKey = "new-ai-times-visitor-key";
 
 const previewItems: NewsHomeItem[] = [
   {
@@ -113,7 +127,7 @@ const previewItems: NewsHomeItem[] = [
 const readStoredProfile = (): NewsPreferenceProfile => {
   if (typeof window === "undefined") return defaultProfile;
 
-  const stored = window.localStorage.getItem("new-ai-times-profile");
+  const stored = window.localStorage.getItem(profileStorageKey);
   if (!stored) return defaultProfile;
 
   try {
@@ -148,6 +162,40 @@ const readStoredProfile = (): NewsPreferenceProfile => {
   }
 };
 
+const writeStoredProfile = (profile: NewsPreferenceProfile) => {
+  window.localStorage.setItem(profileStorageKey, JSON.stringify(profile));
+};
+
+const readOrCreateVisitorKey = () => {
+  if (typeof window === "undefined") return null;
+
+  const stored = window.localStorage.getItem(visitorStorageKey);
+  if (stored) return stored;
+
+  const next =
+    typeof window.crypto.randomUUID === "function"
+      ? window.crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  window.localStorage.setItem(visitorStorageKey, next);
+  return next;
+};
+
+const toServerProfile = (profile: NewsPreferenceProfile) => ({
+  preferredCategories: profile.preferredCategories
+    .filter(isNewsCategoryKey)
+    .slice(0, 12),
+  preferredSources: profile.preferredSources
+    .map((source) => source.trim())
+    .filter(Boolean)
+    .slice(0, 12),
+  preferredEntities: profile.preferredEntities
+    .map((entity) => entity.trim())
+    .filter(Boolean)
+    .slice(0, 24),
+  noveltyBias: Math.min(Math.max(profile.noveltyBias, 0), 2),
+  recencyBias: Math.min(Math.max(profile.recencyBias, 0), 2),
+});
+
 const formatEditionDate = (date: string) =>
   new Intl.DateTimeFormat("en", {
     weekday: "long",
@@ -174,17 +222,37 @@ const getTopEntities = (items: readonly NewsHomeItem[]) =>
   Array.from(new Set(items.flatMap((item) => item.entities))).slice(0, 10);
 
 export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
+  const trpc = useTRPC();
   const [profile, setProfile] =
     useState<NewsPreferenceProfile>(readStoredProfile);
+  const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
   const items = initialItems.length > 0 ? initialItems : previewItems;
   const isPreview = initialItems.length === 0;
+  const canPersistProfile = status !== "unavailable";
+  const updateProfile = useMutation(trpc.news.updateProfile.mutationOptions());
 
   useEffect(() => {
-    window.localStorage.setItem(
-      "new-ai-times-profile",
-      JSON.stringify(profile),
-    );
+    writeStoredProfile(profile);
   }, [profile]);
+
+  const commitProfile = (
+    createNextProfile: (
+      current: NewsPreferenceProfile,
+    ) => NewsPreferenceProfile,
+  ) => {
+    setProfile((current) => {
+      const nextProfile = createNextProfile(current);
+
+      if (visitorKey && canPersistProfile) {
+        updateProfile.mutate({
+          visitorKey,
+          profile: toServerProfile(nextProfile),
+        });
+      }
+
+      return nextProfile;
+    });
+  };
 
   const rankedItems = useMemo(
     () => rankNewsForReader(items, profile),
@@ -235,7 +303,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
               size="sm"
               className="rounded-none"
               onClick={() =>
-                setProfile((current) => ({
+                commitProfile((current) => ({
                   ...current,
                   preferredCategories: toggleValue(
                     current.preferredCategories,
@@ -244,7 +312,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
                 }))
               }
             >
-              {categoryLabels[category] ?? category}
+              {getCategoryLabel(category)}
             </Button>
           ))}
         </nav>
@@ -257,7 +325,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
               <div className="flex flex-col justify-between gap-8 pr-0 md:pr-6">
                 <div>
                   <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase">
-                    <span>{categoryLabels[leadStory.category]}</span>
+                    <span>{getCategoryLabel(leadStory.category)}</span>
                     <span className="text-[#78746c]">/</span>
                     <span>{leadStory.sourceName}</span>
                     <span className="text-[#78746c]">/</span>
@@ -317,7 +385,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
                   key={source}
                   active={profile.preferredSources.includes(source)}
                   onClick={() =>
-                    setProfile((current) => ({
+                    commitProfile((current) => ({
                       ...current,
                       preferredSources: toggleValue(
                         current.preferredSources,
@@ -337,7 +405,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
                   key={entity}
                   active={profile.preferredEntities.includes(entity)}
                   onClick={() =>
-                    setProfile((current) => ({
+                    commitProfile((current) => ({
                       ...current,
                       preferredEntities: toggleValue(
                         current.preferredEntities,
@@ -356,7 +424,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
                 label="Fresh"
                 value={profile.recencyBias}
                 onClick={() =>
-                  setProfile((current) => ({
+                  commitProfile((current) => ({
                     ...current,
                     recencyBias:
                       current.recencyBias >= 2 ? 0 : current.recencyBias + 1,
@@ -367,7 +435,7 @@ export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
                 label="Novel"
                 value={profile.noveltyBias}
                 onClick={() =>
-                  setProfile((current) => ({
+                  commitProfile((current) => ({
                     ...current,
                     noveltyBias:
                       current.noveltyBias >= 2 ? 0 : current.noveltyBias + 1,
@@ -442,7 +510,7 @@ function StoryVisual({
       )}
     >
       <span className="max-w-[12rem] text-3xl leading-none font-black">
-        {categoryLabels[item.category] ?? item.category}
+        {getCategoryLabel(item.category)}
       </span>
       <span className="font-mono text-5xl leading-none text-[#8a241c] dark:text-[#ff8b7e]">
         AI
@@ -485,7 +553,7 @@ function StoryCard({
     <article className="grid gap-3 border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]">
       <StoryVisual item={item} />
       <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-        {categoryLabels[item.category] ?? item.category}
+        {getCategoryLabel(item.category)}
       </div>
       <h3 className="text-xl leading-tight font-black">{item.title}</h3>
       <p className="line-clamp-4 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
@@ -507,7 +575,7 @@ function StoryRow({
     <article className="grid gap-4 py-5 md:grid-cols-[1fr_10rem_auto] md:items-start">
       <div>
         <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-          {item.sourceName} / {categoryLabels[item.category] ?? item.category}
+          {item.sourceName} / {getCategoryLabel(item.category)}
         </div>
         <h3 className="mt-2 text-2xl leading-tight font-black">{item.title}</h3>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">

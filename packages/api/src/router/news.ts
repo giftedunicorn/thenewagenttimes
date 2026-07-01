@@ -1,20 +1,39 @@
 import type { TRPCRouterRecord } from "@trpc/server";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
 import type { SQL } from "@acme/db";
+import type { NewsPreferenceProfile } from "@acme/validators";
 import { and, desc, eq, ilike, lt, or, sql } from "@acme/db";
 import {
   NewsCategorySchema,
   NewsItem,
   NewsItemVector,
+  NewsReaderInteraction,
+  NewsReaderInteractionActionSchema,
+  NewsReaderProfile,
   NewsSignal,
   NewsSource,
 } from "@acme/db/schema";
+import {
+  rankNewsForReader,
+  updateReaderProfileWithInteraction,
+} from "@acme/validators";
 
 import { publicProcedure } from "../trpc";
 
 const optionalTrimmedString = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional();
+
+const optionalVisitorKey = z.string().trim().min(8).max(160).optional();
+
+const defaultNewsPreferenceProfile: NewsPreferenceProfile = {
+  preferredCategories: ["model_release", "agent_product", "funding"],
+  preferredSources: [],
+  preferredEntities: [],
+  noveltyBias: 1,
+  recencyBias: 1,
+};
 
 export const NewsFeedInputSchema = z.object({
   category: NewsCategorySchema.optional(),
@@ -35,10 +54,45 @@ export const NewsSearchCandidatesInputSchema = z.object({
   limit: z.number().int().min(1).max(25).default(10),
 });
 
+export const NewsReaderProfileInputSchema = z.object({
+  visitorKey: optionalVisitorKey,
+});
+
+export const NewsForYouInputSchema = NewsFeedInputSchema.extend({
+  visitorKey: optionalVisitorKey,
+});
+
+export const NewsRecordInteractionInputSchema = z.object({
+  visitorKey: optionalVisitorKey,
+  newsItemId: z.string().uuid(),
+  action: NewsReaderInteractionActionSchema,
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const NewsPreferenceProfileInputSchema = z.object({
+  preferredCategories: z.array(NewsCategorySchema).max(12),
+  preferredSources: z.array(z.string().trim().min(1).max(160)).max(12),
+  preferredEntities: z.array(z.string().trim().min(1).max(160)).max(24),
+  noveltyBias: z.number().min(0).max(2),
+  recencyBias: z.number().min(0).max(2),
+});
+
+export const NewsUpdateProfileInputSchema = NewsReaderProfileInputSchema.extend(
+  {
+    profile: NewsPreferenceProfileInputSchema,
+  },
+);
+
 type NewsFeedInput = z.infer<typeof NewsFeedInputSchema>;
 type NewsSearchCandidatesInput = z.infer<
   typeof NewsSearchCandidatesInputSchema
 >;
+type NewsReaderProfileRow = typeof NewsReaderProfile.$inferSelect;
+
+interface ReaderIdentity {
+  readerKey: string;
+  userId: string | null;
+}
 
 const compactConditions = (
   conditions: (SQL<unknown> | undefined)[],
@@ -91,6 +145,37 @@ const searchCandidateConditions = (
     textSearchCondition(input.q),
   ]);
 
+const resolveReaderIdentity = (
+  userId: string | undefined,
+  visitorKey: string | undefined,
+): ReaderIdentity | null => {
+  if (userId) {
+    return { readerKey: `user:${userId}`, userId };
+  }
+
+  if (visitorKey) {
+    return { readerKey: `visitor:${visitorKey}`, userId: null };
+  }
+
+  return null;
+};
+
+const clampBias = (value: number) => Math.min(Math.max(value, 0), 2);
+
+const toPreferenceProfile = (
+  row: NewsReaderProfileRow | null | undefined,
+): NewsPreferenceProfile => {
+  if (!row) return defaultNewsPreferenceProfile;
+
+  return {
+    preferredCategories: row.preferredCategories,
+    preferredSources: row.preferredSources,
+    preferredEntities: row.preferredEntities,
+    noveltyBias: clampBias(row.noveltyBias),
+    recencyBias: clampBias(row.recencyBias),
+  };
+};
+
 export const newsRouter = {
   feed: publicProcedure.input(NewsFeedInputSchema).query(({ ctx, input }) => {
     return ctx.db
@@ -122,6 +207,85 @@ export const newsRouter = {
       .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
       .limit(input.limit);
   }),
+
+  profile: publicProcedure
+    .input(NewsReaderProfileInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        return {
+          ...defaultNewsPreferenceProfile,
+          persisted: false,
+        };
+      }
+
+      const [profile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+
+      return {
+        ...toPreferenceProfile(profile),
+        persisted: Boolean(profile),
+      };
+    }),
+
+  forYou: publicProcedure
+    .input(NewsForYouInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+      let profile = defaultNewsPreferenceProfile;
+
+      if (identity) {
+        const [persistedProfile] = await ctx.db
+          .select()
+          .from(NewsReaderProfile)
+          .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+          .limit(1);
+
+        profile = toPreferenceProfile(persistedProfile);
+      }
+
+      const candidateLimit = Math.min(input.limit * 3, 100);
+      const rows = await ctx.db
+        .select({
+          id: NewsItem.id,
+          title: NewsItem.title,
+          summary: NewsItem.summary,
+          canonicalUrl: NewsItem.canonicalUrl,
+          imageUrl: NewsItem.imageUrl,
+          publishedAt: NewsItem.publishedAt,
+          category: NewsItem.category,
+          tags: NewsItem.tags,
+          entities: NewsItem.entities,
+          sourceScore: NewsItem.sourceScore,
+          trendScore: NewsItem.trendScore,
+          sourceName: NewsSource.name,
+          sourceSlug: NewsSource.slug,
+          sourceType: NewsSource.sourceType,
+        })
+        .from(NewsItem)
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(publishedFeedConditions(input))
+        .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
+        .limit(candidateLimit);
+
+      return rankNewsForReader(
+        rows.map((row) => ({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+        })),
+        profile,
+      ).slice(0, input.limit);
+    }),
 
   byId: publicProcedure
     .input(NewsByIdInputSchema)
@@ -197,6 +361,163 @@ export const newsRouter = {
         signals,
         vectors,
         hasVector: vectors.length > 0,
+      };
+    }),
+
+  recordInteraction: publicProcedure
+    .input(NewsRecordInteractionInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A reader identity is required to store news preferences.",
+        });
+      }
+
+      const [item] = await ctx.db
+        .select({
+          id: NewsItem.id,
+          title: NewsItem.title,
+          publishedAt: NewsItem.publishedAt,
+          category: NewsItem.category,
+          tags: NewsItem.tags,
+          entities: NewsItem.entities,
+          sourceScore: NewsItem.sourceScore,
+          trendScore: NewsItem.trendScore,
+          sourceSlug: NewsSource.slug,
+        })
+        .from(NewsItem)
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(
+          compactConditions([
+            eq(NewsItem.id, input.newsItemId),
+            eq(NewsItem.status, "published"),
+          ]),
+        )
+        .limit(1);
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Published news item not found.",
+        });
+      }
+
+      const [existingProfile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+
+      const nextProfile = updateReaderProfileWithInteraction(
+        toPreferenceProfile(existingProfile),
+        {
+          ...item,
+          publishedAt: item.publishedAt.toISOString(),
+        },
+        { action: input.action },
+      );
+
+      const [profile] = await ctx.db
+        .insert(NewsReaderProfile)
+        .values({
+          readerKey: identity.readerKey,
+          userId: identity.userId,
+          preferredCategories: [...nextProfile.preferredCategories],
+          preferredSources: [...nextProfile.preferredSources],
+          preferredEntities: [...nextProfile.preferredEntities],
+          noveltyBias: nextProfile.noveltyBias,
+          recencyBias: nextProfile.recencyBias,
+        })
+        .onConflictDoUpdate({
+          target: NewsReaderProfile.readerKey,
+          set: {
+            userId: identity.userId,
+            preferredCategories: [...nextProfile.preferredCategories],
+            preferredSources: [...nextProfile.preferredSources],
+            preferredEntities: [...nextProfile.preferredEntities],
+            noveltyBias: nextProfile.noveltyBias,
+            recencyBias: nextProfile.recencyBias,
+            updatedAt: sql`now()`,
+          },
+        })
+        .returning();
+
+      if (!profile) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unable to persist reader profile.",
+        });
+      }
+
+      await ctx.db.insert(NewsReaderInteraction).values({
+        action: input.action,
+        metadata: input.metadata ?? {},
+        newsItemId: input.newsItemId,
+        readerProfileId: profile.id,
+      });
+
+      return {
+        ...toPreferenceProfile(profile),
+        persisted: true,
+      };
+    }),
+
+  updateProfile: publicProcedure
+    .input(NewsUpdateProfileInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A reader identity is required to store news preferences.",
+        });
+      }
+
+      const [profile] = await ctx.db
+        .insert(NewsReaderProfile)
+        .values({
+          readerKey: identity.readerKey,
+          userId: identity.userId,
+          preferredCategories: input.profile.preferredCategories,
+          preferredSources: input.profile.preferredSources,
+          preferredEntities: input.profile.preferredEntities,
+          noveltyBias: input.profile.noveltyBias,
+          recencyBias: input.profile.recencyBias,
+        })
+        .onConflictDoUpdate({
+          target: NewsReaderProfile.readerKey,
+          set: {
+            userId: identity.userId,
+            preferredCategories: input.profile.preferredCategories,
+            preferredSources: input.profile.preferredSources,
+            preferredEntities: input.profile.preferredEntities,
+            noveltyBias: input.profile.noveltyBias,
+            recencyBias: input.profile.recencyBias,
+            updatedAt: sql`now()`,
+          },
+        })
+        .returning();
+
+      if (!profile) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unable to persist reader profile.",
+        });
+      }
+
+      return {
+        ...toPreferenceProfile(profile),
+        persisted: true,
       };
     }),
 

@@ -6,6 +6,8 @@ import { oAuthProxy } from "better-auth/plugins";
 
 import { db } from "@acme/db/client";
 
+import { createAuthSocialProviders } from "./providers";
+
 export function initAuth<
   TExtraPlugins extends BetterAuthPlugin[] = [],
 >(options: {
@@ -13,10 +15,15 @@ export function initAuth<
   productionUrl: string;
   secret: string | undefined;
 
-  discordClientId: string;
-  discordClientSecret: string;
+  discordClientId: string | undefined;
+  discordClientSecret: string | undefined;
   extraPlugins?: TExtraPlugins;
 }) {
+  const socialProviders = createAuthSocialProviders({
+    productionUrl: options.productionUrl,
+    discordClientId: options.discordClientId,
+    discordClientSecret: options.discordClientSecret,
+  });
   const config = {
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -30,13 +37,7 @@ export function initAuth<
       expo(),
       ...(options.extraPlugins ?? []),
     ],
-    socialProviders: {
-      discord: {
-        clientId: options.discordClientId,
-        clientSecret: options.discordClientSecret,
-        redirectURI: `${options.productionUrl}/api/auth/callback/discord`,
-      },
-    },
+    ...(socialProviders ? { socialProviders } : {}),
     trustedOrigins: ["expo://"],
     onAPIError: {
       onError(error, ctx) {

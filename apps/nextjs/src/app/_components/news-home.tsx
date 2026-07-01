@@ -2,28 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type {
-  NewsPreferenceProfile,
-  RankedNewsItem,
-  RecommendableNewsItem,
-} from "@acme/validators";
+import type { NewsPreferenceProfile, RankedNewsItem } from "@acme/validators";
 import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
 import { rankNewsForReader } from "@acme/validators";
 
+import type { NewsHomeItem, NewsHomeStatus } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
-
-export interface NewsHomeItem extends RecommendableNewsItem {
-  summary: string;
-  canonicalUrl: string | null;
-  imageUrl: string | null;
-  sourceName: string;
-  sourceType: string;
-}
-
-export type NewsHomeStatus = "ready" | "empty" | "unavailable";
+import {
+  selectNewsHomeItems,
+  shouldFetchServerRecommendations,
+} from "./news-home-model";
 
 type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
 
@@ -223,13 +214,34 @@ const getTopEntities = (items: readonly NewsHomeItem[]) =>
 
 export function NewsHome({ initialItems, status, generatedAt }: NewsHomeProps) {
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [profile, setProfile] =
     useState<NewsPreferenceProfile>(readStoredProfile);
   const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
-  const items = initialItems.length > 0 ? initialItems : previewItems;
-  const isPreview = initialItems.length === 0;
+  const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = status !== "unavailable";
-  const updateProfile = useMutation(trpc.news.updateProfile.mutationOptions());
+  const forYouQuery = useQuery(
+    trpc.news.forYou.queryOptions(
+      { limit: 30, visitorKey: visitorKey ?? undefined },
+      {
+        enabled: shouldFetchServerRecommendations({ status, visitorKey }),
+      },
+    ),
+  );
+  const updateProfile = useMutation(
+    trpc.news.updateProfile.mutationOptions({
+      onSuccess: async () => {
+        await queryClient.invalidateQueries(trpc.news.forYou.pathFilter());
+      },
+    }),
+  );
+  const serverRecommendedItems = forYouQuery.data;
+  const items = selectNewsHomeItems({
+    initialItems: fallbackItems,
+    serverRecommendedItems,
+  });
+  const isPreview =
+    initialItems.length === 0 && !serverRecommendedItems?.length;
 
   useEffect(() => {
     writeStoredProfile(profile);

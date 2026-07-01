@@ -2,9 +2,12 @@ import { and, desc, eq, sql } from "@acme/db";
 import { db } from "@acme/db/client";
 import { NewsItem, NewsSource } from "@acme/db/schema";
 
-import type { NewsHomeItem, NewsHomeStatus } from "../_components/news-home";
+import type {
+  NewsHomeItem,
+  NewsHomeStatus,
+} from "../_components/news-home-model";
 
-export type { NewsHomeItem } from "../_components/news-home";
+export type { NewsHomeItem } from "../_components/news-home-model";
 
 export interface NewsArticleItem extends NewsHomeItem {
   bodyText: string | null;

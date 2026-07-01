@@ -13,6 +13,7 @@ import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
 import {
   rankNewsForReader,
+  selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
@@ -455,7 +456,10 @@ export function NewsHome({
   }, [hasMoreItems, isPreview, loadMoreStories, nextCursor, visitorKey]);
 
   const rankedItems = useMemo(
-    () => rankNewsForReader(items, profile),
+    () =>
+      selectDiverseNewsFeed(rankNewsForReader(items, profile), {
+        limit: items.length,
+      }),
     [items, profile],
   );
   const leadStory = rankedItems[0];

@@ -18,6 +18,7 @@ import {
 import {
   filterHiddenNewsItems,
   rankNewsForReader,
+  selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
@@ -306,9 +307,11 @@ export const newsRouter = {
         hiddenNewsItemIds,
       );
 
-      return rankNewsForReader(recommendableRows, profile).slice(
-        0,
-        input.limit,
+      return selectDiverseNewsFeed(
+        rankNewsForReader(recommendableRows, profile),
+        {
+          limit: input.limit,
+        },
       );
     }),
 

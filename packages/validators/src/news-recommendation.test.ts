@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   filterHiddenNewsItems,
   rankNewsForReader,
+  selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
 } from "./news-recommendation";
 
@@ -78,6 +79,75 @@ describe("filterHiddenNewsItems", () => {
     const filtered = filterHiddenNewsItems(items, ["funding"]);
 
     expect(filtered.map((item) => item.id)).toEqual(["model-release"]);
+  });
+});
+
+describe("selectDiverseNewsFeed", () => {
+  test("interleaves strong stories from different sources and categories", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "openai-model-1",
+        category: "model_release",
+        sourceSlug: "openai-news",
+        personalizedScore: 160,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[0],
+        id: "openai-model-2",
+        category: "model_release",
+        sourceSlug: "openai-news",
+        personalizedScore: 155,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[0],
+        id: "anthropic-agent",
+        category: "agent_product",
+        sourceSlug: "anthropic-news",
+        personalizedScore: 132,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "venture-funding",
+        category: "funding",
+        sourceSlug: "venturewire",
+        personalizedScore: 120,
+        matchedSignals: [],
+      },
+    ];
+
+    expect(
+      selectDiverseNewsFeed(ranked, { limit: 4 }).map((item) => item.id),
+    ).toEqual([
+      "openai-model-1",
+      "anthropic-agent",
+      "venture-funding",
+      "openai-model-2",
+    ]);
+  });
+
+  test("preserves score order when there are no alternate sources or categories", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "openai-model-1",
+        personalizedScore: 160,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[0],
+        id: "openai-model-2",
+        personalizedScore: 155,
+        matchedSignals: ["category"],
+      },
+    ];
+
+    expect(
+      selectDiverseNewsFeed(ranked, { limit: 2 }).map((item) => item.id),
+    ).toEqual(["openai-model-1", "openai-model-2"]);
   });
 });
 

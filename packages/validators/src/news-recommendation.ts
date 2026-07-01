@@ -140,6 +140,44 @@ export const filterHiddenNewsItems = <TItem extends NewsIdentity>(
   return items.filter((item) => !hiddenIds.has(item.id));
 };
 
+export const selectDiverseNewsFeed = <TItem extends RecommendableNewsItem>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  { limit }: { limit: number },
+): RankedNewsItem<TItem>[] => {
+  const selected: RankedNewsItem<TItem>[] = [];
+  const remaining = [...rankedItems];
+  const usedSources = new Set<string>();
+  const usedCategories = new Set<string>();
+
+  while (selected.length < limit && remaining.length > 0) {
+    let nextIndex = remaining.findIndex(
+      (item) =>
+        !usedSources.has(item.sourceSlug) && !usedCategories.has(item.category),
+    );
+
+    if (nextIndex === -1) {
+      nextIndex = remaining.findIndex(
+        (item) =>
+          !usedSources.has(item.sourceSlug) ||
+          !usedCategories.has(item.category),
+      );
+    }
+
+    if (nextIndex === -1) {
+      nextIndex = 0;
+    }
+
+    const [nextItem] = remaining.splice(nextIndex, 1);
+    if (!nextItem) continue;
+
+    selected.push(nextItem);
+    usedSources.add(nextItem.sourceSlug);
+    usedCategories.add(nextItem.category);
+  }
+
+  return selected;
+};
+
 export const updateReaderProfileWithInteraction = <
   TItem extends RecommendableNewsItem,
 >(

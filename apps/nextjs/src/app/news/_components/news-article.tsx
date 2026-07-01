@@ -11,6 +11,7 @@ import type {
 import { Button } from "@acme/ui/button";
 import {
   rankNewsForReader,
+  selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
@@ -168,7 +169,10 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   }, [article.id, visitorKey]);
 
   const rankedRelated = useMemo(
-    () => rankNewsForReader(related, profile),
+    () =>
+      selectDiverseNewsFeed(rankNewsForReader(related, profile), {
+        limit: related.length,
+      }),
     [profile, related],
   );
   const paragraphs = paragraphsFromArticle(article);

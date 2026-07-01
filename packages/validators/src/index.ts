@@ -3,6 +3,7 @@ import { z } from "zod/v4";
 export {
   filterHiddenNewsItems,
   rankNewsForReader,
+  selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
   type NewsIdentity,
   type NewsPreferenceProfile,

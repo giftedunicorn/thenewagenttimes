@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  filterHiddenNewsItems,
   rankNewsForReader,
   updateReaderProfileWithInteraction,
 } from "./news-recommendation";
@@ -69,6 +70,14 @@ describe("rankNewsForReader", () => {
     });
 
     expect(ranked[0]?.id).toBe("funding");
+  });
+});
+
+describe("filterHiddenNewsItems", () => {
+  test("removes stories that the reader has hidden before ranking", () => {
+    const filtered = filterHiddenNewsItems(items, ["funding"]);
+
+    expect(filtered.map((item) => item.id)).toEqual(["model-release"]);
   });
 });
 

@@ -23,6 +23,10 @@ export type RankedNewsItem<TItem extends RecommendableNewsItem> = TItem & {
   matchedSignals: string[];
 };
 
+export interface NewsIdentity {
+  id: string;
+}
+
 export type ReaderInteractionAction =
   | "view"
   | "click_source"
@@ -125,6 +129,15 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
         new Date(left.publishedAt).getTime()
       );
     });
+};
+
+export const filterHiddenNewsItems = <TItem extends NewsIdentity>(
+  items: readonly TItem[],
+  hiddenNewsItemIds: readonly string[],
+): TItem[] => {
+  const hiddenIds = new Set(hiddenNewsItemIds);
+
+  return items.filter((item) => !hiddenIds.has(item.id));
 };
 
 export const updateReaderProfileWithInteraction = <

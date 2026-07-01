@@ -16,6 +16,7 @@ import {
   NewsSource,
 } from "@acme/db/schema";
 import {
+  filterHiddenNewsItems,
   rankNewsForReader,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
@@ -243,6 +244,7 @@ export const newsRouter = {
         input.visitorKey,
       );
       let profile = defaultNewsPreferenceProfile;
+      let hiddenNewsItemIds: string[] = [];
 
       if (identity) {
         const [persistedProfile] = await ctx.db
@@ -252,6 +254,24 @@ export const newsRouter = {
           .limit(1);
 
         profile = toPreferenceProfile(persistedProfile);
+
+        if (persistedProfile) {
+          const hiddenRows = await ctx.db
+            .select({
+              newsItemId: NewsReaderInteraction.newsItemId,
+            })
+            .from(NewsReaderInteraction)
+            .where(
+              compactConditions([
+                eq(NewsReaderInteraction.readerProfileId, persistedProfile.id),
+                eq(NewsReaderInteraction.action, "hide"),
+              ]),
+            )
+            .orderBy(desc(NewsReaderInteraction.occurredAt))
+            .limit(500);
+
+          hiddenNewsItemIds = hiddenRows.map((row) => row.newsItemId);
+        }
       }
 
       const candidateLimit = Math.min(input.limit * 3, 100);
@@ -278,13 +298,18 @@ export const newsRouter = {
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
         .limit(candidateLimit);
 
-      return rankNewsForReader(
+      const recommendableRows = filterHiddenNewsItems(
         rows.map((row) => ({
           ...row,
           publishedAt: row.publishedAt.toISOString(),
         })),
-        profile,
-      ).slice(0, input.limit);
+        hiddenNewsItemIds,
+      );
+
+      return rankNewsForReader(recommendableRows, profile).slice(
+        0,
+        input.limit,
+      );
     }),
 
   byId: publicProcedure

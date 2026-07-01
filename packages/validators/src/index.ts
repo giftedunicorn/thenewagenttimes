@@ -1,8 +1,10 @@
 import { z } from "zod/v4";
 
 export {
+  filterHiddenNewsItems,
   rankNewsForReader,
   updateReaderProfileWithInteraction,
+  type NewsIdentity,
   type NewsPreferenceProfile,
   type ReaderInteraction,
   type ReaderInteractionAction,

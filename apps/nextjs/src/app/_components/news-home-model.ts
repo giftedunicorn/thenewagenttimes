@@ -84,6 +84,19 @@ export const selectNewsHomeItems = ({
     ? [...serverRecommendedItems]
     : [...initialItems];
 
+export const selectVisibleNewsHomeItems = ({
+  items,
+  hiddenItemIds,
+}: {
+  items: readonly NewsHomeItem[];
+  hiddenItemIds: readonly string[];
+}) => {
+  if (hiddenItemIds.length === 0) return [...items];
+
+  const hiddenIds = new Set(hiddenItemIds);
+  return items.filter((item) => !hiddenIds.has(item.id));
+};
+
 export const shouldFetchServerRecommendations = ({
   status,
   visitorKey,

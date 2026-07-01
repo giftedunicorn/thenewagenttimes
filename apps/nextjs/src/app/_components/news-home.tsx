@@ -4,10 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { NewsPreferenceProfile, RankedNewsItem } from "@acme/validators";
+import type {
+  NewsPreferenceProfile,
+  RankedNewsItem,
+  ReaderInteractionAction,
+} from "@acme/validators";
 import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
-import { rankNewsForReader } from "@acme/validators";
+import {
+  rankNewsForReader,
+  updateReaderProfileWithInteraction,
+} from "@acme/validators";
 
 import type {
   NewsDeskStatus,
@@ -18,6 +25,7 @@ import { useTRPC } from "~/trpc/react";
 import {
   getNewsDeskStatusSummary,
   selectNewsHomeItems,
+  selectVisibleNewsHomeItems,
   shouldFetchServerRecommendations,
 } from "./news-home-model";
 
@@ -163,6 +171,16 @@ const writeStoredProfile = (profile: NewsPreferenceProfile) => {
   window.localStorage.setItem(profileStorageKey, JSON.stringify(profile));
 };
 
+const stripPersistedFlag = (
+  profile: NewsPreferenceProfile & { persisted: boolean },
+): NewsPreferenceProfile => ({
+  preferredCategories: profile.preferredCategories,
+  preferredSources: profile.preferredSources,
+  preferredEntities: profile.preferredEntities,
+  noveltyBias: profile.noveltyBias,
+  recencyBias: profile.recencyBias,
+});
+
 const readOrCreateVisitorKey = () => {
   if (typeof window === "undefined") return null;
 
@@ -248,6 +266,7 @@ export function NewsHome({
   const [profile, setProfile] =
     useState<NewsPreferenceProfile>(readStoredProfile);
   const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
+  const [hiddenItemIds, setHiddenItemIds] = useState<string[]>([]);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = status !== "unavailable";
   const forYouQuery = useQuery(
@@ -265,10 +284,23 @@ export function NewsHome({
       },
     }),
   );
+  const recordInteraction = useMutation(
+    trpc.news.recordInteraction.mutationOptions({
+      onSuccess: async (serverProfile) => {
+        const nextProfile = stripPersistedFlag(serverProfile);
+        setProfile(nextProfile);
+        writeStoredProfile(nextProfile);
+        await queryClient.invalidateQueries(trpc.news.forYou.pathFilter());
+      },
+    }),
+  );
   const serverRecommendedItems = forYouQuery.data;
-  const items = selectNewsHomeItems({
-    initialItems: fallbackItems,
-    serverRecommendedItems,
+  const items = selectVisibleNewsHomeItems({
+    hiddenItemIds,
+    items: selectNewsHomeItems({
+      initialItems: fallbackItems,
+      serverRecommendedItems,
+    }),
   });
   const isPreview =
     initialItems.length === 0 && !serverRecommendedItems?.length;
@@ -295,6 +327,34 @@ export function NewsHome({
 
       return nextProfile;
     });
+  };
+
+  const recordStoryAction = (
+    item: NewsHomeItem,
+    action: ReaderInteractionAction,
+  ) => {
+    setProfile((current) => {
+      const nextProfile = updateReaderProfileWithInteraction(current, item, {
+        action,
+      });
+      writeStoredProfile(nextProfile);
+      return nextProfile;
+    });
+
+    if (action === "hide") {
+      setHiddenItemIds((current) =>
+        current.includes(item.id) ? current : [...current, item.id],
+      );
+    }
+
+    if (visitorKey && canPersistProfile && !isPreview) {
+      recordInteraction.mutate({
+        visitorKey,
+        newsItemId: item.id,
+        action,
+        metadata: { surface: "home" },
+      });
+    }
   };
 
   const rankedItems = useMemo(
@@ -381,7 +441,11 @@ export function NewsHome({
                     {leadStory.summary}
                   </p>
                 </div>
-                <StoryAction item={leadStory} isPreview={isPreview} />
+                <StoryAction
+                  item={leadStory}
+                  isPreview={isPreview}
+                  onAction={recordStoryAction}
+                />
               </div>
               <StoryVisual item={leadStory} featured />
             </article>
@@ -389,14 +453,24 @@ export function NewsHome({
 
           <section className="grid gap-4 md:grid-cols-3">
             {secondaryStories.map((story) => (
-              <StoryCard key={story.id} item={story} isPreview={isPreview} />
+              <StoryCard
+                key={story.id}
+                item={story}
+                isPreview={isPreview}
+                onAction={recordStoryAction}
+              />
             ))}
           </section>
 
           <section className="divide-y divide-[#161616]/20 border-y border-[#161616]/35 dark:divide-[#f4f1ea]/15 dark:border-[#f4f1ea]/35">
             {streamStories.length > 0 ? (
               streamStories.map((story) => (
-                <StoryRow key={story.id} item={story} isPreview={isPreview} />
+                <StoryRow
+                  key={story.id}
+                  item={story}
+                  isPreview={isPreview}
+                  onAction={recordStoryAction}
+                />
               ))
             ) : (
               <div className="py-8 text-sm text-[#5b5750] dark:text-[#bbb4aa]">
@@ -584,9 +658,11 @@ function StoryVisual({
 function StoryAction({
   item,
   isPreview,
+  onAction,
 }: {
   item: NewsHomeItem;
   isPreview: boolean;
+  onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
 }) {
   if (isPreview) {
     return (
@@ -598,18 +674,50 @@ function StoryAction({
   }
 
   return (
-    <Button asChild className="w-fit rounded-none">
-      <Link href={`/news/${item.id}`}>Read brief</Link>
-    </Button>
+    <div className="flex flex-wrap gap-2">
+      <Button asChild className="rounded-none">
+        <Link href={`/news/${item.id}`}>Read</Link>
+      </Button>
+      <Button
+        className="rounded-none"
+        type="button"
+        variant="outline"
+        onClick={() => onAction(item, "save")}
+      >
+        Save
+      </Button>
+      <Button
+        className="rounded-none"
+        type="button"
+        variant="outline"
+        onClick={() => onAction(item, "hide")}
+      >
+        Less
+      </Button>
+      {item.canonicalUrl ? (
+        <Button asChild className="rounded-none" variant="outline">
+          <a
+            href={item.canonicalUrl}
+            onClick={() => onAction(item, "click_source")}
+            rel="nofollow noopener noreferrer"
+            target="_blank"
+          >
+            Source
+          </a>
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
 function StoryCard({
   item,
   isPreview,
+  onAction,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
+  onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
 }) {
   return (
     <article className="grid gap-3 border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]">
@@ -621,7 +729,9 @@ function StoryCard({
       <p className="line-clamp-4 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
         {item.summary}
       </p>
-      {!isPreview ? <StoryAction item={item} isPreview={isPreview} /> : null}
+      {!isPreview ? (
+        <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
+      ) : null}
     </article>
   );
 }
@@ -629,9 +739,11 @@ function StoryCard({
 function StoryRow({
   item,
   isPreview,
+  onAction,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
+  onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
 }) {
   return (
     <article className="grid gap-4 py-5 md:grid-cols-[1fr_10rem_auto] md:items-start">
@@ -650,7 +762,7 @@ function StoryRow({
           Score {item.personalizedScore}
         </div>
       </div>
-      <StoryAction item={item} isPreview={isPreview} />
+      <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
     </article>
   );
 }

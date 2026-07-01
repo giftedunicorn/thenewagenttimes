@@ -4,6 +4,7 @@ import {
   buildNewsDeskStatus,
   getNewsDeskStatusSummary,
   selectNewsHomeItems,
+  selectVisibleNewsHomeItems,
   shouldFetchServerRecommendations,
 } from "./news-home-model";
 
@@ -47,6 +48,26 @@ describe("selectNewsHomeItems", () => {
         serverRecommendedItems: [],
       }).map((item) => item.id),
     ).toEqual(["local-story"]);
+  });
+});
+
+describe("selectVisibleNewsHomeItems", () => {
+  it("removes stories hidden during the current feed session", () => {
+    expect(
+      selectVisibleNewsHomeItems({
+        items: [localItem, serverItem],
+        hiddenItemIds: ["local-story"],
+      }).map((item) => item.id),
+    ).toEqual(["server-story"]);
+  });
+
+  it("keeps all stories when no local hidden ids are present", () => {
+    expect(
+      selectVisibleNewsHomeItems({
+        items: [localItem, serverItem],
+        hiddenItemIds: [],
+      }).map((item) => item.id),
+    ).toEqual(["local-story", "server-story"]);
   });
 });
 

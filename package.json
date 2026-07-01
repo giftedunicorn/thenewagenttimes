@@ -1,5 +1,5 @@
 {
-  "name": "create-t3-turbo",
+  "name": "thenewagenttimes",
   "private": true,
   "engines": {
     "node": "^22.21.0",
@@ -23,7 +23,7 @@
     "news:embed:pending": "pnpm -F @acme/ingestion embed:pending",
     "deploy:nextjs": "pnpm run build:nextjs",
     "build:nextjs": "turbo run build -F @acme/nextjs...",
-    "start:nextjs": "pnpm --filter @acme/nextjs start",
+    "start:nextjs": "pnpm exec dotenv -e .env -- node apps/nextjs/.next/standalone/apps/nextjs/server.js",
     "format": "turbo run format --continue -- --cache --cache-location .cache/.prettiercache",
     "format:fix": "turbo run format --continue -- --write --cache --cache-location .cache/.prettiercache",
     "lint": "turbo run lint --continue -- --cache --cache-location .cache/.eslintcache",

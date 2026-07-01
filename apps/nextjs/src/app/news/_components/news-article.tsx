@@ -10,6 +10,9 @@ import type {
 } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import {
+  dedupeNewsItems,
+  getNewsExplorationInterval,
+  normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
@@ -18,22 +21,20 @@ import {
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import { useTRPC } from "~/trpc/react";
 import {
+  createDefaultNewsPreferenceProfile,
   selectHydratedNewsPreferenceProfile,
   stripPersistedNewsPreferenceProfile,
 } from "../../_components/news-home-model";
+import {
+  getNewsArticleDigest,
+  getNewsArticleReadingPath,
+  getNewsArticleSourceLens,
+} from "./news-article-model";
 
 interface NewsArticleProps {
   article: NewsArticleItem;
   related: NewsHomeItem[];
 }
-
-const defaultProfile: NewsPreferenceProfile = {
-  preferredCategories: [],
-  preferredSources: [],
-  preferredEntities: [],
-  noveltyBias: 1,
-  recencyBias: 1,
-};
 
 const profileStorageKey = "new-ai-times-profile";
 const visitorStorageKey = "new-ai-times-visitor-key";
@@ -56,41 +57,53 @@ const categoryLabels: Record<string, string> = {
   other: "Other",
 };
 
+const formatCategory = (category: string) =>
+  categoryLabels[category] ?? category;
+
 const readStoredProfile = (): NewsPreferenceProfile => {
+  const defaultProfile = createDefaultNewsPreferenceProfile();
+
   if (typeof window === "undefined") return defaultProfile;
   const stored = window.localStorage.getItem(profileStorageKey);
   if (!stored) return defaultProfile;
 
   try {
     const parsed = JSON.parse(stored) as Partial<NewsPreferenceProfile>;
-    return {
+    return normalizeNewsPreferenceProfile({
       preferredCategories: Array.isArray(parsed.preferredCategories)
         ? parsed.preferredCategories.filter(
             (value): value is string => typeof value === "string",
           )
-        : [],
+        : defaultProfile.preferredCategories,
       preferredSources: Array.isArray(parsed.preferredSources)
         ? parsed.preferredSources.filter(
             (value): value is string => typeof value === "string",
           )
-        : [],
+        : defaultProfile.preferredSources,
       preferredEntities: Array.isArray(parsed.preferredEntities)
         ? parsed.preferredEntities.filter(
             (value): value is string => typeof value === "string",
           )
-        : [],
+        : defaultProfile.preferredEntities,
       noveltyBias:
-        typeof parsed.noveltyBias === "number" ? parsed.noveltyBias : 1,
+        typeof parsed.noveltyBias === "number"
+          ? parsed.noveltyBias
+          : defaultProfile.noveltyBias,
       recencyBias:
-        typeof parsed.recencyBias === "number" ? parsed.recencyBias : 1,
-    };
+        typeof parsed.recencyBias === "number"
+          ? parsed.recencyBias
+          : defaultProfile.recencyBias,
+    });
   } catch {
     return defaultProfile;
   }
 };
 
 const writeStoredProfile = (profile: NewsPreferenceProfile) => {
-  window.localStorage.setItem(profileStorageKey, JSON.stringify(profile));
+  window.localStorage.setItem(
+    profileStorageKey,
+    JSON.stringify(normalizeNewsPreferenceProfile(profile)),
+  );
 };
 
 const readOrCreateVisitorKey = () => {
@@ -144,7 +157,11 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
         const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
         setProfile(nextProfile);
         writeStoredProfile(nextProfile);
-        await queryClient.invalidateQueries(trpc.news.profile.pathFilter());
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.history.pathFilter()),
+        ]);
       },
     }),
   );
@@ -185,10 +202,32 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
 
   const rankedRelated = useMemo(
     () =>
-      selectDiverseNewsFeed(rankNewsForReader(related, profile), {
-        limit: related.length,
-      }),
+      selectDiverseNewsFeed(
+        rankNewsForReader(dedupeNewsItems(related), profile),
+        {
+          explorationInterval: getNewsExplorationInterval(profile),
+          limit: related.length,
+        },
+      ),
     [profile, related],
+  );
+  const readingPath = useMemo(
+    () =>
+      getNewsArticleReadingPath({
+        article,
+        formatCategory,
+        limit: 5,
+        relatedItems: rankedRelated,
+      }),
+    [article, rankedRelated],
+  );
+  const articleDigest = useMemo(
+    () => getNewsArticleDigest({ article }),
+    [article],
+  );
+  const sourceLens = useMemo(
+    () => getNewsArticleSourceLens({ article }),
+    [article],
   );
   const paragraphs = paragraphsFromArticle(article);
 
@@ -231,7 +270,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       <article className="container grid gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div>
           <div className="mb-5 flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-            <span>{categoryLabels[article.category] ?? article.category}</span>
+            <span>{formatCategory(article.category)}</span>
             <span>/</span>
             <span>{article.sourceName}</span>
             <span>/</span>
@@ -290,35 +329,113 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
 
         <aside className="grid content-start gap-6">
           <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
-            <h2 className="text-xl font-black">Your Signal</h2>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Fast Brief</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {articleDigest.sourceLine}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {articleDigest.readTimeLabel}
+              </span>
+            </div>
+            <ol className="mt-4 grid gap-3 text-sm">
+              {articleDigest.facts.map((fact, index) => (
+                <li
+                  key={fact}
+                  className="grid grid-cols-[1.5rem_1fr] gap-3 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                    {index + 1}
+                  </span>
+                  <span className="leading-6 text-[#2d2d2d] dark:text-[#ddd8ce]">
+                    {fact}
+                  </span>
+                </li>
+              ))}
+            </ol>
+            <div className="mt-4 flex flex-wrap gap-2 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15">
+              {[...articleDigest.entities, ...articleDigest.tags].map(
+                (signal) => (
+                  <span
+                    key={signal}
+                    className="border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/30"
+                  >
+                    {signal}
+                  </span>
+                ),
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Source Lens</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {sourceLens.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]">
+                {sourceLens.tone}
+              </span>
+            </div>
             <dl className="mt-4 grid gap-3 text-sm">
-              <SignalLine label="Category" value={article.category} />
-              <SignalLine label="Source" value={article.sourceSlug} />
+              {sourceLens.lines.map((line) => (
+                <SignalLine
+                  key={line.label}
+                  label={line.label}
+                  value={line.value}
+                />
+              ))}
+            </dl>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <h2 className="text-xl font-black">Article Signals</h2>
+            <dl className="mt-4 grid gap-3 text-sm">
+              {readingPath.context.map((signal) => (
+                <SignalLine
+                  key={signal.label}
+                  label={signal.label}
+                  value={signal.value}
+                />
+              ))}
               <SignalLine
-                label="Entities"
-                value={article.entities.slice(0, 3).join(", ") || "None"}
-              />
-              <SignalLine
-                label="Bias"
+                label="Reader bias"
                 value={`F${profile.recencyBias.toFixed(1)} / N${profile.noveltyBias.toFixed(1)}`}
               />
             </dl>
           </section>
 
           <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
-            <h2 className="text-xl font-black">Related Queue</h2>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Reading Path</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {readingPath.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {readingPath.recommendations.length}
+              </span>
+            </div>
             <div className="mt-4 grid gap-4">
-              {rankedRelated.length > 0 ? (
-                rankedRelated.slice(0, 5).map((item) => (
+              {readingPath.recommendations.length > 0 ? (
+                readingPath.recommendations.map((item) => (
                   <Link
                     className="border-t border-[#161616]/20 pt-4 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
                     href={`/news/${item.id}`}
                     key={item.id}
                   >
                     <span className="block font-mono text-xs">
-                      {item.personalizedScore}
+                      {item.scoreLabel}
                     </span>
                     <span className="font-bold">{item.title}</span>
+                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {item.reason}
+                    </span>
                   </Link>
                 ))
               ) : (

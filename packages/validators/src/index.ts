@@ -1,7 +1,10 @@
 import { z } from "zod/v4";
 
 export {
+  dedupeNewsItems,
   filterHiddenNewsItems,
+  getNewsExplorationInterval,
+  normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
@@ -11,6 +14,7 @@ export {
   type ReaderInteractionAction,
   type RankedNewsItem,
   type RecommendableNewsItem,
+  type DedupeNewsItem,
 } from "./news-recommendation";
 
 export const unused = z.string().describe(

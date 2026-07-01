@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   NewsFeedInputSchema,
   NewsForYouInputSchema,
+  NewsHistoryInputSchema,
   NewsReaderProfileInputSchema,
   NewsRecordInteractionInputSchema,
+  NewsSavedInputSchema,
   NewsSearchCandidatesInputSchema,
   NewsUpdateProfileInputSchema,
 } from "./news";
@@ -45,6 +47,36 @@ describe("news router input contracts", () => {
     expect(
       NewsForYouInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
     ).toBe(20);
+  });
+
+  it("defaults saved news collection limit to a compact sidebar shelf", () => {
+    expect(
+      NewsSavedInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
+    ).toBe(6);
+  });
+
+  it("caps saved news collection page size", () => {
+    const result = NewsSavedInputSchema.safeParse({
+      limit: 26,
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("defaults reading history collection limit to a compact sidebar shelf", () => {
+    expect(
+      NewsHistoryInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
+    ).toBe(6);
+  });
+
+  it("caps reading history collection page size", () => {
+    const result = NewsHistoryInputSchema.safeParse({
+      limit: 26,
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts anonymous reader keys for persisted preference profiles", () => {

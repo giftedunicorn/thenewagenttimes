@@ -1,7 +1,10 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  dedupeNewsItems,
   filterHiddenNewsItems,
+  getNewsExplorationInterval,
+  normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
@@ -42,6 +45,98 @@ const defaultProfile = {
   recencyBias: 1,
 };
 
+describe("normalizeNewsPreferenceProfile", () => {
+  test("cleans reader signals before ranking or persistence", () => {
+    const profile = normalizeNewsPreferenceProfile({
+      preferredCategories: [" model_release ", "MODEL_RELEASE", "", "funding"],
+      preferredSources: [" openai-news ", "OpenAI-News", "venturewire", " "],
+      preferredEntities: [" OpenAI ", "openai", "Anthropic", ""],
+      noveltyBias: 9,
+      recencyBias: -3,
+    });
+
+    expect(profile).toEqual({
+      preferredCategories: ["model_release", "funding"],
+      preferredSources: ["openai-news", "venturewire"],
+      preferredEntities: ["OpenAI", "Anthropic"],
+      noveltyBias: 2,
+      recencyBias: 0,
+    });
+  });
+
+  test("keeps only the most recent bounded reader signals", () => {
+    const profile = normalizeNewsPreferenceProfile({
+      preferredCategories: Array.from(
+        { length: 14 },
+        (_, index) => `category-${index}`,
+      ),
+      preferredSources: Array.from(
+        { length: 14 },
+        (_, index) => `source-${index}`,
+      ),
+      preferredEntities: Array.from(
+        { length: 26 },
+        (_, index) => `Entity ${index}`,
+      ),
+      noveltyBias: 1,
+      recencyBias: 1,
+    });
+
+    expect(profile.preferredCategories).toEqual(
+      Array.from({ length: 12 }, (_, index) => `category-${index + 2}`),
+    );
+    expect(profile.preferredSources).toEqual(
+      Array.from({ length: 12 }, (_, index) => `source-${index + 2}`),
+    );
+    expect(profile.preferredEntities).toEqual(
+      Array.from({ length: 24 }, (_, index) => `Entity ${index + 2}`),
+    );
+  });
+});
+
+describe("getNewsExplorationInterval", () => {
+  test("uses a higher exploration budget while the reader profile is cold", () => {
+    expect(
+      getNewsExplorationInterval({
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      }),
+    ).toBe(2);
+  });
+
+  test("uses a moderate exploration budget while the reader profile is learning", () => {
+    expect(
+      getNewsExplorationInterval({
+        preferredCategories: ["model_release", "funding"],
+        preferredSources: ["openai-news"],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1.2,
+        recencyBias: 1,
+      }),
+    ).toBe(4);
+  });
+
+  test("uses a lower exploration budget for focused reader profiles", () => {
+    expect(
+      getNewsExplorationInterval({
+        preferredCategories: [
+          "model_release",
+          "funding",
+          "agent_product",
+          "research",
+        ],
+        preferredSources: ["openai-news", "venturewire"],
+        preferredEntities: ["OpenAI", "Anthropic", "YC", "LangChain"],
+        noveltyBias: 1.7,
+        recencyBias: 1.5,
+      }),
+    ).toBe(6);
+  });
+});
+
 describe("rankNewsForReader", () => {
   test("boosts items matching preferred categories, sources, and entities", () => {
     const ranked = rankNewsForReader(items, {
@@ -79,6 +174,72 @@ describe("filterHiddenNewsItems", () => {
     const filtered = filterHiddenNewsItems(items, ["funding"]);
 
     expect(filtered.map((item) => item.id)).toEqual(["model-release"]);
+  });
+});
+
+describe("dedupeNewsItems", () => {
+  test("collapses duplicate canonical URLs while keeping the strongest source version", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "syndicated-openai",
+        canonicalUrl: "https://openai.com/news/agent-model",
+        sourceScore: 72,
+        trendScore: 88,
+      },
+      {
+        ...items[0],
+        id: "official-openai",
+        canonicalUrl: "https://openai.com/news/agent-model",
+        sourceScore: 96,
+        trendScore: 70,
+      },
+      {
+        ...items[1],
+        id: "funding",
+        canonicalUrl: "https://venture.example/funding",
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "official-openai",
+      "funding",
+    ]);
+  });
+
+  test("collapses title-equivalent stories inside the same category", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "launch-one",
+        title: "OpenAI releases GPT-5 for agent workflows",
+        canonicalUrl: null,
+        sourceScore: 82,
+        trendScore: 91,
+      },
+      {
+        ...items[0],
+        id: "launch-two",
+        title: "OpenAI releases GPT 5 for agent workflows",
+        canonicalUrl: null,
+        sourceScore: 88,
+        trendScore: 86,
+      },
+      {
+        ...items[0],
+        id: "policy-story",
+        category: "policy",
+        title: "OpenAI releases GPT 5 for agent workflows",
+        canonicalUrl: null,
+        sourceScore: 70,
+        trendScore: 80,
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "launch-two",
+      "policy-story",
+    ]);
   });
 });
 
@@ -149,9 +310,95 @@ describe("selectDiverseNewsFeed", () => {
       selectDiverseNewsFeed(ranked, { limit: 2 }).map((item) => item.id),
     ).toEqual(["openai-model-1", "openai-model-2"]);
   });
+
+  test("reserves periodic exploration slots for high-trend unmatched stories", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "preferred-model",
+        category: "model_release",
+        sourceSlug: "openai-news",
+        trendScore: 70,
+        personalizedScore: 190,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[0],
+        id: "preferred-agent",
+        category: "agent_product",
+        sourceSlug: "agentwire",
+        trendScore: 72,
+        personalizedScore: 180,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[0],
+        id: "preferred-research",
+        category: "research",
+        sourceSlug: "lab-notes",
+        trendScore: 74,
+        personalizedScore: 170,
+        matchedSignals: ["entity"],
+      },
+      {
+        ...items[1],
+        id: "hot-outside-profile",
+        category: "policy",
+        sourceSlug: "policywire",
+        trendScore: 99,
+        personalizedScore: 120,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "preferred-oss",
+        category: "open_source",
+        sourceSlug: "oss-desk",
+        trendScore: 68,
+        personalizedScore: 160,
+        matchedSignals: ["source"],
+      },
+    ];
+
+    const feed = selectDiverseNewsFeed(ranked, {
+      explorationInterval: 3,
+      limit: 5,
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "preferred-model",
+      "preferred-agent",
+      "hot-outside-profile",
+      "preferred-research",
+      "preferred-oss",
+    ]);
+    expect(feed[2]?.matchedSignals).toContain("exploration");
+  });
 });
 
 describe("updateReaderProfileWithInteraction", () => {
+  test("normalizes stale profile data while applying a reader action", () => {
+    const profile = updateReaderProfileWithInteraction(
+      {
+        preferredCategories: [" model_release ", "MODEL_RELEASE"],
+        preferredSources: [" openai-news ", "OpenAI-News"],
+        preferredEntities: [" OpenAI ", "openai"],
+        noveltyBias: 9,
+        recencyBias: -3,
+      },
+      items[1],
+      { action: "save" },
+    );
+
+    expect(profile).toEqual({
+      preferredCategories: ["model_release", "funding"],
+      preferredSources: ["openai-news", "venturewire"],
+      preferredEntities: ["OpenAI", "Series A"],
+      noveltyBias: 2,
+      recencyBias: 0.3,
+    });
+  });
+
   test("learns from strong reader actions without duplicating signals", () => {
     const profile = updateReaderProfileWithInteraction(
       defaultProfile,
@@ -185,5 +432,49 @@ describe("updateReaderProfileWithInteraction", () => {
     expect(profile.preferredCategories).toContain("funding");
     expect(profile.noveltyBias).toBeGreaterThan(1);
     expect(profile.recencyBias).toBeGreaterThan(1);
+  });
+
+  test("treats sharing as a stronger positive signal than saving", () => {
+    const startingProfile = {
+      preferredCategories: [],
+      preferredSources: [],
+      preferredEntities: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    const savedProfile = updateReaderProfileWithInteraction(
+      startingProfile,
+      items[0],
+      { action: "save" },
+    );
+    const sharedProfile = updateReaderProfileWithInteraction(
+      startingProfile,
+      items[0],
+      { action: "share" },
+    );
+
+    expect(sharedProfile.noveltyBias).toBeGreaterThan(savedProfile.noveltyBias);
+    expect(sharedProfile.recencyBias).toBeGreaterThan(savedProfile.recencyBias);
+  });
+
+  test("dampens freshness and novelty bias after negative feedback", () => {
+    const profile = updateReaderProfileWithInteraction(
+      {
+        preferredCategories: ["model_release", "funding"],
+        preferredSources: ["openai-news", "venturewire"],
+        preferredEntities: ["OpenAI", "Series A"],
+        noveltyBias: 1.6,
+        recencyBias: 1.4,
+      },
+      items[0],
+      { action: "hide" },
+    );
+
+    expect(profile.preferredCategories).not.toContain("model_release");
+    expect(profile.preferredSources).not.toContain("openai-news");
+    expect(profile.preferredEntities).not.toContain("OpenAI");
+    expect(profile.noveltyBias).toBeLessThan(1.6);
+    expect(profile.recencyBias).toBeLessThan(1.4);
   });
 });

@@ -16,7 +16,10 @@ import {
   NewsSource,
 } from "@acme/db/schema";
 import {
+  dedupeNewsItems,
   filterHiddenNewsItems,
+  getNewsExplorationInterval,
+  normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
@@ -58,6 +61,14 @@ export const NewsSearchCandidatesInputSchema = z.object({
 
 export const NewsReaderProfileInputSchema = z.object({
   visitorKey: optionalVisitorKey,
+});
+
+export const NewsSavedInputSchema = NewsReaderProfileInputSchema.extend({
+  limit: z.number().int().min(1).max(25).default(6),
+});
+
+export const NewsHistoryInputSchema = NewsReaderProfileInputSchema.extend({
+  limit: z.number().int().min(1).max(25).default(6),
 });
 
 export const NewsForYouInputSchema = NewsFeedInputSchema.extend({
@@ -167,15 +178,15 @@ const clampBias = (value: number) => Math.min(Math.max(value, 0), 2);
 const toPreferenceProfile = (
   row: NewsReaderProfileRow | null | undefined,
 ): NewsPreferenceProfile => {
-  if (!row) return defaultNewsPreferenceProfile;
+  if (!row) return normalizeNewsPreferenceProfile(defaultNewsPreferenceProfile);
 
-  return {
+  return normalizeNewsPreferenceProfile({
     preferredCategories: row.preferredCategories,
     preferredSources: row.preferredSources,
     preferredEntities: row.preferredEntities,
     noveltyBias: clampBias(row.noveltyBias),
     recencyBias: clampBias(row.recencyBias),
-  };
+  });
 };
 
 export const newsRouter = {
@@ -299,20 +310,145 @@ export const newsRouter = {
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
         .limit(candidateLimit);
 
-      const recommendableRows = filterHiddenNewsItems(
-        rows.map((row) => ({
-          ...row,
-          publishedAt: row.publishedAt.toISOString(),
-        })),
-        hiddenNewsItemIds,
+      const recommendableRows = dedupeNewsItems(
+        filterHiddenNewsItems(
+          rows.map((row) => ({
+            ...row,
+            publishedAt: row.publishedAt.toISOString(),
+          })),
+          hiddenNewsItemIds,
+        ),
       );
 
       return selectDiverseNewsFeed(
         rankNewsForReader(recommendableRows, profile),
         {
+          explorationInterval: getNewsExplorationInterval(profile),
           limit: input.limit,
         },
       );
+    }),
+
+  saved: publicProcedure
+    .input(NewsSavedInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) return [];
+
+      const rows = await ctx.db
+        .select({
+          id: NewsItem.id,
+          title: NewsItem.title,
+          summary: NewsItem.summary,
+          canonicalUrl: NewsItem.canonicalUrl,
+          imageUrl: NewsItem.imageUrl,
+          publishedAt: NewsItem.publishedAt,
+          category: NewsItem.category,
+          tags: NewsItem.tags,
+          entities: NewsItem.entities,
+          sourceScore: NewsItem.sourceScore,
+          trendScore: NewsItem.trendScore,
+          sourceName: NewsSource.name,
+          sourceSlug: NewsSource.slug,
+          sourceType: NewsSource.sourceType,
+          savedAt: NewsReaderInteraction.occurredAt,
+        })
+        .from(NewsReaderInteraction)
+        .innerJoin(
+          NewsReaderProfile,
+          eq(NewsReaderInteraction.readerProfileId, NewsReaderProfile.id),
+        )
+        .innerJoin(NewsItem, eq(NewsReaderInteraction.newsItemId, NewsItem.id))
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(
+          compactConditions([
+            eq(NewsReaderProfile.readerKey, identity.readerKey),
+            eq(NewsReaderInteraction.action, "save"),
+            eq(NewsItem.status, "published"),
+          ]),
+        )
+        .orderBy(desc(NewsReaderInteraction.occurredAt))
+        .limit(input.limit * 3);
+
+      const seenIds = new Set<string>();
+      const savedItems = [];
+
+      for (const row of rows) {
+        if (seenIds.has(row.id)) continue;
+        seenIds.add(row.id);
+        savedItems.push({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+          savedAt: row.savedAt.toISOString(),
+        });
+      }
+
+      return savedItems.slice(0, input.limit);
+    }),
+
+  history: publicProcedure
+    .input(NewsHistoryInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) return [];
+
+      const rows = await ctx.db
+        .select({
+          id: NewsItem.id,
+          title: NewsItem.title,
+          summary: NewsItem.summary,
+          canonicalUrl: NewsItem.canonicalUrl,
+          imageUrl: NewsItem.imageUrl,
+          publishedAt: NewsItem.publishedAt,
+          category: NewsItem.category,
+          tags: NewsItem.tags,
+          entities: NewsItem.entities,
+          sourceScore: NewsItem.sourceScore,
+          trendScore: NewsItem.trendScore,
+          sourceName: NewsSource.name,
+          sourceSlug: NewsSource.slug,
+          sourceType: NewsSource.sourceType,
+          viewedAt: NewsReaderInteraction.occurredAt,
+        })
+        .from(NewsReaderInteraction)
+        .innerJoin(
+          NewsReaderProfile,
+          eq(NewsReaderInteraction.readerProfileId, NewsReaderProfile.id),
+        )
+        .innerJoin(NewsItem, eq(NewsReaderInteraction.newsItemId, NewsItem.id))
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(
+          compactConditions([
+            eq(NewsReaderProfile.readerKey, identity.readerKey),
+            eq(NewsReaderInteraction.action, "view"),
+            eq(NewsItem.status, "published"),
+          ]),
+        )
+        .orderBy(desc(NewsReaderInteraction.occurredAt))
+        .limit(input.limit * 3);
+
+      const seenIds = new Set<string>();
+      const historyItems = [];
+
+      for (const row of rows) {
+        if (seenIds.has(row.id)) continue;
+        seenIds.add(row.id);
+        historyItems.push({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+          viewedAt: row.viewedAt.toISOString(),
+        });
+      }
+
+      return historyItems.slice(0, input.limit);
     }),
 
   byId: publicProcedure
@@ -499,6 +635,14 @@ export const newsRouter = {
   updateProfile: publicProcedure
     .input(NewsUpdateProfileInputSchema)
     .mutation(async ({ ctx, input }) => {
+      const nextProfile = normalizeNewsPreferenceProfile(input.profile);
+      const persistedProfile = {
+        preferredCategories: [...nextProfile.preferredCategories],
+        preferredSources: [...nextProfile.preferredSources],
+        preferredEntities: [...nextProfile.preferredEntities],
+        noveltyBias: nextProfile.noveltyBias,
+        recencyBias: nextProfile.recencyBias,
+      };
       const identity = resolveReaderIdentity(
         ctx.session?.user.id,
         input.visitorKey,
@@ -516,21 +660,21 @@ export const newsRouter = {
         .values({
           readerKey: identity.readerKey,
           userId: identity.userId,
-          preferredCategories: input.profile.preferredCategories,
-          preferredSources: input.profile.preferredSources,
-          preferredEntities: input.profile.preferredEntities,
-          noveltyBias: input.profile.noveltyBias,
-          recencyBias: input.profile.recencyBias,
+          preferredCategories: persistedProfile.preferredCategories,
+          preferredSources: persistedProfile.preferredSources,
+          preferredEntities: persistedProfile.preferredEntities,
+          noveltyBias: persistedProfile.noveltyBias,
+          recencyBias: persistedProfile.recencyBias,
         })
         .onConflictDoUpdate({
           target: NewsReaderProfile.readerKey,
           set: {
             userId: identity.userId,
-            preferredCategories: input.profile.preferredCategories,
-            preferredSources: input.profile.preferredSources,
-            preferredEntities: input.profile.preferredEntities,
-            noveltyBias: input.profile.noveltyBias,
-            recencyBias: input.profile.recencyBias,
+            preferredCategories: persistedProfile.preferredCategories,
+            preferredSources: persistedProfile.preferredSources,
+            preferredEntities: persistedProfile.preferredEntities,
+            noveltyBias: persistedProfile.noveltyBias,
+            recencyBias: persistedProfile.recencyBias,
             updatedAt: sql`now()`,
           },
         })

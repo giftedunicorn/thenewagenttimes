@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +14,9 @@ import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
 import {
+  dedupeNewsItems,
+  getNewsExplorationInterval,
+  normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
@@ -21,17 +24,31 @@ import {
 
 import type {
   NewsDeskStatus,
+  NewsFeedMode,
   NewsHomeItem,
   NewsHomeStatus,
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
   buildNewsHomeFeedInput,
+  createDefaultNewsPreferenceProfile,
   getNewsDeskStatusSummary,
-  getNewsRecommendationReasons,
+  getNewsEditionBriefing,
+  getNewsEditionMix,
+  getNewsEntityRadar,
+  getNewsPersonalizedReadingQueue,
+  getNewsReaderMemory,
+  getNewsReaderRankingFactors,
+  getNewsReaderSignalSummary,
+  getNewsRecommendationAudit,
+  getNewsSectionFronts,
+  getNewsSourceBalance,
+  getNewsStoryRankDetails,
+  getNewsTopicPulse,
   getNextNewsHomeCursor,
   mergeNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
+  selectNewsFeedModeItems,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
@@ -47,14 +64,6 @@ interface NewsHomeProps {
   status: NewsHomeStatus;
   generatedAt: string;
 }
-
-const defaultProfile: NewsPreferenceProfile = {
-  preferredCategories: ["model_release", "agent_product", "funding"],
-  preferredSources: [],
-  preferredEntities: [],
-  noveltyBias: 1,
-  recencyBias: 1,
-};
 
 const categoryLabels = {
   funding: "Funding",
@@ -78,6 +87,28 @@ type NewsCategoryKey = keyof typeof categoryLabels;
 
 const isNewsCategoryKey = (category: string): category is NewsCategoryKey =>
   category in categoryLabels;
+
+const feedModeOptions = [
+  {
+    detail: "Reader-ranked",
+    label: "For You",
+    mode: "for_you",
+  },
+  {
+    detail: "Newest first",
+    label: "Latest",
+    mode: "latest",
+  },
+  {
+    detail: "Heat-ranked",
+    label: "Trending",
+    mode: "trending",
+  },
+] as const satisfies readonly {
+  detail: string;
+  label: string;
+  mode: NewsFeedMode;
+}[];
 
 const getCategoryLabel = (category: string) =>
   isNewsCategoryKey(category) ? categoryLabels[category] : category;
@@ -140,6 +171,8 @@ const previewItems: NewsHomeItem[] = [
 ];
 
 const readStoredProfile = (): NewsPreferenceProfile => {
+  const defaultProfile = createDefaultNewsPreferenceProfile();
+
   if (typeof window === "undefined") return defaultProfile;
 
   const stored = window.localStorage.getItem(profileStorageKey);
@@ -147,7 +180,7 @@ const readStoredProfile = (): NewsPreferenceProfile => {
 
   try {
     const parsed = JSON.parse(stored) as Partial<NewsPreferenceProfile>;
-    return {
+    return normalizeNewsPreferenceProfile({
       preferredCategories: Array.isArray(parsed.preferredCategories)
         ? parsed.preferredCategories.filter(
             (value): value is string => typeof value === "string",
@@ -171,14 +204,17 @@ const readStoredProfile = (): NewsPreferenceProfile => {
         typeof parsed.recencyBias === "number"
           ? parsed.recencyBias
           : defaultProfile.recencyBias,
-    };
+    });
   } catch {
     return defaultProfile;
   }
 };
 
 const writeStoredProfile = (profile: NewsPreferenceProfile) => {
-  window.localStorage.setItem(profileStorageKey, JSON.stringify(profile));
+  window.localStorage.setItem(
+    profileStorageKey,
+    JSON.stringify(normalizeNewsPreferenceProfile(profile)),
+  );
 };
 
 const readOrCreateVisitorKey = () => {
@@ -195,21 +231,19 @@ const readOrCreateVisitorKey = () => {
   return next;
 };
 
-const toServerProfile = (profile: NewsPreferenceProfile) => ({
-  preferredCategories: profile.preferredCategories
-    .filter(isNewsCategoryKey)
-    .slice(0, 12),
-  preferredSources: profile.preferredSources
-    .map((source) => source.trim())
-    .filter(Boolean)
-    .slice(0, 12),
-  preferredEntities: profile.preferredEntities
-    .map((entity) => entity.trim())
-    .filter(Boolean)
-    .slice(0, 24),
-  noveltyBias: Math.min(Math.max(profile.noveltyBias, 0), 2),
-  recencyBias: Math.min(Math.max(profile.recencyBias, 0), 2),
-});
+const toServerProfile = (profile: NewsPreferenceProfile) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return {
+    preferredCategories: normalizedProfile.preferredCategories
+      .filter(isNewsCategoryKey)
+      .slice(0, 12),
+    preferredSources: normalizedProfile.preferredSources.slice(0, 12),
+    preferredEntities: normalizedProfile.preferredEntities.slice(0, 24),
+    noveltyBias: normalizedProfile.noveltyBias,
+    recencyBias: normalizedProfile.recencyBias,
+  };
+};
 
 const formatEditionDate = (date: string) =>
   new Intl.DateTimeFormat("en", {
@@ -272,6 +306,7 @@ export function NewsHome({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [feedMode, setFeedMode] = useState<NewsFeedMode>("for_you");
   const [activeCategory, setActiveCategory] = useState<NewsCategoryKey | null>(
     null,
   );
@@ -286,6 +321,18 @@ export function NewsHome({
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
+  const savedQuery = useQuery(
+    trpc.news.saved.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
+  const historyQuery = useQuery(
+    trpc.news.history.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
       { enabled: canPersistProfile && Boolean(visitorKey) },
     ),
   );
@@ -323,6 +370,8 @@ export function NewsHome({
         await Promise.all([
           queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
           queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.history.pathFilter()),
         ]);
       },
     }),
@@ -428,6 +477,11 @@ export function NewsHome({
     setSearchQuery("");
   };
 
+  const resetProfile = () => {
+    commitProfile(() => createDefaultNewsPreferenceProfile());
+    setHiddenItemIds([]);
+  };
+
   const loadMoreStories = useCallback(async () => {
     const cursor = nextCursor;
 
@@ -519,12 +573,20 @@ export function NewsHome({
     return () => observer.disconnect();
   }, [hasMoreItems, isPreview, loadMoreStories, nextCursor, visitorKey]);
 
-  const rankedItems = useMemo(
+  const personalizedItems = useMemo(
     () =>
-      selectDiverseNewsFeed(rankNewsForReader(items, profile), {
-        limit: items.length,
-      }),
+      selectDiverseNewsFeed(
+        rankNewsForReader(dedupeNewsItems(items), profile),
+        {
+          explorationInterval: getNewsExplorationInterval(profile),
+          limit: items.length,
+        },
+      ),
     [items, profile],
+  );
+  const rankedItems = useMemo(
+    () => selectNewsFeedModeItems({ items: personalizedItems, mode: feedMode }),
+    [feedMode, personalizedItems],
   );
   const leadStory = rankedItems[0];
   const secondaryStories = rankedItems.slice(1, 4);
@@ -541,6 +603,38 @@ export function NewsHome({
     new Set([...fallbackItems, ...items].map((item) => item.sourceSlug)),
   ).slice(0, 8);
   const availableEntities = getTopEntities(items);
+  const savedItems = savedQuery.data ?? [];
+  const historyItems = historyQuery.data ?? [];
+  const readerMemory = getNewsReaderMemory({
+    formatCategory: getCategoryLabel,
+    historyItems,
+    profile,
+    savedItems,
+  });
+  const readerSignalSummary = getNewsReaderSignalSummary(profile);
+  const readerRankingFactors = getNewsReaderRankingFactors(profile);
+  const rankDetailsAt = useMemo(() => new Date(generatedAt), [generatedAt]);
+  const editionBriefing = getNewsEditionBriefing({
+    entityLimit: 3,
+    formatCategory: getCategoryLabel,
+    items: rankedItems,
+    topicLimit: 3,
+  });
+  const recommendationAudit = getNewsRecommendationAudit({
+    items: rankedItems,
+    profile,
+  });
+  const readingQueue = getNewsPersonalizedReadingQueue({ items: rankedItems });
+  const editionMix = getNewsEditionMix({ items: rankedItems });
+  const sourceBalance = getNewsSourceBalance({ items: rankedItems });
+  const entityRadar = getNewsEntityRadar({ items: rankedItems, limit: 5 });
+  const topicPulse = getNewsTopicPulse({ items: rankedItems, limit: 4 });
+  const sectionFronts = getNewsSectionFronts({
+    formatCategory: getCategoryLabel,
+    items: rankedItems,
+    limit: 4,
+    storiesPerSection: 3,
+  });
 
   return (
     <main className="min-h-[100dvh] bg-[#f7f5ef] text-[#161616] transition-colors dark:bg-[#101010] dark:text-[#f4f1ea]">
@@ -613,6 +707,22 @@ export function NewsHome({
               Reset
             </Button>
           </form>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {feedModeOptions.map((option) => (
+              <Button
+                key={option.mode}
+                className="h-auto justify-between rounded-none px-3 py-2 text-left"
+                type="button"
+                variant={feedMode === option.mode ? "default" : "outline"}
+                onClick={() => setFeedMode(option.mode)}
+              >
+                <span>{option.label}</span>
+                <span className="ml-3 font-mono text-[11px] opacity-70">
+                  {option.detail}
+                </span>
+              </Button>
+            ))}
+          </div>
           <div className="flex gap-2 overflow-x-auto text-sm">
             <Button
               className="rounded-none"
@@ -672,6 +782,78 @@ export function NewsHome({
         </section>
       </header>
 
+      <section className="border-b border-[#161616]/25 dark:border-[#f4f1ea]/25">
+        <div className="container grid gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(300px,0.55fr)] lg:items-start">
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <p className="font-mono text-xs tracking-[0.18em] uppercase">
+                Today&apos;s Briefing
+              </p>
+              {editionBriefing.lead ? (
+                <span className="border border-[#161616]/35 px-2 py-1 text-xs font-semibold text-[#8a241c] dark:border-[#f4f1ea]/35 dark:text-[#ff8b7e]">
+                  {editionBriefing.lead.categoryLabel}
+                </span>
+              ) : null}
+            </div>
+            <h2 className="mt-3 max-w-4xl text-2xl leading-tight font-black tracking-normal sm:text-3xl">
+              {editionBriefing.headline}
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+              {editionBriefing.summary}
+            </p>
+          </div>
+
+          <dl className="grid grid-cols-3 border border-[#161616]/35 text-center dark:border-[#f4f1ea]/35">
+            {editionBriefing.metrics.map((metric) => (
+              <div
+                key={metric.label}
+                className="border-r border-[#161616]/20 p-3 last:border-r-0 dark:border-[#f4f1ea]/15"
+              >
+                <dt className="font-mono text-[11px] tracking-[0.12em] uppercase">
+                  {metric.label}
+                </dt>
+                <dd className="mt-1 text-xl font-black">{metric.value}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+
+        <div className="container grid gap-4 pb-6 md:grid-cols-2">
+          <BriefingStrip title="Top Topics">
+            {editionBriefing.topics.length > 0 ? (
+              editionBriefing.topics.map((topic) => (
+                <span
+                  key={topic.category}
+                  className="border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/30"
+                >
+                  {topic.label} / {topic.storyCount}
+                </span>
+              ))
+            ) : (
+              <span className="text-[#5b5750] dark:text-[#bbb4aa]">
+                Waiting for clusters
+              </span>
+            )}
+          </BriefingStrip>
+          <BriefingStrip title="Entity Watch">
+            {editionBriefing.entities.length > 0 ? (
+              editionBriefing.entities.map((entity) => (
+                <span
+                  key={entity.entity}
+                  className="border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/30"
+                >
+                  {entity.entity} / {entity.storyCount}
+                </span>
+              ))
+            ) : (
+              <span className="text-[#5b5750] dark:text-[#bbb4aa]">
+                Waiting for entity signals
+              </span>
+            )}
+          </BriefingStrip>
+        </div>
+      </section>
+
       <section className="container grid gap-6 py-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
         <div className="grid gap-6">
           {leadStory ? (
@@ -691,7 +873,12 @@ export function NewsHome({
                   <p className="mt-5 max-w-2xl text-lg leading-8 text-[#4a4a4a] dark:text-[#c8c4ba]">
                     {leadStory.summary}
                   </p>
-                  <RecommendationReasons className="mt-5" item={leadStory} />
+                  <RecommendationReasons
+                    className="mt-5"
+                    item={leadStory}
+                    mode={feedMode}
+                    rankedAt={rankDetailsAt}
+                  />
                 </div>
                 <StoryAction
                   item={leadStory}
@@ -709,10 +896,81 @@ export function NewsHome({
                 key={story.id}
                 item={story}
                 isPreview={isPreview}
+                mode={feedMode}
+                rankedAt={rankDetailsAt}
                 onAction={recordStoryAction}
               />
             ))}
           </section>
+
+          {sectionFronts.length > 0 ? (
+            <section className="border-y border-[#161616]/35 py-5 dark:border-[#f4f1ea]/35">
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="font-mono text-xs tracking-[0.18em] uppercase">
+                    Section Fronts
+                  </p>
+                  <h2 className="mt-2 text-2xl font-black">
+                    Channel desks from this edition
+                  </h2>
+                </div>
+                <span className="border border-[#161616]/35 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/35">
+                  {sectionFronts.length} channels
+                </span>
+              </div>
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                {sectionFronts.map((section) => (
+                  <article
+                    key={section.category}
+                    className="grid min-h-56 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="font-mono text-xs tracking-[0.14em] uppercase">
+                          {section.label}
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {section.summary}
+                        </p>
+                      </div>
+                      <span className="border border-[#161616]/30 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/30">
+                        {section.heatScore}
+                      </span>
+                    </div>
+                    {section.lead ? (
+                      <div className="mt-5">
+                        <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                          {section.lead.sourceName} /{" "}
+                          {formatTime(section.lead.publishedAt)}
+                        </div>
+                        <h3 className="mt-2 text-2xl leading-tight font-black">
+                          {section.lead.title}
+                        </h3>
+                      </div>
+                    ) : null}
+                    <div className="mt-4 grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
+                      <div className="flex justify-between gap-4 font-mono text-xs">
+                        <span>{section.storyCount} stories</span>
+                        <span>{section.sourceCount} sources</span>
+                        <span>heat {section.averageTrendScore}</span>
+                      </div>
+                      {section.supportingStories.map((story) => (
+                        <div
+                          key={story.id}
+                          className="grid grid-cols-[1fr_auto] gap-3 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                        >
+                          <span className="leading-5">{story.title}</span>
+                          <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.personalizedScore}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <section className="divide-y divide-[#161616]/20 border-y border-[#161616]/35 dark:divide-[#f4f1ea]/15 dark:border-[#f4f1ea]/35">
             {streamStories.length > 0 ? (
@@ -721,6 +979,8 @@ export function NewsHome({
                   key={story.id}
                   item={story}
                   isPreview={isPreview}
+                  mode={feedMode}
+                  rankedAt={rankDetailsAt}
                   onAction={recordStoryAction}
                 />
               ))
@@ -771,6 +1031,61 @@ export function NewsHome({
               </div>
               <div className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
                 {leadStory?.personalizedScore ?? 0}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-sm font-black">Reader Signal</h3>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    className="h-8 rounded-none px-2 text-xs"
+                    type="button"
+                    variant="outline"
+                    onClick={resetProfile}
+                  >
+                    Reset Signal
+                  </Button>
+                  <span className="border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                    {readerSignalSummary.strength} /{" "}
+                    {readerSignalSummary.signalCount}
+                  </span>
+                </div>
+              </div>
+              <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                {readerSignalSummary.detail}
+              </p>
+              <div className="mt-3 grid gap-3 text-xs">
+                <SignalChips
+                  label="Topics"
+                  values={readerSignalSummary.topics.map(getCategoryLabel)}
+                />
+                <SignalChips
+                  label="Sources"
+                  values={readerSignalSummary.sources}
+                />
+                <SignalChips
+                  label="Entities"
+                  values={readerSignalSummary.entities}
+                />
+              </div>
+              <div className="mt-4 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15">
+                <h4 className="font-mono text-[11px] tracking-[0.14em] uppercase">
+                  Ranking Factors
+                </h4>
+                <div className="mt-2 grid gap-2">
+                  {readerRankingFactors.map((factor) => (
+                    <div
+                      key={`${factor.label}-${factor.detail}`}
+                      className="grid gap-1 text-xs sm:grid-cols-[5rem_1fr]"
+                    >
+                      <span className="font-semibold">{factor.label}</span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {factor.detail}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -841,25 +1156,404 @@ export function NewsHome({
           </section>
 
           <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
-            <h2 className="text-xl font-black">Signal Board</h2>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Today&apos;s Queue</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {readingQueue.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {readingQueue.slots.length}
+              </span>
+            </div>
             <div className="mt-4 grid gap-3">
-              {rankedItems.slice(0, 5).map((story, index) => (
-                <div
-                  key={story.id}
-                  className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                    {String(index + 1).padStart(2, "0")}
-                  </span>
-                  <span className="leading-5">
-                    {story.title}
-                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {getNewsRecommendationReasons({ item: story })[0]}
+              {readingQueue.slots.length > 0 ? (
+                readingQueue.slots.map((slot, index) => {
+                  const storyTitle = (
+                    <span className="leading-5 font-semibold">
+                      {slot.story.title}
                     </span>
-                  </span>
-                  <span className="font-mono">{story.personalizedScore}</span>
+                  );
+
+                  return (
+                    <div
+                      key={`${slot.intent}-${slot.story.id}`}
+                      className="grid grid-cols-[2rem_1fr_auto] gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] tracking-[0.14em] uppercase">
+                          {slot.label} / {slot.intent}
+                        </div>
+                        {isPreview ? (
+                          <div className="mt-1">{storyTitle}</div>
+                        ) : (
+                          <Link
+                            className="mt-1 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${slot.story.id}`}
+                          >
+                            {storyTitle}
+                          </Link>
+                        )}
+                        <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.reason}
+                        </p>
+                        <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.story.sourceName}
+                        </div>
+                      </div>
+                      <span className="font-mono text-xs">
+                        {slot.story.personalizedScore}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  The queue will build itself after the edition has ranked
+                  stories.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Recommendation Audit</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {recommendationAudit.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {recommendationAudit.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              {recommendationAudit.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
                 </div>
               ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {recommendationAudit.notices.map((notice) => (
+                <div
+                  key={notice.label}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="font-semibold">{notice.label}</div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {notice.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Source Balance</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {sourceBalance.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {sourceBalance.concentration}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm">
+              <StatusLine
+                label="Sources"
+                value={`${sourceBalance.uniqueSourceCount}/${sourceBalance.totalCount}`}
+              />
+              <StatusLine
+                label="Leader"
+                value={sourceBalance.dominantSource?.name ?? "None"}
+              />
+              <StatusLine
+                label="Share"
+                value={
+                  sourceBalance.dominantSource
+                    ? `${sourceBalance.dominantSource.percentage}%`
+                    : "0%"
+                }
+              />
+            </dl>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Edition Mix</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {editionMix.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {editionMix.totalCount}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {editionMix.segments.map((segment) => (
+                <div
+                  key={segment.label}
+                  className="grid grid-cols-[1fr_auto] gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold">{segment.label}</div>
+                    <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {segment.detail}
+                    </div>
+                  </div>
+                  <div className="text-right font-mono">
+                    <div>{segment.count}</div>
+                    <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {segment.percentage}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Entity Radar</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  People, companies, models, and projects recurring across the
+                  edition.
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {entityRadar.length}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {entityRadar.length > 0 ? (
+                entityRadar.map((entry, index) => (
+                  <div
+                    key={entry.entity}
+                    className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold">
+                        {entry.entity}
+                      </div>
+                      <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                        {entry.storyCount} stories / {entry.sourceCount} sources
+                      </div>
+                    </div>
+                    <span className="font-mono">{entry.heatScore}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Entity radar will appear as stories share names, products, or
+                  companies.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Topic Pulse</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  Clusters in the current edition, ranked by volume and heat.
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {topicPulse.length}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {topicPulse.length > 0 ? (
+                topicPulse.map((pulse, index) => (
+                  <div
+                    key={pulse.category}
+                    className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <div className="min-w-0">
+                      <div className="font-semibold">
+                        {getCategoryLabel(pulse.category)}
+                      </div>
+                      <div className="mt-1 truncate text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                        {pulse.storyCount} stories / {pulse.sources.join(", ")}
+                      </div>
+                    </div>
+                    <span className="font-mono">{pulse.heatScore}</span>
+                  </div>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Topic clusters will appear as the edition fills.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Reader Memory</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {readerMemory.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {readerMemory.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              {readerMemory.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {readerMemory.highlights.map((highlight) => (
+                <div
+                  key={highlight.label}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="font-semibold">{highlight.label}</div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {highlight.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Saved</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  Your reading list follows the same anonymous reader key as the
+                  For You feed.
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {savedItems.length}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {savedItems.length > 0 ? (
+                savedItems.map((item) => (
+                  <Link
+                    key={item.id}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                    href={`/news/${item.id}`}
+                  >
+                    <span className="leading-5 font-semibold">
+                      {item.title}
+                    </span>
+                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {item.sourceName} / saved {formatTime(item.savedAt)}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Save stories from the front page to build a personal reading
+                  queue.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Recently Read</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  Opened stories become a lightweight trail for follow-up
+                  recommendations.
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {historyItems.length}
+              </span>
+            </div>
+            <div className="mt-4 grid gap-3">
+              {historyItems.length > 0 ? (
+                historyItems.map((item) => (
+                  <Link
+                    key={item.id}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                    href={`/news/${item.id}`}
+                  >
+                    <span className="leading-5 font-semibold">
+                      {item.title}
+                    </span>
+                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {item.sourceName} / read {formatTime(item.viewedAt)}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Open stories to build a reading trail for the next edition.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <h2 className="text-xl font-black">Signal Board</h2>
+            <div className="mt-4 grid gap-3">
+              {rankedItems.slice(0, 5).map((story, index) => {
+                const rankDetails = getNewsStoryRankDetails({
+                  item: story,
+                  mode: feedMode,
+                  now: rankDetailsAt,
+                });
+
+                return (
+                  <div
+                    key={story.id}
+                    className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                      {String(index + 1).padStart(2, "0")}
+                    </span>
+                    <span className="leading-5">
+                      {story.title}
+                      <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                        {rankDetails.summary}
+                      </span>
+                    </span>
+                    <span className="font-mono">{rankDetails.scoreLabel}</span>
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -905,26 +1599,36 @@ export function NewsHome({
 function RecommendationReasons({
   item,
   className,
+  mode,
+  rankedAt,
 }: {
   item: RankedNewsHomeItem;
   className?: string;
+  mode: NewsFeedMode;
+  rankedAt: Date;
 }) {
+  const rankDetails = getNewsStoryRankDetails({
+    item,
+    mode,
+    now: rankedAt,
+  });
+
   return (
-    <div
-      className={cn(
-        "flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase",
-        className,
-      )}
-    >
-      <span className="text-[#5b5750] dark:text-[#bbb4aa]">Why this</span>
-      {getNewsRecommendationReasons({ item }).map((reason) => (
-        <span
-          key={reason}
-          className="border border-[#161616]/30 px-2 py-1 text-[#8a241c] dark:border-[#f4f1ea]/30 dark:text-[#ff8b7e]"
-        >
-          {reason}
-        </span>
-      ))}
+    <div className={cn("grid gap-2", className)}>
+      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase">
+        <span className="text-[#5b5750] dark:text-[#bbb4aa]">Why this</span>
+        {rankDetails.badges.map((reason) => (
+          <span
+            key={reason}
+            className="border border-[#161616]/30 px-2 py-1 text-[#8a241c] dark:border-[#f4f1ea]/30 dark:text-[#ff8b7e]"
+          >
+            {reason}
+          </span>
+        ))}
+      </div>
+      <p className="max-w-2xl text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+        {rankDetails.summary}
+      </p>
     </div>
   );
 }
@@ -1000,6 +1704,14 @@ function StoryAction({
         className="rounded-none"
         type="button"
         variant="outline"
+        onClick={() => onAction(item, "share")}
+      >
+        Share
+      </Button>
+      <Button
+        className="rounded-none"
+        type="button"
+        variant="outline"
         onClick={() => onAction(item, "hide")}
       >
         Less
@@ -1023,10 +1735,14 @@ function StoryAction({
 function StoryCard({
   item,
   isPreview,
+  mode,
+  rankedAt,
   onAction,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
+  mode: NewsFeedMode;
+  rankedAt: Date;
   onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
 }) {
   return (
@@ -1039,7 +1755,7 @@ function StoryCard({
       <p className="line-clamp-4 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
         {item.summary}
       </p>
-      <RecommendationReasons item={item} />
+      <RecommendationReasons item={item} mode={mode} rankedAt={rankedAt} />
       {!isPreview ? (
         <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
       ) : null}
@@ -1050,10 +1766,14 @@ function StoryCard({
 function StoryRow({
   item,
   isPreview,
+  mode,
+  rankedAt,
   onAction,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
+  mode: NewsFeedMode;
+  rankedAt: Date;
   onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
 }) {
   return (
@@ -1066,7 +1786,12 @@ function StoryRow({
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
           {item.summary}
         </p>
-        <RecommendationReasons className="mt-3" item={item} />
+        <RecommendationReasons
+          className="mt-3"
+          item={item}
+          mode={mode}
+          rankedAt={rankedAt}
+        />
       </div>
       <div className="font-mono text-sm">
         <div>{formatTime(item.publishedAt)}</div>
@@ -1076,6 +1801,51 @@ function StoryRow({
       </div>
       <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
     </article>
+  );
+}
+
+function SignalChips({
+  label,
+  values,
+}: {
+  label: string;
+  values: readonly string[];
+}) {
+  return (
+    <div className="grid gap-2">
+      <span className="font-mono text-[11px] tracking-[0.14em] uppercase">
+        {label}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {values.length > 0 ? (
+          values.map((value) => (
+            <span
+              key={`${label}-${value}`}
+              className="max-w-full border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/25"
+            >
+              <span className="block truncate">{value}</span>
+            </span>
+          ))
+        ) : (
+          <span className="text-[#5b5750] dark:text-[#bbb4aa]">None yet</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BriefingStrip({
+  children,
+  title,
+}: {
+  children: ReactNode;
+  title: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-t border-[#161616]/20 pt-3 text-xs font-semibold dark:border-[#f4f1ea]/15">
+      <span className="font-mono tracking-[0.14em] uppercase">{title}</span>
+      {children}
+    </div>
   );
 }
 

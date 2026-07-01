@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   NewsPreferenceProfile,
@@ -17,6 +17,10 @@ import {
 
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import { useTRPC } from "~/trpc/react";
+import {
+  selectHydratedNewsPreferenceProfile,
+  stripPersistedNewsPreferenceProfile,
+} from "../../_components/news-home-model";
 
 interface NewsArticleProps {
   article: NewsArticleItem;
@@ -103,16 +107,6 @@ const readOrCreateVisitorKey = () => {
   return next;
 };
 
-const stripPersistedFlag = (
-  profile: NewsPreferenceProfile & { persisted: boolean },
-): NewsPreferenceProfile => ({
-  preferredCategories: profile.preferredCategories,
-  preferredSources: profile.preferredSources,
-  preferredEntities: profile.preferredEntities,
-  noveltyBias: profile.noveltyBias,
-  recencyBias: profile.recencyBias,
-});
-
 const formatDate = (date: string) =>
   new Intl.DateTimeFormat("en", {
     month: "long",
@@ -134,18 +128,39 @@ const paragraphsFromArticle = (article: NewsArticleItem) => {
 
 export function NewsArticle({ article, related }: NewsArticleProps) {
   const trpc = useTRPC();
+  const queryClient = useQueryClient();
   const [profile, setProfile] =
     useState<NewsPreferenceProfile>(readStoredProfile);
   const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
+  const profileQuery = useQuery(
+    trpc.news.profile.queryOptions(
+      { visitorKey: visitorKey ?? undefined },
+      { enabled: Boolean(visitorKey) },
+    ),
+  );
   const recordInteraction = useMutation(
     trpc.news.recordInteraction.mutationOptions({
-      onSuccess: (serverProfile) => {
-        const nextProfile = stripPersistedFlag(serverProfile);
+      onSuccess: async (serverProfile) => {
+        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
         setProfile(nextProfile);
         writeStoredProfile(nextProfile);
+        await queryClient.invalidateQueries(trpc.news.profile.pathFilter());
       },
     }),
   );
+
+  useEffect(() => {
+    if (!profileQuery.data?.persisted) return;
+
+    setProfile((current) => {
+      const nextProfile = selectHydratedNewsPreferenceProfile({
+        localProfile: current,
+        serverProfile: profileQuery.data,
+      });
+      writeStoredProfile(nextProfile);
+      return nextProfile;
+    });
+  }, [profileQuery.data]);
 
   useEffect(() => {
     if (!visitorKey) return;

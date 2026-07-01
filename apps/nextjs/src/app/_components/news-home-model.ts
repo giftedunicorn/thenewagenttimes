@@ -1,4 +1,8 @@
-import type { RankedNewsItem, RecommendableNewsItem } from "@acme/validators";
+import type {
+  NewsPreferenceProfile,
+  RankedNewsItem,
+  RecommendableNewsItem,
+} from "@acme/validators";
 
 export interface NewsHomeItem extends RecommendableNewsItem {
   summary: string;
@@ -9,6 +13,10 @@ export interface NewsHomeItem extends RecommendableNewsItem {
 }
 
 export type NewsHomeStatus = "ready" | "empty" | "unavailable";
+
+export type PersistedNewsPreferenceProfile = NewsPreferenceProfile & {
+  persisted: boolean;
+};
 
 export type NewsDeskHealth =
   | "live"
@@ -117,6 +125,27 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
 
   return input;
 };
+
+export const stripPersistedNewsPreferenceProfile = (
+  profile: PersistedNewsPreferenceProfile,
+): NewsPreferenceProfile => ({
+  preferredCategories: profile.preferredCategories,
+  preferredSources: profile.preferredSources,
+  preferredEntities: profile.preferredEntities,
+  noveltyBias: profile.noveltyBias,
+  recencyBias: profile.recencyBias,
+});
+
+export const selectHydratedNewsPreferenceProfile = ({
+  localProfile,
+  serverProfile,
+}: {
+  localProfile: NewsPreferenceProfile;
+  serverProfile: PersistedNewsPreferenceProfile | undefined;
+}) =>
+  serverProfile?.persisted
+    ? stripPersistedNewsPreferenceProfile(serverProfile)
+    : localProfile;
 
 export const selectVisibleNewsHomeItems = ({
   items,

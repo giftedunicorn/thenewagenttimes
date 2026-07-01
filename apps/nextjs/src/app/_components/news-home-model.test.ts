@@ -7,6 +7,7 @@ import {
   getNewsRecommendationReasons,
   getNextNewsHomeCursor,
   mergeNewsHomeItems,
+  selectHydratedNewsPreferenceProfile,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
@@ -40,6 +41,23 @@ const olderItem = {
   ...localItem,
   id: "older-story",
   publishedAt: "2026-06-30T08:00:00.000Z",
+};
+
+const localProfile = {
+  preferredCategories: ["model_release"],
+  preferredSources: ["local-source"],
+  preferredEntities: ["OpenAI"],
+  noveltyBias: 1,
+  recencyBias: 1,
+};
+
+const persistedProfile = {
+  preferredCategories: ["funding"],
+  preferredSources: ["venturewire"],
+  preferredEntities: ["Series A"],
+  noveltyBias: 1.5,
+  persisted: true,
+  recencyBias: 1.5,
 };
 
 describe("selectNewsHomeItems", () => {
@@ -94,6 +112,41 @@ describe("buildNewsHomeFeedInput", () => {
         visitorKey: null,
       }),
     ).toEqual({ limit: 30 });
+  });
+});
+
+describe("selectHydratedNewsPreferenceProfile", () => {
+  it("uses a persisted server profile when one is available", () => {
+    expect(
+      selectHydratedNewsPreferenceProfile({
+        localProfile,
+        serverProfile: persistedProfile,
+      }),
+    ).toEqual({
+      preferredCategories: ["funding"],
+      preferredSources: ["venturewire"],
+      preferredEntities: ["Series A"],
+      noveltyBias: 1.5,
+      recencyBias: 1.5,
+    });
+  });
+
+  it("keeps local preferences when the server has no persisted profile yet", () => {
+    expect(
+      selectHydratedNewsPreferenceProfile({
+        localProfile,
+        serverProfile: {
+          ...persistedProfile,
+          persisted: false,
+        },
+      }),
+    ).toBe(localProfile);
+    expect(
+      selectHydratedNewsPreferenceProfile({
+        localProfile,
+        serverProfile: undefined,
+      }),
+    ).toBe(localProfile);
   });
 });
 

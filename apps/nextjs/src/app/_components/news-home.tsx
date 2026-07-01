@@ -31,10 +31,12 @@ import {
   getNewsRecommendationReasons,
   getNextNewsHomeCursor,
   mergeNewsHomeItems,
+  selectHydratedNewsPreferenceProfile,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
+  stripPersistedNewsPreferenceProfile,
 } from "./news-home-model";
 
 type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
@@ -179,16 +181,6 @@ const writeStoredProfile = (profile: NewsPreferenceProfile) => {
   window.localStorage.setItem(profileStorageKey, JSON.stringify(profile));
 };
 
-const stripPersistedFlag = (
-  profile: NewsPreferenceProfile & { persisted: boolean },
-): NewsPreferenceProfile => ({
-  preferredCategories: profile.preferredCategories,
-  preferredSources: profile.preferredSources,
-  preferredEntities: profile.preferredEntities,
-  noveltyBias: profile.noveltyBias,
-  recencyBias: profile.recencyBias,
-});
-
 const readOrCreateVisitorKey = () => {
   if (typeof window === "undefined") return null;
 
@@ -291,6 +283,12 @@ export function NewsHome({
   const hasExploreFilters = Boolean(
     activeCategory ?? activeSourceSlug ?? searchQuery.trim(),
   );
+  const profileQuery = useQuery(
+    trpc.news.profile.queryOptions(
+      { visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
   const forYouQuery = useQuery(
     trpc.news.forYou.queryOptions(
       buildNewsHomeFeedInput({
@@ -309,17 +307,23 @@ export function NewsHome({
   const updateProfile = useMutation(
     trpc.news.updateProfile.mutationOptions({
       onSuccess: async () => {
-        await queryClient.invalidateQueries(trpc.news.forYou.pathFilter());
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
+        ]);
       },
     }),
   );
   const recordInteraction = useMutation(
     trpc.news.recordInteraction.mutationOptions({
       onSuccess: async (serverProfile) => {
-        const nextProfile = stripPersistedFlag(serverProfile);
+        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
         setProfile(nextProfile);
         writeStoredProfile(nextProfile);
-        await queryClient.invalidateQueries(trpc.news.forYou.pathFilter());
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
+        ]);
       },
     }),
   );
@@ -346,6 +350,19 @@ export function NewsHome({
   useEffect(() => {
     writeStoredProfile(profile);
   }, [profile]);
+
+  useEffect(() => {
+    if (!profileQuery.data?.persisted) return;
+
+    setProfile((current) => {
+      const nextProfile = selectHydratedNewsPreferenceProfile({
+        localProfile: current,
+        serverProfile: profileQuery.data,
+      });
+      writeStoredProfile(nextProfile);
+      return nextProfile;
+    });
+  }, [profileQuery.data]);
 
   useEffect(() => {
     setLoadedItems([]);

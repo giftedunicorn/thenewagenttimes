@@ -17,6 +17,7 @@ export const env = createEnv({
    */
   server: {
     POSTGRES_URL: z.url(),
+    RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
   },
 
   /**

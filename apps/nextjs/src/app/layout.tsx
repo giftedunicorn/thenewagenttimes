@@ -10,24 +10,32 @@ import { TRPCReactProvider } from "~/trpc/react";
 
 import "~/app/styles.css";
 
+const productionUrl =
+  env.RAILWAY_PUBLIC_DOMAIN ??
+  env.VERCEL_PROJECT_PRODUCTION_URL ??
+  env.VERCEL_URL ??
+  "thenewagenttimes.com";
+
 export const metadata: Metadata = {
   metadataBase: new URL(
-    env.VERCEL_ENV === "production"
-      ? "https://turbo.t3.gg"
+    env.NODE_ENV === "production"
+      ? `https://${productionUrl}`
       : "http://localhost:3000",
   ),
-  title: "Create T3 Turbo",
-  description: "Simple monorepo with shared backend for web & mobile apps",
+  title: "The New AI Times",
+  description:
+    "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.",
   openGraph: {
-    title: "Create T3 Turbo",
-    description: "Simple monorepo with shared backend for web & mobile apps",
-    url: "https://create-t3-turbo.vercel.app",
-    siteName: "Create T3 Turbo",
+    title: "The New AI Times",
+    description:
+      "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.",
+    url: `https://${productionUrl}`,
+    siteName: "The New AI Times",
   },
   twitter: {
     card: "summary_large_image",
-    site: "@jullerino",
-    creator: "@jullerino",
+    site: "@thenewaitimes",
+    creator: "@thenewaitimes",
   },
 };
 
@@ -59,7 +67,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
       >
         <ThemeProvider>
           <TRPCReactProvider>{props.children}</TRPCReactProvider>
-          <div className="absolute right-4 bottom-4">
+          <div className="fixed right-4 bottom-4 z-50">
             <ThemeToggle />
           </div>
           <Toaster />

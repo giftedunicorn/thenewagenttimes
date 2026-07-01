@@ -7,6 +7,7 @@ import {
   mergeNewsHomeItems,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
+  shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
 } from "./news-home-model";
 
@@ -99,6 +100,54 @@ describe("getNextNewsHomeCursor", () => {
 
   it("returns null when there are no stories to paginate from", () => {
     expect(getNextNewsHomeCursor([])).toBeNull();
+  });
+});
+
+describe("shouldAutoLoadMoreNewsHomeItems", () => {
+  it("only auto-loads when the live feed end is visible and pagination is ready", () => {
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({
+        cursor: "2026-06-30T08:00:00.000Z",
+        hasMoreItems: true,
+        isFeedEndVisible: true,
+        isLoadingMore: false,
+        isPreview: false,
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(true);
+  });
+
+  it("does not auto-load for preview, exhausted, loading, anonymous, hidden, or empty-cursor states", () => {
+    const readyState = {
+      cursor: "2026-06-30T08:00:00.000Z",
+      hasMoreItems: true,
+      isFeedEndVisible: true,
+      isLoadingMore: false,
+      isPreview: false,
+      visitorKey: "visitor-123",
+    };
+
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({ ...readyState, isPreview: true }),
+    ).toBe(false);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({ ...readyState, hasMoreItems: false }),
+    ).toBe(false);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({ ...readyState, isLoadingMore: true }),
+    ).toBe(false);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({ ...readyState, visitorKey: null }),
+    ).toBe(false);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({
+        ...readyState,
+        isFeedEndVisible: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({ ...readyState, cursor: null }),
+    ).toBe(false);
   });
 });
 

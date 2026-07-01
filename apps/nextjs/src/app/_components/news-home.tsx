@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -28,6 +28,7 @@ import {
   mergeNewsHomeItems,
   selectNewsHomeItems,
   selectVisibleNewsHomeItems,
+  shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
 } from "./news-home-model";
 
@@ -272,6 +273,8 @@ export function NewsHome({
   const [loadedItems, setLoadedItems] = useState<NewsHomeItem[]>([]);
   const [hasMoreItems, setHasMoreItems] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const feedEndRef = useRef<HTMLDivElement | null>(null);
+  const isLoadingMoreRef = useRef(false);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = status !== "unavailable";
   const forYouQuery = useQuery(
@@ -313,6 +316,7 @@ export function NewsHome({
   });
   const isPreview =
     initialItems.length === 0 && !serverRecommendedItems?.length;
+  const nextCursor = getNextNewsHomeCursor(items);
   const deskStatusSummary = getNewsDeskStatusSummary(deskStatus);
 
   useEffect(() => {
@@ -366,11 +370,25 @@ export function NewsHome({
     }
   };
 
-  const loadMoreStories = async () => {
-    const cursor = getNextNewsHomeCursor(items);
+  const loadMoreStories = useCallback(async () => {
+    const cursor = nextCursor;
 
-    if (!cursor || !visitorKey || isPreview || !hasMoreItems) return;
+    if (!cursor || !visitorKey) return;
 
+    if (
+      !shouldAutoLoadMoreNewsHomeItems({
+        cursor,
+        hasMoreItems,
+        isFeedEndVisible: true,
+        isLoadingMore: isLoadingMoreRef.current,
+        isPreview,
+        visitorKey,
+      })
+    ) {
+      return;
+    }
+
+    isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
     try {
       const nextItems = await queryClient.fetchQuery(
@@ -389,9 +407,51 @@ export function NewsHome({
       );
       setHasMoreItems(nextItems.length > 0);
     } finally {
+      isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  };
+  }, [
+    hasMoreItems,
+    isPreview,
+    nextCursor,
+    queryClient,
+    trpc.news.forYou,
+    visitorKey,
+  ]);
+
+  useEffect(() => {
+    const feedEnd = feedEndRef.current;
+    if (
+      !feedEnd ||
+      isPreview ||
+      typeof window === "undefined" ||
+      !("IntersectionObserver" in window)
+    ) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (
+          shouldAutoLoadMoreNewsHomeItems({
+            cursor: nextCursor,
+            hasMoreItems,
+            isFeedEndVisible: Boolean(entry?.isIntersecting),
+            isLoadingMore: isLoadingMoreRef.current,
+            isPreview,
+            visitorKey,
+          })
+        ) {
+          void loadMoreStories();
+        }
+      },
+      { rootMargin: "600px 0px" },
+    );
+
+    observer.observe(feedEnd);
+
+    return () => observer.disconnect();
+  }, [hasMoreItems, isPreview, loadMoreStories, nextCursor, visitorKey]);
 
   const rankedItems = useMemo(
     () => rankNewsForReader(items, profile),
@@ -516,10 +576,16 @@ export function NewsHome({
           </section>
 
           {!isPreview ? (
+            <div ref={feedEndRef} aria-hidden="true" className="h-px w-full" />
+          ) : null}
+
+          {!isPreview ? (
             <div className="flex justify-center border-b border-[#161616]/25 pb-6 dark:border-[#f4f1ea]/25">
               <Button
                 className="rounded-none"
-                disabled={!visitorKey || isLoadingMore || !hasMoreItems}
+                disabled={
+                  !visitorKey || !nextCursor || isLoadingMore || !hasMoreItems
+                }
                 type="button"
                 variant="outline"
                 onClick={() => void loadMoreStories()}

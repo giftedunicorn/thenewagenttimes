@@ -132,6 +132,28 @@ export const getNextNewsHomeCursor = (items: readonly NewsHomeItem[]) => {
   return oldest;
 };
 
+export const shouldAutoLoadMoreNewsHomeItems = ({
+  cursor,
+  hasMoreItems,
+  isFeedEndVisible,
+  isLoadingMore,
+  isPreview,
+  visitorKey,
+}: {
+  cursor: string | null;
+  hasMoreItems: boolean;
+  isFeedEndVisible: boolean;
+  isLoadingMore: boolean;
+  isPreview: boolean;
+  visitorKey: string | null;
+}) =>
+  Boolean(cursor) &&
+  Boolean(visitorKey) &&
+  hasMoreItems &&
+  isFeedEndVisible &&
+  !isLoadingMore &&
+  !isPreview;
+
 export const shouldFetchServerRecommendations = ({
   status,
   visitorKey,

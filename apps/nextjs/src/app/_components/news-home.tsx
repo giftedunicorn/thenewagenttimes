@@ -116,6 +116,7 @@ import {
   getNewsSourceClusters,
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
+  getNewsStoryProofStrip,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
@@ -2055,6 +2056,7 @@ export function NewsHome({
                     mode={feedMode}
                     rankedAt={rankDetailsAt}
                   />
+                  <StoryProofStrip className="mt-4" item={leadStory} />
                 </div>
                 <StoryAction
                   item={leadStory}
@@ -7132,6 +7134,39 @@ function RecommendationReasons({
   );
 }
 
+function StoryProofStrip({
+  item,
+  className,
+}: {
+  item: RankedNewsHomeItem;
+  className?: string;
+}) {
+  const proofStrip = getNewsStoryProofStrip({ item });
+
+  return (
+    <div
+      className={cn(
+        "border-y border-[#161616]/20 py-3 dark:border-[#f4f1ea]/15",
+        className,
+      )}
+    >
+      <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {proofStrip.metrics.map((metric) => (
+          <div key={metric.label} className="grid gap-1">
+            <dt className="text-[0.68rem] font-semibold text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+              {metric.label}
+            </dt>
+            <dd className="font-mono text-sm">{metric.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-3 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+        {proofStrip.summary}
+      </p>
+    </div>
+  );
+}
+
 function StoryVisual({
   item,
   featured = false,
@@ -7277,6 +7312,7 @@ function StoryCard({
         {item.summary}
       </p>
       <RecommendationReasons item={item} mode={mode} rankedAt={rankedAt} />
+      <StoryProofStrip item={item} />
       <StoryAction
         item={item}
         isPreview={isPreview}
@@ -7322,6 +7358,7 @@ function StoryRow({
           mode={mode}
           rankedAt={rankedAt}
         />
+        <StoryProofStrip className="mt-3" item={item} />
       </div>
       <div className="font-mono text-sm">
         <div>{formatTime(item.publishedAt)}</div>

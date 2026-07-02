@@ -83,6 +83,7 @@ import {
   getNewsSourceClusters,
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
+  getNewsStoryProofStrip,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
@@ -14478,6 +14479,54 @@ describe("getNewsStoryRankDetails", () => {
       summary:
         "Ranked by story heat, with high story heat and source credibility.",
       scoreLabel: "119 score",
+    });
+  });
+});
+
+describe("getNewsStoryProofStrip", () => {
+  it("summarizes reader fit, corroboration, source trust, and story heat", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["category", "entity", "source_corroboration"],
+          personalizedScore: 137,
+          sourceScore: 86,
+          trendScore: 78,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "2 reader signals" },
+        { label: "Coverage", value: "Corroborated" },
+        { label: "Trust", value: "86" },
+        { label: "Heat", value: "78" },
+      ],
+      summary:
+        "Personalized from 2 reader signals, corroborated by independent coverage, with 86 source trust and 78 story heat.",
+    });
+  });
+
+  it("labels Less feedback as a guardrail instead of a positive reader match", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 58,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Guardrail" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "82" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Dampened by Less feedback, but kept visible by 82 source trust and 73 story heat.",
     });
   });
 });

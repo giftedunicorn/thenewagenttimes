@@ -15496,6 +15496,67 @@ export const getNewsHomeReaderMemoryResetCacheScopes = () =>
 
 export const getNewsRecommendationReasons = getSharedNewsRecommendationReasons;
 
+export const getNewsStoryProofStrip = ({
+  item,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+}) => {
+  const hasNegativeFeedback = item.matchedSignals.includes("negative_feedback");
+  const hasExploration = item.matchedSignals.includes("exploration");
+  const hasSourceCorroboration = item.matchedSignals.includes(
+    "source_corroboration",
+  );
+  const readerSignalCount = getRecommendationTraceReaderSignalCount(item);
+  const fitLabel = hasNegativeFeedback
+    ? "Guardrail"
+    : hasExploration
+      ? "Exploration"
+      : readerSignalCount > 0
+        ? `${readerSignalCount} reader ${
+            readerSignalCount === 1 ? "signal" : "signals"
+          }`
+        : "Learning";
+  const coverageLabel = hasSourceCorroboration
+    ? "Corroborated"
+    : "Single source";
+  const metrics = [
+    { label: "Fit", value: fitLabel },
+    { label: "Coverage", value: coverageLabel },
+    { label: "Trust", value: String(item.sourceScore) },
+    { label: "Heat", value: String(item.trendScore) },
+  ];
+
+  if (hasNegativeFeedback) {
+    return {
+      metrics,
+      summary: `Dampened by Less feedback, but kept visible by ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (readerSignalCount > 0) {
+    return {
+      metrics,
+      summary: `Personalized from ${readerSignalCount} reader ${
+        readerSignalCount === 1 ? "signal" : "signals"
+      }${
+        hasSourceCorroboration ? ", corroborated by independent coverage" : ""
+      }, with ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (hasExploration) {
+    return {
+      metrics,
+      summary: `Inserted to test adjacent interests, with ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  return {
+    metrics,
+    summary: `Ranked from edition momentum, with ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+  };
+};
+
 export const getNewsStoryRankDetails = ({
   item,
   mode = "for_you",

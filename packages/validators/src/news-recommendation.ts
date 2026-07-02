@@ -718,7 +718,10 @@ export type RecentExposureNewsItem = Pick<
   "category" | "entities" | "sourceSlug"
 > &
   NewsUrlReference & {
+    id?: string;
     occurredAt?: string;
+    readPercent?: number;
+    surface?: string;
     tags?: readonly string[];
   };
 
@@ -943,6 +946,8 @@ const collaborativeProtectedSignals = new Set([
   "category",
   "deep_preference",
   "entity",
+  "exposure_cooldown",
+  "home_exposure_cooldown",
   "negative_feedback",
   "positive_feedback",
   "semantic_feedback",
@@ -961,6 +966,84 @@ const hasDeepPreferenceMatch = <TItem extends RecommendableNewsItem>(
 
 const isActiveRecentExposure = (item: RecentExposureNewsItem, now: Date) =>
   !item.occurredAt || hoursSince(item.occurredAt, now) <= exposureCooldownHours;
+
+const isHomeRecentExposure = (item: RecentExposureNewsItem) =>
+  item.surface?.trim().toLowerCase() === "home";
+
+const isContentRecentExposure = (item: RecentExposureNewsItem) => {
+  if (isHomeRecentExposure(item)) return false;
+
+  if (item.surface?.trim().toLowerCase() !== "article") return true;
+  if (item.readPercent === undefined) return true;
+
+  return item.readPercent >= minimumTrainingReadPercent;
+};
+
+const toOptionalNewsUrlReference = (item: object): NewsUrlReference => {
+  const reference = item as Partial<Record<keyof NewsUrlReference, unknown>>;
+
+  return {
+    canonicalUrl:
+      typeof reference.canonicalUrl === "string"
+        ? reference.canonicalUrl
+        : null,
+    originalUrl:
+      typeof reference.originalUrl === "string" ? reference.originalUrl : null,
+  };
+};
+
+const hasRecentExposureIdentityMatch = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  recentExposureItems: readonly RecentExposureNewsItem[],
+) => {
+  const itemId = item.id.trim();
+
+  if (!itemId) return false;
+
+  return recentExposureItems.some(
+    (exposureItem) => exposureItem.id?.trim() === itemId,
+  );
+};
+
+const hasRecentExposureUrlMatch = (
+  item: object,
+  recentExposureItems: readonly RecentExposureNewsItem[],
+) => {
+  const itemUrlKeys = new Set(
+    getNewsDedupeUrlKeys(toOptionalNewsUrlReference(item)),
+  );
+
+  if (itemUrlKeys.size === 0) return false;
+
+  return recentExposureItems.some((exposureItem) =>
+    getNewsDedupeUrlKeys(exposureItem).some((urlKey) =>
+      itemUrlKeys.has(urlKey),
+    ),
+  );
+};
+
+const getExposureCooldownMatch = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  contentExposureSignals: ReturnType<typeof getNewsSignalSets> | null,
+  homeExposureItems: readonly RecentExposureNewsItem[],
+) => {
+  if (
+    homeExposureItems.length > 0 &&
+    (hasRecentExposureIdentityMatch(item, homeExposureItems) ||
+      hasRecentExposureUrlMatch(item, homeExposureItems))
+  ) {
+    return "exact";
+  }
+
+  if (
+    contentExposureSignals &&
+    hasNewsSignalMatch(item, contentExposureSignals)
+  ) {
+    return "content";
+  }
+
+  return null;
+};
 
 const isActiveSemanticFeedbackVector = (
   item: NewsSemanticVector,
@@ -1223,16 +1306,36 @@ export const selectExposureBalancedNewsFeed = <
 
   if (activeExposureItems.length === 0) return [...rankedItems];
 
-  const exposureSignals = getNewsSignalSets(activeExposureItems);
+  const homeExposureItems = activeExposureItems.filter(isHomeRecentExposure);
+  const contentExposureItems = activeExposureItems.filter(
+    isContentRecentExposure,
+  );
+  const contentExposureSignals =
+    contentExposureItems.length > 0
+      ? getNewsSignalSets(contentExposureItems)
+      : null;
   const freshItems: RankedNewsItem<TItem>[] = [];
   const cooledItems: RankedNewsItem<TItem>[] = [];
 
   for (const item of rankedItems) {
-    if (hasNewsSignalMatch(item, exposureSignals)) {
-      if (hasDeepPreferenceMatch(item)) {
+    const cooldownMatch = getExposureCooldownMatch(
+      item,
+      contentExposureSignals,
+      homeExposureItems,
+    );
+
+    if (cooldownMatch) {
+      if (cooldownMatch === "content" && hasDeepPreferenceMatch(item)) {
         freshItems.push(addMatchedSignal(item, "deep_preference"));
       } else {
-        cooledItems.push(addMatchedSignal(item, "exposure_cooldown"));
+        cooledItems.push(
+          addMatchedSignal(
+            item,
+            cooldownMatch === "exact"
+              ? "home_exposure_cooldown"
+              : "exposure_cooldown",
+          ),
+        );
       }
     } else {
       freshItems.push(item);

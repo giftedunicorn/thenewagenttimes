@@ -1219,6 +1219,45 @@ describe("selectCollaborativeSignalNewsFeed", () => {
     expect(feed[0]?.matchedSignals).not.toContain("collaborative_feedback");
     expect(feed[1]?.matchedSignals).not.toContain("collaborative_feedback");
   });
+
+  test("keeps exposure-cooldown guardrails out of collaborative lift", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "fresh-unseen-story",
+        sourceScore: 84,
+        personalizedScore: 110,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "home-repeat-story",
+        sourceScore: 90,
+        personalizedScore: 100,
+        matchedSignals: ["home_exposure_cooldown"],
+      },
+      {
+        ...items[0],
+        id: "recently-read-topic",
+        sourceScore: 90,
+        personalizedScore: 98,
+        matchedSignals: ["exposure_cooldown"],
+      },
+    ];
+
+    const feed = selectCollaborativeSignalNewsFeed(ranked, [
+      { newsItemId: "home-repeat-story", score: 8 },
+      { newsItemId: "recently-read-topic", score: 8 },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-unseen-story",
+      "home-repeat-story",
+      "recently-read-topic",
+    ]);
+    expect(feed[1]?.matchedSignals).not.toContain("collaborative_feedback");
+    expect(feed[2]?.matchedSignals).not.toContain("collaborative_feedback");
+  });
 });
 
 describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
@@ -1864,6 +1903,122 @@ describe("selectReaderFreshNewsFeed", () => {
 });
 
 describe("selectExposureBalancedNewsFeed", () => {
+  test("keeps home exposure from cooling adjacent topic and source follow-ups", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-source-follow-up",
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+    const homeExposure = [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        surface: "home" as const,
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, homeExposure);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-source-follow-up",
+      "fresh-market-angle",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("exposure_cooldown");
+  });
+
+  test("moves repeated home exposure URLs behind fresh angles", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-card-repeat",
+        canonicalUrl: "https://example.com/openai-model",
+        originalUrl: "https://example.com/openai-model?utm=feed",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+    const homeExposure = [
+      {
+        canonicalUrl: "https://example.com/openai-model",
+        category: "research",
+        entities: ["Benchmarks"],
+        originalUrl: "https://example.com/openai-model",
+        sourceSlug: "research-lab",
+        surface: "home" as const,
+        tags: ["evaluations"],
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, homeExposure);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "same-card-repeat",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("home_exposure_cooldown");
+    expect(feed[1]?.matchedSignals).not.toContain("exposure_cooldown");
+  });
+
+  test("keeps shallow article opens from cooling adjacent topic and source follow-ups", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-source-follow-up",
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        readPercent: 0.2,
+        sourceSlug: "openai-news",
+        surface: "article",
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-source-follow-up",
+      "fresh-market-angle",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("exposure_cooldown");
+  });
+
   test("moves candidates matching recent reading exposure behind fresh angles", () => {
     const ranked = [
       {

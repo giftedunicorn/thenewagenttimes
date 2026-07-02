@@ -12096,6 +12096,41 @@ describe("selectSessionIntentNewsHomeItems", () => {
     expect(feed[0]?.matchedSignals).toEqual(["category"]);
     expect(feed[1]?.matchedSignals).toEqual([]);
   });
+
+  it("does not apply the session intent boost twice to server-ranked stories", () => {
+    const feed = selectSessionIntentNewsHomeItems({
+      intent: {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+      items: [
+        {
+          ...olderItem,
+          id: "server-ranked-agent-story",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: ["session_intent"],
+          personalizedScore: 134,
+          tags: ["agents"],
+          title: "LangChain agent runtime adds workflow memory",
+        },
+        {
+          ...localItem,
+          id: "high-profile-model",
+          matchedSignals: [],
+          personalizedScore: 132,
+          title: "OpenAI ships a model refresh",
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "server-ranked-agent-story",
+      "high-profile-model",
+    ]);
+    expect(feed[0]?.personalizedScore).toBe(134);
+  });
 });
 
 describe("selectNewsHomeExposureRecords", () => {
@@ -12960,6 +12995,18 @@ describe("getNewsRecommendationReasons", () => {
     ).toEqual(["Popular with similar readers"]);
   });
 
+  it("explains source corroboration across independent coverage", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 119,
+        },
+      }),
+    ).toEqual(["Corroborated by multiple sources"]);
+  });
+
   it("explains current session intent from search or active filters", () => {
     expect(
       getNewsRecommendationReasons({
@@ -13138,6 +13185,26 @@ describe("getNewsStoryRankDetails", () => {
       summary:
         "Lifted by recent saves, shares, and deep reads from similar readers, with fresh publication timing and source credibility.",
       scoreLabel: "119 score",
+    });
+  });
+
+  it("explains source corroboration as independent coverage", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 121,
+          sourceScore: 84,
+          trendScore: 66,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Corroborated by multiple sources", "Fresh", "Strong source"],
+      summary:
+        "Lifted because independent sources are covering the same development, with fresh publication timing and source credibility.",
+      scoreLabel: "121 score",
     });
   });
 

@@ -13890,8 +13890,10 @@ const getSessionIntentBoost = ({
   item,
 }: {
   intent: NewsSessionIntentFilter;
-  item: NewsHomeItem;
+  item: RankedNewsItem<NewsHomeItem>;
 }) => {
+  if (item.matchedSignals.includes(newsSessionIntentSignal)) return 0;
+
   let boost = 0;
 
   if (intent.category && item.category === intent.category) boost += 14;
@@ -14572,6 +14574,7 @@ const recommendationReasonLabels = {
   semantic_feedback: "Similar to stories you engaged with",
   session_intent: "Current session intent",
   source: "Trusted source",
+  source_corroboration: "Corroborated by multiple sources",
   entity: "Followed entity",
   tag: "Preferred angle",
 } as const;
@@ -14661,6 +14664,9 @@ export const getNewsStoryRankDetails = ({
   const isSessionIntent = item.matchedSignals.includes("session_intent");
   const isCollaborativeFeedback = item.matchedSignals.includes(
     "collaborative_feedback",
+  );
+  const isSourceCorroborated = item.matchedSignals.includes(
+    "source_corroboration",
   );
   const hasHighHeat = item.trendScore >= 70;
   const hasFreshness = isRecentlyPublished(item.publishedAt, now);
@@ -14811,6 +14817,16 @@ export const getNewsStoryRankDetails = ({
       summary: supportText
         ? `Ranked by the topic, source, or search intent active in this session, with ${supportText}.`
         : "Ranked by the topic, source, or search intent active in this session.",
+    };
+  }
+
+  if (isSourceCorroborated) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Lifted because independent sources are covering the same development, with ${supportText}.`
+        : "Lifted because independent sources are covering the same development.",
     };
   }
 

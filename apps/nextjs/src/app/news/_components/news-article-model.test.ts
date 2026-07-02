@@ -798,17 +798,18 @@ describe("getNewsArticleLearningImpact", () => {
         {
           action: "save",
           biasLabel: "+0.6 bias",
-          detail: "Save would add OpenAI News as a source preference.",
+          detail:
+            "Save would add OpenAI News, model, agent to the reader profile.",
           label: "Save",
-          signalLabel: "+1 signal",
+          signalLabel: "+3 signals",
         },
         {
           action: "share",
           biasLabel: "+0.9 bias",
           detail:
-            "Share would add OpenAI News and push freshness and novelty harder.",
+            "Share would add OpenAI News, model, agent and push freshness and novelty harder.",
           label: "Share",
-          signalLabel: "+1 signal",
+          signalLabel: "+3 signals",
         },
         {
           action: "hide",
@@ -822,7 +823,7 @@ describe("getNewsArticleLearningImpact", () => {
       label: "Learning Active",
       metrics: [
         { label: "Article memory", value: "3" },
-        { label: "Save adds", value: "+1" },
+        { label: "Save adds", value: "+3" },
         { label: "Less removes", value: "-3" },
         { label: "Next candidates", value: "2" },
       ],
@@ -866,7 +867,7 @@ describe("getNewsArticleLearningImpact", () => {
           action: "view",
           biasLabel: "+0.3 bias",
           detail:
-            "Read would start a new Models memory; entity memory waits for a deeper read.",
+            "Read would start a new Models memory; entity and angle memory wait for a deeper read.",
           label: "Read",
           signalLabel: "+1 signal",
         },
@@ -874,17 +875,17 @@ describe("getNewsArticleLearningImpact", () => {
           action: "save",
           biasLabel: "+0.6 bias",
           detail:
-            "Save would add Models, OpenAI News, OpenAI, Agents to the reader profile.",
+            "Save would add Models, OpenAI News, OpenAI, Agents, model, agent to the reader profile.",
           label: "Save",
-          signalLabel: "+4 signals",
+          signalLabel: "+6 signals",
         },
         {
           action: "share",
           biasLabel: "+0.9 bias",
           detail:
-            "Share would add Models, OpenAI News, OpenAI, Agents and push freshness and novelty harder.",
+            "Share would add Models, OpenAI News, OpenAI, Agents, model, agent and push freshness and novelty harder.",
           label: "Share",
-          signalLabel: "+4 signals",
+          signalLabel: "+6 signals",
         },
         {
           action: "hide",
@@ -897,7 +898,7 @@ describe("getNewsArticleLearningImpact", () => {
       label: "Learning Ready",
       metrics: [
         { label: "Article memory", value: "0" },
-        { label: "Save adds", value: "+4" },
+        { label: "Save adds", value: "+6" },
         { label: "Less removes", value: "0" },
         { label: "Next candidates", value: "0" },
       ],

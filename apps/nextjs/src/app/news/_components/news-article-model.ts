@@ -870,7 +870,7 @@ type ArticleLearningAction = Extract<
 
 interface ArticleLearningSignal {
   key: string;
-  kind: "category" | "entity" | "source";
+  kind: "category" | "entity" | "source" | "tag";
   label: string;
 }
 
@@ -909,6 +909,11 @@ const getArticleLearningSignals = ({
     key: `entity:${normalizeValue(entity)}`,
     kind: "entity" as const,
     label: entity,
+  })),
+  ...getUniqueValues(article.tags, 6).map((tag) => ({
+    key: `entity:${normalizeValue(tag)}`,
+    kind: "tag" as const,
+    label: tag,
   })),
 ];
 
@@ -1021,11 +1026,23 @@ const getLearningActionDetail = ({
       return `Read memory is active for ${formatLearningSignalList(activeSignals)}.`;
     }
 
-    if (
+    const waitsForEntityMemory =
       article.entities.length > 0 &&
-      !addedSignals.some((signal) => signal.kind === "entity")
-    ) {
+      !addedSignals.some((signal) => signal.kind === "entity");
+    const waitsForAngleMemory =
+      article.tags.length > 0 &&
+      !addedSignals.some((signal) => signal.kind === "tag");
+
+    if (waitsForEntityMemory && waitsForAngleMemory) {
+      return `Read would start a new ${topicLabel} memory; entity and angle memory wait for a deeper read.`;
+    }
+
+    if (waitsForEntityMemory) {
       return `Read would start a new ${topicLabel} memory; entity memory waits for a deeper read.`;
+    }
+
+    if (waitsForAngleMemory) {
+      return `Read would start a new ${topicLabel} memory; angle memory waits for a deeper read.`;
     }
 
     return `Read would start a new ${topicLabel} memory.`;

@@ -151,12 +151,13 @@ const paragraphsFromArticle = (article: NewsArticleItem) => {
 export function NewsArticle({ article, related }: NewsArticleProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [profile, setProfile] =
-    useState<NewsPreferenceProfile>(readStoredProfile);
+  const [profile, setProfile] = useState<NewsPreferenceProfile>(
+    createDefaultNewsPreferenceProfile,
+  );
   const [feedbackLoop, setFeedbackLoop] = useState<ReturnType<
     typeof getNewsArticleFeedbackLoop
   > | null>(null);
-  const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
+  const [visitorKey, setVisitorKey] = useState<string | null>(null);
   const recordedDeepReadRef = useRef(false);
   const canPersistReaderSignals = shouldPersistNewsArticleReaderSignals({
     articleId: article.id,
@@ -182,6 +183,11 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       },
     }),
   );
+
+  useEffect(() => {
+    setProfile(readStoredProfile());
+    setVisitorKey(readOrCreateVisitorKey());
+  }, []);
 
   useEffect(() => {
     if (!profileQuery.data?.persisted) return;

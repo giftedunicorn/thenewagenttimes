@@ -1233,7 +1233,13 @@ export function NewsHome({
     items: rankedItems,
     limit: 3,
   });
-  const readingQueue = getNewsPersonalizedReadingQueue({ items: rankedItems });
+  const readingQueue = getNewsPersonalizedReadingQueue({
+    formatCategory: getCategoryLabel,
+    historyItems,
+    items: rankedItems,
+    negativeFeedbackItems,
+    savedItems,
+  });
   const editionSchedule = getNewsEditionSchedule({ items: rankedItems });
   const editionMix = getNewsEditionMix({ items: rankedItems });
   const aggregationIntake = getNewsAggregationIntake({

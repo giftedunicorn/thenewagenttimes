@@ -1260,6 +1260,64 @@ describe("selectNewsForYouItems", () => {
     ]);
   });
 
+  it("cools down paraphrased cross-source stories after home exposure", () => {
+    const viewedNewsItems = [
+      {
+        canonicalUrl: "https://wire.example/openai-gpt5-agents",
+        category: "model_release",
+        entities: ["OpenAI"],
+        originalUrl: "https://wire.example/openai-gpt5-agents?utm=feed",
+        sourceSlug: "wire",
+        surface: "home",
+        title: "OpenAI releases GPT-5 for agent workflows",
+      },
+    ];
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      hiddenNewsItems: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "official-gpt5-launch",
+          title: "GPT-5 arrives as OpenAI agent workflow tools",
+          canonicalUrl: "https://openai.com/news/gpt5-agent-workflow-tools",
+          originalUrl: "https://openai.com/news/gpt5-agent-workflow-tools",
+          sourceSlug: "openai-news",
+          sourceScore: 96,
+          trendScore: 96,
+        },
+        {
+          ...baseNewsItem,
+          id: "fresh-voice-model",
+          title: "OpenAI updates GPT-4o voice model",
+          canonicalUrl: "https://openai.com/news/gpt4o-voice-model",
+          originalUrl: "https://openai.com/news/gpt4o-voice-model",
+          sourceSlug: "openai-news",
+          sourceScore: 94,
+          trendScore: 82,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T09:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      viewedNewsItemIds: [],
+      viewedNewsItems,
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-voice-model",
+      "official-gpt5-launch",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("home_exposure_cooldown");
+  });
+
   it("cools down server recommendations matching recent reading exposure", () => {
     const feed = selectNewsForYouItems({
       hiddenNewsItemIds: [],

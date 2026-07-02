@@ -855,6 +855,7 @@ export const newsRouter = {
                 originalUrl: NewsItem.originalUrl,
                 sourceSlug: NewsSource.slug,
                 tags: NewsItem.tags,
+                title: NewsItem.title,
               })
               .from(NewsReaderInteraction)
               .innerJoin(
@@ -955,6 +956,7 @@ export const newsRouter = {
               sourceSlug: row.sourceSlug,
               surface: metadata.success ? metadata.data.surface : undefined,
               tags: row.tags,
+              title: row.title,
             };
           });
         }

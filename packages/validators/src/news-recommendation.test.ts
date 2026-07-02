@@ -400,6 +400,42 @@ describe("filterBlockedNewsItems", () => {
 
     expect(filtered.map((item) => item.id)).toEqual(["policy-same-title"]);
   });
+
+  test("removes paraphrased cross-source hidden story variants", () => {
+    const filtered = filterBlockedNewsItems(
+      [
+        {
+          ...items[0],
+          id: "official-gpt5-launch",
+          title: "GPT-5 arrives as OpenAI agent workflow tools",
+          canonicalUrl: "https://openai.com/news/gpt5-agent-workflow-tools",
+          originalUrl: "https://openai.com/news/gpt5-agent-workflow-tools",
+          sourceSlug: "openai-news",
+        },
+        {
+          ...items[0],
+          id: "openai-voice-model",
+          title: "OpenAI updates GPT-4o voice model",
+          canonicalUrl: "https://openai.com/news/gpt4o-voice-model",
+          originalUrl: "https://openai.com/news/gpt4o-voice-model",
+          sourceSlug: "openai-news",
+        },
+      ],
+      ["hidden-wire-gpt5-launch"],
+      [
+        {
+          ...items[0],
+          id: "hidden-wire-gpt5-launch",
+          title: "OpenAI releases GPT-5 for agent workflows",
+          canonicalUrl: "https://wire.example/openai-gpt5-agents",
+          originalUrl: "https://wire.example/openai-gpt5-agents?utm=feed",
+          sourceSlug: "wire",
+        },
+      ],
+    );
+
+    expect(filtered.map((item) => item.id)).toEqual(["openai-voice-model"]);
+  });
 });
 
 describe("dedupeNewsItems", () => {
@@ -534,6 +570,46 @@ describe("dedupeNewsItems", () => {
     expect(deduped.map((item) => item.id)).toEqual([
       "official-version",
       "policy-version",
+    ]);
+  });
+
+  test("collapses paraphrased cross-source AI launch headlines with shared entity and topic tokens", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "wire-gpt5-launch",
+        title: "OpenAI releases GPT-5 for agent workflows",
+        canonicalUrl: "https://wire.example/openai-gpt5-agents",
+        originalUrl: "https://wire.example/openai-gpt5-agents?utm=feed",
+        sourceSlug: "wire",
+        sourceScore: 82,
+        trendScore: 94,
+      },
+      {
+        ...items[0],
+        id: "official-gpt5-launch",
+        title: "GPT-5 arrives as OpenAI agent workflow tools",
+        canonicalUrl: "https://openai.com/news/gpt5-agent-workflow-tools",
+        originalUrl: "https://openai.com/news/gpt5-agent-workflow-tools",
+        sourceSlug: "openai-news",
+        sourceScore: 96,
+        trendScore: 88,
+      },
+      {
+        ...items[0],
+        id: "openai-voice-model",
+        title: "OpenAI updates GPT-4o voice model",
+        canonicalUrl: "https://openai.com/news/gpt4o-voice-model",
+        originalUrl: "https://openai.com/news/gpt4o-voice-model",
+        sourceSlug: "openai-news",
+        sourceScore: 94,
+        trendScore: 82,
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "official-gpt5-launch",
+      "openai-voice-model",
     ]);
   });
 

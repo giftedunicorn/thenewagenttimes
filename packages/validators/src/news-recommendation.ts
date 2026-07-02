@@ -270,10 +270,17 @@ export const filterHiddenNewsItems = <TItem extends NewsIdentity>(
 
 export type DedupeNewsItem = NewsUrlIdentity & {
   category: string;
+  entities?: readonly string[];
   publishedAt: string;
+  sourceSlug?: string;
   sourceScore: number;
   title: string;
   trendScore: number;
+};
+
+type NewsFuzzyDedupeItem = Pick<DedupeNewsItem, "category" | "title"> & {
+  entities?: readonly string[];
+  sourceSlug?: string;
 };
 
 const getNewsDedupeUrlKeys = (item: NewsUrlReference) =>
@@ -370,6 +377,78 @@ const getNewsDedupeKeys = (item: DedupeNewsItem) => {
   return Array.from(new Set([...urlKeys, ...titleKeys]));
 };
 
+const normalizeNewsDedupeEntity = (entity: string) =>
+  normalizeNewsDedupeTitle(entity);
+
+const getNewsDedupeEntitySet = (item: NewsFuzzyDedupeItem) =>
+  new Set(
+    (item.entities ?? [])
+      .map(normalizeNewsDedupeEntity)
+      .filter((entity) => entity.length > 0),
+  );
+
+const setsIntersect = <TValue>(
+  left: ReadonlySet<TValue>,
+  right: ReadonlySet<TValue>,
+) => {
+  for (const value of left) {
+    if (right.has(value)) return true;
+  }
+
+  return false;
+};
+
+const getNewsDedupeTitleTokenSet = (item: NewsFuzzyDedupeItem) =>
+  new Set(getNewsDedupeTextTokens(item.title));
+
+const shouldFuzzyDedupeNewsItems = (
+  left: NewsFuzzyDedupeItem,
+  right: NewsFuzzyDedupeItem,
+) => {
+  if (
+    left.category.trim().toLowerCase() !== right.category.trim().toLowerCase()
+  ) {
+    return false;
+  }
+
+  if (
+    left.sourceSlug &&
+    right.sourceSlug &&
+    left.sourceSlug === right.sourceSlug
+  ) {
+    return false;
+  }
+
+  const leftEntities = getNewsDedupeEntitySet(left);
+  const rightEntities = getNewsDedupeEntitySet(right);
+
+  if (
+    leftEntities.size === 0 ||
+    rightEntities.size === 0 ||
+    !setsIntersect(leftEntities, rightEntities)
+  ) {
+    return false;
+  }
+
+  const leftTokens = getNewsDedupeTitleTokenSet(left);
+  const rightTokens = getNewsDedupeTitleTokenSet(right);
+  const overlapTokens = [...leftTokens].filter((token) =>
+    rightTokens.has(token),
+  );
+
+  return overlapTokens.length >= 4;
+};
+
+const doNewsDedupeKeysMatch = (left: DedupeNewsItem, right: DedupeNewsItem) => {
+  const leftKeys = getNewsDedupeKeys(left);
+  const rightKeys = new Set(getNewsDedupeKeys(right));
+
+  return leftKeys.some((key) => rightKeys.has(key));
+};
+
+const shouldDedupeNewsItems = (left: DedupeNewsItem, right: DedupeNewsItem) =>
+  doNewsDedupeKeysMatch(left, right) || shouldFuzzyDedupeNewsItems(left, right);
+
 const compareNewsDedupeStrength = (
   left: DedupeNewsItem,
   right: DedupeNewsItem,
@@ -398,8 +477,10 @@ export const dedupeNewsItems = <TItem extends DedupeNewsItem>(
 
   for (const item of items) {
     const keys = getNewsDedupeKeys(item);
-    const matchingGroups = dedupeGroups.filter((group) =>
-      keys.some((key) => group.keys.has(key)),
+    const matchingGroups = dedupeGroups.filter(
+      (group) =>
+        keys.some((key) => group.keys.has(key)) ||
+        shouldFuzzyDedupeNewsItems(item, group.item),
     );
 
     if (matchingGroups.length === 0) {
@@ -447,7 +528,10 @@ export const filterBlockedNewsItems = <TItem extends DedupeNewsItem>(
   return items.filter(
     (item) =>
       !hiddenIds.has(item.id) &&
-      getNewsDedupeKeys(item).every((key) => !hiddenDedupeKeys.has(key)),
+      getNewsDedupeKeys(item).every((key) => !hiddenDedupeKeys.has(key)) &&
+      hiddenNewsItems.every(
+        (hiddenNewsItem) => !shouldDedupeNewsItems(item, hiddenNewsItem),
+      ),
   );
 };
 
@@ -735,6 +819,7 @@ export type RecentExposureNewsItem = Pick<
     readPercent?: number;
     surface?: string;
     tags?: readonly string[];
+    title?: string;
   };
 
 export interface NewsSemanticVector {
@@ -1034,6 +1119,23 @@ const hasRecentExposureUrlMatch = (
   );
 };
 
+const hasRecentExposureFuzzyMatch = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  recentExposureItems: readonly RecentExposureNewsItem[],
+) =>
+  recentExposureItems.some((exposureItem) => {
+    const title = exposureItem.title?.trim();
+
+    if (!title) return false;
+
+    return shouldFuzzyDedupeNewsItems(item, {
+      category: exposureItem.category,
+      entities: exposureItem.entities,
+      sourceSlug: exposureItem.sourceSlug,
+      title,
+    });
+  });
+
 const getExposureCooldownMatch = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
   contentExposureSignals: ReturnType<typeof getNewsSignalSets> | null,
@@ -1042,7 +1144,8 @@ const getExposureCooldownMatch = <TItem extends RecommendableNewsItem>(
   if (
     homeExposureItems.length > 0 &&
     (hasRecentExposureIdentityMatch(item, homeExposureItems) ||
-      hasRecentExposureUrlMatch(item, homeExposureItems))
+      hasRecentExposureUrlMatch(item, homeExposureItems) ||
+      hasRecentExposureFuzzyMatch(item, homeExposureItems))
   ) {
     return "exact";
   }
@@ -1466,7 +1569,9 @@ const isBreakingNewsItem = (
   item.sourceScore >= 85 &&
   item.trendScore >= 90 &&
   hoursSince(item.publishedAt, now) <= 6 &&
-  !item.matchedSignals.includes("negative_feedback");
+  !item.matchedSignals.includes("negative_feedback") &&
+  !item.matchedSignals.includes("exposure_cooldown") &&
+  !item.matchedSignals.includes("home_exposure_cooldown");
 
 export const selectBreakingNewsPriorityFeed = <
   TItem extends RecommendableNewsItem,

@@ -792,6 +792,7 @@ export const newsRouter = {
                 canonicalUrl: NewsItem.canonicalUrl,
                 category: NewsItem.category,
                 entities: NewsItem.entities,
+                metadata: NewsReaderInteraction.metadata,
                 newsItemId: NewsReaderInteraction.newsItemId,
                 occurredAt: NewsReaderInteraction.occurredAt,
                 originalUrl: NewsItem.originalUrl,
@@ -879,15 +880,26 @@ export const newsRouter = {
             strength: getNewsSemanticFeedbackStrength(row.action),
           }));
           viewedNewsItemIds = viewedRows.map((row) => row.newsItemId);
-          viewedNewsItems = viewedRows.map((row) => ({
-            canonicalUrl: row.canonicalUrl,
-            category: row.category,
-            entities: row.entities,
-            occurredAt: row.occurredAt.toISOString(),
-            originalUrl: row.originalUrl,
-            sourceSlug: row.sourceSlug,
-            tags: row.tags,
-          }));
+          viewedNewsItems = viewedRows.map((row) => {
+            const metadata = NewsInteractionMetadataSchema.safeParse(
+              row.metadata,
+            );
+
+            return {
+              canonicalUrl: row.canonicalUrl,
+              category: row.category,
+              entities: row.entities,
+              id: row.newsItemId,
+              occurredAt: row.occurredAt.toISOString(),
+              originalUrl: row.originalUrl,
+              readPercent: metadata.success
+                ? metadata.data.readPercent
+                : undefined,
+              sourceSlug: row.sourceSlug,
+              surface: metadata.success ? metadata.data.surface : undefined,
+              tags: row.tags,
+            };
+          });
         }
       }
 

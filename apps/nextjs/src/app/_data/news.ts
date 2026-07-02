@@ -27,6 +27,15 @@ export interface NewsArticleItem extends NewsHomeItem {
   collectedAt: string;
 }
 
+export const buildRelatedNewsCondition = ({
+  article,
+  articleId,
+}: {
+  article: Pick<NewsHomeItem, "category" | "entities" | "tags">;
+  articleId: string;
+}) =>
+  sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${articleId} and (${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${article.entities} or ${NewsItem.tags} && ${article.tags})`;
+
 interface NewsHomeData {
   items: NewsHomeItem[];
   status: NewsHomeStatus;
@@ -206,9 +215,7 @@ export const getNewsArticleData = async (
       })
       .from(NewsItem)
       .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-      .where(
-        sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${id} and (${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${article.entities})`,
-      )
+      .where(buildRelatedNewsCondition({ article, articleId: id }))
       .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
       .limit(24);
 

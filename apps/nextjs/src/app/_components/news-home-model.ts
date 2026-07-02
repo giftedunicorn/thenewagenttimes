@@ -4740,8 +4740,14 @@ export const getNewsHotBoard = ({
   };
 };
 
-type NewsSearchTrendKind = "Entity" | "Topic";
+type NewsSearchTrendKind = "Entity" | "Source" | "Topic";
 type NewsSearchTrendLabel = "Market Search" | "Reader Search" | "Rising Search";
+
+const newsSearchTrendKindRank = {
+  Entity: 0,
+  Source: 1,
+  Topic: 2,
+} satisfies Record<NewsSearchTrendKind, number>;
 
 interface NewsSearchTrendWorking {
   firstIndex: number;
@@ -4943,6 +4949,19 @@ export const getNewsSearchTrends = ({
       store: trends,
     });
 
+    upsertNewsSearchTrend({
+      firstIndex: index,
+      isReaderMatch: hasPreferenceSignal(
+        normalizedProfile.preferredSources,
+        item.sourceSlug,
+      ),
+      item,
+      key: `source:${normalizePreferenceSignal(item.sourceSlug)}`,
+      kind: "Source",
+      query: item.sourceName,
+      store: trends,
+    });
+
     for (const entity of getUniqueSignals(item.entities, 8)) {
       upsertNewsSearchTrend({
         firstIndex: index,
@@ -4977,7 +4996,10 @@ export const getNewsSearchTrends = ({
       }
 
       if (left.kind !== right.kind) {
-        return left.kind === "Entity" ? -1 : 1;
+        return (
+          newsSearchTrendKindRank[left.kind] -
+          newsSearchTrendKindRank[right.kind]
+        );
       }
 
       return left.firstIndex - right.firstIndex;
@@ -14163,6 +14185,35 @@ export const mergeNewsHomeItems = ({
   nextItems: readonly NewsHomeItem[];
 }) => dedupeNewsItems([...currentItems, ...nextItems]);
 
+const countSharedRelatedSignals = (
+  articleSignals: readonly string[],
+  itemSignals: readonly string[],
+) => {
+  const articleSignalSet = new Set(
+    articleSignals.map(normalizePreferenceSignal),
+  );
+
+  return itemSignals.filter((signal) =>
+    articleSignalSet.has(normalizePreferenceSignal(signal)),
+  ).length;
+};
+
+const getRelatedNewsScore = ({
+  article,
+  item,
+}: {
+  article: NewsHomeItem;
+  item: NewsHomeItem;
+}) =>
+  countSharedRelatedSignals(article.entities, item.entities) * 44 +
+  countSharedRelatedSignals(article.tags, item.tags) * 36 +
+  (normalizePreferenceSignal(article.category) ===
+  normalizePreferenceSignal(item.category)
+    ? 14
+    : 0) +
+  Math.round(item.sourceScore / 12) +
+  Math.round(item.trendScore / 18);
+
 export const selectRelatedNewsHomeItems = ({
   article,
   limit,
@@ -14172,9 +14223,28 @@ export const selectRelatedNewsHomeItems = ({
   limit: number;
   relatedItems: readonly NewsHomeItem[];
 }) =>
-  dedupeNewsItems(
-    filterBlockedNewsItems(relatedItems, [article.id], [article]),
-  ).slice(0, limit);
+  dedupeNewsItems(filterBlockedNewsItems(relatedItems, [article.id], [article]))
+    .sort((left, right) => {
+      const scoreDelta =
+        getRelatedNewsScore({ article, item: right }) -
+        getRelatedNewsScore({ article, item: left });
+
+      if (scoreDelta !== 0) return scoreDelta;
+
+      if (right.trendScore !== left.trendScore) {
+        return right.trendScore - left.trendScore;
+      }
+
+      if (right.sourceScore !== left.sourceScore) {
+        return right.sourceScore - left.sourceScore;
+      }
+
+      return (
+        new Date(right.publishedAt).getTime() -
+        new Date(left.publishedAt).getTime()
+      );
+    })
+    .slice(0, limit);
 
 export const getNextNewsHomeCursor = (items: readonly NewsHomeItem[]) => {
   const firstItem = items[0];

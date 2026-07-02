@@ -4093,9 +4093,9 @@ describe("getNewsSearchTrends", () => {
       label: "Search Trends Ready",
       metrics: [
         { label: "Queries", value: "4" },
-        { label: "Reader", value: "2" },
+        { label: "Reader", value: "3" },
         { label: "Rising", value: "1" },
-        { label: "Market", value: "1" },
+        { label: "Market", value: "0" },
       ],
       summary:
         "4 search trends connect 4 stories across reader, rising, and market demand.",
@@ -4131,6 +4131,21 @@ describe("getNewsSearchTrends", () => {
           },
         },
         {
+          key: "source:openai-news",
+          kind: "Source",
+          label: "Reader Search",
+          query: "OpenAI News",
+          reason: "Matches your profile and is rising across the edition.",
+          score: 129,
+          sourceNames: ["OpenAI News"],
+          supportLabel: "1 story / 1 source",
+          topStory: {
+            id: "local-story",
+            sourceName: "OpenAI News",
+            title: "OpenAI GPT-6 rollout drives model searches",
+          },
+        },
+        {
           key: "entity:gpt-6",
           kind: "Entity",
           label: "Rising Search",
@@ -4145,22 +4160,51 @@ describe("getNewsSearchTrends", () => {
             title: "OpenAI GPT-6 rollout drives model searches",
           },
         },
-        {
-          key: "topic:funding",
-          kind: "Topic",
-          label: "Market Search",
-          query: "Funding",
-          reason: "Market heat is strong even before reader signals appear.",
-          score: 117,
-          sourceNames: ["VentureWire"],
-          supportLabel: "1 story / 1 source",
-          topStory: {
-            id: "older-story",
-            sourceName: "VentureWire",
-            title: "Runway funding search heat jumps",
-          },
-        },
       ],
+    });
+  });
+
+  it("turns preferred sources into clickable search trends", () => {
+    expect(
+      getNewsSearchTrends({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            matchedSignals: ["source"],
+            personalizedScore: 132,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI ships a new agent runtime",
+            trendScore: 87,
+          },
+        ],
+        limit: 3,
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: ["openai-news"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }).trends,
+    ).toContainEqual({
+      key: "source:openai-news",
+      kind: "Source",
+      label: "Reader Search",
+      query: "OpenAI News",
+      reason: "Matches your profile and is rising across the edition.",
+      score: 128,
+      sourceNames: ["OpenAI News"],
+      supportLabel: "1 story / 1 source",
+      topStory: {
+        id: "local-story",
+        sourceName: "OpenAI News",
+        title: "OpenAI ships a new agent runtime",
+      },
     });
   });
 
@@ -12496,6 +12540,56 @@ describe("selectRelatedNewsHomeItems", () => {
         ],
       }).map((item) => item.id),
     ).toEqual(["official-agents-launch", "fresh-related-story"]);
+  });
+
+  it("ranks entity and angle matches before broad topic-only related stories", () => {
+    expect(
+      selectRelatedNewsHomeItems({
+        article: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["OpenAI"],
+          tags: ["agents"],
+        },
+        limit: 3,
+        relatedItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/topic-only-hot-story",
+            category: "agent_product",
+            entities: ["Anthropic"],
+            id: "topic-only-hot-story",
+            originalUrl: "https://example.com/topic-only-hot-story",
+            tags: ["enterprise"],
+            trendScore: 99,
+          },
+          {
+            ...olderItem,
+            canonicalUrl: "https://example.com/shared-entity-story",
+            category: "research",
+            entities: ["OpenAI"],
+            id: "shared-entity-story",
+            originalUrl: "https://example.com/shared-entity-story",
+            tags: ["benchmarks"],
+            trendScore: 70,
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/shared-angle-story",
+            category: "funding",
+            entities: ["Mistral"],
+            id: "shared-angle-story",
+            originalUrl: "https://example.com/shared-angle-story",
+            tags: ["agents"],
+            trendScore: 72,
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual([
+      "shared-entity-story",
+      "shared-angle-story",
+      "topic-only-hot-story",
+    ]);
   });
 });
 

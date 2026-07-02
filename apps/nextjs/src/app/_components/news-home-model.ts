@@ -2857,6 +2857,16 @@ export const getNewsReaderMemoryResetTrainingUpdate = ({
           "Local reader memory was reset; persisted saved stories, reading history, and feedback guardrails were not contacted.",
       };
 
+export const getNewsReaderMemoryResetPersistence = ({
+  canPersistProfile,
+  resetFailed = false,
+  visitorKey,
+}: {
+  canPersistProfile: boolean;
+  resetFailed?: boolean;
+  visitorKey: string | null;
+}) => Boolean(visitorKey) && canPersistProfile && !resetFailed;
+
 type NewsPreferenceStarterKind = "category" | "entity" | "source" | "tag";
 
 interface NewsPreferenceStarterSuggestion {
@@ -14361,6 +14371,7 @@ const recommendationReasonLabels = {
   discovery_slot: "Discovery slot",
   exposure_cooldown: "Fresh angle after reading",
   exploration: "Outside your usual mix",
+  negative_feedback: "Dampened by Less feedback",
   positive_feedback: "Deep read, save, share, or source-click signal",
   source: "Trusted source",
   entity: "Followed entity",
@@ -14443,12 +14454,15 @@ export const getNewsStoryRankDetails = ({
 }) => {
   const badges: string[] = [];
   const isExploration = item.matchedSignals.includes("exploration");
+  const isNegativeFeedback = item.matchedSignals.includes("negative_feedback");
   const hasHighHeat = item.trendScore >= 70;
   const hasFreshness = isRecentlyPublished(item.publishedAt, now);
   const hasStrongSource = item.sourceScore >= 80;
   const hasSourceSignal = item.matchedSignals.includes("source");
   const hasPersonalSignals =
-    item.matchedSignals.filter((signal) => signal !== "exploration").length > 0;
+    item.matchedSignals.filter(
+      (signal) => signal !== "exploration" && signal !== "negative_feedback",
+    ).length > 0;
   const includeStrongSourceSupport = hasStrongSource && !hasSourceSignal;
 
   if (mode === "latest") {
@@ -14494,6 +14508,8 @@ export const getNewsStoryRankDetails = ({
 
   if (isExploration) {
     badges.push("Outside your usual mix");
+  } else if (isNegativeFeedback) {
+    badges.push("Dampened by Less feedback");
   } else if (hasPersonalSignals) {
     badges.push(...getNewsRecommendationReasons({ item }));
   } else {
@@ -14521,6 +14537,23 @@ export const getNewsStoryRankDetails = ({
       summary: supportText
         ? `Inserted as an exploration story outside your usual mix, supported by ${supportText}.`
         : "Inserted as an exploration story outside your usual mix.",
+    };
+  }
+
+  if (isNegativeFeedback) {
+    const guardrailSupportText = getRankSupportText({
+      hasFreshness,
+      hasHighHeat: false,
+      hasStrongSource: includeStrongSourceSupport,
+      heatLabel: "story heat",
+    });
+
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: guardrailSupportText
+        ? `Dampened by your Less feedback, but still visible because of ${guardrailSupportText}.`
+        : "Dampened by your Less feedback.",
     };
   }
 

@@ -91,6 +91,7 @@ import {
   getNewsReaderJourneyMap,
   getNewsReaderLearningLoop,
   getNewsReaderMemory,
+  getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
   getNewsReaderScorecards,
@@ -455,6 +456,17 @@ export function NewsHome({
   );
   const resetReaderMemory = useMutation(
     trpc.news.resetProfile.mutationOptions({
+      onError: () => {
+        setTrainingUpdate(
+          getNewsReaderMemoryResetTrainingUpdate({
+            persisted: getNewsReaderMemoryResetPersistence({
+              canPersistProfile,
+              resetFailed: true,
+              visitorKey,
+            }),
+          }),
+        );
+      },
       onSuccess: async (serverProfile) => {
         const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
         setProfile(nextProfile);
@@ -653,7 +665,10 @@ export function NewsHome({
     setPositiveFeedbackItems([]);
     setTrainingUpdate(
       getNewsReaderMemoryResetTrainingUpdate({
-        persisted: Boolean(visitorKey && canPersistProfile),
+        persisted: getNewsReaderMemoryResetPersistence({
+          canPersistProfile,
+          visitorKey,
+        }),
       }),
     );
 

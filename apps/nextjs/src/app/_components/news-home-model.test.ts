@@ -59,6 +59,7 @@ import {
   getNewsReaderJourneyMap,
   getNewsReaderLearningLoop,
   getNewsReaderMemory,
+  getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
   getNewsReaderScorecards,
@@ -2636,6 +2637,39 @@ describe("getNewsReaderMemoryResetTrainingUpdate", () => {
       summary:
         "Local reader memory was reset; persisted saved stories, reading history, and feedback guardrails were not contacted.",
     });
+  });
+});
+
+describe("getNewsReaderMemoryResetPersistence", () => {
+  it("only treats reset feedback as persisted when server memory can be cleared", () => {
+    expect(
+      getNewsReaderMemoryResetPersistence({
+        canPersistProfile: true,
+        resetFailed: false,
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(true);
+    expect(
+      getNewsReaderMemoryResetPersistence({
+        canPersistProfile: true,
+        resetFailed: false,
+        visitorKey: null,
+      }),
+    ).toBe(false);
+    expect(
+      getNewsReaderMemoryResetPersistence({
+        canPersistProfile: false,
+        resetFailed: false,
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(false);
+    expect(
+      getNewsReaderMemoryResetPersistence({
+        canPersistProfile: true,
+        resetFailed: true,
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -12782,6 +12816,18 @@ describe("getNewsRecommendationReasons", () => {
     ).toEqual(["Deep read, save, share, or source-click signal"]);
   });
 
+  it("explains recommendations dampened by Less feedback", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 64,
+        },
+      }),
+    ).toEqual(["Dampened by Less feedback"]);
+  });
+
   it("falls back to trend and freshness reasons when no preference signals matched", () => {
     expect(
       getNewsRecommendationReasons({
@@ -12872,6 +12918,26 @@ describe("getNewsStoryRankDetails", () => {
       summary:
         "Ranked from your reader-memory signals, with fresh publication timing and source credibility.",
       scoreLabel: "126 score",
+    });
+  });
+
+  it("explains negative feedback guardrails without presenting the story as a reader match", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 58,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Dampened by Less feedback", "Fresh", "Strong source"],
+      summary:
+        "Dampened by your Less feedback, but still visible because of fresh publication timing and source credibility.",
+      scoreLabel: "58 score",
     });
   });
 

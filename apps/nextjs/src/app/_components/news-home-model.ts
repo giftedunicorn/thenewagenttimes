@@ -734,10 +734,130 @@ export const getNewsReaderDigest = ({
   };
 };
 
-type NewsReaderMemoryItem = Pick<
+export type NewsReaderMemoryItem = Pick<
   NewsHomeItem,
   "category" | "entities" | "id" | "sourceName" | "sourceSlug" | "title"
->;
+> & {
+  hiddenAt?: string;
+  occurredAt?: string;
+  savedAt?: string;
+  tags?: readonly string[];
+  viewedAt?: string;
+};
+
+const getNewsReaderMemoryTimestamp = (item: NewsReaderMemoryItem) => {
+  const timestamp = Date.parse(
+    item.viewedAt ?? item.savedAt ?? item.hiddenAt ?? item.occurredAt ?? "",
+  );
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+export const mergeNewsReaderMemoryItems = ({
+  limit = 6,
+  localItems,
+  serverItems,
+}: {
+  limit?: number;
+  localItems: readonly NewsReaderMemoryItem[];
+  serverItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const itemsById = new Map<string, NewsReaderMemoryItem>();
+
+  for (const item of [...localItems, ...serverItems]) {
+    if (!item.id || itemsById.has(item.id)) continue;
+
+    itemsById.set(item.id, item);
+  }
+
+  return Array.from(itemsById.values())
+    .sort((left, right) => {
+      const timestampDelta =
+        getNewsReaderMemoryTimestamp(right) -
+        getNewsReaderMemoryTimestamp(left);
+
+      if (timestampDelta !== 0) return timestampDelta;
+
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, limit);
+};
+
+const isStoredNewsReaderMemoryRecord = (
+  value: unknown,
+): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+export const selectStoredNewsReaderMemoryItems = (
+  value: unknown,
+): NewsReaderMemoryItem[] => {
+  if (!Array.isArray(value)) return [];
+
+  return value.flatMap((item) => {
+    if (!isStoredNewsReaderMemoryRecord(item)) return [];
+
+    const {
+      category,
+      entities,
+      hiddenAt,
+      id,
+      occurredAt,
+      savedAt,
+      sourceName,
+      sourceSlug,
+      tags,
+      title,
+      viewedAt,
+    } = item;
+
+    if (
+      typeof category !== "string" ||
+      !Array.isArray(entities) ||
+      typeof id !== "string" ||
+      !id ||
+      typeof sourceName !== "string" ||
+      typeof sourceSlug !== "string" ||
+      typeof title !== "string"
+    ) {
+      return [];
+    }
+
+    const memoryItem: NewsReaderMemoryItem = {
+      category,
+      entities: entities.filter(
+        (entity): entity is string => typeof entity === "string",
+      ),
+      id,
+      sourceName,
+      sourceSlug,
+      title,
+    };
+
+    if (typeof hiddenAt === "string") {
+      memoryItem.hiddenAt = hiddenAt;
+    }
+
+    if (typeof occurredAt === "string") {
+      memoryItem.occurredAt = occurredAt;
+    }
+
+    if (typeof savedAt === "string") {
+      memoryItem.savedAt = savedAt;
+    }
+
+    if (Array.isArray(tags)) {
+      memoryItem.tags = tags.filter(
+        (tag): tag is string => typeof tag === "string",
+      );
+    }
+
+    if (typeof viewedAt === "string") {
+      memoryItem.viewedAt = viewedAt;
+    }
+
+    return [memoryItem];
+  });
+};
 
 type NewsHomePositiveFeedbackAction = Extract<
   ReaderInteractionAction,
@@ -9589,9 +9709,9 @@ const hasNewsMemoryMatch = ({
   item,
   savedItems,
 }: {
-  historyItems: readonly NewsHomeItem[];
+  historyItems: readonly NewsReaderMemoryItem[];
   item: RankedNewsItem<NewsHomeItem>;
-  savedItems: readonly NewsHomeItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
 }) => {
   const matchers = getNewsMemoryMatchers([...historyItems, ...savedItems]);
   const category = normalizePreferenceSignal(item.category);
@@ -9621,11 +9741,11 @@ const getNewsPersonalizedPushPlacement = ({
 }: {
   cooledEntity: { label: string } | null;
   hiddenItemIds: ReadonlySet<string>;
-  historyItems: readonly NewsHomeItem[];
+  historyItems: readonly NewsReaderMemoryItem[];
   item: RankedNewsItem<NewsHomeItem>;
   negativeFeedbackItems: readonly NewsHomeItem[];
   profile: NewsPreferenceProfile;
-  savedItems: readonly NewsHomeItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
 }): {
   deliveryLabel: string;
   key: NewsPersonalizedPushQueueKey;
@@ -9749,12 +9869,12 @@ export const getNewsPersonalizedPushQueue = ({
 }: {
   formatCategory: (category: string) => string;
   hiddenItemIds: readonly string[];
-  historyItems: readonly NewsHomeItem[];
+  historyItems: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsHomeItem[];
   profile: NewsPreferenceProfile;
-  savedItems: readonly NewsHomeItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
 }) => {
   const hiddenIds = new Set(hiddenItemIds);
   const buckets = new Map<
@@ -14649,7 +14769,7 @@ export const selectNegativeFeedbackAdjustedNewsHomeItems = ({
   negativeFeedbackItems,
 }: {
   items: readonly RankedNewsItem<NewsHomeItem>[];
-  negativeFeedbackItems: readonly NewsHomeItem[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
 }) => selectNegativeFeedbackAdjustedNewsFeed(items, negativeFeedbackItems);
 
 export const selectVisibleNewsHomeItems = ({

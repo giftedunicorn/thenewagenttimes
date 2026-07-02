@@ -87,6 +87,7 @@ import {
   getPreviewNewsArticleData,
   getPreviewNewsHomeItems,
   mergeNewsHomeItems,
+  mergeNewsReaderMemoryItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectInitialNewsHomeItems,
@@ -99,6 +100,7 @@ import {
   selectRelatedNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
+  selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -1153,6 +1155,167 @@ describe("getNewsReaderMemory", () => {
       ],
       summary: "Reader memory will appear after you interact with stories.",
     });
+  });
+});
+
+describe("mergeNewsReaderMemoryItems", () => {
+  it("merges local article reads ahead of server history and removes duplicate ids", () => {
+    expect(
+      mergeNewsReaderMemoryItems({
+        limit: 3,
+        localItems: [
+          {
+            ...localItem,
+            id: "local-meaningful-read",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            viewedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            viewedAt: "2026-07-01T09:30:00.000Z",
+          },
+        ],
+        serverItems: [
+          {
+            ...serverItem,
+            viewedAt: "2026-07-01T09:00:00.000Z",
+          },
+          {
+            ...olderItem,
+            viewedAt: "2026-07-01T08:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "old-server-read",
+            viewedAt: "2026-07-01T07:00:00.000Z",
+          },
+        ],
+      }).map((item) => ({
+        id: item.id,
+        viewedAt: item.viewedAt,
+      })),
+    ).toEqual([
+      {
+        id: "local-meaningful-read",
+        viewedAt: "2026-07-01T10:00:00.000Z",
+      },
+      {
+        id: "server-story",
+        viewedAt: "2026-07-01T09:30:00.000Z",
+      },
+      {
+        id: "older-story",
+        viewedAt: "2026-07-01T08:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("merges local saved stories ahead of server saved stories", () => {
+    expect(
+      mergeNewsReaderMemoryItems({
+        limit: 2,
+        localItems: [
+          {
+            ...localItem,
+            id: "local-save",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+        serverItems: [
+          {
+            ...serverItem,
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }).map((item) => ({
+        id: item.id,
+        savedAt: item.savedAt,
+      })),
+    ).toEqual([
+      {
+        id: "local-save",
+        savedAt: "2026-07-01T11:00:00.000Z",
+      },
+      {
+        id: "server-story",
+        savedAt: "2026-07-01T10:00:00.000Z",
+      },
+    ]);
+  });
+});
+
+describe("selectStoredNewsReaderMemoryItems", () => {
+  it("keeps only valid local reader-memory entries from storage", () => {
+    expect(
+      selectStoredNewsReaderMemoryItems([
+        {
+          category: "model_release",
+          entities: ["OpenAI", 42, "Agents"],
+          id: "local-meaningful-read",
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI releases a new agent stack",
+          viewedAt: "2026-07-01T10:00:00.000Z",
+        },
+        {
+          category: "new_concept",
+          entities: ["Recommendation Engine"],
+          hiddenAt: "2026-07-01T11:00:00.000Z",
+          id: "local-guardrail",
+          sourceName: "Recommendation Desk",
+          sourceSlug: "recommendation-desk",
+          title: "Too much recommendation coverage",
+        },
+        {
+          category: "market_map",
+          entities: ["Anthropic"],
+          id: "local-save",
+          savedAt: "2026-07-01T10:30:00.000Z",
+          sourceName: "Source Desk",
+          sourceSlug: "source-desk",
+          title: "Source registry covers labs",
+        },
+        {
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "",
+          sourceName: "Broken",
+          sourceSlug: "broken",
+          title: "Missing id",
+          viewedAt: "2026-07-01T09:00:00.000Z",
+        },
+        null,
+      ]),
+    ).toEqual([
+      {
+        category: "model_release",
+        entities: ["OpenAI", "Agents"],
+        id: "local-meaningful-read",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        title: "OpenAI releases a new agent stack",
+        viewedAt: "2026-07-01T10:00:00.000Z",
+      },
+      {
+        category: "new_concept",
+        entities: ["Recommendation Engine"],
+        hiddenAt: "2026-07-01T11:00:00.000Z",
+        id: "local-guardrail",
+        sourceName: "Recommendation Desk",
+        sourceSlug: "recommendation-desk",
+        title: "Too much recommendation coverage",
+      },
+      {
+        category: "market_map",
+        entities: ["Anthropic"],
+        id: "local-save",
+        savedAt: "2026-07-01T10:30:00.000Z",
+        sourceName: "Source Desk",
+        sourceSlug: "source-desk",
+        title: "Source registry covers labs",
+      },
+    ]);
   });
 });
 

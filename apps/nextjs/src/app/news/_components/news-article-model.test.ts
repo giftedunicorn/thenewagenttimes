@@ -5,6 +5,7 @@ import {
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
   getNewsArticleLearningImpact,
+  getNewsArticleLocalHistoryItem,
   getNewsArticleNextReads,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
@@ -238,6 +239,25 @@ describe("getNewsArticleReadTrainingReceipt", () => {
         recordedMilestones: ["opened", "meaningful_read", "deep_read"],
       }).nextStep,
     ).toBe("Deep read has trained For You toward Models from OpenAI News.");
+  });
+});
+
+describe("getNewsArticleLocalHistoryItem", () => {
+  it("converts a meaningful article read into a homepage reader-memory item", () => {
+    expect(
+      getNewsArticleLocalHistoryItem({
+        article,
+        viewedAt: "2026-07-01T09:30:00.000Z",
+      }),
+    ).toEqual({
+      category: "model_release",
+      entities: ["OpenAI", "Agents"],
+      id: "article-openai-agents",
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      title: "OpenAI releases a new agent stack",
+      viewedAt: "2026-07-01T09:30:00.000Z",
+    });
   });
 });
 

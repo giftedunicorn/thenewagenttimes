@@ -8,7 +8,10 @@ import {
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
-import type { NewsServerProfileAudit } from "../../_components/news-home-model";
+import type {
+  NewsReaderMemoryItem,
+  NewsServerProfileAudit,
+} from "../../_components/news-home-model";
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import { getNewsServerProfileAuditDisplay } from "../../_components/news-home-model";
 
@@ -282,6 +285,22 @@ export const getNewsArticleReadTrainingReceipt = ({
           : "Article read training starts after the reader opens this story.",
   };
 };
+
+export const getNewsArticleLocalHistoryItem = ({
+  article,
+  viewedAt,
+}: {
+  article: NewsArticleItem;
+  viewedAt: string;
+}): NewsReaderMemoryItem => ({
+  category: article.category,
+  entities: [...article.entities],
+  id: article.id,
+  sourceName: article.sourceName,
+  sourceSlug: article.sourceSlug,
+  title: article.title,
+  viewedAt,
+});
 
 export const selectNewsArticleReadMilestone = ({
   readPercent,

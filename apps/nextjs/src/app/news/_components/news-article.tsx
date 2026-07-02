@@ -23,7 +23,9 @@ import type { NewsArticleReadMilestone } from "./news-article-model";
 import { useTRPC } from "~/trpc/react";
 import {
   createDefaultNewsPreferenceProfile,
+  mergeNewsReaderMemoryItems,
   selectHydratedNewsPreferenceProfile,
+  selectStoredNewsReaderMemoryItems,
   stripPersistedNewsPreferenceProfile,
 } from "../../_components/news-home-model";
 import {
@@ -31,6 +33,7 @@ import {
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
   getNewsArticleLearningImpact,
+  getNewsArticleLocalHistoryItem,
   getNewsArticleNextReads,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
@@ -52,6 +55,7 @@ interface NewsArticleProps {
 }
 
 const profileStorageKey = "new-ai-times-profile";
+const historyStorageKey = "new-ai-times-history";
 const visitorStorageKey = "new-ai-times-visitor-key";
 
 const categoryLabels: Record<string, string> = {
@@ -118,6 +122,42 @@ const writeStoredProfile = (profile: NewsPreferenceProfile) => {
   window.localStorage.setItem(
     profileStorageKey,
     JSON.stringify(normalizeNewsPreferenceProfile(profile)),
+  );
+};
+
+const readStoredHistoryItems = () => {
+  if (typeof window === "undefined") return [];
+
+  const stored = window.localStorage.getItem(historyStorageKey);
+  if (!stored) return [];
+
+  try {
+    return selectStoredNewsReaderMemoryItems(JSON.parse(stored) as unknown);
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredHistoryItem = ({
+  article,
+  viewedAt,
+}: {
+  article: NewsArticleItem;
+  viewedAt: string;
+}) => {
+  window.localStorage.setItem(
+    historyStorageKey,
+    JSON.stringify(
+      mergeNewsReaderMemoryItems({
+        localItems: [
+          getNewsArticleLocalHistoryItem({
+            article,
+            viewedAt,
+          }),
+        ],
+        serverItems: readStoredHistoryItems(),
+      }),
+    ),
   );
 };
 
@@ -347,6 +387,10 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             setFeedbackLoop(trainingState.feedbackLoop);
           }
           writeStoredProfile(trainingState.profile);
+          writeStoredHistoryItem({
+            article,
+            viewedAt: new Date().toISOString(),
+          });
           return trainingState.profile;
         });
       }

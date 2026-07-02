@@ -102,6 +102,10 @@ export const NewsHistoryInputSchema = NewsReaderProfileInputSchema.extend({
   limit: z.number().int().min(1).max(25).default(6),
 });
 
+export const NewsGuardrailsInputSchema = NewsReaderProfileInputSchema.extend({
+  limit: z.number().int().min(1).max(25).default(6),
+});
+
 export const NewsForYouInputSchema = NewsFeedInputSchema.extend({
   readerLocalHour: z.number().int().min(0).max(23).optional(),
   visitorKey: optionalVisitorKey,
@@ -1299,6 +1303,66 @@ export const newsRouter = {
           publishedAt: row.publishedAt.toISOString(),
           viewedAt: row.viewedAt.toISOString(),
         })),
+      ).slice(0, input.limit);
+    }),
+
+  guardrails: publicProcedure
+    .input(NewsGuardrailsInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) return [];
+
+      const rows = await ctx.db
+        .select({
+          id: NewsItem.id,
+          title: NewsItem.title,
+          summary: NewsItem.summary,
+          canonicalUrl: NewsItem.canonicalUrl,
+          imageUrl: NewsItem.imageUrl,
+          originalUrl: NewsItem.originalUrl,
+          publishedAt: NewsItem.publishedAt,
+          category: NewsItem.category,
+          tags: NewsItem.tags,
+          entities: NewsItem.entities,
+          sourceScore: NewsItem.sourceScore,
+          trendScore: NewsItem.trendScore,
+          sourceName: NewsSource.name,
+          sourceSlug: NewsSource.slug,
+          sourceType: NewsSource.sourceType,
+          hiddenAt: NewsReaderInteraction.occurredAt,
+        })
+        .from(NewsReaderInteraction)
+        .innerJoin(
+          NewsReaderProfile,
+          eq(NewsReaderInteraction.readerProfileId, NewsReaderProfile.id),
+        )
+        .innerJoin(NewsItem, eq(NewsReaderInteraction.newsItemId, NewsItem.id))
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(
+          compactConditions([
+            eq(NewsReaderProfile.readerKey, identity.readerKey),
+            eq(NewsReaderInteraction.action, "hide"),
+            eq(NewsItem.status, "published"),
+          ]),
+        )
+        .orderBy(desc(NewsReaderInteraction.occurredAt))
+        .limit(input.limit * 3);
+
+      return selectUniqueNewsCollectionItems(
+        rows.map((row) => {
+          const hiddenAt = row.hiddenAt.toISOString();
+
+          return {
+            ...row,
+            hiddenAt,
+            occurredAt: hiddenAt,
+            publishedAt: row.publishedAt.toISOString(),
+          };
+        }),
       ).slice(0, input.limit);
     }),
 

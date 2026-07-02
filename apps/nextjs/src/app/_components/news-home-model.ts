@@ -15050,6 +15050,7 @@ const newsHomeReaderMemoryResetCacheScopes = [
   "profile",
   "saved",
   "history",
+  "guardrails",
 ] as const;
 
 export const getNewsHomeReaderMemoryResetCacheScopes = () =>

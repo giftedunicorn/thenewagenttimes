@@ -524,6 +524,12 @@ export function NewsHome({
       { enabled: canPersistProfile && Boolean(visitorKey) },
     ),
   );
+  const guardrailsQuery = useQuery(
+    trpc.news.guardrails.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
   const forYouQuery = useQuery(
     trpc.news.forYou.queryOptions(
       buildNewsHomeFeedInput({
@@ -593,6 +599,10 @@ export function NewsHome({
                 return queryClient.invalidateQueries(
                   trpc.news.history.pathFilter(),
                 );
+              case "guardrails":
+                return queryClient.invalidateQueries(
+                  trpc.news.guardrails.pathFilter(),
+                );
             }
           },
         );
@@ -612,6 +622,7 @@ export function NewsHome({
           queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
           queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
           queryClient.invalidateQueries(trpc.news.history.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
         ]);
       },
     }),
@@ -620,13 +631,32 @@ export function NewsHome({
     trpc.news.recordInteraction.mutationOptions(),
   );
   const serverRecommendedItems = forYouQuery.data;
+  const serverGuardrailItems = useMemo(
+    () => guardrailsQuery.data ?? [],
+    [guardrailsQuery.data],
+  );
+  const guardrailItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        localItems: localGuardrailItems,
+        serverItems: serverGuardrailItems,
+      }),
+    [localGuardrailItems, serverGuardrailItems],
+  );
+  const effectiveHiddenItemIds = useMemo(
+    () =>
+      Array.from(
+        new Set([...hiddenItemIds, ...guardrailItems.map((item) => item.id)]),
+      ),
+    [guardrailItems, hiddenItemIds],
+  );
   const initialFeedItems = hasExploreFilters ? [] : fallbackItems;
   const baseItems = selectNewsHomeItems({
     initialItems: initialFeedItems,
     serverRecommendedItems,
   });
   const items = selectVisibleNewsHomeItems({
-    hiddenItemIds,
+    hiddenItemIds: effectiveHiddenItemIds,
     hiddenItems: negativeFeedbackItems,
     items: mergeNewsHomeItems({
       currentItems: baseItems,
@@ -948,10 +978,10 @@ export function NewsHome({
   const negativeFeedbackMemoryItems = useMemo(
     () =>
       mergeNewsReaderMemoryItems({
-        localItems: localGuardrailItems,
+        localItems: guardrailItems,
         serverItems: negativeFeedbackItems,
       }),
-    [localGuardrailItems, negativeFeedbackItems],
+    [guardrailItems, negativeFeedbackItems],
   );
   const positiveFeedbackAnchors = useMemo(
     () =>

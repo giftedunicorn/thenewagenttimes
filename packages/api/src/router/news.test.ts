@@ -13,6 +13,7 @@ import {
   getNewsReaderProfileResetIdentity,
   NewsFeedInputSchema,
   NewsForYouInputSchema,
+  NewsGuardrailsInputSchema,
   NewsHistoryInputSchema,
   NewsReaderProfileInputSchema,
   NewsRecordInteractionInputSchema,
@@ -162,6 +163,21 @@ describe("news router input contracts", () => {
 
   it("caps reading history collection page size", () => {
     const result = NewsHistoryInputSchema.safeParse({
+      limit: 26,
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("defaults guardrail feedback collection limit to a compact sidebar shelf", () => {
+    expect(
+      NewsGuardrailsInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
+    ).toBe(6);
+  });
+
+  it("caps guardrail feedback collection page size", () => {
+    const result = NewsGuardrailsInputSchema.safeParse({
       limit: 26,
       visitorKey: "visitor-test-123",
     });
@@ -359,6 +375,10 @@ describe("news router input contracts", () => {
 
   it("exposes a reset endpoint that clears persisted reader memory", () => {
     expect(newsRouter).toHaveProperty("resetProfile");
+  });
+
+  it("exposes persisted Less feedback as a guardrail memory collection", () => {
+    expect(newsRouter).toHaveProperty("guardrails");
   });
 });
 

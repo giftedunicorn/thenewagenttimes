@@ -13753,6 +13753,7 @@ describe("getNewsHomeReaderMemoryResetCacheScopes", () => {
       "profile",
       "saved",
       "history",
+      "guardrails",
     ]);
   });
 });

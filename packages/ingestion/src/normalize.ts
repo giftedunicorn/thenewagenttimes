@@ -77,6 +77,58 @@ const aiContextTokens = [
   "workflow",
 ] as const;
 
+const hotTakeTokens = [
+  "contrarian",
+  "hot take",
+  "hype",
+  "overhyped",
+  "op-ed",
+  "opinion",
+] as const;
+
+const policyTokens = [
+  "ai act",
+  "bill",
+  "congress",
+  "executive order",
+  "lawmakers",
+  "policy",
+  "regulation",
+  "regulatory",
+  "senate",
+  "white house",
+] as const;
+
+const securityTokens = [
+  "attack",
+  "cybersecurity",
+  "exploit",
+  "jailbreak",
+  "prompt injection",
+  "red team",
+  "security",
+  "vulnerability",
+] as const;
+
+const openSourceTokens = [
+  "apache license",
+  "github",
+  "mit license",
+  "open source",
+  "open-source",
+  "oss",
+] as const;
+
+const marketMapTokens = [
+  "gpu cloud",
+  "gpu clouds",
+  "infrastructure startups",
+  "landscape",
+  "market map",
+  "startup map",
+  "vendor map",
+] as const;
+
 const normalizeText = (text: string) =>
   text
     .replace(/<[^>]*>/g, " ")
@@ -145,6 +197,15 @@ export const inferNewsCategory = (input: {
   if (hasToken(text, "product hunt") || sourceSlug.includes("product-hunt")) {
     return "product_hunt";
   }
+  if (sourceSlug.includes("arxiv")) {
+    return "research";
+  }
+  if (sourceSlug.includes("github")) {
+    return "open_source";
+  }
+  if (hasAnyToken(text, hotTakeTokens)) {
+    return "hot_take";
+  }
   if (
     hasAnyToken(text, [
       "funding",
@@ -162,6 +223,18 @@ export const inferNewsCategory = (input: {
   }
   if (hasAnyToken(text, ["yc", "y combinator"]) || sourceSlug.includes("yc")) {
     return "yc_ai";
+  }
+  if (hasAnyToken(text, policyTokens) && hasAiContext(text)) {
+    return "policy";
+  }
+  if (hasAnyToken(text, securityTokens) && hasAiContext(text)) {
+    return "security";
+  }
+  if (hasAnyToken(text, openSourceTokens) && hasAiContext(text)) {
+    return "open_source";
+  }
+  if (hasAnyToken(text, marketMapTokens) && hasAiContext(text)) {
+    return "market_map";
   }
   if (
     hasAnyToken(text, ["arxiv", "paper", "benchmark", "evaluation", "research"])

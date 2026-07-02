@@ -55,6 +55,43 @@ describe("inferNewsCategory", () => {
     expect(inferNewsCategory({ text })).toBe(expectedCategory);
   });
 
+  it.each([
+    [
+      "The White House issues AI safety policy guidance for frontier models",
+      "policy",
+    ],
+    [
+      "Researchers disclose an AI agent prompt injection vulnerability",
+      "security",
+    ],
+    [
+      "Open source AI model weights ship under an Apache license on GitHub",
+      "open_source",
+    ],
+    [
+      "A new market map tracks AI infrastructure startups and GPU clouds",
+      "market_map",
+    ],
+    ["A contrarian hot take argues AI agents are overhyped", "hot_take"],
+  ])("classifies channel-specific AI coverage %s as %s", (text, expected) => {
+    expect(inferNewsCategory({ text })).toBe(expected);
+  });
+
+  it("uses source context when feed titles do not carry explicit category words", () => {
+    expect(
+      inferNewsCategory({
+        sourceSlug: "arxiv-ai-ml",
+        text: "A new transformer architecture for temporal reasoning",
+      }),
+    ).toBe("research");
+    expect(
+      inferNewsCategory({
+        sourceSlug: "github-trending-ai",
+        text: "Repository releases local model weights for developers",
+      }),
+    ).toBe("open_source");
+  });
+
   it("does not classify ordinary success language as startup funding", () => {
     expect(
       inferNewsCategory({

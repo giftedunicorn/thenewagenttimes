@@ -62,6 +62,19 @@ describe("inferNewsCategory", () => {
       }),
     ).toBe("other");
   });
+
+  it("does not classify ordinary big-tech product news as AI news", () => {
+    expect(
+      inferNewsCategory({
+        text: "Google launches a new Pixel phone camera update.",
+      }),
+    ).toBe("other");
+    expect(
+      inferNewsCategory({
+        text: "Microsoft refreshes Windows desktop wallpapers.",
+      }),
+    ).toBe("other");
+  });
 });
 
 describe("extractEntities", () => {
@@ -130,6 +143,22 @@ describe("normalizeFeedItem", () => {
     expect(result.category).toBe("research");
     expect(result.tags).toEqual(["research"]);
     expect(result.entities).toEqual([]);
+  });
+
+  it("keeps ordinary big-tech product feed items outside AI categories", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "techcrunch-ai",
+      item: {
+        title: "Google launches a new Pixel phone camera update",
+        url: "https://example.com/google-pixel-camera",
+        summary: "The phone update improves weekend sports photography.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("other");
+    expect(result.tags).toEqual(["other"]);
   });
 });
 

@@ -23,14 +23,16 @@ export interface NewsItemRefreshUpdateValues {
   language: string;
   originalUrl: string;
   publishedAt: Date;
+  sourceScore: number;
   status: NonNullable<NewsItemInput["status"]>;
   summary: string;
   tags: string[];
   title: string;
+  trendScore: number;
 }
 
 export type NewsItemRefreshDbUpdateValues = NewsItemRefreshUpdateValues & {
-  embeddingStatus: "pending";
+  embeddingStatus?: "pending";
 };
 
 export const getNewsItemRefreshUpdateValues = (
@@ -44,17 +46,22 @@ export const getNewsItemRefreshUpdateValues = (
   language: item.language ?? "en",
   originalUrl: item.originalUrl,
   publishedAt: item.publishedAt,
+  sourceScore: item.sourceScore ?? 50,
   status: item.status ?? "published",
   summary: item.summary,
   tags: item.tags ?? [],
   title: item.title,
+  trendScore: item.trendScore ?? 0,
 });
 
 export const getNewsItemRefreshDbUpdateValues = (
   item: NewsItemInput,
+  options: { resetEmbedding?: boolean } = {},
 ): NewsItemRefreshDbUpdateValues => ({
   ...getNewsItemRefreshUpdateValues(item),
-  embeddingStatus: "pending",
+  ...((options.resetEmbedding ?? true)
+    ? ({ embeddingStatus: "pending" } as const)
+    : {}),
 });
 
 const areStringArraysEqual = (
@@ -75,7 +82,20 @@ export const shouldUpdateNewsItemFromRefresh = (
   existing.imageUrl !== incoming.imageUrl ||
   existing.language !== incoming.language ||
   existing.publishedAt.getTime() !== incoming.publishedAt.getTime() ||
+  existing.sourceScore !== incoming.sourceScore ||
   existing.status !== incoming.status ||
+  existing.summary !== incoming.summary ||
+  !areStringArraysEqual(existing.tags, incoming.tags) ||
+  existing.title !== incoming.title ||
+  existing.trendScore !== incoming.trendScore;
+
+export const shouldResetNewsItemEmbeddingFromRefresh = (
+  existing: NewsItemRefreshUpdateValues,
+  incoming: NewsItemRefreshUpdateValues,
+) =>
+  existing.bodyText !== incoming.bodyText ||
+  existing.category !== incoming.category ||
+  !areStringArraysEqual(existing.entities, incoming.entities) ||
   existing.summary !== incoming.summary ||
   !areStringArraysEqual(existing.tags, incoming.tags) ||
   existing.title !== incoming.title;
@@ -108,6 +128,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   async findSourceBySlug(slug: string) {
     const [source] = await db
       .select({
+        credibility: NewsSource.credibility,
         id: NewsSource.id,
         slug: NewsSource.slug,
         feedUrl: NewsSource.feedUrl,
@@ -160,10 +181,12 @@ export const createDbNewsRepository = (): NewsRepository => ({
         language: NewsItem.language,
         originalUrl: NewsItem.originalUrl,
         publishedAt: NewsItem.publishedAt,
+        sourceScore: NewsItem.sourceScore,
         status: NewsItem.status,
         summary: NewsItem.summary,
         tags: NewsItem.tags,
         title: NewsItem.title,
+        trendScore: NewsItem.trendScore,
       })
       .from(NewsItem)
       .where(eq(NewsItem.canonicalUrl, item.canonicalUrl))
@@ -174,9 +197,14 @@ export const createDbNewsRepository = (): NewsRepository => ({
         return "duplicate";
       }
 
+      const resetEmbedding = shouldResetNewsItemEmbeddingFromRefresh(
+        existing,
+        updateValues,
+      );
+
       await db
         .update(NewsItem)
-        .set(getNewsItemRefreshDbUpdateValues(item))
+        .set(getNewsItemRefreshDbUpdateValues(item, { resetEmbedding }))
         .where(eq(NewsItem.id, existing.id));
 
       return "updated";

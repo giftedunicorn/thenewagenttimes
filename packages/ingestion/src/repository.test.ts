@@ -4,6 +4,7 @@ import type { NewsItemInput } from "./types";
 import {
   getNewsItemRefreshDbUpdateValues,
   getNewsItemRefreshUpdateValues,
+  shouldResetNewsItemEmbeddingFromRefresh,
   shouldUpdateNewsItemFromRefresh,
 } from "./repository";
 
@@ -18,10 +19,12 @@ const newsItem = {
   originalUrl: "https://example.com/openai-agent?utm_source=rss",
   publishedAt,
   sourceId: "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0",
+  sourceScore: 95,
   status: "published",
   summary: "OpenAI shipped a new model for agentic workflows.",
   tags: ["model_release", "model", "agent"],
   title: "OpenAI releases a new agent model",
+  trendScore: 72,
 } satisfies NewsItemInput;
 
 describe("getNewsItemRefreshUpdateValues", () => {
@@ -37,10 +40,12 @@ describe("getNewsItemRefreshUpdateValues", () => {
       language: "en",
       originalUrl: "https://example.com/openai-agent?utm_source=rss",
       publishedAt,
+      sourceScore: 95,
       status: "published",
       summary: "OpenAI shipped a new model for agentic workflows.",
       tags: ["model_release", "model", "agent"],
       title: "OpenAI releases a new agent model",
+      trendScore: 72,
     });
     expect("dedupeKey" in updateValues).toBe(false);
     expect("embeddingStatus" in updateValues).toBe(false);
@@ -59,6 +64,18 @@ describe("getNewsItemRefreshDbUpdateValues", () => {
     });
     expect("dedupeKey" in updateValues).toBe(false);
     expect("sourceId" in updateValues).toBe(false);
+  });
+
+  it("keeps score-only refreshes out of the embedding queue", () => {
+    const updateValues = getNewsItemRefreshDbUpdateValues(newsItem, {
+      resetEmbedding: false,
+    });
+
+    expect("embeddingStatus" in updateValues).toBe(false);
+    expect(updateValues).toMatchObject({
+      sourceScore: 95,
+      trendScore: 72,
+    });
   });
 });
 
@@ -81,5 +98,43 @@ describe("shouldUpdateNewsItemFromRefresh", () => {
     });
 
     expect(shouldUpdateNewsItemFromRefresh(existing, incoming)).toBe(true);
+  });
+
+  it("updates when source trust or trend heat changes during refresh", () => {
+    const existing = getNewsItemRefreshUpdateValues({
+      ...newsItem,
+      sourceScore: 50,
+      trendScore: 0,
+    });
+    const incoming = getNewsItemRefreshUpdateValues(newsItem);
+
+    expect(shouldUpdateNewsItemFromRefresh(existing, incoming)).toBe(true);
+  });
+});
+
+describe("shouldResetNewsItemEmbeddingFromRefresh", () => {
+  it("does not reset embeddings when only source trust or trend heat changes", () => {
+    const existing = getNewsItemRefreshUpdateValues({
+      ...newsItem,
+      sourceScore: 50,
+      trendScore: 0,
+    });
+    const incoming = getNewsItemRefreshUpdateValues(newsItem);
+
+    expect(shouldResetNewsItemEmbeddingFromRefresh(existing, incoming)).toBe(
+      false,
+    );
+  });
+
+  it("resets embeddings when embedding input fields change", () => {
+    const existing = getNewsItemRefreshUpdateValues(newsItem);
+    const incoming = getNewsItemRefreshUpdateValues({
+      ...newsItem,
+      summary: "OpenAI shipped an updated model release for agents.",
+    });
+
+    expect(shouldResetNewsItemEmbeddingFromRefresh(existing, incoming)).toBe(
+      true,
+    );
   });
 });

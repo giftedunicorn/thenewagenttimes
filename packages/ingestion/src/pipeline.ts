@@ -1,5 +1,6 @@
 import type {
   EmbeddingProvider,
+  NewsItemInput,
   NewsRepository,
   NewsSourceInput,
 } from "./types";
@@ -37,6 +38,92 @@ export interface NewsSourceHealthSummary {
 
 const newsEditionWindowMs = 45 * 24 * 60 * 60 * 1000;
 const newsEditionFutureToleranceMs = 2 * 24 * 60 * 60 * 1000;
+const hourMs = 60 * 60 * 1000;
+
+const categoryTrendBoosts = {
+  agent_product: 9,
+  big_tech: 7,
+  funding: 8,
+  hot_take: 6,
+  market_map: 5,
+  model_release: 10,
+  musk_ai: 7,
+  new_concept: 8,
+  open_source: 7,
+  other: 3,
+  policy: 5,
+  product_hunt: 7,
+  research: 8,
+  security: 7,
+  yc_ai: 7,
+} satisfies Record<NewsItemInput["category"], number>;
+
+const clampScore = (score: number) =>
+  Math.min(Math.max(Math.round(score), 0), 100);
+
+const getFreshnessTrendScore = ({
+  now,
+  publishedAt,
+}: {
+  now: Date;
+  publishedAt: Date;
+}) => {
+  const ageHours = Math.max(
+    0,
+    (now.getTime() - publishedAt.getTime()) / hourMs,
+  );
+
+  if (ageHours <= 6) return 30;
+  if (ageHours <= 24) return 24;
+  if (ageHours <= 72) return 18;
+  if (ageHours <= 168) return 12;
+  if (ageHours <= 720) return 6;
+
+  return 2;
+};
+
+export const getIngestedNewsTrendScore = ({
+  category,
+  now,
+  publishedAt,
+  sourceScore,
+}: {
+  category: NewsItemInput["category"];
+  now: Date;
+  publishedAt: Date;
+  sourceScore: number;
+}) =>
+  clampScore(
+    sourceScore * 0.55 +
+      getFreshnessTrendScore({ now, publishedAt }) +
+      categoryTrendBoosts[category],
+  );
+
+export const applyIngestionScores = ({
+  item,
+  now,
+  sourceCredibility,
+}: {
+  item: NewsItemInput;
+  now: Date;
+  sourceCredibility: number;
+}): NewsItemInput => {
+  const sourceScore = clampScore(sourceCredibility);
+
+  return {
+    ...item,
+    sourceScore,
+    trendScore: getIngestedNewsTrendScore({
+      category: item.category,
+      now,
+      publishedAt: item.publishedAt,
+      sourceScore,
+    }),
+  };
+};
+
+const isRelevantAiNewsItem = (item: NewsItemInput) =>
+  item.category !== "other" || (item.entities?.length ?? 0) > 0;
 
 const isWithinCurrentNewsEditionWindow = ({
   now,
@@ -114,18 +201,23 @@ export const ingestRssSource = async (input: {
     let itemsUpdated = 0;
 
     for (const item of rawItems) {
-      const normalized = normalizeFeedItem({
-        sourceId: source.id,
-        sourceSlug: source.slug,
-        item,
+      const normalized = applyIngestionScores({
+        item: normalizeFeedItem({
+          sourceId: source.id,
+          sourceSlug: source.slug,
+          item,
+          now,
+        }),
         now,
+        sourceCredibility: source.credibility,
       });
 
       if (
         !isWithinCurrentNewsEditionWindow({
           now,
           publishedAt: normalized.publishedAt,
-        })
+        }) ||
+        !isRelevantAiNewsItem(normalized)
       ) {
         continue;
       }

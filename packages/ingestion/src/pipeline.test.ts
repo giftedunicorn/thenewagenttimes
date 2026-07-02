@@ -47,6 +47,7 @@ class FakeRepository implements NewsRepository {
       id: sourceId,
       slug,
       feedUrl: `https://example.com/${slug}.xml`,
+      credibility: 95,
     });
   }
 
@@ -135,6 +136,24 @@ const mixedFreshnessRssXml = `<?xml version="1.0"?>
   </channel>
 </rss>`;
 
+const mixedRelevanceRssXml = `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>OpenAI releases a new agent model</title>
+      <link>https://example.com/openai-agent</link>
+      <description>OpenAI shipped a new model for agentic workflows.</description>
+      <pubDate>Sat, 27 Jun 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Streaming service adds a sports package</title>
+      <link>https://example.com/sports-streaming</link>
+      <description>A media company updates its weekend sports bundle.</description>
+      <pubDate>Sat, 27 Jun 2026 09:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`;
+
 describe("seedSources", () => {
   it("passes initial source definitions to the repository", async () => {
     const repository = new FakeRepository();
@@ -153,6 +172,7 @@ describe("ingestRssSource", () => {
         repository,
         sourceSlug: "openai-news",
         fetchFeed: () => Promise.resolve(rssXml),
+        now: new Date("2026-07-01T12:00:00.000Z"),
       }),
     ).resolves.toEqual({
       itemsSeen: 1,
@@ -161,6 +181,8 @@ describe("ingestRssSource", () => {
     });
 
     expect(repository.upsertedItems[0]?.category).toBe("model_release");
+    expect(repository.upsertedItems[0]?.sourceScore).toBe(95);
+    expect(repository.upsertedItems[0]?.trendScore).toBeGreaterThan(0);
     expect(repository.runFinished).toEqual({
       runId: "run-1",
       status: "succeeded",
@@ -224,6 +246,27 @@ describe("ingestRssSource", () => {
       itemsUpdated: 0,
       errorMessage: undefined,
     });
+  });
+
+  it("keeps clearly non-AI RSS entries out of the current edition", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestRssSource({
+        repository,
+        sourceSlug: "techcrunch-ai",
+        fetchFeed: () => Promise.resolve(mixedRelevanceRssXml),
+        now: new Date("2026-07-01T12:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://example.com/openai-agent",
+    ]);
   });
 });
 

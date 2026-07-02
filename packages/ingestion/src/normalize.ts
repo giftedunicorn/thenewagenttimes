@@ -42,6 +42,41 @@ const knownEntities = [
   "Perplexity",
 ] as const;
 
+const bigTechTokens = [
+  "amazon",
+  "apple",
+  "google",
+  "meta",
+  "microsoft",
+  "nvidia",
+] as const;
+
+const aiContextTokens = [
+  "agent",
+  "agents",
+  "agentic",
+  "ai",
+  "artificial intelligence",
+  "automation",
+  "benchmark",
+  "copilot",
+  "deep learning",
+  "gemini",
+  "generative",
+  "gpt",
+  "llm",
+  "llms",
+  "machine learning",
+  "model",
+  "models",
+  "neural",
+  "open source",
+  "reasoning",
+  "robotics",
+  "weights",
+  "workflow",
+] as const;
+
 const normalizeText = (text: string) =>
   text
     .replace(/<[^>]*>/g, " ")
@@ -58,6 +93,8 @@ const hasToken = (text: string, token: string) =>
 
 const hasAnyToken = (text: string, tokens: readonly string[]) =>
   tokens.some((token) => hasToken(text, token));
+
+const hasAiContext = (text: string) => hasAnyToken(text, aiContextTokens);
 
 const slugText = (text: string) =>
   normalizeText(text)
@@ -142,18 +179,13 @@ export const inferNewsCategory = (input: {
   ) {
     return "new_concept";
   }
-  if (
-    hasAnyToken(text, [
-      "openai",
-      "anthropic",
-      "google",
-      "meta",
-      "microsoft",
-      "nvidia",
-      "amazon",
-      "apple",
-    ])
-  ) {
+  if (hasAnyToken(text, ["openai", "anthropic"])) {
+    if (hasAnyToken(text, ["model", "models", "release", "api"])) {
+      return "model_release";
+    }
+    return "big_tech";
+  }
+  if (hasAnyToken(text, bigTechTokens) && hasAiContext(text)) {
     if (hasAnyToken(text, ["model", "models", "release", "api"])) {
       return "model_release";
     }

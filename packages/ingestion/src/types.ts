@@ -60,6 +60,7 @@ export interface EmbeddingProvider {
 export interface NewsRepository {
   seedSources(sources: NewsSourceInput[]): Promise<{ created: number }>;
   findSourceBySlug(slug: string): Promise<{
+    credibility: number;
     id: string;
     slug: string;
     feedUrl: string | null;

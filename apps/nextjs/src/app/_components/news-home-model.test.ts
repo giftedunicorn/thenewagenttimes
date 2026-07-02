@@ -7598,6 +7598,75 @@ describe("getNewsRecommendationAudit", () => {
 });
 
 describe("getNewsRecommendationTrace", () => {
+  it("explains verified coverage and edition timing without counting them as reader profile matches", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "agent_product"
+            ? "Agents"
+            : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "verified-lead",
+          category: "model_release",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 142,
+          sourceName: "Model Wire",
+          sourceScore: 88,
+          title: "Independent sources confirm a model launch",
+          trendScore: 84,
+        },
+        {
+          ...serverItem,
+          id: "timed-briefing",
+          category: "agent_product",
+          matchedSignals: ["daypart"],
+          personalizedScore: 126,
+          sourceName: "Morning Brief",
+          title: "Agent market briefing fits the morning edition",
+        },
+      ],
+      limit: 5,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Reader matches",
+      value: "0",
+    });
+    expect(trace.metrics).toContainEqual({
+      label: "Verified",
+      value: "1",
+    });
+    expect(trace.metrics).toContainEqual({
+      label: "Timed",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail:
+        "Model Wire is lifted because independent sources are confirming the same development.",
+      label: "Verified coverage",
+      scoreLabel: "1 story",
+      title: "Independent sources confirm a model launch",
+    });
+    expect(trace.steps).toContainEqual({
+      detail: "Agents is timed for the reader's current edition context.",
+      label: "Edition timing",
+      scoreLabel: "1 story",
+      title: "Agent market briefing fits the morning edition",
+    });
+  });
+
   it("explains the lead, profile match, exploration, and guardrail decisions behind a ranked feed", () => {
     expect(
       getNewsRecommendationTrace({
@@ -7681,6 +7750,8 @@ describe("getNewsRecommendationTrace", () => {
       metrics: [
         { label: "Lead score", value: "168" },
         { label: "Reader matches", value: "2" },
+        { label: "Verified", value: "0" },
+        { label: "Timed", value: "0" },
         { label: "Exploration", value: "1" },
         { label: "Guardrails", value: "1" },
       ],
@@ -7731,6 +7802,8 @@ describe("getNewsRecommendationTrace", () => {
       metrics: [
         { label: "Lead score", value: "0" },
         { label: "Reader matches", value: "0" },
+        { label: "Verified", value: "0" },
+        { label: "Timed", value: "0" },
         { label: "Exploration", value: "0" },
         { label: "Guardrails", value: "0" },
       ],
@@ -7981,6 +8054,108 @@ describe("getNewsEditorialGuardrails", () => {
 });
 
 describe("getNewsFeedRecipe", () => {
+  it("separates verified coverage and edition timing from reader-led slices", () => {
+    const recipe = getNewsFeedRecipe({
+      items: [
+        {
+          ...localItem,
+          matchedSignals: ["category"],
+          personalizedScore: 150,
+          title: "Reader profile story",
+        },
+        {
+          ...serverItem,
+          id: "verified-coverage-story",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 136,
+          sourceName: "Model Wire",
+          title: "Independent sources confirm the model story",
+        },
+        {
+          ...olderItem,
+          id: "daypart-story",
+          matchedSignals: ["daypart"],
+          personalizedScore: 124,
+          sourceName: "Morning Brief",
+          title: "Morning briefing story",
+        },
+      ],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: ["local-source"],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      storiesPerSlice: 2,
+    });
+
+    const readerSlice = recipe.slices.find(
+      (slice) => slice.label === "Reader signals",
+    );
+    const verifiedSlice = recipe.slices.find(
+      (slice) => slice.label === "Verified coverage",
+    );
+    const timingSlice = recipe.slices.find(
+      (slice) => slice.label === "Edition timing",
+    );
+
+    expect(recipe.metrics).toContainEqual({
+      label: "Reader signals",
+      value: "1",
+    });
+    expect(recipe.metrics).toContainEqual({
+      label: "Verified coverage",
+      value: "1",
+    });
+    expect(recipe.metrics).toContainEqual({
+      label: "Edition timing",
+      value: "1",
+    });
+    expect(readerSlice).toEqual(
+      expect.objectContaining({
+        count: 1,
+        label: "Reader signals",
+        stories: [
+          {
+            id: "local-story",
+            sourceName: "Local Source",
+            title: "Reader profile story",
+          },
+        ],
+      }),
+    );
+    expect(verifiedSlice).toEqual(
+      expect.objectContaining({
+        count: 1,
+        label: "Verified coverage",
+        stories: [
+          {
+            id: "verified-coverage-story",
+            sourceName: "Model Wire",
+            title: "Independent sources confirm the model story",
+          },
+        ],
+      }),
+    );
+    expect(timingSlice).toEqual(
+      expect.objectContaining({
+        count: 1,
+        label: "Edition timing",
+        stories: [
+          {
+            id: "daypart-story",
+            sourceName: "Morning Brief",
+            title: "Morning briefing story",
+          },
+        ],
+      }),
+    );
+    expect(recipe.summary).toBe(
+      "3 stories: 1 reader-led, 1 verified coverage, and 1 edition-timed.",
+    );
+  });
+
   it("classifies the ranked feed into one primary recommendation recipe per story", () => {
     expect(
       getNewsFeedRecipe({
@@ -8047,6 +8222,8 @@ describe("getNewsFeedRecipe", () => {
       label: "Personalized Recipe",
       metrics: [
         { label: "Reader signals", value: "1" },
+        { label: "Verified coverage", value: "0" },
+        { label: "Edition timing", value: "0" },
         { label: "Exploration", value: "1" },
         { label: "Trend heat", value: "1" },
         { label: "Source trust", value: "1" },
@@ -8070,6 +8247,22 @@ describe("getNewsFeedRecipe", () => {
               title: "Profile story",
             },
           ],
+        },
+        {
+          count: 0,
+          detail:
+            "Corroborated stories surface when independent sources confirm the same development.",
+          label: "Verified coverage",
+          percentage: 0,
+          stories: [],
+        },
+        {
+          count: 0,
+          detail:
+            "Edition timing promotes stories that fit the reader's current daypart.",
+          label: "Edition timing",
+          percentage: 0,
+          stories: [],
         },
         {
           count: 1,
@@ -8143,6 +8336,8 @@ describe("getNewsFeedRecipe", () => {
       label: "Waiting",
       metrics: [
         { label: "Reader signals", value: "0" },
+        { label: "Verified coverage", value: "0" },
+        { label: "Edition timing", value: "0" },
         { label: "Exploration", value: "0" },
         { label: "Trend heat", value: "0" },
         { label: "Source trust", value: "0" },
@@ -8158,6 +8353,22 @@ describe("getNewsFeedRecipe", () => {
           count: 0,
           detail: "Profile matches are leading known-interest coverage.",
           label: "Reader signals",
+          percentage: 0,
+          stories: [],
+        },
+        {
+          count: 0,
+          detail:
+            "Corroborated stories surface when independent sources confirm the same development.",
+          label: "Verified coverage",
+          percentage: 0,
+          stories: [],
+        },
+        {
+          count: 0,
+          detail:
+            "Edition timing promotes stories that fit the reader's current daypart.",
+          label: "Edition timing",
           percentage: 0,
           stories: [],
         },

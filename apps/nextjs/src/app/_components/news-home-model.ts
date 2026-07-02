@@ -6308,11 +6308,19 @@ const getRecommendationTraceGuardSignals = ({
   return signals;
 };
 
+const nonReaderRecommendationTraceSignals = new Set([
+  "daypart",
+  "exploration",
+  "source_corroboration",
+]);
+
 const getRecommendationTraceReaderSignalCount = (
   item: RankedNewsItem<NewsHomeItem> | undefined,
 ) =>
   item
-    ? item.matchedSignals.filter((signal) => signal !== "exploration").length
+    ? item.matchedSignals.filter(
+        (signal) => !nonReaderRecommendationTraceSignals.has(signal),
+      ).length
     : 0;
 
 export const getNewsRecommendationTrace = ({
@@ -6336,6 +6344,12 @@ export const getNewsRecommendationTrace = ({
   const explorationItems = items.filter((item) =>
     item.matchedSignals.includes("exploration"),
   );
+  const verifiedCoverageItems = items.filter((item) =>
+    item.matchedSignals.includes("source_corroboration"),
+  );
+  const editionTimedItems = items.filter((item) =>
+    item.matchedSignals.includes("daypart"),
+  );
 
   if (!leadItem) {
     return {
@@ -6343,6 +6357,8 @@ export const getNewsRecommendationTrace = ({
       metrics: [
         { label: "Lead score", value: "0" },
         { label: "Reader matches", value: "0" },
+        { label: "Verified", value: "0" },
+        { label: "Timed", value: "0" },
         { label: "Exploration", value: "0" },
         { label: "Guardrails", value: "0" },
       ],
@@ -6394,6 +6410,32 @@ export const getNewsRecommendationTrace = ({
     });
   }
 
+  const [verifiedCoverageItem] = verifiedCoverageItems;
+  if (verifiedCoverageItem) {
+    steps.push({
+      detail: `${verifiedCoverageItem.sourceName} is lifted because independent sources are confirming the same development.`,
+      label: "Verified coverage",
+      scoreLabel: `${verifiedCoverageItems.length} ${
+        verifiedCoverageItems.length === 1 ? "story" : "stories"
+      }`,
+      title: verifiedCoverageItem.title,
+    });
+  }
+
+  const [editionTimedItem] = editionTimedItems;
+  if (editionTimedItem) {
+    steps.push({
+      detail: `${formatCategory(
+        editionTimedItem.category,
+      )} is timed for the reader's current edition context.`,
+      label: "Edition timing",
+      scoreLabel: `${editionTimedItems.length} ${
+        editionTimedItems.length === 1 ? "story" : "stories"
+      }`,
+      title: editionTimedItem.title,
+    });
+  }
+
   const [explorationItem] = explorationItems;
   if (explorationItem) {
     steps.push({
@@ -6434,6 +6476,8 @@ export const getNewsRecommendationTrace = ({
     metrics: [
       { label: "Lead score", value: String(leadItem.personalizedScore) },
       { label: "Reader matches", value: String(leadReaderSignalCount) },
+      { label: "Verified", value: String(verifiedCoverageItems.length) },
+      { label: "Timed", value: String(editionTimedItems.length) },
       { label: "Exploration", value: String(explorationItems.length) },
       { label: "Guardrails", value: String(negativeFeedbackItems.length) },
     ],
@@ -6802,6 +6846,8 @@ export const getNewsEditorialGuardrails = ({
 
 type NewsFeedRecipeSliceLabel =
   | "Reader signals"
+  | "Verified coverage"
+  | "Edition timing"
   | "Exploration"
   | "Trend heat"
   | "Source trust"
@@ -6812,6 +6858,18 @@ const newsFeedRecipeSliceDefinitions = [
     detail: "Profile matches are leading known-interest coverage.",
     label: "Reader signals",
     summaryLabel: "reader-led",
+  },
+  {
+    detail:
+      "Corroborated stories surface when independent sources confirm the same development.",
+    label: "Verified coverage",
+    summaryLabel: "verified coverage",
+  },
+  {
+    detail:
+      "Edition timing promotes stories that fit the reader's current daypart.",
+    label: "Edition timing",
+    summaryLabel: "edition-timed",
   },
   {
     detail: "Exploration slots test coverage outside the current profile.",
@@ -6849,7 +6907,22 @@ const toNewsFeedRecipeStory = (item: RankedNewsItem<NewsHomeItem>) => ({
 const getNewsFeedRecipeSliceLabel = (
   item: RankedNewsItem<NewsHomeItem>,
 ): NewsFeedRecipeSliceLabel => {
-  if (item.matchedSignals.some((signal) => signal !== "exploration")) {
+  if (item.matchedSignals.includes("source_corroboration")) {
+    return "Verified coverage";
+  }
+
+  if (item.matchedSignals.includes("daypart")) {
+    return "Edition timing";
+  }
+
+  if (
+    item.matchedSignals.some(
+      (signal) =>
+        signal !== "exploration" &&
+        signal !== "source_corroboration" &&
+        signal !== "daypart",
+    )
+  ) {
     return "Reader signals";
   }
 

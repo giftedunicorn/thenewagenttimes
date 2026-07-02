@@ -71,6 +71,7 @@ import {
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsGuardrailShelf,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHotBoard,
   getNewsInterestDrift,
@@ -1122,6 +1123,10 @@ export function NewsHome({
     historyItems,
     profile,
     savedItems,
+  });
+  const guardrailShelf = getNewsGuardrailShelf({
+    formatCategory: getCategoryLabel,
+    guardrailItems,
   });
   const readerJourneyMap = getNewsReaderJourneyMap({
     formatCategory: getCategoryLabel,
@@ -6810,6 +6815,57 @@ export function NewsHome({
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Save stories from the front page to build a personal reading
                   queue.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Less / Guardrails</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {guardrailShelf.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {guardrailShelf.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+              {guardrailShelf.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {guardrailShelf.items.length > 0 ? (
+                guardrailShelf.items.map((item) => (
+                  <Link
+                    key={item.id}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                    href={`/news/${item.id}`}
+                  >
+                    <span className="leading-5 font-semibold">
+                      {item.title}
+                    </span>
+                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {item.sourceName} / {item.categoryLabel} / Less{" "}
+                      {item.hiddenAt ? formatTime(item.hiddenAt) : "recently"}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Less feedback will appear here after you hide stories from the
+                  front page or article view.
                 </p>
               )}
             </div>

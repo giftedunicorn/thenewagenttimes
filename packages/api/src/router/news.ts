@@ -12,6 +12,7 @@ import type {
   NewsSemanticVector,
   PositiveFeedbackNewsItem,
   RankedNewsItem,
+  ReaderInteraction,
   RecentExposureNewsItem,
   RecommendableNewsItem,
 } from "@acme/validators";
@@ -110,6 +111,12 @@ const NewsInteractionMetadataSchema = z
     exposure: z.boolean().optional(),
     exposureSlot: z.number().int().min(0).max(50).optional(),
     feedMode: NewsFeedModeSchema.optional(),
+    matchedSignals: z
+      .array(z.string().trim().min(1).max(80))
+      .max(12)
+      .optional(),
+    personalizedScore: z.number().finite().optional(),
+    rankSlot: z.number().int().min(0).max(240).optional(),
     readMilestone: NewsArticleReadMilestoneSchema.optional(),
     readPercent: z.number().min(0).max(1).optional(),
     surface: z.string().trim().min(1).max(80).optional(),
@@ -168,6 +175,18 @@ export const shouldIncludeNewsInteractionAsPositiveFeedback = ({
 
   return (metadata.readPercent ?? 0) >= 0.8;
 };
+
+export const toNewsReaderProfileInteraction = ({
+  action,
+  metadata,
+}: Pick<
+  NewsRecordInteractionInput,
+  "action" | "metadata"
+>): ReaderInteraction => ({
+  action,
+  rankSlot: metadata?.rankSlot,
+  readPercent: metadata?.readPercent,
+});
 
 const getNewsSemanticFeedbackStrength = (
   action: NewsRecordInteractionInput["action"],
@@ -264,6 +283,24 @@ const toTopSignalCounts = (
     )
     .map(({ count, key }) => ({ count, key }));
 
+const getInteractionMetadataRankSlot = (
+  metadata: NewsRecordInteractionInput["metadata"] | undefined,
+) =>
+  metadata?.surface?.trim().toLowerCase() === "home" &&
+  typeof metadata.rankSlot === "number"
+    ? metadata.rankSlot
+    : null;
+
+const getAverageHomeRankSlot = (rankSlots: readonly number[]) => {
+  if (rankSlots.length === 0) return null;
+
+  const average =
+    rankSlots.reduce((total, rankSlot) => total + rankSlot, 0) /
+    rankSlots.length;
+
+  return Math.round(average * 10) / 10;
+};
+
 const summarizeProfilePreference = ({
   ignoredSignalCount,
   positiveSignalCount,
@@ -307,13 +344,30 @@ export const summarizeNewsReaderProfileSignals = ({
 }) => {
   const categoryCounts = createSignalCounter();
   const entityCounts = createSignalCounter();
+  const feedModeCounts = createSignalCounter();
+  const matchedSignalCounts = createSignalCounter();
   const sourceCounts = createSignalCounter();
   const tagCounts = createSignalCounter();
+  const homeRankSlots: number[] = [];
   let ignoredSignalCount = 0;
   let negativeSignalCount = 0;
   let positiveSignalCount = 0;
 
   interactions.forEach((interaction, index) => {
+    if (interaction.metadata?.feedMode) {
+      addSignalCount(feedModeCounts, interaction.metadata.feedMode, index);
+    }
+
+    interaction.metadata?.matchedSignals?.forEach((signal) =>
+      addSignalCount(matchedSignalCounts, signal, index),
+    );
+
+    const rankSlot = getInteractionMetadataRankSlot(interaction.metadata);
+
+    if (rankSlot !== null) {
+      homeRankSlots.push(rankSlot);
+    }
+
     if (interaction.action === "hide") {
       negativeSignalCount += 1;
       return;
@@ -334,6 +388,7 @@ export const summarizeNewsReaderProfileSignals = ({
   });
 
   return {
+    averageHomeRankSlot: getAverageHomeRankSlot(homeRankSlots),
     ignoredSignalCount,
     negativeSignalCount,
     positiveSignalCount,
@@ -344,6 +399,8 @@ export const summarizeNewsReaderProfileSignals = ({
     }),
     topCategories: toTopSignalCounts(categoryCounts),
     topEntities: toTopSignalCounts(entityCounts),
+    topFeedModes: toTopSignalCounts(feedModeCounts),
+    topMatchedSignals: toTopSignalCounts(matchedSignalCounts),
     topSources: toTopSignalCounts(sourceCounts),
     topTags: toTopSignalCounts(tagCounts),
     trainedSignalCount: positiveSignalCount,
@@ -1279,10 +1336,7 @@ export const newsRouter = {
               ...item,
               publishedAt: item.publishedAt.toISOString(),
             },
-            {
-              action: input.action,
-              readPercent: input.metadata?.readPercent,
-            },
+            toNewsReaderProfileInteraction(input),
           )
         : currentProfile;
 

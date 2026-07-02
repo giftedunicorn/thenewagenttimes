@@ -23,6 +23,7 @@ import {
   shouldIncludeNewsInteractionInReadingHistory,
   shouldTrainNewsProfileFromInteraction,
   summarizeNewsReaderProfileSignals,
+  toNewsReaderProfileInteraction,
 } from "./news";
 
 interface SqlDebugChunk {
@@ -219,6 +220,60 @@ describe("news router input contracts", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("validates home ranking context on reader interaction metadata", () => {
+    expect(
+      NewsRecordInteractionInputSchema.parse({
+        action: "save",
+        metadata: {
+          feedMode: "for_you",
+          matchedSignals: ["category", "semantic_feedback"],
+          personalizedScore: 147,
+          rankSlot: 2,
+          surface: "home",
+        },
+        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+        visitorKey: "visitor-test-123",
+      }).metadata,
+    ).toEqual({
+      feedMode: "for_you",
+      matchedSignals: ["category", "semantic_feedback"],
+      personalizedScore: 147,
+      rankSlot: 2,
+      surface: "home",
+    });
+
+    expect(
+      NewsRecordInteractionInputSchema.safeParse({
+        action: "save",
+        metadata: {
+          rankSlot: -1,
+          surface: "home",
+        },
+        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+        visitorKey: "visitor-test-123",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("maps home rank slot metadata into reader profile training input", () => {
+    expect(
+      toNewsReaderProfileInteraction({
+        action: "save",
+        metadata: {
+          feedMode: "for_you",
+          matchedSignals: ["category"],
+          personalizedScore: 147,
+          rankSlot: 12,
+          surface: "home",
+        },
+      }),
+    ).toEqual({
+      action: "save",
+      rankSlot: 12,
+      readPercent: undefined,
+    });
   });
 
   it("rejects out-of-range home exposure slots", () => {
@@ -613,6 +668,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
         },
       }),
     ).toEqual({
+      averageHomeRankSlot: null,
       ignoredSignalCount: 0,
       negativeSignalCount: 0,
       positiveSignalCount: 3,
@@ -635,6 +691,81 @@ describe("summarizeNewsReaderProfileSignals", () => {
         { key: "agents", count: 2 },
         { key: "browser", count: 1 },
         { key: "model", count: 1 },
+      ],
+      topFeedModes: [],
+      topMatchedSignals: [],
+      trainedSignalCount: 3,
+    });
+  });
+
+  it("summarizes home ranking context from reader feedback metadata", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {
+              feedMode: "for_you",
+              matchedSignals: ["category", "semantic_feedback"],
+              personalizedScore: 147,
+              rankSlot: 0,
+              surface: "home",
+            },
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "share",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {
+              feedMode: "for_you",
+              matchedSignals: ["category"],
+              personalizedScore: 141,
+              rankSlot: 2,
+              surface: "home",
+            },
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "click_source",
+            category: "research",
+            entities: ["Benchmarks"],
+            tags: ["evals"],
+            metadata: {
+              feedMode: "latest",
+              matchedSignals: ["source"],
+              personalizedScore: 128,
+              rankSlot: 5,
+              surface: "home",
+            },
+            occurredAt: "2026-07-01T07:00:00.000Z",
+            sourceSlug: "research-lab",
+          },
+        ],
+        profile: {
+          noveltyBias: 1.5,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.2,
+        },
+      }),
+    ).toMatchObject({
+      averageHomeRankSlot: 2.3,
+      topFeedModes: [
+        { key: "for_you", count: 2 },
+        { key: "latest", count: 1 },
+      ],
+      topMatchedSignals: [
+        { key: "category", count: 2 },
+        { key: "semantic_feedback", count: 1 },
+        { key: "source", count: 1 },
       ],
       trainedSignalCount: 3,
     });
@@ -681,6 +812,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
         },
       }),
     ).toMatchObject({
+      averageHomeRankSlot: null,
       ignoredSignalCount: 2,
       negativeSignalCount: 1,
       positiveSignalCount: 0,
@@ -688,6 +820,8 @@ describe("summarizeNewsReaderProfileSignals", () => {
         "Profile is still learning; recent signals are mostly exposure or low-depth reads.",
       topCategories: [],
       topEntities: [],
+      topFeedModes: [],
+      topMatchedSignals: [],
       topSources: [],
       topTags: [],
       trainedSignalCount: 0,
@@ -711,6 +845,7 @@ describe("buildNewsReaderProfileResponse", () => {
       }),
     ).toEqual({
       audit: {
+        averageHomeRankSlot: null,
         ignoredSignalCount: 0,
         negativeSignalCount: 0,
         positiveSignalCount: 0,
@@ -718,6 +853,8 @@ describe("buildNewsReaderProfileResponse", () => {
           "Profile is still learning from the next meaningful read, save, share, or source click.",
         topCategories: [],
         topEntities: [],
+        topFeedModes: [],
+        topMatchedSignals: [],
         topSources: [],
         topTags: [],
         trainedSignalCount: 0,

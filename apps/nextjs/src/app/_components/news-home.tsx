@@ -36,6 +36,8 @@ import type {
 import { useTRPC } from "~/trpc/react";
 import {
   buildNewsHomeFeedInput,
+  buildNewsHomeInteractionMetadata,
+  buildNewsHomeReaderInteraction,
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
   getNewsAlertRouting,
@@ -592,13 +594,16 @@ export function NewsHome({
   };
 
   const recordStoryAction = (
-    item: NewsHomeItem,
+    item: RankedNewsHomeItem,
     action: ReaderInteractionAction,
+    rankSlot: number,
   ) => {
     if (shouldTrainNewsHomeProfileFromAction(action)) {
-      const nextProfile = updateReaderProfileWithInteraction(profile, item, {
-        action,
-      });
+      const nextProfile = updateReaderProfileWithInteraction(
+        profile,
+        item,
+        buildNewsHomeReaderInteraction({ action, rankSlot }),
+      );
       setProfile(nextProfile);
       writeStoredProfile(nextProfile);
       setTrainingUpdate(
@@ -639,7 +644,11 @@ export function NewsHome({
         visitorKey,
         newsItemId: item.id,
         action,
-        metadata: { surface: "home" },
+        metadata: buildNewsHomeInteractionMetadata({
+          feedMode,
+          item,
+          rankSlot,
+        }),
       });
     }
   };
@@ -1807,6 +1816,7 @@ export function NewsHome({
                 <StoryAction
                   item={leadStory}
                   isPreview={isPreview}
+                  rankSlot={0}
                   onAction={recordStoryAction}
                 />
               </div>
@@ -1815,12 +1825,13 @@ export function NewsHome({
           ) : null}
 
           <section className="grid gap-4 md:grid-cols-3">
-            {secondaryStories.map((story) => (
+            {secondaryStories.map((story, index) => (
               <StoryCard
                 key={story.id}
                 item={story}
                 isPreview={isPreview}
                 mode={feedMode}
+                rankSlot={index + 1}
                 rankedAt={rankDetailsAt}
                 onAction={recordStoryAction}
               />
@@ -2367,12 +2378,13 @@ export function NewsHome({
 
           <section className="divide-y divide-[#161616]/20 border-y border-[#161616]/35 dark:divide-[#f4f1ea]/15 dark:border-[#f4f1ea]/35">
             {streamStories.length > 0 ? (
-              streamStories.map((story) => (
+              streamStories.map((story, index) => (
                 <StoryRow
                   key={story.id}
                   item={story}
                   isPreview={isPreview}
                   mode={feedMode}
+                  rankSlot={index + 4}
                   rankedAt={rankDetailsAt}
                   onAction={recordStoryAction}
                 />
@@ -5654,6 +5666,11 @@ export function NewsHome({
                   const suggestedStory = rankedItems.find(
                     (story) => story.id === suggestion.storyId,
                   );
+                  const suggestedRankSlot = suggestedStory
+                    ? rankedItems.findIndex(
+                        (story) => story.id === suggestedStory.id,
+                      )
+                    : 0;
 
                   return (
                     <div
@@ -5680,6 +5697,7 @@ export function NewsHome({
                               ? recordStoryAction(
                                   suggestedStory,
                                   suggestion.action,
+                                  suggestedRankSlot,
                                 )
                               : undefined
                           }
@@ -6770,11 +6788,17 @@ function StoryVisual({
 function StoryAction({
   item,
   isPreview,
+  rankSlot,
   onAction,
 }: {
-  item: NewsHomeItem;
+  item: RankedNewsHomeItem;
   isPreview: boolean;
-  onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
+  rankSlot: number;
+  onAction: (
+    item: RankedNewsHomeItem,
+    action: ReaderInteractionAction,
+    rankSlot: number,
+  ) => void;
 }) {
   if (isPreview) {
     return (
@@ -6788,7 +6812,10 @@ function StoryAction({
   return (
     <div className="flex flex-wrap gap-2">
       <Button asChild className="rounded-none">
-        <Link href={`/news/${item.id}`} onClick={() => onAction(item, "view")}>
+        <Link
+          href={`/news/${item.id}`}
+          onClick={() => onAction(item, "view", rankSlot)}
+        >
           Read
         </Link>
       </Button>
@@ -6796,7 +6823,7 @@ function StoryAction({
         className="rounded-none"
         type="button"
         variant="outline"
-        onClick={() => onAction(item, "save")}
+        onClick={() => onAction(item, "save", rankSlot)}
       >
         Save
       </Button>
@@ -6804,7 +6831,7 @@ function StoryAction({
         className="rounded-none"
         type="button"
         variant="outline"
-        onClick={() => onAction(item, "share")}
+        onClick={() => onAction(item, "share", rankSlot)}
       >
         Share
       </Button>
@@ -6812,7 +6839,7 @@ function StoryAction({
         className="rounded-none"
         type="button"
         variant="outline"
-        onClick={() => onAction(item, "hide")}
+        onClick={() => onAction(item, "hide", rankSlot)}
       >
         Less
       </Button>
@@ -6820,7 +6847,7 @@ function StoryAction({
         <Button asChild className="rounded-none" variant="outline">
           <a
             href={item.canonicalUrl}
-            onClick={() => onAction(item, "click_source")}
+            onClick={() => onAction(item, "click_source", rankSlot)}
             rel="nofollow noopener noreferrer"
             target="_blank"
           >
@@ -6836,14 +6863,20 @@ function StoryCard({
   item,
   isPreview,
   mode,
+  rankSlot,
   rankedAt,
   onAction,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
   mode: NewsFeedMode;
+  rankSlot: number;
   rankedAt: Date;
-  onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
+  onAction: (
+    item: RankedNewsHomeItem,
+    action: ReaderInteractionAction,
+    rankSlot: number,
+  ) => void;
 }) {
   return (
     <article className="grid gap-3 border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]">
@@ -6857,7 +6890,12 @@ function StoryCard({
       </p>
       <RecommendationReasons item={item} mode={mode} rankedAt={rankedAt} />
       {!isPreview ? (
-        <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
+        <StoryAction
+          item={item}
+          isPreview={isPreview}
+          rankSlot={rankSlot}
+          onAction={onAction}
+        />
       ) : null}
     </article>
   );
@@ -6867,14 +6905,20 @@ function StoryRow({
   item,
   isPreview,
   mode,
+  rankSlot,
   rankedAt,
   onAction,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
   mode: NewsFeedMode;
+  rankSlot: number;
   rankedAt: Date;
-  onAction: (item: NewsHomeItem, action: ReaderInteractionAction) => void;
+  onAction: (
+    item: RankedNewsHomeItem,
+    action: ReaderInteractionAction,
+    rankSlot: number,
+  ) => void;
 }) {
   return (
     <article className="grid gap-4 py-5 md:grid-cols-[1fr_10rem_auto] md:items-start">
@@ -6899,7 +6943,12 @@ function StoryRow({
           Score {item.personalizedScore}
         </div>
       </div>
-      <StoryAction item={item} isPreview={isPreview} onAction={onAction} />
+      <StoryAction
+        item={item}
+        isPreview={isPreview}
+        rankSlot={rankSlot}
+        onAction={onAction}
+      />
     </article>
   );
 }

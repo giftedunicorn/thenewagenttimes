@@ -3,6 +3,7 @@ import type {
   NewsUrlReference,
   PositiveFeedbackNewsItem,
   RankedNewsItem,
+  ReaderInteraction,
   ReaderInteractionAction,
   RecommendableNewsItem,
 } from "@acme/validators";
@@ -41,12 +42,15 @@ export interface NewsServerProfileAuditSignal {
 }
 
 export interface NewsServerProfileAudit {
+  averageHomeRankSlot: number | null;
   ignoredSignalCount: number;
   negativeSignalCount: number;
   positiveSignalCount: number;
   summary: string;
   topCategories: readonly NewsServerProfileAuditSignal[];
   topEntities: readonly NewsServerProfileAuditSignal[];
+  topFeedModes: readonly NewsServerProfileAuditSignal[];
+  topMatchedSignals: readonly NewsServerProfileAuditSignal[];
   topSources: readonly NewsServerProfileAuditSignal[];
   topTags?: readonly NewsServerProfileAuditSignal[];
   trainedSignalCount: number;
@@ -316,6 +320,66 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
 
   return input;
 };
+
+export interface NewsHomeInteractionMetadata {
+  [key: string]: unknown;
+  feedMode: NewsFeedMode;
+  matchedSignals: string[];
+  personalizedScore: number;
+  rankSlot: number;
+  surface: "home";
+}
+
+const toNewsHomeRankSlot = (rankSlot: number) => {
+  if (!Number.isFinite(rankSlot)) return 0;
+
+  return Math.max(0, Math.trunc(rankSlot));
+};
+
+const getUniqueNewsHomeInteractionSignals = (
+  signals: readonly string[],
+): string[] => {
+  const seenSignals = new Set<string>();
+  const uniqueSignals: string[] = [];
+
+  for (const signal of signals) {
+    const trimmedSignal = signal.trim();
+
+    if (!trimmedSignal || seenSignals.has(trimmedSignal)) continue;
+
+    seenSignals.add(trimmedSignal);
+    uniqueSignals.push(trimmedSignal);
+  }
+
+  return uniqueSignals.slice(0, 12);
+};
+
+export const buildNewsHomeInteractionMetadata = ({
+  feedMode,
+  item,
+  rankSlot,
+}: {
+  feedMode: NewsFeedMode;
+  item: RankedNewsItem<NewsHomeItem>;
+  rankSlot: number;
+}): NewsHomeInteractionMetadata => ({
+  feedMode,
+  matchedSignals: getUniqueNewsHomeInteractionSignals(item.matchedSignals),
+  personalizedScore: item.personalizedScore,
+  rankSlot: toNewsHomeRankSlot(rankSlot),
+  surface: "home",
+});
+
+export const buildNewsHomeReaderInteraction = ({
+  action,
+  rankSlot,
+}: {
+  action: ReaderInteractionAction;
+  rankSlot: number;
+}): ReaderInteraction => ({
+  action,
+  rankSlot: toNewsHomeRankSlot(rankSlot),
+});
 
 export const stripPersistedNewsPreferenceProfile = (
   profile: PersistedNewsPreferenceProfile,
@@ -2612,16 +2676,25 @@ export const getNewsServerProfileAuditDisplay = (
     ...audit.topCategories.slice(0, 2),
     ...audit.topSources.slice(0, 1),
     ...(audit.topTags ?? []).slice(0, 1),
+    ...audit.topMatchedSignals.slice(0, 1),
   ].map((signal) => `${signal.key} ${signal.count}`);
+  const metrics = [
+    { label: "Trained", value: String(audit.trainedSignalCount) },
+    { label: "Ignored", value: String(audit.ignoredSignalCount) },
+    { label: "Hidden", value: String(audit.negativeSignalCount) },
+  ];
+
+  if (audit.averageHomeRankSlot !== null) {
+    metrics.push({
+      label: "Avg slot",
+      value: audit.averageHomeRankSlot.toFixed(1),
+    });
+  }
 
   return {
     chips,
     label: audit.trainedSignalCount > 0 ? "Server Learned" : "Server Waiting",
-    metrics: [
-      { label: "Trained", value: String(audit.trainedSignalCount) },
-      { label: "Ignored", value: String(audit.ignoredSignalCount) },
-      { label: "Hidden", value: String(audit.negativeSignalCount) },
-    ],
+    metrics,
     summary: audit.summary,
   };
 };

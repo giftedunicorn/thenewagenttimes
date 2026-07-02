@@ -1020,6 +1020,7 @@ describe("getNewsArticleServerProfileAuditDisplay", () => {
   it("summarizes persisted server learning for the article sidebar", () => {
     expect(
       getNewsArticleServerProfileAuditDisplay({
+        averageHomeRankSlot: null,
         ignoredSignalCount: 2,
         negativeSignalCount: 1,
         positiveSignalCount: 7,
@@ -1030,6 +1031,8 @@ describe("getNewsArticleServerProfileAuditDisplay", () => {
           { count: 2, key: "agent_product" },
         ],
         topEntities: [{ count: 5, key: "OpenAI" }],
+        topFeedModes: [],
+        topMatchedSignals: [],
         topSources: [{ count: 3, key: "openai-news" }],
         topTags: [{ count: 4, key: "agents" }],
         trainedSignalCount: 7,

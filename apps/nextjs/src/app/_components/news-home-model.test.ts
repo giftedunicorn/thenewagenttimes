@@ -4,6 +4,8 @@ import type { NewsHomeItem } from "./news-home-model";
 import {
   buildNewsDeskStatus,
   buildNewsHomeFeedInput,
+  buildNewsHomeInteractionMetadata,
+  buildNewsHomeReaderInteraction,
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
   getNewsAlertRouting,
@@ -309,6 +311,42 @@ describe("buildNewsHomeFeedInput", () => {
         visitorKey: null,
       }),
     ).toEqual({ limit: 30 });
+  });
+});
+
+describe("buildNewsHomeInteractionMetadata", () => {
+  it("keeps home ranking context with reader feedback", () => {
+    expect(
+      buildNewsHomeInteractionMetadata({
+        feedMode: "for_you",
+        item: {
+          ...localItem,
+          matchedSignals: ["category", "semantic_feedback", "category"],
+          personalizedScore: 147,
+        },
+        rankSlot: 2,
+      }),
+    ).toEqual({
+      feedMode: "for_you",
+      matchedSignals: ["category", "semantic_feedback"],
+      personalizedScore: 147,
+      rankSlot: 2,
+      surface: "home",
+    });
+  });
+});
+
+describe("buildNewsHomeReaderInteraction", () => {
+  it("keeps rank slot context for local profile training", () => {
+    expect(
+      buildNewsHomeReaderInteraction({
+        action: "save",
+        rankSlot: 7.8,
+      }),
+    ).toEqual({
+      action: "save",
+      rankSlot: 7,
+    });
   });
 });
 
@@ -2433,6 +2471,7 @@ describe("getNewsServerProfileAuditDisplay", () => {
   it("turns server profile audit data into a compact learning display", () => {
     expect(
       getNewsServerProfileAuditDisplay({
+        averageHomeRankSlot: 2.3,
         ignoredSignalCount: 2,
         negativeSignalCount: 1,
         positiveSignalCount: 3,
@@ -2445,6 +2484,14 @@ describe("getNewsServerProfileAuditDisplay", () => {
         topEntities: [
           { count: 2, key: "OpenAI" },
           { count: 1, key: "Operator" },
+        ],
+        topFeedModes: [
+          { count: 2, key: "for_you" },
+          { count: 1, key: "latest" },
+        ],
+        topMatchedSignals: [
+          { count: 2, key: "category" },
+          { count: 1, key: "semantic_feedback" },
         ],
         topSources: [{ count: 2, key: "openai-news" }],
         topTags: [
@@ -2459,12 +2506,14 @@ describe("getNewsServerProfileAuditDisplay", () => {
         "model_release 1",
         "openai-news 2",
         "agents 2",
+        "category 2",
       ],
       label: "Server Learned",
       metrics: [
         { label: "Trained", value: "3" },
         { label: "Ignored", value: "2" },
         { label: "Hidden", value: "1" },
+        { label: "Avg slot", value: "2.3" },
       ],
       summary:
         "Profile leans toward agent_product and model_release, led by openai-news and OpenAI.",

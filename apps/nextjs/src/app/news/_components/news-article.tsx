@@ -32,6 +32,7 @@ import {
   getNewsArticleLearningImpact,
   getNewsArticleNextReads,
   getNewsArticleReaderFit,
+  getNewsArticleReaderSignalCacheScopes,
   getNewsArticleReadingPath,
   getNewsArticleReadPercent,
   getNewsArticleServerProfileAuditDisplay,
@@ -169,17 +170,35 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       { enabled: canPersistReaderSignals },
     ),
   );
+  const invalidateReaderSignalQueries = async () => {
+    const invalidations = getNewsArticleReaderSignalCacheScopes().map(
+      (scope) => {
+        switch (scope) {
+          case "forYou":
+            return queryClient.invalidateQueries(trpc.news.forYou.pathFilter());
+          case "profile":
+            return queryClient.invalidateQueries(
+              trpc.news.profile.pathFilter(),
+            );
+          case "saved":
+            return queryClient.invalidateQueries(trpc.news.saved.pathFilter());
+          case "history":
+            return queryClient.invalidateQueries(
+              trpc.news.history.pathFilter(),
+            );
+        }
+      },
+    );
+
+    await Promise.all(invalidations);
+  };
   const recordInteraction = useMutation(
     trpc.news.recordInteraction.mutationOptions({
       onSuccess: async (serverProfile) => {
         const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
         setProfile(nextProfile);
         writeStoredProfile(nextProfile);
-        await Promise.all([
-          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
-          queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
-          queryClient.invalidateQueries(trpc.news.history.pathFilter()),
-        ]);
+        await invalidateReaderSignalQueries();
       },
     }),
   );

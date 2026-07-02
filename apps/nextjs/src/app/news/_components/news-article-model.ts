@@ -132,6 +132,16 @@ export const shouldPersistNewsArticleReaderSignals = ({
   visitorKey: string | null;
 }) => Boolean(visitorKey) && uuidPattern.test(articleId);
 
+const newsArticleReaderSignalCacheScopes = [
+  "forYou",
+  "profile",
+  "saved",
+  "history",
+] as const;
+
+export const getNewsArticleReaderSignalCacheScopes = () =>
+  newsArticleReaderSignalCacheScopes;
+
 export const getNewsArticleServerProfileAuditDisplay = (
   audit: NewsServerProfileAudit | undefined,
 ) => getNewsServerProfileAuditDisplay(audit);

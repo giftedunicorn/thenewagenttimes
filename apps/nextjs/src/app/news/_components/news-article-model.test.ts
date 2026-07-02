@@ -7,6 +7,7 @@ import {
   getNewsArticleLearningImpact,
   getNewsArticleNextReads,
   getNewsArticleReaderFit,
+  getNewsArticleReaderSignalCacheScopes,
   getNewsArticleReadingPath,
   getNewsArticleReadPercent,
   getNewsArticleServerProfileAuditDisplay,
@@ -126,6 +127,17 @@ describe("shouldPersistNewsArticleReaderSignals", () => {
         visitorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("getNewsArticleReaderSignalCacheScopes", () => {
+  it("refreshes the front page recommendations after article feedback changes reader memory", () => {
+    expect(getNewsArticleReaderSignalCacheScopes()).toEqual([
+      "forYou",
+      "profile",
+      "saved",
+      "history",
+    ]);
   });
 });
 

@@ -84,6 +84,7 @@ import {
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
   getNewsStoryProofStrip,
+  getNewsStoryQuickTuneActions,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
@@ -3650,6 +3651,82 @@ describe("getNewsPreferenceControlPanel", () => {
       ],
       summary:
         "Manual controls are ready. Follow topics, sources, or entities to steer For You.",
+    });
+  });
+});
+
+describe("getNewsStoryQuickTuneActions", () => {
+  it("builds story-level preference actions for unfollowed topic, source, and entity signals", () => {
+    expect(
+      getNewsStoryQuickTuneActions({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["OpenAI", "Automation"],
+          sourceName: "Agent Product Desk",
+          sourceSlug: "agent-product-desk",
+        },
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actions: [
+        {
+          actionLabel: "Follow topic",
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+        {
+          actionLabel: "Follow source",
+          kind: "source",
+          label: "Agent Product Desk",
+          signal: "agent-product-desk",
+        },
+        {
+          actionLabel: "Follow entity",
+          kind: "entity",
+          label: "Automation",
+          signal: "Automation",
+        },
+      ],
+      label: "Tune this story",
+      summary:
+        "Add topic, source, or entity signals from this story to retrain For You.",
+    });
+  });
+
+  it("keeps quick tuning quiet when the story is already covered by the profile", () => {
+    expect(
+      getNewsStoryQuickTuneActions({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Automation"],
+          sourceName: "Agent Product Desk",
+          sourceSlug: "agent-product-desk",
+        },
+        profile: {
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["Automation"],
+          preferredSources: ["agent-product-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actions: [],
+      label: "Story covered",
+      summary: "This story's main signals are already in your profile.",
     });
   });
 });

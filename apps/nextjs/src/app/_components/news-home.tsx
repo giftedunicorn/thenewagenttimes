@@ -117,6 +117,7 @@ import {
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
   getNewsStoryProofStrip,
+  getNewsStoryQuickTuneActions,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
@@ -147,6 +148,9 @@ import {
 } from "./news-home-model";
 
 type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
+type NewsStoryQuickTuneAction = ReturnType<
+  typeof getNewsStoryQuickTuneActions
+>["actions"][number];
 type PositiveNewsHomeFeedbackItem = NewsHomeItem & {
   action: Extract<ReaderInteractionAction, "click_source" | "save" | "share">;
   occurredAt: string;
@@ -827,6 +831,32 @@ export function NewsHome({
         }),
       });
     }
+  };
+
+  const applyStoryQuickTuneAction = (action: NewsStoryQuickTuneAction) => {
+    commitProfile((current) => {
+      if (action.kind === "category") {
+        return {
+          ...current,
+          preferredCategories: addValue(
+            current.preferredCategories,
+            action.signal,
+          ),
+        };
+      }
+
+      if (action.kind === "source") {
+        return {
+          ...current,
+          preferredSources: addValue(current.preferredSources, action.signal),
+        };
+      }
+
+      return {
+        ...current,
+        preferredEntities: addValue(current.preferredEntities, action.signal),
+      };
+    });
   };
 
   const applyExploreSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -2057,6 +2087,12 @@ export function NewsHome({
                     rankedAt={rankDetailsAt}
                   />
                   <StoryProofStrip className="mt-4" item={leadStory} />
+                  <StoryQuickTune
+                    className="mt-4"
+                    item={leadStory}
+                    profile={profile}
+                    onTune={applyStoryQuickTuneAction}
+                  />
                 </div>
                 <StoryAction
                   item={leadStory}
@@ -2076,8 +2112,10 @@ export function NewsHome({
                 item={story}
                 isPreview={isPreview}
                 mode={feedMode}
+                profile={profile}
                 rankSlot={index + 1}
                 rankedAt={rankDetailsAt}
+                onTune={applyStoryQuickTuneAction}
                 onAction={recordStoryAction}
               />
             ))}
@@ -2635,8 +2673,10 @@ export function NewsHome({
                   item={story}
                   isPreview={isPreview}
                   mode={feedMode}
+                  profile={profile}
                   rankSlot={index + 4}
                   rankedAt={rankDetailsAt}
+                  onTune={applyStoryQuickTuneAction}
                   onAction={recordStoryAction}
                 />
               ))
@@ -7167,6 +7207,58 @@ function StoryProofStrip({
   );
 }
 
+function StoryQuickTune({
+  item,
+  className,
+  profile,
+  onTune,
+}: {
+  item: RankedNewsHomeItem;
+  className?: string;
+  profile: NewsPreferenceProfile;
+  onTune: (action: NewsStoryQuickTuneAction) => void;
+}) {
+  const quickTune = getNewsStoryQuickTuneActions({
+    formatCategory: getCategoryLabel,
+    item,
+    profile,
+  });
+
+  if (quickTune.actions.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "grid gap-2 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15",
+        className,
+      )}
+    >
+      <div className="grid gap-1">
+        <div className="text-xs font-semibold text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+          {quickTune.label}
+        </div>
+        <p className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+          {quickTune.summary}
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {quickTune.actions.map((action) => (
+          <Button
+            key={`${action.kind}-${action.signal}`}
+            className="h-auto rounded-none px-2 py-1.5 text-left text-xs whitespace-normal"
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => onTune(action)}
+          >
+            {action.actionLabel}: {action.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StoryVisual({
   item,
   featured = false,
@@ -7286,13 +7378,16 @@ function StoryCard({
   item,
   isPreview,
   mode,
+  profile,
   rankSlot,
   rankedAt,
   onAction,
+  onTune,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
   mode: NewsFeedMode;
+  profile: NewsPreferenceProfile;
   rankSlot: number;
   rankedAt: Date;
   onAction: (
@@ -7300,6 +7395,7 @@ function StoryCard({
     action: ReaderInteractionAction,
     rankSlot: number,
   ) => void;
+  onTune: (action: NewsStoryQuickTuneAction) => void;
 }) {
   return (
     <article className="grid gap-3 border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]">
@@ -7313,6 +7409,7 @@ function StoryCard({
       </p>
       <RecommendationReasons item={item} mode={mode} rankedAt={rankedAt} />
       <StoryProofStrip item={item} />
+      <StoryQuickTune item={item} profile={profile} onTune={onTune} />
       <StoryAction
         item={item}
         isPreview={isPreview}
@@ -7327,13 +7424,16 @@ function StoryRow({
   item,
   isPreview,
   mode,
+  profile,
   rankSlot,
   rankedAt,
   onAction,
+  onTune,
 }: {
   item: RankedNewsHomeItem;
   isPreview: boolean;
   mode: NewsFeedMode;
+  profile: NewsPreferenceProfile;
   rankSlot: number;
   rankedAt: Date;
   onAction: (
@@ -7341,6 +7441,7 @@ function StoryRow({
     action: ReaderInteractionAction,
     rankSlot: number,
   ) => void;
+  onTune: (action: NewsStoryQuickTuneAction) => void;
 }) {
   return (
     <article className="grid gap-4 py-5 md:grid-cols-[1fr_10rem_auto] md:items-start">
@@ -7359,6 +7460,12 @@ function StoryRow({
           rankedAt={rankedAt}
         />
         <StoryProofStrip className="mt-3" item={item} />
+        <StoryQuickTune
+          className="mt-3"
+          item={item}
+          profile={profile}
+          onTune={onTune}
+        />
       </div>
       <div className="font-mono text-sm">
         <div>{formatTime(item.publishedAt)}</div>

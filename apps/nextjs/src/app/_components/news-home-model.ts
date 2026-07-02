@@ -3947,6 +3947,89 @@ export const getNewsPreferenceControlPanel = ({
   };
 };
 
+type NewsStoryQuickTuneActionKind = "category" | "entity" | "source";
+
+const createNewsStoryQuickTuneAction = ({
+  actionLabel,
+  kind,
+  label,
+  signal,
+}: {
+  actionLabel: string;
+  kind: NewsStoryQuickTuneActionKind;
+  label: string;
+  signal: string;
+}) => ({
+  actionLabel,
+  kind,
+  label,
+  signal,
+});
+
+export const getNewsStoryQuickTuneActions = ({
+  formatCategory,
+  item,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  item: NewsHomeItem;
+  profile: NewsPreferenceProfile;
+}) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const actions: ReturnType<typeof createNewsStoryQuickTuneAction>[] = [];
+
+  if (
+    !hasPreferenceSignal(normalizedProfile.preferredCategories, item.category)
+  ) {
+    actions.push(
+      createNewsStoryQuickTuneAction({
+        actionLabel: "Follow topic",
+        kind: "category",
+        label: formatCategory(item.category),
+        signal: item.category,
+      }),
+    );
+  }
+
+  if (
+    !hasPreferenceSignal(normalizedProfile.preferredSources, item.sourceSlug)
+  ) {
+    actions.push(
+      createNewsStoryQuickTuneAction({
+        actionLabel: "Follow source",
+        kind: "source",
+        label: item.sourceName,
+        signal: item.sourceSlug,
+      }),
+    );
+  }
+
+  const entity = item.entities.find(
+    (currentEntity) =>
+      !hasPreferenceSignal(normalizedProfile.preferredEntities, currentEntity),
+  );
+
+  if (entity) {
+    actions.push(
+      createNewsStoryQuickTuneAction({
+        actionLabel: "Follow entity",
+        kind: "entity",
+        label: entity,
+        signal: entity,
+      }),
+    );
+  }
+
+  return {
+    actions,
+    label: actions.length > 0 ? "Tune this story" : "Story covered",
+    summary:
+      actions.length > 0
+        ? "Add topic, source, or entity signals from this story to retrain For You."
+        : "This story's main signals are already in your profile.",
+  };
+};
+
 type NewsPreferencePresetSignalKind = "category" | "entity" | "source";
 
 interface NewsPreferencePresetDefinition {

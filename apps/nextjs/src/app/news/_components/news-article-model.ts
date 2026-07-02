@@ -121,6 +121,101 @@ export const shouldTrainNewsArticleProfileFromReadPercent = (
     readPercent,
   });
 
+export type NewsArticleReadMilestone =
+  | "opened"
+  | "meaningful_read"
+  | "deep_read";
+
+interface NewsArticleReadMilestoneDefinition {
+  key: NewsArticleReadMilestone;
+  minReadPercent: number;
+  shouldShowFeedback: boolean;
+}
+
+const newsArticleReadMilestones = [
+  {
+    key: "deep_read",
+    minReadPercent: 0.8,
+    shouldShowFeedback: true,
+  },
+  {
+    key: "meaningful_read",
+    minReadPercent: 0.35,
+    shouldShowFeedback: false,
+  },
+  {
+    key: "opened",
+    minReadPercent: 0.01,
+    shouldShowFeedback: false,
+  },
+] as const satisfies readonly NewsArticleReadMilestoneDefinition[];
+
+const newsArticleReadMilestoneRank = new Map<NewsArticleReadMilestone, number>(
+  newsArticleReadMilestones.map((milestone, index) => [milestone.key, index]),
+);
+
+const isNewsArticleReadMilestoneCovered = ({
+  milestone,
+  recordedMilestones,
+}: {
+  milestone: NewsArticleReadMilestone;
+  recordedMilestones: readonly NewsArticleReadMilestone[];
+}) => {
+  const milestoneRank = newsArticleReadMilestoneRank.get(milestone);
+
+  if (milestoneRank === undefined) return false;
+
+  return recordedMilestones.some((recordedMilestone) => {
+    const recordedRank = newsArticleReadMilestoneRank.get(recordedMilestone);
+
+    return recordedRank !== undefined && recordedRank <= milestoneRank;
+  });
+};
+
+export const selectNewsArticleReadMilestone = ({
+  readPercent,
+  recordedMilestones,
+}: {
+  readPercent: number;
+  recordedMilestones: readonly NewsArticleReadMilestone[];
+}) => {
+  const milestone = newsArticleReadMilestones.find(
+    (candidate) =>
+      readPercent >= candidate.minReadPercent &&
+      !isNewsArticleReadMilestoneCovered({
+        milestone: candidate.key,
+        recordedMilestones,
+      }),
+  );
+
+  if (!milestone) return null;
+
+  return {
+    key: milestone.key,
+    readPercent,
+    shouldShowFeedback: milestone.shouldShowFeedback,
+    shouldTrainProfile:
+      shouldTrainNewsArticleProfileFromReadPercent(readPercent),
+  };
+};
+
+export const shouldApplyNewsArticleServerProfileFromInteraction = ({
+  action,
+  metadata,
+}: {
+  action: ReaderInteractionAction;
+  metadata?: {
+    readPercent?: number;
+    surface?: string;
+  };
+}) => {
+  if (action !== "view") return true;
+  if (metadata?.surface?.trim().toLowerCase() !== "article") return false;
+  if (metadata.readPercent === undefined) return false;
+
+  return shouldTrainNewsArticleProfileFromReadPercent(metadata.readPercent);
+};
+
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

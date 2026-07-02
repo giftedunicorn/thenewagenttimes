@@ -181,12 +181,28 @@ describe("news router input contracts", () => {
       newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
       action: "view",
       metadata: {
+        readMilestone: "deep_read",
         readPercent: 0.82,
         surface: "article",
       },
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown article read milestones", () => {
+    const result = NewsRecordInteractionInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      action: "view",
+      metadata: {
+        readMilestone: "almost_done",
+        readPercent: 0.82,
+        surface: "article",
+      },
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("accepts bounded home exposure metadata for feed fatigue", () => {

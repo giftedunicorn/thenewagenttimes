@@ -99,12 +99,18 @@ export const NewsForYouInputSchema = NewsFeedInputSchema.extend({
 });
 
 const NewsFeedModeSchema = z.enum(["for_you", "latest", "trending"]);
+const NewsArticleReadMilestoneSchema = z.enum([
+  "opened",
+  "meaningful_read",
+  "deep_read",
+]);
 
 const NewsInteractionMetadataSchema = z
   .object({
     exposure: z.boolean().optional(),
     exposureSlot: z.number().int().min(0).max(50).optional(),
     feedMode: NewsFeedModeSchema.optional(),
+    readMilestone: NewsArticleReadMilestoneSchema.optional(),
     readPercent: z.number().min(0).max(1).optional(),
     surface: z.string().trim().min(1).max(80).optional(),
   })

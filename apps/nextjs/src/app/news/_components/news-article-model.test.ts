@@ -12,6 +12,8 @@ import {
   getNewsArticleReadPercent,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
+  selectNewsArticleReadMilestone,
+  shouldApplyNewsArticleServerProfileFromInteraction,
   shouldPersistNewsArticleReaderSignals,
   shouldTrainNewsArticleProfileFromReadPercent,
 } from "./news-article-model";
@@ -98,6 +100,99 @@ describe("shouldTrainNewsArticleProfileFromReadPercent", () => {
     expect(shouldTrainNewsArticleProfileFromReadPercent(0.2)).toBe(false);
     expect(shouldTrainNewsArticleProfileFromReadPercent(0.35)).toBe(true);
     expect(shouldTrainNewsArticleProfileFromReadPercent(0.8)).toBe(true);
+  });
+});
+
+describe("selectNewsArticleReadMilestone", () => {
+  it("records article open, meaningful read, and deep read milestones once", () => {
+    expect(
+      selectNewsArticleReadMilestone({
+        readPercent: 0.2,
+        recordedMilestones: [],
+      }),
+    ).toEqual({
+      key: "opened",
+      readPercent: 0.2,
+      shouldShowFeedback: false,
+      shouldTrainProfile: false,
+    });
+    expect(
+      selectNewsArticleReadMilestone({
+        readPercent: 0.42,
+        recordedMilestones: ["opened"],
+      }),
+    ).toEqual({
+      key: "meaningful_read",
+      readPercent: 0.42,
+      shouldShowFeedback: false,
+      shouldTrainProfile: true,
+    });
+    expect(
+      selectNewsArticleReadMilestone({
+        readPercent: 0.86,
+        recordedMilestones: ["opened", "meaningful_read"],
+      }),
+    ).toEqual({
+      key: "deep_read",
+      readPercent: 0.86,
+      shouldShowFeedback: true,
+      shouldTrainProfile: true,
+    });
+    expect(
+      selectNewsArticleReadMilestone({
+        readPercent: 0.9,
+        recordedMilestones: ["deep_read"],
+      }),
+    ).toBeNull();
+  });
+
+  it("treats a deep read as covering lower read milestones", () => {
+    expect(
+      selectNewsArticleReadMilestone({
+        readPercent: 0.9,
+        recordedMilestones: ["opened"],
+      }),
+    ).toEqual({
+      key: "deep_read",
+      readPercent: 0.9,
+      shouldShowFeedback: true,
+      shouldTrainProfile: true,
+    });
+    expect(
+      selectNewsArticleReadMilestone({
+        readPercent: 0.9,
+        recordedMilestones: ["deep_read"],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("shouldApplyNewsArticleServerProfileFromInteraction", () => {
+  it("ignores shallow article-open responses that do not train reader memory", () => {
+    expect(
+      shouldApplyNewsArticleServerProfileFromInteraction({
+        action: "view",
+        metadata: { readPercent: 0.2, surface: "article" },
+      }),
+    ).toBe(false);
+    expect(
+      shouldApplyNewsArticleServerProfileFromInteraction({
+        action: "view",
+        metadata: { readPercent: 0.42, surface: "article" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldApplyNewsArticleServerProfileFromInteraction({
+        action: "view",
+        metadata: { readPercent: 0.9, surface: "article" },
+      }),
+    ).toBe(true);
+    expect(
+      shouldApplyNewsArticleServerProfileFromInteraction({
+        action: "save",
+        metadata: { surface: "article" },
+      }),
+    ).toBe(true);
   });
 });
 

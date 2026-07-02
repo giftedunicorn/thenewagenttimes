@@ -19,6 +19,7 @@ import {
 } from "@acme/validators";
 
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
+import type { NewsArticleReadMilestone } from "./news-article-model";
 import { useTRPC } from "~/trpc/react";
 import {
   createDefaultNewsPreferenceProfile,
@@ -37,8 +38,9 @@ import {
   getNewsArticleReadPercent,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
+  selectNewsArticleReadMilestone,
+  shouldApplyNewsArticleServerProfileFromInteraction,
   shouldPersistNewsArticleReaderSignals,
-  shouldTrainNewsArticleProfileFromReadPercent,
 } from "./news-article-model";
 
 interface NewsArticleProps {
@@ -159,7 +161,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     typeof getNewsArticleFeedbackLoop
   > | null>(null);
   const [visitorKey, setVisitorKey] = useState<string | null>(null);
-  const recordedDeepReadRef = useRef(false);
+  const recordedReadMilestonesRef = useRef<NewsArticleReadMilestone[]>([]);
   const canPersistReaderSignals = shouldPersistNewsArticleReaderSignals({
     articleId: article.id,
     visitorKey,
@@ -194,10 +196,14 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   };
   const recordInteraction = useMutation(
     trpc.news.recordInteraction.mutationOptions({
-      onSuccess: async (serverProfile) => {
-        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
-        setProfile(nextProfile);
-        writeStoredProfile(nextProfile);
+      onSuccess: async (serverProfile, interaction) => {
+        if (shouldApplyNewsArticleServerProfileFromInteraction(interaction)) {
+          const nextProfile =
+            stripPersistedNewsPreferenceProfile(serverProfile);
+          setProfile(nextProfile);
+          writeStoredProfile(nextProfile);
+        }
+
         await invalidateReaderSignalQueries();
       },
     }),
@@ -222,18 +228,32 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   }, [profileQuery.data]);
 
   useEffect(() => {
+    recordedReadMilestonesRef.current = [];
+  }, [article.id]);
+
+  useEffect(() => {
     if (!canPersistReaderSignals || !visitorKey) return;
 
-    const readPercent = 0.2;
+    const milestone = selectNewsArticleReadMilestone({
+      readPercent: 0.2,
+      recordedMilestones: recordedReadMilestonesRef.current,
+    });
 
-    if (shouldTrainNewsArticleProfileFromReadPercent(readPercent)) {
+    if (!milestone) return;
+
+    recordedReadMilestonesRef.current = [
+      ...recordedReadMilestonesRef.current,
+      milestone.key,
+    ];
+
+    if (milestone.shouldShowFeedback) {
       setProfile((current) => {
         const nextProfile = updateReaderProfileWithInteraction(
           current,
           article,
           {
             action: "view",
-            readPercent,
+            readPercent: milestone.readPercent,
           },
         );
         writeStoredProfile(nextProfile);
@@ -245,50 +265,62 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       visitorKey,
       newsItemId: article.id,
       action: "view",
-      metadata: { readPercent, surface: "article" },
+      metadata: {
+        readMilestone: milestone.key,
+        readPercent: milestone.readPercent,
+        surface: "article",
+      },
     });
     // This should run once per article open after the reader key is available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [article.id, canPersistReaderSignals, visitorKey]);
 
   useEffect(() => {
-    recordedDeepReadRef.current = false;
-  }, [article.id]);
-
-  useEffect(() => {
     if (!canPersistReaderSignals || !visitorKey) return;
 
     const recordDeepRead = () => {
-      if (recordedDeepReadRef.current) return;
-
       const readPercent = getNewsArticleReadPercent({
         documentHeight: document.documentElement.scrollHeight,
         scrollY: window.scrollY,
         viewportHeight: window.innerHeight,
       });
-
-      if (readPercent < 0.8) return;
-
-      recordedDeepReadRef.current = true;
-      setProfile((current) => {
-        const trainingState = getNewsArticleDeepReadTrainingState({
-          article,
-          beforeProfile: current,
-          formatCategory,
-          readPercent,
-        });
-
-        if (!trainingState) return current;
-
-        setFeedbackLoop(trainingState.feedbackLoop);
-        writeStoredProfile(trainingState.profile);
-        return trainingState.profile;
+      const milestone = selectNewsArticleReadMilestone({
+        readPercent,
+        recordedMilestones: recordedReadMilestonesRef.current,
       });
+
+      if (!milestone) return;
+
+      recordedReadMilestonesRef.current = [
+        ...recordedReadMilestonesRef.current,
+        milestone.key,
+      ];
+
+      if (milestone.shouldShowFeedback) {
+        setProfile((current) => {
+          const trainingState = getNewsArticleDeepReadTrainingState({
+            article,
+            beforeProfile: current,
+            formatCategory,
+            readPercent: milestone.readPercent,
+          });
+
+          if (!trainingState) return current;
+
+          setFeedbackLoop(trainingState.feedbackLoop);
+          writeStoredProfile(trainingState.profile);
+          return trainingState.profile;
+        });
+      }
       recordInteraction.mutate({
         visitorKey,
         newsItemId: article.id,
         action: "view",
-        metadata: { readPercent, surface: "article" },
+        metadata: {
+          readMilestone: milestone.key,
+          readPercent: milestone.readPercent,
+          surface: "article",
+        },
       });
     };
 

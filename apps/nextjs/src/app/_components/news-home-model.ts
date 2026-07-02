@@ -9970,6 +9970,13 @@ const getNegativeFeedbackMatchers = (
       normalizePreferenceSignal(item.sourceSlug),
     ),
   ),
+  tags: new Set(
+    negativeFeedbackItems.flatMap((item) =>
+      item.tags
+        .filter(isSpecificNewsAngleTag)
+        .map(normalizePreferenceSignal),
+    ),
+  ),
 });
 
 const getNewsDistributionSuppressReason = ({
@@ -9988,10 +9995,14 @@ const getNewsDistributionSuppressReason = ({
   const itemCategory = normalizePreferenceSignal(item.category);
   const itemSource = normalizePreferenceSignal(item.sourceSlug);
   const itemEntities = item.entities.map(normalizePreferenceSignal);
+  const itemTags = item.tags
+    .filter(isSpecificNewsAngleTag)
+    .map(normalizePreferenceSignal);
   const hasNegativeMatch =
     matchers.categories.has(itemCategory) ||
     matchers.sources.has(itemSource) ||
-    itemEntities.some((entity) => matchers.entities.has(entity));
+    itemEntities.some((entity) => matchers.entities.has(entity)) ||
+    itemTags.some((tag) => matchers.tags.has(tag));
 
   return hasNegativeMatch ? "Negative feedback match" : null;
 };

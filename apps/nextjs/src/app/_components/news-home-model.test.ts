@@ -11455,6 +11455,63 @@ describe("getNewsDistributionQueue", () => {
     });
   });
 
+  it("suppresses stories sharing a hidden angle even when topic, source, and entity differ", () => {
+    const queue = getNewsDistributionQueue({
+      hiddenItemIds: [],
+      items: [
+        {
+          ...localItem,
+          category: "research",
+          entities: ["Browser Agents"],
+          id: "same-angle-story",
+          matchedSignals: ["tag"],
+          personalizedScore: 142,
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          tags: ["prompt_injection"],
+          title: "Researchers publish prompt injection mitigations",
+        },
+        {
+          ...serverItem,
+          category: "market_map",
+          entities: ["AI Market"],
+          id: "different-angle-story",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "Market Desk",
+          sourceSlug: "market-desk",
+          tags: ["gpu_cloud"],
+          title: "GPU cloud market map shifts toward inference",
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [
+        {
+          ...olderItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "hidden-prompt-injection",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Reader hid a prompt injection story",
+        },
+      ],
+    });
+    const suppressQueue = queue.queues.find(
+      (bucket) => bucket.key === "suppress",
+    );
+
+    expect(queue.metrics).toContainEqual({ label: "Suppress", value: "1" });
+    expect(suppressQueue?.stories).toContainEqual({
+      id: "same-angle-story",
+      reason: "Negative feedback match",
+      scoreLabel: "142 score",
+      sourceName: "Research Wire",
+      title: "Researchers publish prompt injection mitigations",
+    });
+  });
+
   it("keeps an explicit waiting distribution while ranked stories are unavailable", () => {
     expect(
       getNewsDistributionQueue({

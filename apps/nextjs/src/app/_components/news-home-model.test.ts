@@ -12816,6 +12816,30 @@ describe("getNewsRecommendationReasons", () => {
     ).toEqual(["Deep read, save, share, or source-click signal"]);
   });
 
+  it("explains semantic similarity to reader-memory stories", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["semantic_feedback"],
+          personalizedScore: 124,
+        },
+      }),
+    ).toEqual(["Similar to stories you engaged with"]);
+  });
+
+  it("explains collaborative signals from similar readers", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["collaborative_feedback"],
+          personalizedScore: 119,
+        },
+      }),
+    ).toEqual(["Popular with similar readers"]);
+  });
+
   it("explains recommendations dampened by Less feedback", () => {
     expect(
       getNewsRecommendationReasons({
@@ -12918,6 +12942,46 @@ describe("getNewsStoryRankDetails", () => {
       summary:
         "Ranked from your reader-memory signals, with fresh publication timing and source credibility.",
       scoreLabel: "126 score",
+    });
+  });
+
+  it("explains semantic reader-memory matches without implying a direct preference", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["semantic_feedback"],
+          personalizedScore: 123,
+          sourceScore: 84,
+          trendScore: 66,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Similar to stories you engaged with", "Fresh", "Strong source"],
+      summary:
+        "Ranked by semantic similarity to stories you read, saved, shared, or source-clicked, with fresh publication timing and source credibility.",
+      scoreLabel: "123 score",
+    });
+  });
+
+  it("explains collaborative reader lift as a crowd signal", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["collaborative_feedback"],
+          personalizedScore: 119,
+          sourceScore: 84,
+          trendScore: 66,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Popular with similar readers", "Fresh", "Strong source"],
+      summary:
+        "Lifted by recent saves, shares, and deep reads from similar readers, with fresh publication timing and source credibility.",
+      scoreLabel: "119 score",
     });
   });
 

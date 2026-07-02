@@ -14367,12 +14367,14 @@ export const getNewsHomeReaderMemoryResetCacheScopes = () =>
 const recommendationReasonLabels = {
   breaking_news: "Breaking high-trust story",
   category: "Preferred topic",
+  collaborative_feedback: "Popular with similar readers",
   deep_preference: "Deep preference match",
   discovery_slot: "Discovery slot",
   exposure_cooldown: "Fresh angle after reading",
   exploration: "Outside your usual mix",
   negative_feedback: "Dampened by Less feedback",
   positive_feedback: "Deep read, save, share, or source-click signal",
+  semantic_feedback: "Similar to stories you engaged with",
   source: "Trusted source",
   entity: "Followed entity",
   tag: "Preferred angle",
@@ -14455,6 +14457,10 @@ export const getNewsStoryRankDetails = ({
   const badges: string[] = [];
   const isExploration = item.matchedSignals.includes("exploration");
   const isNegativeFeedback = item.matchedSignals.includes("negative_feedback");
+  const isSemanticFeedback = item.matchedSignals.includes("semantic_feedback");
+  const isCollaborativeFeedback = item.matchedSignals.includes(
+    "collaborative_feedback",
+  );
   const hasHighHeat = item.trendScore >= 70;
   const hasFreshness = isRecentlyPublished(item.publishedAt, now);
   const hasStrongSource = item.sourceScore >= 80;
@@ -14564,6 +14570,26 @@ export const getNewsStoryRankDetails = ({
       summary: supportText
         ? `Ranked from your reader-memory signals, with ${supportText}.`
         : "Ranked from your reader-memory signals.",
+    };
+  }
+
+  if (isSemanticFeedback) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Ranked by semantic similarity to stories you read, saved, shared, or source-clicked, with ${supportText}.`
+        : "Ranked by semantic similarity to stories you read, saved, shared, or source-clicked.",
+    };
+  }
+
+  if (isCollaborativeFeedback) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Lifted by recent saves, shares, and deep reads from similar readers, with ${supportText}.`
+        : "Lifted by recent saves, shares, and deep reads from similar readers.",
     };
   }
 

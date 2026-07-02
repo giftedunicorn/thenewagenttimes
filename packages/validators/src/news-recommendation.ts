@@ -207,6 +207,13 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
         matchedSignals.push("entity");
       }
 
+      if (
+        item.tags.some((tag) => preferredEntities.has(tag.trim().toLowerCase()))
+      ) {
+        preferenceBoost += 12;
+        matchedSignals.push("tag");
+      }
+
       const ageHours = hoursSince(item.publishedAt, now);
       const noveltyBoost = noveltyBias * Math.min(item.tags.length * 2, 10);
       const recencyBoost = recencyBias * Math.max(16 - ageHours / 3, 0);
@@ -634,6 +641,7 @@ export type NegativeFeedbackNewsItem = Pick<
   "category" | "entities" | "sourceSlug"
 > & {
   occurredAt?: string;
+  tags?: readonly string[];
 };
 
 type PositiveFeedbackAction = Extract<
@@ -647,6 +655,7 @@ export type PositiveFeedbackNewsItem = Pick<
 > & {
   action?: PositiveFeedbackAction;
   occurredAt?: string;
+  tags?: readonly string[];
 };
 
 export type RecentExposureNewsItem = Pick<
@@ -655,6 +664,7 @@ export type RecentExposureNewsItem = Pick<
 > &
   NewsUrlReference & {
     occurredAt?: string;
+    tags?: readonly string[];
   };
 
 const addMatchedSignal = <TItem extends RecommendableNewsItem>(
@@ -669,14 +679,15 @@ const addMatchedSignal = <TItem extends RecommendableNewsItem>(
       };
 
 const getNewsSignalSets = (
-  items: readonly Pick<
+  items: readonly (Pick<
     RecommendableNewsItem,
     "category" | "entities" | "sourceSlug"
-  >[],
+  > & { tags?: readonly string[] })[],
 ) => ({
   categories: normalizeSet(items.map((item) => item.category)),
   entities: normalizeSet(items.flatMap((item) => item.entities)),
   sources: normalizeSet(items.map((item) => item.sourceSlug)),
+  tags: normalizeSet(items.flatMap((item) => item.tags ?? [])),
 });
 
 const hasNewsSignalMatch = (
@@ -685,7 +696,10 @@ const hasNewsSignalMatch = (
 ) =>
   signalSets.sources.has(item.sourceSlug.toLowerCase()) ||
   signalSets.categories.has(item.category.toLowerCase()) ||
-  item.entities.some((entity) => signalSets.entities.has(entity.toLowerCase()));
+  item.entities.some((entity) =>
+    signalSets.entities.has(entity.toLowerCase()),
+  ) ||
+  item.tags.some((tag) => signalSets.tags.has(tag.trim().toLowerCase()));
 
 const positiveFeedbackActionStrength = {
   click_source: 1,
@@ -747,8 +761,16 @@ const getPositiveFeedbackMatch = (
               feedbackEntity.toLowerCase() === entity.toLowerCase(),
           ),
         ));
+    const matchesTag =
+      canMatchTopicOrEntity &&
+      item.tags.some((tag) =>
+        (feedbackItem.tags ?? []).some(
+          (feedbackTag) =>
+            feedbackTag.trim().toLowerCase() === tag.trim().toLowerCase(),
+        ),
+      );
 
-    if (matchesSource || matchesTopicOrEntity) {
+    if (matchesSource || matchesTopicOrEntity || matchesTag) {
       if (
         feedbackStrength > matchStrength ||
         (feedbackStrength === matchStrength &&
@@ -892,6 +914,9 @@ export const selectNegativeFeedbackAdjustedNewsFeed = <
   const feedbackEntities = normalizeSet(
     activeNegativeFeedbackItems.flatMap((item) => item.entities),
   );
+  const feedbackTags = normalizeSet(
+    activeNegativeFeedbackItems.flatMap((item) => item.tags ?? []),
+  );
   const openItems: RankedNewsItem<TItem>[] = [];
   const suppressedItems: RankedNewsItem<TItem>[] = [];
 
@@ -901,7 +926,8 @@ export const selectNegativeFeedbackAdjustedNewsFeed = <
       feedbackCategories.has(item.category.toLowerCase()) ||
       item.entities.some((entity) =>
         feedbackEntities.has(entity.toLowerCase()),
-      );
+      ) ||
+      item.tags.some((tag) => feedbackTags.has(tag.trim().toLowerCase()));
 
     if (hasNegativeSignal) {
       suppressedItems.push(addMatchedSignal(item, "negative_feedback"));
@@ -986,7 +1012,7 @@ export const updateReaderProfileWithInteraction = <
   if (interaction.action === "hide") {
     const hiddenCategory = item.category.trim().toLowerCase();
     const hiddenSource = item.sourceSlug.trim().toLowerCase();
-    const hiddenEntities = normalizeSet(item.entities);
+    const hiddenEntities = normalizeSet([...item.entities, ...item.tags]);
 
     return {
       ...normalizedProfile,
@@ -1023,7 +1049,7 @@ export const updateReaderProfileWithInteraction = <
     ),
     preferredEntities: uniqueAppend(
       normalizedProfile.preferredEntities,
-      shouldLearnEntities ? item.entities : [],
+      shouldLearnEntities ? [...item.entities, ...item.tags] : [],
       entityLimit,
     ),
     noveltyBias: clampBias(normalizedProfile.noveltyBias + actionWeight),

@@ -165,6 +165,48 @@ describe("rankNewsForReader", () => {
     );
   });
 
+  test("boosts fine-grained interest terms that match story tags", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "matching-tag",
+          category: "research",
+          entities: ["Benchmarks"],
+          publishedAt: "2026-07-01T08:00:00.000Z",
+          sourceSlug: "research-lab",
+          tags: ["agents"],
+          title: "Agent benchmark roundup",
+          trendScore: 70,
+        },
+        {
+          ...items[0],
+          id: "newer-without-tag",
+          category: "research",
+          entities: ["Benchmarks"],
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          sourceSlug: "research-lab",
+          tags: ["benchmarks"],
+          title: "Benchmark roundup",
+          trendScore: 70,
+        },
+      ],
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["agents"],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+    );
+
+    expect(ranked.map((item) => item.id)).toEqual([
+      "matching-tag",
+      "newer-without-tag",
+    ]);
+    expect(ranked[0]?.matchedSignals).toContain("tag");
+  });
+
   test("keeps trend-heavy items competitive when preferences are broad", () => {
     const ranked = rankNewsForReader(items, {
       preferredCategories: [],
@@ -1133,6 +1175,47 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
   });
 
+  test("anchors stories matching saved or shared feedback tags before unrelated items", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "unrelated-market-story",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        tags: ["enterprise"],
+        personalizedScore: 190,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "saved-agent-angle",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "research-lab",
+        tags: ["agents"],
+        personalizedScore: 130,
+        matchedSignals: ["tag"],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(ranked, [
+      {
+        action: "save",
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["agents"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "saved-agent-angle",
+      "unrelated-market-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("positive_feedback");
+  });
+
   test("keeps ranked order when there are no positive feedback matches", () => {
     const ranked = [
       {
@@ -1457,6 +1540,46 @@ describe("selectExposureBalancedNewsFeed", () => {
     expect(feed[1]?.matchedSignals).toContain("exposure_cooldown");
   });
 
+  test("moves candidates sharing recent exposure tags behind fresh angles", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-agent-angle",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "research-lab",
+        tags: ["agents"],
+        personalizedScore: 190,
+        matchedSignals: ["tag"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        tags: ["enterprise"],
+        personalizedScore: 140,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["agents"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "same-agent-angle",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("exposure_cooldown");
+  });
+
   test("keeps ranked order when every candidate matches recent exposure", () => {
     const ranked = [
       {
@@ -1607,6 +1730,46 @@ describe("selectNegativeFeedbackAdjustedNewsFeed", () => {
     ]);
   });
 
+  test("moves stories sharing hidden feedback tags behind unrelated alternatives", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "shared-agent-angle",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "research-lab",
+        tags: ["agents"],
+        personalizedScore: 180,
+        matchedSignals: ["tag"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        tags: ["enterprise"],
+        personalizedScore: 130,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectNegativeFeedbackAdjustedNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["agents"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "shared-agent-angle",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("negative_feedback");
+  });
+
   test("ignores stale negative feedback outside the cooldown window", () => {
     const ranked = [
       {
@@ -1743,7 +1906,7 @@ describe("updateReaderProfileWithInteraction", () => {
     expect(profile).toEqual({
       preferredCategories: ["model_release", "funding"],
       preferredSources: ["openai-news", "venturewire"],
-      preferredEntities: ["OpenAI", "Series A"],
+      preferredEntities: ["OpenAI", "Series A", "startup"],
       noveltyBias: 2,
       recencyBias: 0.3,
     });
@@ -1764,6 +1927,32 @@ describe("updateReaderProfileWithInteraction", () => {
     expect(
       profile.preferredCategories.filter((item) => item === "model_release"),
     ).toHaveLength(1);
+  });
+
+  test("learns fine-grained tag interests from strong reader actions", () => {
+    const profile = updateReaderProfileWithInteraction(
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      {
+        ...items[0],
+        entities: ["OpenAI"],
+        tags: ["agents", "benchmarks"],
+      },
+      {
+        action: "save",
+      },
+    );
+
+    expect(profile.preferredEntities).toEqual([
+      "OpenAI",
+      "agents",
+      "benchmarks",
+    ]);
   });
 
   test("uses weaker actions to increase recency and novelty bias gradually", () => {

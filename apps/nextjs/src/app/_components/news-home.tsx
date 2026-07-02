@@ -123,6 +123,7 @@ import {
   selectNewsHomeItems,
   selectNewsHomePositiveFeedbackAnchors,
   selectReaderFreshNewsHomeItems,
+  selectSessionIntentNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -798,8 +799,19 @@ export function NewsHome({
       items: personalizedItems,
       mode: feedMode,
     });
+    const sessionIntentItems =
+      feedMode === "for_you"
+        ? selectSessionIntentNewsHomeItems({
+            intent: {
+              category: activeCategory,
+              query: searchQuery,
+              sourceSlug: activeSourceSlug,
+            },
+            items: modeItems,
+          })
+        : modeItems;
     const exposureBalancedItems = selectExposureBalancedNewsFeed(
-      modeItems,
+      sessionIntentItems,
       historyItems,
     );
     const positiveAnchoredItems = selectPositiveFeedbackAnchoredNewsFeed(
@@ -830,12 +842,15 @@ export function NewsHome({
       items: discoverySlotItems,
     });
   }, [
+    activeCategory,
+    activeSourceSlug,
     feedMode,
     generatedAt,
     historyItems,
     negativeFeedbackItems,
     personalizedItems,
     positiveFeedbackAnchors,
+    searchQuery,
   ]);
 
   useEffect(() => {

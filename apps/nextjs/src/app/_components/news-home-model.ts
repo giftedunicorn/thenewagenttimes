@@ -13756,6 +13756,115 @@ export const selectNewsFeedModeItems = ({
   });
 };
 
+export interface NewsSessionIntentFilter {
+  category: string | null;
+  query: string;
+  sourceSlug: string | null;
+}
+
+const newsSessionIntentSignal = "session_intent";
+const sessionIntentQueryStopwords = new Set([
+  "a",
+  "ai",
+  "an",
+  "and",
+  "for",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
+const getSessionIntentQueryTerms = (query: string) =>
+  query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((term) => term.trim())
+    .filter(
+      (term) => term.length >= 2 && !sessionIntentQueryStopwords.has(term),
+    )
+    .slice(0, 6);
+
+const getSessionIntentSearchText = (item: NewsHomeItem) =>
+  [
+    item.title,
+    item.summary,
+    item.category,
+    item.sourceName,
+    item.sourceSlug,
+    ...item.entities,
+    ...item.tags,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+const getSessionIntentBoost = ({
+  intent,
+  item,
+}: {
+  intent: NewsSessionIntentFilter;
+  item: NewsHomeItem;
+}) => {
+  let boost = 0;
+
+  if (intent.category && item.category === intent.category) boost += 14;
+  if (intent.sourceSlug && item.sourceSlug === intent.sourceSlug) boost += 14;
+
+  const queryTerms = getSessionIntentQueryTerms(intent.query);
+
+  if (queryTerms.length > 0) {
+    const searchText = getSessionIntentSearchText(item);
+    const matchCount = queryTerms.filter((term) =>
+      searchText.includes(term),
+    ).length;
+
+    boost += Math.min(16, matchCount * 5);
+  }
+
+  return boost;
+};
+
+export const selectSessionIntentNewsHomeItems = ({
+  intent,
+  items,
+}: {
+  intent: NewsSessionIntentFilter;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+}) => {
+  const hasIntent = Boolean(
+    intent.category ?? intent.sourceSlug ?? intent.query.trim(),
+  );
+
+  if (!hasIntent) return [...items];
+
+  return items
+    .map((item, index) => {
+      const boost = getSessionIntentBoost({ intent, item });
+
+      if (boost <= 0) return { index, item };
+
+      return {
+        index,
+        item: {
+          ...item,
+          matchedSignals: item.matchedSignals.includes(newsSessionIntentSignal)
+            ? item.matchedSignals
+            : [...item.matchedSignals, newsSessionIntentSignal],
+          personalizedScore: item.personalizedScore + boost,
+        },
+      };
+    })
+    .sort((left, right) =>
+      right.item.personalizedScore === left.item.personalizedScore
+        ? left.index - right.index
+        : right.item.personalizedScore - left.item.personalizedScore,
+    )
+    .map(({ item }) => item);
+};
+
 const newsChannelComparisonModes = [
   { key: "for_you", label: "For You" },
   { key: "latest", label: "Latest" },
@@ -14375,6 +14484,7 @@ const recommendationReasonLabels = {
   negative_feedback: "Dampened by Less feedback",
   positive_feedback: "Deep read, save, share, or source-click signal",
   semantic_feedback: "Similar to stories you engaged with",
+  session_intent: "Current session intent",
   source: "Trusted source",
   entity: "Followed entity",
   tag: "Preferred angle",
@@ -14458,6 +14568,7 @@ export const getNewsStoryRankDetails = ({
   const isExploration = item.matchedSignals.includes("exploration");
   const isNegativeFeedback = item.matchedSignals.includes("negative_feedback");
   const isSemanticFeedback = item.matchedSignals.includes("semantic_feedback");
+  const isSessionIntent = item.matchedSignals.includes("session_intent");
   const isCollaborativeFeedback = item.matchedSignals.includes(
     "collaborative_feedback",
   );
@@ -14580,6 +14691,16 @@ export const getNewsStoryRankDetails = ({
       summary: supportText
         ? `Ranked by semantic similarity to stories you read, saved, shared, or source-clicked, with ${supportText}.`
         : "Ranked by semantic similarity to stories you read, saved, shared, or source-clicked.",
+    };
+  }
+
+  if (isSessionIntent) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Ranked by the topic, source, or search intent active in this session, with ${supportText}.`
+        : "Ranked by the topic, source, or search intent active in this session.",
     };
   }
 

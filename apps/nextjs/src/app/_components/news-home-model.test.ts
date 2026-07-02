@@ -95,6 +95,7 @@ import {
   selectNewsHomePositiveFeedbackAnchors,
   selectReaderFreshNewsHomeItems,
   selectRelatedNewsHomeItems,
+  selectSessionIntentNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -11978,6 +11979,73 @@ describe("selectReaderFreshNewsHomeItems", () => {
   });
 });
 
+describe("selectSessionIntentNewsHomeItems", () => {
+  it("lifts stories matching the current search and topic session intent", () => {
+    const feed = selectSessionIntentNewsHomeItems({
+      intent: {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+      items: [
+        {
+          ...localItem,
+          id: "high-profile-model",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+          tags: ["model"],
+          title: "OpenAI ships a model refresh",
+        },
+        {
+          ...olderItem,
+          id: "session-agent-match",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: [],
+          personalizedScore: 120,
+          tags: ["agents"],
+          title: "LangChain agent runtime adds workflow memory",
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "session-agent-match",
+      "high-profile-model",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("session_intent");
+    expect(feed[0]?.personalizedScore).toBeGreaterThan(132);
+  });
+
+  it("does not retag or reorder the feed when there is no active session intent", () => {
+    const feed = selectSessionIntentNewsHomeItems({
+      intent: {
+        category: null,
+        query: " ",
+        sourceSlug: null,
+      },
+      items: [
+        {
+          ...localItem,
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+        },
+        {
+          ...olderItem,
+          matchedSignals: [],
+          personalizedScore: 120,
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual(["local-story", "older-story"]);
+    expect(feed[0]?.matchedSignals).toEqual(["category"]);
+    expect(feed[1]?.matchedSignals).toEqual([]);
+  });
+});
+
 describe("selectNewsHomeExposureRecords", () => {
   it("records bounded home exposures for unseen live feed items", () => {
     expect(
@@ -12840,6 +12908,18 @@ describe("getNewsRecommendationReasons", () => {
     ).toEqual(["Popular with similar readers"]);
   });
 
+  it("explains current session intent from search or active filters", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["session_intent"],
+          personalizedScore: 119,
+        },
+      }),
+    ).toEqual(["Current session intent"]);
+  });
+
   it("explains recommendations dampened by Less feedback", () => {
     expect(
       getNewsRecommendationReasons({
@@ -12981,6 +13061,26 @@ describe("getNewsStoryRankDetails", () => {
       badges: ["Popular with similar readers", "Fresh", "Strong source"],
       summary:
         "Lifted by recent saves, shares, and deep reads from similar readers, with fresh publication timing and source credibility.",
+      scoreLabel: "119 score",
+    });
+  });
+
+  it("explains active search or filter intent as a session signal", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["session_intent"],
+          personalizedScore: 119,
+          sourceScore: 84,
+          trendScore: 66,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Current session intent", "Fresh", "Strong source"],
+      summary:
+        "Ranked by the topic, source, or search intent active in this session, with fresh publication timing and source credibility.",
       scoreLabel: "119 score",
     });
   });

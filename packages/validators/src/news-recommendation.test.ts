@@ -16,6 +16,8 @@ import {
   selectExposureBalancedNewsFeed,
   selectFatigueBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
+  selectNewsRecommendationRotationFeed,
+  selectNewsRecommendationRotationSlots,
   selectPositiveFeedbackAnchoredNewsFeed,
   selectReaderFreshNewsFeed,
   selectSemanticSimilarityNewsFeed,
@@ -363,6 +365,182 @@ describe("rankNewsForReader", () => {
     expect(ranked.map((item) => item.id)).toEqual([
       "trusted-developing-story",
       "low-trust-high-heat",
+    ]);
+  });
+});
+
+describe("selectNewsRecommendationRotationSlots", () => {
+  const rotationItems = [
+    {
+      ...items[0],
+      id: "reader-fit",
+      matchedSignals: ["category", "entity"],
+      personalizedScore: 172,
+      sourceScore: 84,
+      sourceSlug: "model-desk",
+      trendScore: 84,
+    },
+    {
+      ...items[0],
+      id: "same-source-hot",
+      category: "funding",
+      matchedSignals: [],
+      personalizedScore: 126,
+      sourceScore: 82,
+      sourceSlug: "model-desk",
+      trendScore: 99,
+    },
+    {
+      ...items[0],
+      id: "explore-adjacent",
+      category: "agent_product",
+      matchedSignals: ["exploration"],
+      personalizedScore: 132,
+      sourceScore: 78,
+      sourceSlug: "agent-scout",
+      trendScore: 88,
+    },
+    {
+      ...items[1],
+      id: "market-hot",
+      matchedSignals: [],
+      personalizedScore: 119,
+      sourceScore: 76,
+      sourceSlug: "venturewire",
+      trendScore: 96,
+    },
+    {
+      ...items[0],
+      id: "trusted-analysis",
+      category: "research",
+      matchedSignals: [],
+      personalizedScore: 121,
+      sourceScore: 97,
+      sourceSlug: "research-review",
+      trendScore: 74,
+    },
+  ];
+
+  test("interleaves reader match, exploration, market heat, and source trust with source diversity", () => {
+    const slots = selectNewsRecommendationRotationSlots({
+      items: rotationItems,
+      limit: 4,
+    });
+
+    expect(
+      slots.map((slot) => ({
+        id: slot.item.id,
+        objective: slot.objective,
+        score: slot.score,
+        scoreKind: slot.scoreKind,
+        sourceSlug: slot.item.sourceSlug,
+      })),
+    ).toEqual([
+      {
+        id: "reader-fit",
+        objective: "reader_match",
+        score: 172,
+        scoreKind: "score",
+        sourceSlug: "model-desk",
+      },
+      {
+        id: "explore-adjacent",
+        objective: "exploration",
+        score: 88,
+        scoreKind: "heat",
+        sourceSlug: "agent-scout",
+      },
+      {
+        id: "market-hot",
+        objective: "market_heat",
+        score: 96,
+        scoreKind: "heat",
+        sourceSlug: "venturewire",
+      },
+      {
+        id: "trusted-analysis",
+        objective: "source_trust",
+        score: 97,
+        scoreKind: "trust",
+        sourceSlug: "research-review",
+      },
+    ]);
+  });
+
+  test("returns an empty rotation while no ranked stories exist", () => {
+    expect(
+      selectNewsRecommendationRotationSlots({
+        items: [],
+        limit: 4,
+      }),
+    ).toEqual([]);
+  });
+
+  test("seeds the visible feed with rotation slots before appending the remaining ranked stories", () => {
+    expect(
+      selectNewsRecommendationRotationFeed({
+        items: rotationItems,
+        limit: 5,
+      }).map((item) => item.id),
+    ).toEqual([
+      "reader-fit",
+      "explore-adjacent",
+      "market-hot",
+      "trusted-analysis",
+      "same-source-hot",
+    ]);
+  });
+
+  test("does not override protected ranking signals or demotion guardrails", () => {
+    const protectedFeed = [
+      {
+        ...items[0],
+        id: "protected-breaking",
+        matchedSignals: ["breaking_news"],
+        personalizedScore: 140,
+        sourceScore: 96,
+        sourceSlug: "official-lab",
+        trendScore: 99,
+      },
+      {
+        ...items[0],
+        id: "protected-positive",
+        matchedSignals: ["positive_feedback"],
+        personalizedScore: 136,
+        sourceScore: 88,
+        sourceSlug: "saved-source",
+        trendScore: 82,
+      },
+      {
+        ...items[0],
+        id: "cooled-repeat",
+        matchedSignals: ["home_exposure_cooldown"],
+        personalizedScore: 118,
+        sourceScore: 92,
+        sourceSlug: "repeat-source",
+        trendScore: 94,
+      },
+      {
+        ...items[1],
+        id: "ordinary-market",
+        matchedSignals: [],
+        personalizedScore: 112,
+        sourceScore: 82,
+        sourceSlug: "market-source",
+        trendScore: 90,
+      },
+    ];
+
+    expect(
+      selectNewsRecommendationRotationFeed({
+        items: protectedFeed,
+        limit: 4,
+      }).map((item) => item.id),
+    ).toEqual([
+      "protected-breaking",
+      "protected-positive",
+      "cooled-repeat",
+      "ordinary-market",
     ]);
   });
 });

@@ -324,6 +324,244 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
     });
 };
 
+export type NewsRecommendationRotationObjective =
+  | "exploration"
+  | "market_heat"
+  | "reader_match"
+  | "source_trust";
+
+export type NewsRecommendationRotationScoreKind = "heat" | "score" | "trust";
+
+export interface NewsRecommendationRotationSlot<
+  TItem extends RecommendableNewsItem,
+> {
+  item: RankedNewsItem<TItem>;
+  objective: NewsRecommendationRotationObjective;
+  score: number;
+  scoreKind: NewsRecommendationRotationScoreKind;
+}
+
+const newsRecommendationRotationMinimumFeedSize = 4;
+const newsRecommendationRotationMinimumSourceScore = 70;
+const newsRecommendationRotationReaderSignals = new Set([
+  "category",
+  "entity",
+  "source",
+  "tag",
+]);
+const newsRecommendationRotationProtectedSignals = new Set([
+  "breaking_news",
+  "collaborative_feedback",
+  "daypart",
+  "deep_preference",
+  "discovery_slot",
+  "exposure_cooldown",
+  "home_exposure_cooldown",
+  "negative_feedback",
+  "positive_feedback",
+  "semantic_feedback",
+  "session_intent",
+  "source_corroboration",
+]);
+
+interface NewsRecommendationRotationDefinition<
+  TItem extends RecommendableNewsItem,
+> {
+  getScore: (item: RankedNewsItem<TItem>) => number;
+  isMatch: (item: RankedNewsItem<TItem>) => boolean;
+  objective: NewsRecommendationRotationObjective;
+  scoreKind: NewsRecommendationRotationScoreKind;
+}
+
+const hasNewsRecommendationRotationProtectedSignal = <
+  TItem extends RecommendableNewsItem,
+>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    newsRecommendationRotationProtectedSignals.has(signal),
+  );
+
+const canUseNewsRecommendationRotationCandidate = <
+  TItem extends RecommendableNewsItem,
+>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.sourceScore >= newsRecommendationRotationMinimumSourceScore &&
+  !hasNewsRecommendationRotationProtectedSignal(item);
+
+const getNewsRecommendationRotationReaderSignalCount = <
+  TItem extends RecommendableNewsItem,
+>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.filter((signal) =>
+    newsRecommendationRotationReaderSignals.has(signal),
+  ).length;
+
+const createNewsRecommendationRotationDefinitions = <
+  TItem extends RecommendableNewsItem,
+>(): readonly NewsRecommendationRotationDefinition<TItem>[] =>
+  [
+    {
+      getScore: (item) => item.personalizedScore,
+      isMatch: (item) =>
+        getNewsRecommendationRotationReaderSignalCount(item) > 0,
+      objective: "reader_match",
+      scoreKind: "score",
+    },
+    {
+      getScore: (item) => item.trendScore,
+      isMatch: (item) => item.matchedSignals.includes("exploration"),
+      objective: "exploration",
+      scoreKind: "heat",
+    },
+    {
+      getScore: (item) => item.trendScore,
+      isMatch: (item) =>
+        getNewsRecommendationRotationReaderSignalCount(item) === 0,
+      objective: "market_heat",
+      scoreKind: "heat",
+    },
+    {
+      getScore: (item) => item.sourceScore,
+      isMatch: () => true,
+      objective: "source_trust",
+      scoreKind: "trust",
+    },
+  ] as const;
+
+const selectNewsRecommendationRotationCandidate = <
+  TItem extends RecommendableNewsItem,
+>({
+  definition,
+  items,
+  usedIds,
+  usedSources,
+}: {
+  definition: NewsRecommendationRotationDefinition<TItem>;
+  items: readonly RankedNewsItem<TItem>[];
+  usedIds: ReadonlySet<string>;
+  usedSources: ReadonlySet<string>;
+}) => {
+  const candidates = items
+    .filter(
+      (item) =>
+        !usedIds.has(item.id) &&
+        canUseNewsRecommendationRotationCandidate(item) &&
+        definition.isMatch(item),
+    )
+    .sort((left, right) => {
+      const scoreDelta = definition.getScore(right) - definition.getScore(left);
+
+      if (scoreDelta !== 0) return scoreDelta;
+
+      if (right.personalizedScore !== left.personalizedScore) {
+        return right.personalizedScore - left.personalizedScore;
+      }
+
+      return (
+        new Date(right.publishedAt).getTime() -
+        new Date(left.publishedAt).getTime()
+      );
+    });
+
+  return (
+    candidates.find((item) => !usedSources.has(item.sourceSlug)) ??
+    candidates[0] ??
+    null
+  );
+};
+
+export const selectNewsRecommendationRotationSlots = <
+  TItem extends RecommendableNewsItem,
+>({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<TItem>[];
+  limit: number;
+}): NewsRecommendationRotationSlot<TItem>[] => {
+  const slotLimit = Math.max(0, limit);
+  const slots: NewsRecommendationRotationSlot<TItem>[] = [];
+  const usedIds = new Set<string>();
+  const usedSources = new Set<string>();
+
+  for (const definition of createNewsRecommendationRotationDefinitions<TItem>()) {
+    if (slots.length >= slotLimit) break;
+
+    const item = selectNewsRecommendationRotationCandidate({
+      definition,
+      items,
+      usedIds,
+      usedSources,
+    });
+
+    if (!item) continue;
+
+    slots.push({
+      item,
+      objective: definition.objective,
+      score: definition.getScore(item),
+      scoreKind: definition.scoreKind,
+    });
+    usedIds.add(item.id);
+    usedSources.add(item.sourceSlug);
+  }
+
+  return slots;
+};
+
+export const selectNewsRecommendationRotationFeed = <
+  TItem extends RecommendableNewsItem,
+>({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<TItem>[];
+  limit: number;
+}): RankedNewsItem<TItem>[] => {
+  const feedLimit = Math.max(0, limit);
+  if (feedLimit === 0) return [];
+  if (items.length < newsRecommendationRotationMinimumFeedSize) {
+    return items.slice(0, feedLimit);
+  }
+
+  const rotateSegment = (segment: readonly RankedNewsItem<TItem>[]) => {
+    if (segment.length < newsRecommendationRotationMinimumFeedSize) {
+      return [...segment];
+    }
+
+    const slots = selectNewsRecommendationRotationSlots({
+      items: segment,
+      limit: segment.length,
+    });
+    const selectedIds = new Set(slots.map((slot) => slot.item.id));
+
+    return [
+      ...slots.map((slot) => slot.item),
+      ...segment.filter((item) => !selectedIds.has(item.id)),
+    ];
+  };
+
+  const rotatedItems: RankedNewsItem<TItem>[] = [];
+  let segment: RankedNewsItem<TItem>[] = [];
+
+  for (const item of items) {
+    if (hasNewsRecommendationRotationProtectedSignal(item)) {
+      rotatedItems.push(...rotateSegment(segment), item);
+      segment = [];
+      continue;
+    }
+
+    segment.push(item);
+  }
+
+  rotatedItems.push(...rotateSegment(segment));
+
+  return rotatedItems.slice(0, feedLimit);
+};
+
 export const filterHiddenNewsItems = <TItem extends NewsIdentity>(
   items: readonly TItem[],
   hiddenNewsItemIds: readonly string[],

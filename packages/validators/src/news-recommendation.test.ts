@@ -24,6 +24,7 @@ import {
   selectSessionIntentNewsFeed,
   selectSourceCorroboratedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
+  summarizeNewsRecommendation,
   updateReaderProfileWithInteraction,
 } from "./news-recommendation";
 
@@ -542,6 +543,111 @@ describe("selectNewsRecommendationRotationSlots", () => {
       "cooled-repeat",
       "ordinary-market",
     ]);
+  });
+});
+
+describe("summarizeNewsRecommendation", () => {
+  test("explains reader-matched stories with score, badges, and support signals", () => {
+    const explanation = summarizeNewsRecommendation({
+      item: {
+        ...items[0],
+        matchedSignals: ["category", "entity"],
+        personalizedScore: 174,
+        publishedAt: "2026-07-01T09:30:00.000Z",
+        sourceScore: 91,
+        trendScore: 86,
+      },
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(explanation).toEqual({
+      badges: [
+        "Preferred topic",
+        "Followed entity",
+        "High heat",
+        "Fresh",
+        "Strong source",
+      ],
+      scoreLabel: "174 score",
+      summary:
+        "Ranked for your topic and entity signals, with high story heat, fresh publication timing, and source credibility.",
+    });
+  });
+
+  test("explains exploration slots without treating them as profile matches", () => {
+    const explanation = summarizeNewsRecommendation({
+      item: {
+        ...items[1],
+        matchedSignals: ["exploration"],
+        personalizedScore: 118,
+        sourceScore: 74,
+        trendScore: 80,
+      },
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(explanation).toEqual({
+      badges: ["Outside your usual mix", "High heat"],
+      scoreLabel: "118 score",
+      summary:
+        "Inserted as an exploration story outside your usual mix, supported by high story heat.",
+    });
+  });
+
+  test("explains latest and trending channel rankings with channel-specific logic", () => {
+    const item = {
+      ...items[0],
+      matchedSignals: ["category"],
+      personalizedScore: 151,
+      publishedAt: "2026-07-01T09:30:00.000Z",
+      sourceScore: 92,
+      trendScore: 88,
+    };
+
+    expect(
+      summarizeNewsRecommendation({
+        item,
+        mode: "latest",
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Newest first", "Fresh"],
+      scoreLabel: "151 score",
+      summary: "Ranked by publication time, with fresh publication timing.",
+    });
+
+    expect(
+      summarizeNewsRecommendation({
+        item,
+        mode: "trending",
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Trending now", "High heat", "Strong source"],
+      scoreLabel: "151 score",
+      summary:
+        "Ranked by story heat, with high story heat and source credibility.",
+    });
+  });
+
+  test("falls back to edition momentum for unpersonalized stories", () => {
+    expect(
+      summarizeNewsRecommendation({
+        item: {
+          ...items[1],
+          matchedSignals: [],
+          personalizedScore: 102,
+          publishedAt: "2026-06-29T08:00:00.000Z",
+          sourceScore: 65,
+          trendScore: 58,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Trending now"],
+      scoreLabel: "102 score",
+      summary: "Ranked by edition-wide story momentum.",
+    });
   });
 });
 

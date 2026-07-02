@@ -12832,6 +12832,47 @@ const toCoverageThreadStory = (item: RankedNewsItem<NewsHomeItem>) => ({
   title: item.title,
 });
 
+const getCoverageThreadVerificationLabel = ({
+  averageTrustScore,
+  sourceCount,
+}: {
+  averageTrustScore: number;
+  sourceCount: number;
+}) =>
+  sourceCount >= 2 && averageTrustScore >= 70
+    ? "Verified thread"
+    : "Developing thread";
+
+const getCoverageThreadVerificationSummary = ({
+  averageTrustScore,
+  sourceCount,
+  sourceNames,
+  storyCount,
+}: {
+  averageTrustScore: number;
+  sourceCount: number;
+  sourceNames: readonly string[];
+  storyCount: number;
+}) => {
+  if (sourceCount >= 2 && averageTrustScore >= 70) {
+    return `${sourceCount} independent ${
+      sourceCount === 1 ? "source" : "sources"
+    } with ${averageTrustScore} average trust support this thread.`;
+  }
+
+  if (sourceCount === 1) {
+    return `${storyCount} ${
+      storyCount === 1 ? "report" : "reports"
+    } from ${sourceNames[0] ?? "one source"} ${
+      storyCount === 1 ? "is" : "are"
+    } still waiting for independent confirmation.`;
+  }
+
+  return `${sourceCount} independent ${
+    sourceCount === 1 ? "source is" : "sources are"
+  } still developing this thread with ${averageTrustScore} average trust.`;
+};
+
 export const getNewsCoverageThreads = ({
   items,
   limit,
@@ -12846,6 +12887,8 @@ export const getNewsCoverageThreads = ({
     {
       entity: string;
       items: RankedNewsItem<NewsHomeItem>[];
+      sourceNames: Set<string>;
+      sourceScoreTotal: number;
       sources: Set<string>;
       trendScoreTotal: number;
     }
@@ -12866,11 +12909,15 @@ export const getNewsCoverageThreads = ({
         threadsByEntity.set(normalizedEntity, {
           entity,
           items: [item],
+          sourceNames: new Set([item.sourceName]),
+          sourceScoreTotal: item.sourceScore,
           sources: new Set([item.sourceSlug]),
           trendScoreTotal: item.trendScore,
         });
       } else {
         existing.items.push(item);
+        existing.sourceNames.add(item.sourceName);
+        existing.sourceScoreTotal += item.sourceScore;
         existing.sources.add(item.sourceSlug);
         existing.trendScoreTotal += item.trendScore;
       }
@@ -12900,6 +12947,10 @@ export const getNewsCoverageThreads = ({
       const storyCount = threadItems.length;
       const sourceCount = thread.sources.size;
       const averageTrendScore = Math.round(thread.trendScoreTotal / storyCount);
+      const averageTrustScore = Math.round(
+        thread.sourceScoreTotal / storyCount,
+      );
+      const sourceNames = Array.from(thread.sourceNames);
       const heatScore =
         averageTrendScore +
         storyCount * 20 +
@@ -12920,6 +12971,16 @@ export const getNewsCoverageThreads = ({
         supportingStories: threadItems
           .slice(1, storiesPerThread)
           .map(toCoverageThreadStory),
+        verificationLabel: getCoverageThreadVerificationLabel({
+          averageTrustScore,
+          sourceCount,
+        }),
+        verificationSummary: getCoverageThreadVerificationSummary({
+          averageTrustScore,
+          sourceCount,
+          sourceNames,
+          storyCount,
+        }),
       };
     })
     .filter((thread) => thread.lead !== null)

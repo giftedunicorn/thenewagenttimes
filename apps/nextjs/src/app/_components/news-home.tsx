@@ -2250,8 +2250,14 @@ export function NewsHome({
                           <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
                             {thread.entity}
                           </div>
+                          <div className="mt-2 text-xs font-semibold tracking-normal uppercase">
+                            {thread.verificationLabel}
+                          </div>
                           <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                             {thread.summary}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {thread.verificationSummary}
                           </p>
                         </div>
                         <span className="border border-[#161616]/30 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/30">

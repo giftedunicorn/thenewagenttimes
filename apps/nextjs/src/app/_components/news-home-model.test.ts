@@ -5873,6 +5873,9 @@ describe("getNewsCoverageThreads", () => {
               title: "Researchers test OpenAI agent reliability",
             },
           ],
+          verificationLabel: "Verified thread",
+          verificationSummary:
+            "3 independent sources with 80 average trust support this thread.",
         },
         {
           entity: "Agents",
@@ -5896,9 +5899,55 @@ describe("getNewsCoverageThreads", () => {
               title: "Anthropic agent tooling gets a new wrapper",
             },
           ],
+          verificationLabel: "Verified thread",
+          verificationSummary:
+            "2 independent sources with 80 average trust support this thread.",
         },
       ],
     });
+  });
+
+  it("marks repeated single-source coverage as developing instead of verified", () => {
+    expect(
+      getNewsCoverageThreads({
+        items: [
+          {
+            ...localItem,
+            entities: ["LangChain"],
+            matchedSignals: [],
+            personalizedScore: 130,
+            sourceName: "Agent Desk",
+            sourceScore: 82,
+            sourceSlug: "agent-desk",
+            title: "LangChain ships an agent runtime update",
+            trendScore: 82,
+          },
+          {
+            ...olderItem,
+            entities: ["LangChain"],
+            id: "langchain-follow-up",
+            matchedSignals: [],
+            personalizedScore: 120,
+            sourceName: "Agent Desk",
+            sourceScore: 82,
+            sourceSlug: "agent-desk",
+            title: "LangChain runtime update gets developer examples",
+            trendScore: 78,
+          },
+        ],
+        limit: 1,
+        storiesPerThread: 2,
+      }).threads[0],
+    ).toEqual(
+      expect.objectContaining({
+        entity: "LangChain",
+        sourceCount: 1,
+        storyCount: 2,
+        verificationLabel: "Developing thread",
+        verificationSummary:
+          "2 reports from Agent Desk are still waiting for independent confirmation.",
+      }),
+    );
   });
 
   it("returns an empty coverage state when no entity repeats", () => {

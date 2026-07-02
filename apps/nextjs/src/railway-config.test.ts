@@ -195,4 +195,14 @@ describe("Railway Next.js deployment config", () => {
     expect(expoArticleRoute).toContain('surface: "article_source"');
     expect(expoArticleRoute).toContain("Linking.openURL(article.originalUrl)");
   });
+
+  test("Next.js home renders coverage-thread verification status", async () => {
+    const newsHome = await readFile(
+      path.join(repoRoot, "apps/nextjs/src/app/_components/news-home.tsx"),
+      "utf8",
+    );
+
+    expect(newsHome).toContain("thread.verificationLabel");
+    expect(newsHome).toContain("thread.verificationSummary");
+  });
 });

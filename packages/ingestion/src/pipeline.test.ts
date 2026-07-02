@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import { createFakeEmbeddingProvider } from "./embedding";
 import {
+  buildNewsSourceHealthSummary,
   embedPendingNewsItems,
   getActiveRssSourceSlugs,
   ingestActiveRssSources,
@@ -92,12 +93,54 @@ const rssXml = `<?xml version="1.0"?>
   </channel>
 </rss>`;
 
+const duplicateRssXml = `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>OpenAI releases a new agent model</title>
+      <link>https://example.com/openai-agent?utm_source=rss</link>
+      <description>OpenAI shipped a new model for agentic workflows.</description>
+      <pubDate>Sat, 27 Jun 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>OpenAI releases a new agent model</title>
+      <link>https://example.com/openai-agent?utm_campaign=mirror</link>
+      <description>OpenAI shipped a new model for agentic workflows.</description>
+      <pubDate>Sat, 27 Jun 2026 08:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`;
+
+const mixedFreshnessRssXml = `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>OpenAI releases a new agent model</title>
+      <link>https://example.com/openai-agent</link>
+      <description>OpenAI shipped a new model for agentic workflows.</description>
+      <pubDate>Sat, 27 Jun 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Old benchmark note should stay out of the current edition</title>
+      <link>https://example.com/old-benchmark</link>
+      <description>A stale benchmark note from an older AI cycle.</description>
+      <pubDate>Wed, 01 Apr 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Future-dated launch should wait for the right edition</title>
+      <link>https://example.com/future-launch</link>
+      <description>A feed timestamp points too far into the future.</description>
+      <pubDate>Fri, 10 Jul 2026 08:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`;
+
 describe("seedSources", () => {
   it("passes initial source definitions to the repository", async () => {
     const repository = new FakeRepository();
 
-    await expect(seedSources({ repository })).resolves.toEqual({ created: 12 });
-    expect(repository.sourcesSeeded).toBe(12);
+    await expect(seedSources({ repository })).resolves.toEqual({ created: 17 });
+    expect(repository.sourcesSeeded).toBe(17);
   });
 });
 
@@ -122,6 +165,61 @@ describe("ingestRssSource", () => {
       runId: "run-1",
       status: "succeeded",
       itemsSeen: 1,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+      errorMessage: undefined,
+    });
+  });
+
+  it("upserts duplicate feed items once while preserving raw seen counts", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestRssSource({
+        repository,
+        sourceSlug: "openai-news",
+        fetchFeed: () => Promise.resolve(duplicateRssXml),
+      }),
+    ).resolves.toEqual({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+    });
+
+    expect(repository.upsertedItems).toHaveLength(1);
+    expect(repository.runFinished).toEqual({
+      runId: "run-1",
+      status: "succeeded",
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+      errorMessage: undefined,
+    });
+  });
+
+  it("keeps stale and far-future RSS entries out of the current edition", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestRssSource({
+        repository,
+        sourceSlug: "openai-news",
+        fetchFeed: () => Promise.resolve(mixedFreshnessRssXml),
+        now: new Date("2026-07-01T12:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      itemsSeen: 3,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://example.com/openai-agent",
+    ]);
+    expect(repository.runFinished).toEqual({
+      runId: "run-1",
+      status: "succeeded",
+      itemsSeen: 3,
       itemsCreated: 1,
       itemsUpdated: 0,
       errorMessage: undefined,
@@ -159,17 +257,55 @@ describe("ingestActiveRssSources", () => {
         },
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 9,
-      sourcesSucceeded: 8,
+      sourcesAttempted: 14,
+      sourcesSucceeded: 13,
       sourcesFailed: 1,
-      itemsSeen: 8,
-      itemsCreated: 8,
+      itemsSeen: 13,
+      itemsCreated: 13,
       itemsUpdated: 0,
     });
 
     expect(repository.requestedSourceSlugs).toEqual(
       expect.arrayContaining(["openai-news", "anthropic-news"]),
     );
+  });
+});
+
+describe("buildNewsSourceHealthSummary", () => {
+  it("summarizes failed and empty source refresh results for deployment diagnostics", () => {
+    expect(
+      buildNewsSourceHealthSummary([
+        {
+          sourceSlug: "openai-news",
+          status: "succeeded",
+          itemsSeen: 3,
+          itemsCreated: 2,
+          itemsUpdated: 1,
+        },
+        {
+          sourceSlug: "anthropic-news",
+          status: "succeeded",
+          itemsSeen: 0,
+          itemsCreated: 0,
+          itemsUpdated: 0,
+        },
+        {
+          sourceSlug: "deepmind-blog",
+          status: "failed",
+          itemsSeen: 0,
+          itemsCreated: 0,
+          itemsUpdated: 0,
+          errorMessage: "feed unavailable",
+        },
+      ]),
+    ).toEqual({
+      healthySourceSlugs: ["openai-news"],
+      emptySourceSlugs: ["anthropic-news"],
+      failedSourceSlugs: ["deepmind-blog"],
+      failureMessages: {
+        "deepmind-blog": "feed unavailable",
+      },
+    });
   });
 });
 
@@ -183,14 +319,14 @@ describe("refreshActiveRssSources", () => {
         fetchFeed: () => Promise.resolve(rssXml),
       }),
     ).resolves.toMatchObject({
-      sourcesSeeded: 12,
-      sourcesAttempted: 9,
-      sourcesSucceeded: 9,
+      sourcesSeeded: 17,
+      sourcesAttempted: 14,
+      sourcesSucceeded: 14,
       sourcesFailed: 0,
-      itemsCreated: 9,
+      itemsCreated: 14,
     });
 
-    expect(repository.sourcesSeeded).toBe(12);
+    expect(repository.sourcesSeeded).toBe(17);
     expect(repository.requestedSourceSlugs).toContain("openai-news");
   });
 });

@@ -14,6 +14,72 @@ import type {
   NewsSourceInput,
 } from "./types";
 
+export interface NewsItemRefreshUpdateValues {
+  authorName: string | null;
+  bodyText: string | null;
+  category: NewsItemInput["category"];
+  entities: string[];
+  imageUrl: string | null;
+  language: string;
+  originalUrl: string;
+  publishedAt: Date;
+  status: NonNullable<NewsItemInput["status"]>;
+  summary: string;
+  tags: string[];
+  title: string;
+}
+
+export type NewsItemRefreshDbUpdateValues = NewsItemRefreshUpdateValues & {
+  embeddingStatus: "pending";
+};
+
+export const getNewsItemRefreshUpdateValues = (
+  item: NewsItemInput,
+): NewsItemRefreshUpdateValues => ({
+  authorName: item.authorName ?? null,
+  bodyText: item.bodyText ?? null,
+  category: item.category,
+  entities: item.entities ?? [],
+  imageUrl: item.imageUrl ?? null,
+  language: item.language ?? "en",
+  originalUrl: item.originalUrl,
+  publishedAt: item.publishedAt,
+  status: item.status ?? "published",
+  summary: item.summary,
+  tags: item.tags ?? [],
+  title: item.title,
+});
+
+export const getNewsItemRefreshDbUpdateValues = (
+  item: NewsItemInput,
+): NewsItemRefreshDbUpdateValues => ({
+  ...getNewsItemRefreshUpdateValues(item),
+  embeddingStatus: "pending",
+});
+
+const areStringArraysEqual = (
+  left: readonly string[],
+  right: readonly string[],
+) =>
+  left.length === right.length &&
+  left.every((value, index) => value === right[index]);
+
+export const shouldUpdateNewsItemFromRefresh = (
+  existing: NewsItemRefreshUpdateValues,
+  incoming: NewsItemRefreshUpdateValues,
+) =>
+  existing.authorName !== incoming.authorName ||
+  existing.bodyText !== incoming.bodyText ||
+  existing.category !== incoming.category ||
+  !areStringArraysEqual(existing.entities, incoming.entities) ||
+  existing.imageUrl !== incoming.imageUrl ||
+  existing.language !== incoming.language ||
+  existing.publishedAt.getTime() !== incoming.publishedAt.getTime() ||
+  existing.status !== incoming.status ||
+  existing.summary !== incoming.summary ||
+  !areStringArraysEqual(existing.tags, incoming.tags) ||
+  existing.title !== incoming.title;
+
 export const createDbNewsRepository = (): NewsRepository => ({
   async seedSources(sources: NewsSourceInput[]) {
     let created = 0;
@@ -82,13 +148,55 @@ export const createDbNewsRepository = (): NewsRepository => ({
   },
 
   async upsertNewsItem(item: NewsItemInput) {
+    const updateValues = getNewsItemRefreshUpdateValues(item);
+    const [existing] = await db
+      .select({
+        authorName: NewsItem.authorName,
+        bodyText: NewsItem.bodyText,
+        category: NewsItem.category,
+        entities: NewsItem.entities,
+        id: NewsItem.id,
+        imageUrl: NewsItem.imageUrl,
+        language: NewsItem.language,
+        originalUrl: NewsItem.originalUrl,
+        publishedAt: NewsItem.publishedAt,
+        status: NewsItem.status,
+        summary: NewsItem.summary,
+        tags: NewsItem.tags,
+        title: NewsItem.title,
+      })
+      .from(NewsItem)
+      .where(eq(NewsItem.canonicalUrl, item.canonicalUrl))
+      .limit(1);
+
+    if (existing) {
+      if (!shouldUpdateNewsItemFromRefresh(existing, updateValues)) {
+        return "duplicate";
+      }
+
+      await db
+        .update(NewsItem)
+        .set(getNewsItemRefreshDbUpdateValues(item))
+        .where(eq(NewsItem.id, existing.id));
+
+      return "updated";
+    }
+
     const result = await db
       .insert(NewsItem)
       .values(item)
-      .onConflictDoNothing({ target: NewsItem.dedupeKey })
+      .onConflictDoNothing()
       .returning({ id: NewsItem.id });
 
-    return result.length > 0 ? "created" : "duplicate";
+    if (result.length > 0) return "created";
+
+    const updatedRows = await db
+      .update(NewsItem)
+      .set(getNewsItemRefreshDbUpdateValues(item))
+      .where(eq(NewsItem.canonicalUrl, item.canonicalUrl))
+      .returning({ id: NewsItem.id });
+
+    return updatedRows.length > 0 ? "updated" : "duplicate";
   },
 
   async findPendingEmbeddingItems(limit: number) {

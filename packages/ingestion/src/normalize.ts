@@ -34,6 +34,12 @@ const knownEntities = [
   "Tesla",
   "YC",
   "Y Combinator",
+  "SpaceX",
+  "Cloudflare",
+  "Claude",
+  "Gemini",
+  "Mistral",
+  "Perplexity",
 ] as const;
 
 const normalizeText = (text: string) =>
@@ -41,6 +47,17 @@ const normalizeText = (text: string) =>
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+
+const escapeRegExp = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const hasToken = (text: string, token: string) =>
+  new RegExp(`(^|[^a-z0-9])${escapeRegExp(token)}([^a-z0-9]|$)`, "i").test(
+    normalizeText(text),
+  );
+
+const hasAnyToken = (text: string, tokens: readonly string[]) =>
+  tokens.some((token) => hasToken(text, token));
 
 const slugText = (text: string) =>
   normalizeText(text)
@@ -78,11 +95,7 @@ export const buildDedupeKey = (input: {
 };
 
 export const extractEntities = (text: string): string[] => {
-  const lowerText = text.toLowerCase();
-
-  return knownEntities.filter((entity) =>
-    lowerText.includes(entity.toLowerCase()),
-  );
+  return knownEntities.filter((entity) => hasToken(text, entity));
 };
 
 export const inferNewsCategory = (input: {
@@ -92,85 +105,81 @@ export const inferNewsCategory = (input: {
   const text = input.text.toLowerCase();
   const sourceSlug = input.sourceSlug?.toLowerCase() ?? "";
 
-  if (text.includes("product hunt") || sourceSlug.includes("product-hunt")) {
+  if (hasToken(text, "product hunt") || sourceSlug.includes("product-hunt")) {
     return "product_hunt";
   }
   if (
-    text.includes("funding") ||
-    text.includes("raises") ||
-    text.includes(" seed ") ||
-    text.includes("series a") ||
-    text.includes("series b") ||
-    text.includes("valuation")
+    hasAnyToken(text, [
+      "funding",
+      "raises",
+      "seed",
+      "series a",
+      "series b",
+      "valuation",
+    ])
   ) {
     return "funding";
   }
-  if (
-    text.includes("elon musk") ||
-    text.includes(" xai") ||
-    text.includes("grok") ||
-    text.includes("tesla ai")
-  ) {
+  if (hasAnyToken(text, ["elon musk", "xai", "grok", "tesla ai"])) {
     return "musk_ai";
   }
-  if (
-    text.includes("yc ") ||
-    text.includes(" y combinator") ||
-    sourceSlug.includes("yc")
-  ) {
+  if (hasAnyToken(text, ["yc", "y combinator"]) || sourceSlug.includes("yc")) {
     return "yc_ai";
   }
   if (
-    text.includes("arxiv") ||
-    text.includes("paper") ||
-    text.includes("benchmark") ||
-    text.includes("evaluation") ||
-    text.includes("research")
+    hasAnyToken(text, ["arxiv", "paper", "benchmark", "evaluation", "research"])
   ) {
     return "research";
   }
   if (
-    text.includes("framework") ||
-    text.includes("protocol") ||
-    text.includes("paradigm") ||
-    text.includes("new term") ||
-    text.includes("concept")
+    hasAnyToken(text, [
+      "framework",
+      "protocol",
+      "paradigm",
+      "new term",
+      "concept",
+    ])
   ) {
     return "new_concept";
   }
   if (
-    text.includes("openai") ||
-    text.includes("anthropic") ||
-    text.includes("google") ||
-    text.includes("meta") ||
-    text.includes("microsoft") ||
-    text.includes("nvidia") ||
-    text.includes("amazon") ||
-    text.includes("apple")
+    hasAnyToken(text, [
+      "openai",
+      "anthropic",
+      "google",
+      "meta",
+      "microsoft",
+      "nvidia",
+      "amazon",
+      "apple",
+    ])
   ) {
-    if (
-      text.includes("model") ||
-      text.includes("release") ||
-      text.includes("api")
-    ) {
+    if (hasAnyToken(text, ["model", "models", "release", "api"])) {
       return "model_release";
     }
     return "big_tech";
   }
   if (
-    text.includes("model") ||
-    text.includes("release") ||
-    text.includes("benchmark") ||
-    text.includes("weights") ||
-    text.includes("api")
+    hasAnyToken(text, [
+      "model",
+      "models",
+      "release",
+      "benchmark",
+      "weights",
+      "api",
+    ])
   ) {
     return "model_release";
   }
   if (
-    text.includes("agent") ||
-    text.includes("workflow") ||
-    text.includes("automation") ||
-    text.includes("browser")
+    hasAnyToken(text, [
+      "agent",
+      "agents",
+      "agentic",
+      "workflow",
+      "automation",
+      "browser",
+    ])
   ) {
     return "agent_product";
   }
@@ -187,10 +196,12 @@ const tagsFor = (input: {
   const text = input.text.toLowerCase();
   const sourceSlug = input.sourceSlug?.toLowerCase() ?? "";
 
-  if (text.includes("agent")) tags.add("agent");
-  if (text.includes("model")) tags.add("model");
-  if (text.includes("yc") || sourceSlug.includes("yc")) tags.add("yc");
-  if (text.includes("product hunt") || sourceSlug.includes("product-hunt")) {
+  if (hasAnyToken(text, ["agent", "agents", "agentic"])) tags.add("agent");
+  if (hasAnyToken(text, ["model", "models", "llm", "llms"])) {
+    tags.add("model");
+  }
+  if (hasToken(text, "yc") || sourceSlug.includes("yc")) tags.add("yc");
+  if (hasToken(text, "product hunt") || sourceSlug.includes("product-hunt")) {
     tags.add("product_hunt");
   }
 
@@ -253,6 +264,7 @@ export const normalizeFeedItem = (input: {
   sourceId: string;
   sourceSlug?: string;
   item: RawFeedItem;
+  now?: Date;
 }): NewsItemInput =>
   normalizeShared({
     sourceId: input.sourceId,
@@ -261,7 +273,7 @@ export const normalizeFeedItem = (input: {
     url: input.item.url,
     summary: input.item.summary ?? input.item.title,
     bodyText: input.item.bodyText,
-    publishedAt: input.item.publishedAt ?? new Date(),
+    publishedAt: input.item.publishedAt ?? input.now ?? new Date(),
     authorName: input.item.authorName,
     imageUrl: input.item.imageUrl,
   });

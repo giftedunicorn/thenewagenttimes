@@ -54,6 +54,14 @@ describe("inferNewsCategory", () => {
   ])("classifies %s as %s", (text, expectedCategory) => {
     expect(inferNewsCategory({ text })).toBe(expectedCategory);
   });
+
+  it("does not classify ordinary success language as startup funding", () => {
+    expect(
+      inferNewsCategory({
+        text: "America's scientific success depends on university leadership.",
+      }),
+    ).toBe("other");
+  });
 });
 
 describe("extractEntities", () => {
@@ -61,6 +69,29 @@ describe("extractEntities", () => {
     expect(
       extractEntities("OpenAI and Anthropic react to Elon Musk and xAI news"),
     ).toEqual(["OpenAI", "Anthropic", "Elon Musk", "xAI"]);
+  });
+
+  it("does not match entity names inside unrelated words", () => {
+    expect(
+      extractEntities(
+        "A cardiometabolic benchmark studies policy and technology adoption.",
+      ),
+    ).toEqual([]);
+  });
+
+  it("extracts common AI product, lab, and infrastructure entities", () => {
+    expect(
+      extractEntities(
+        "Claude, Gemini, Mistral, Perplexity, SpaceX, and Cloudflare shape the AI week.",
+      ),
+    ).toEqual([
+      "SpaceX",
+      "Cloudflare",
+      "Claude",
+      "Gemini",
+      "Mistral",
+      "Perplexity",
+    ]);
   });
 });
 
@@ -80,6 +111,25 @@ describe("normalizeFeedItem", () => {
     expect(CreateNewsItemSchema.safeParse(result).success).toBe(true);
     expect(result.category).toBe("model_release");
     expect(result.canonicalUrl).toBe("https://example.com/openai-agent");
+  });
+
+  it("keeps arXiv research tags and entities clean from substring matches", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "arxiv-ai-ml",
+      item: {
+        title:
+          "Accelerometry-Derived Digital Biomarkers for Cardiometabolic Risk",
+        url: "https://arxiv.org/abs/2606.31500",
+        summary:
+          "A population-representative tabular benchmark with uncertainty quantification.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("research");
+    expect(result.tags).toEqual(["research"]);
+    expect(result.entities).toEqual([]);
   });
 });
 

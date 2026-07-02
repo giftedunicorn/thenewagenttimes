@@ -19,10 +19,69 @@ export const seedSources = async (input: { repository: NewsRepository }) => {
   return input.repository.seedSources(initialNewsSources);
 };
 
+export interface NewsSourceRefreshResult {
+  sourceSlug: string;
+  status: "succeeded" | "failed";
+  itemsSeen: number;
+  itemsCreated: number;
+  itemsUpdated: number;
+  errorMessage?: string;
+}
+
+export interface NewsSourceHealthSummary {
+  healthySourceSlugs: string[];
+  emptySourceSlugs: string[];
+  failedSourceSlugs: string[];
+  failureMessages: Record<string, string>;
+}
+
+const newsEditionWindowMs = 45 * 24 * 60 * 60 * 1000;
+const newsEditionFutureToleranceMs = 2 * 24 * 60 * 60 * 1000;
+
+const isWithinCurrentNewsEditionWindow = ({
+  now,
+  publishedAt,
+}: {
+  now: Date;
+  publishedAt: Date;
+}) => {
+  const publishedAtMs = publishedAt.getTime();
+  const nowMs = now.getTime();
+
+  if (publishedAtMs > nowMs + newsEditionFutureToleranceMs) return false;
+
+  return nowMs - publishedAtMs <= newsEditionWindowMs;
+};
+
+const hasFailureMessage = (
+  result: NewsSourceRefreshResult,
+): result is NewsSourceRefreshResult & { errorMessage: string } =>
+  result.status === "failed" && Boolean(result.errorMessage);
+
+export const buildNewsSourceHealthSummary = (
+  results: readonly NewsSourceRefreshResult[],
+): NewsSourceHealthSummary => ({
+  healthySourceSlugs: results
+    .filter((result) => result.status === "succeeded" && result.itemsSeen > 0)
+    .map((result) => result.sourceSlug),
+  emptySourceSlugs: results
+    .filter((result) => result.status === "succeeded" && result.itemsSeen === 0)
+    .map((result) => result.sourceSlug),
+  failedSourceSlugs: results
+    .filter((result) => result.status === "failed")
+    .map((result) => result.sourceSlug),
+  failureMessages: Object.fromEntries(
+    results
+      .filter(hasFailureMessage)
+      .map((result) => [result.sourceSlug, result.errorMessage]),
+  ),
+});
+
 export const ingestRssSource = async (input: {
   repository: NewsRepository;
   sourceSlug: string;
   fetchFeed?: (url: string) => Promise<string>;
+  now?: Date;
 }) => {
   const source = await input.repository.findSourceBySlug(input.sourceSlug);
 
@@ -49,6 +108,8 @@ export const ingestRssSource = async (input: {
   try {
     const xml = await fetchFeed(source.feedUrl);
     const rawItems = parseFeedXml(xml);
+    const seenDedupeKeys = new Set<string>();
+    const now = input.now ?? new Date();
     let itemsCreated = 0;
     let itemsUpdated = 0;
 
@@ -57,7 +118,21 @@ export const ingestRssSource = async (input: {
         sourceId: source.id,
         sourceSlug: source.slug,
         item,
+        now,
       });
+
+      if (
+        !isWithinCurrentNewsEditionWindow({
+          now,
+          publishedAt: normalized.publishedAt,
+        })
+      ) {
+        continue;
+      }
+
+      if (seenDedupeKeys.has(normalized.dedupeKey)) continue;
+      seenDedupeKeys.add(normalized.dedupeKey);
+
       const result = await input.repository.upsertNewsItem(normalized);
 
       if (result === "created") itemsCreated += 1;
@@ -94,16 +169,10 @@ export const ingestRssSource = async (input: {
 export const ingestActiveRssSources = async (input: {
   repository: NewsRepository;
   fetchFeed?: (url: string) => Promise<string>;
+  now?: Date;
 }) => {
   const sourceSlugs = getActiveRssSourceSlugs();
-  const results: {
-    sourceSlug: string;
-    status: "succeeded" | "failed";
-    itemsSeen: number;
-    itemsCreated: number;
-    itemsUpdated: number;
-    errorMessage?: string;
-  }[] = [];
+  const results: NewsSourceRefreshResult[] = [];
 
   for (const sourceSlug of sourceSlugs) {
     try {
@@ -111,6 +180,7 @@ export const ingestActiveRssSources = async (input: {
         repository: input.repository,
         sourceSlug,
         fetchFeed: input.fetchFeed,
+        now: input.now,
       });
 
       results.push({
@@ -146,12 +216,14 @@ export const ingestActiveRssSources = async (input: {
       0,
     ),
     results,
+    sourceHealth: buildNewsSourceHealthSummary(results),
   };
 };
 
 export const refreshActiveRssSources = async (input: {
   repository: NewsRepository;
   fetchFeed?: (url: string) => Promise<string>;
+  now?: Date;
 }) => {
   const seedResult = await seedSources({ repository: input.repository });
   const ingestResult = await ingestActiveRssSources(input);

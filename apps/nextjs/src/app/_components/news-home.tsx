@@ -3675,7 +3675,10 @@ export function NewsHome({
                               };
                             }
 
-                            if (suggestion.kind === "entity") {
+                            if (
+                              suggestion.kind === "entity" ||
+                              suggestion.kind === "tag"
+                            ) {
                               return {
                                 ...current,
                                 preferredEntities:

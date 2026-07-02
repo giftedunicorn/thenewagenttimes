@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -26,9 +26,18 @@ import {
   stripPersistedNewsPreferenceProfile,
 } from "../../_components/news-home-model";
 import {
+  getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
+  getNewsArticleFeedbackLoop,
+  getNewsArticleLearningImpact,
+  getNewsArticleNextReads,
+  getNewsArticleReaderFit,
   getNewsArticleReadingPath,
+  getNewsArticleReadPercent,
+  getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
+  shouldPersistNewsArticleReaderSignals,
+  shouldTrainNewsArticleProfileFromReadPercent,
 } from "./news-article-model";
 
 interface NewsArticleProps {
@@ -144,11 +153,19 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   const queryClient = useQueryClient();
   const [profile, setProfile] =
     useState<NewsPreferenceProfile>(readStoredProfile);
+  const [feedbackLoop, setFeedbackLoop] = useState<ReturnType<
+    typeof getNewsArticleFeedbackLoop
+  > | null>(null);
   const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
+  const recordedDeepReadRef = useRef(false);
+  const canPersistReaderSignals = shouldPersistNewsArticleReaderSignals({
+    articleId: article.id,
+    visitorKey,
+  });
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
-      { enabled: Boolean(visitorKey) },
+      { enabled: canPersistReaderSignals },
     ),
   );
   const recordInteraction = useMutation(
@@ -180,25 +197,87 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   }, [profileQuery.data]);
 
   useEffect(() => {
-    if (!visitorKey) return;
+    if (!canPersistReaderSignals || !visitorKey) return;
 
-    setProfile((current) => {
-      const nextProfile = updateReaderProfileWithInteraction(current, article, {
-        action: "view",
+    const readPercent = 0.2;
+
+    if (shouldTrainNewsArticleProfileFromReadPercent(readPercent)) {
+      setProfile((current) => {
+        const nextProfile = updateReaderProfileWithInteraction(
+          current,
+          article,
+          {
+            action: "view",
+            readPercent,
+          },
+        );
+        writeStoredProfile(nextProfile);
+        return nextProfile;
       });
-      writeStoredProfile(nextProfile);
-      return nextProfile;
-    });
+    }
 
     recordInteraction.mutate({
       visitorKey,
       newsItemId: article.id,
       action: "view",
-      metadata: { surface: "article" },
+      metadata: { readPercent, surface: "article" },
     });
     // This should run once per article open after the reader key is available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article.id, visitorKey]);
+  }, [article.id, canPersistReaderSignals, visitorKey]);
+
+  useEffect(() => {
+    recordedDeepReadRef.current = false;
+  }, [article.id]);
+
+  useEffect(() => {
+    if (!canPersistReaderSignals || !visitorKey) return;
+
+    const recordDeepRead = () => {
+      if (recordedDeepReadRef.current) return;
+
+      const readPercent = getNewsArticleReadPercent({
+        documentHeight: document.documentElement.scrollHeight,
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight,
+      });
+
+      if (readPercent < 0.8) return;
+
+      recordedDeepReadRef.current = true;
+      setProfile((current) => {
+        const trainingState = getNewsArticleDeepReadTrainingState({
+          article,
+          beforeProfile: current,
+          formatCategory,
+          readPercent,
+        });
+
+        if (!trainingState) return current;
+
+        setFeedbackLoop(trainingState.feedbackLoop);
+        writeStoredProfile(trainingState.profile);
+        return trainingState.profile;
+      });
+      recordInteraction.mutate({
+        visitorKey,
+        newsItemId: article.id,
+        action: "view",
+        metadata: { readPercent, surface: "article" },
+      });
+    };
+
+    recordDeepRead();
+    window.addEventListener("scroll", recordDeepRead, { passive: true });
+    window.addEventListener("resize", recordDeepRead);
+
+    return () => {
+      window.removeEventListener("scroll", recordDeepRead);
+      window.removeEventListener("resize", recordDeepRead);
+    };
+    // This effect tracks browser reading depth for the active article.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [article.id, canPersistReaderSignals, visitorKey]);
 
   const rankedRelated = useMemo(
     () =>
@@ -221,6 +300,37 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       }),
     [article, rankedRelated],
   );
+  const readerFit = useMemo(
+    () =>
+      getNewsArticleReaderFit({
+        article,
+        formatCategory,
+        profile,
+        relatedItems: rankedRelated,
+      }),
+    [article, profile, rankedRelated],
+  );
+  const learningImpact = useMemo(
+    () =>
+      getNewsArticleLearningImpact({
+        article,
+        formatCategory,
+        profile,
+        relatedItems: rankedRelated,
+      }),
+    [article, profile, rankedRelated],
+  );
+  const nextReads = useMemo(
+    () =>
+      getNewsArticleNextReads({
+        article,
+        formatCategory,
+        limit: 4,
+        profile,
+        relatedItems: rankedRelated,
+      }),
+    [article, profile, rankedRelated],
+  );
   const articleDigest = useMemo(
     () => getNewsArticleDigest({ article }),
     [article],
@@ -229,18 +339,37 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     () => getNewsArticleSourceLens({ article }),
     [article],
   );
+  const serverProfileAudit = getNewsArticleServerProfileAuditDisplay(
+    profileQuery.data?.audit,
+  );
+  const articleFeedbackLoop =
+    feedbackLoop ??
+    getNewsArticleFeedbackLoop({
+      action: null,
+      afterProfile: profile,
+      article,
+      beforeProfile: profile,
+      formatCategory,
+    });
   const paragraphs = paragraphsFromArticle(article);
 
   const recordAction = (action: ReaderInteractionAction) => {
-    setProfile((current) => {
-      const nextProfile = updateReaderProfileWithInteraction(current, article, {
-        action,
-      });
-      writeStoredProfile(nextProfile);
-      return nextProfile;
+    const nextProfile = updateReaderProfileWithInteraction(profile, article, {
+      action,
     });
+    setFeedbackLoop(
+      getNewsArticleFeedbackLoop({
+        action,
+        afterProfile: nextProfile,
+        article,
+        beforeProfile: profile,
+        formatCategory,
+      }),
+    );
+    setProfile(nextProfile);
+    writeStoredProfile(nextProfile);
 
-    if (visitorKey) {
+    if (canPersistReaderSignals && visitorKey) {
       recordInteraction.mutate({
         visitorKey,
         newsItemId: article.id,
@@ -393,6 +522,260 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           </section>
 
           <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Server Profile</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {serverProfileAudit.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {serverProfileAudit.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-3 border-y border-[#161616]/20 text-center text-xs dark:border-[#f4f1ea]/15">
+              {serverProfileAudit.metrics.map((metric) => (
+                <div
+                  className="border-r border-[#161616]/20 py-3 last:border-r-0 dark:border-[#f4f1ea]/15"
+                  key={metric.label}
+                >
+                  <dt className="text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-base">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            {serverProfileAudit.chips.length > 0 ? (
+              <div className="mt-4 flex flex-wrap gap-2">
+                {serverProfileAudit.chips.map((chip) => (
+                  <span
+                    key={chip}
+                    className="border border-[#161616]/30 px-2 py-1 text-xs dark:border-[#f4f1ea]/30"
+                  >
+                    {chip}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Reader Fit</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {readerFit.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {readerFit.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-3 border-y border-[#161616]/20 text-center text-xs dark:border-[#f4f1ea]/15">
+              {readerFit.metrics.map((metric) => (
+                <div
+                  className="border-r border-[#161616]/20 py-3 last:border-r-0 dark:border-[#f4f1ea]/15"
+                  key={metric.label}
+                >
+                  <dt className="text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-base">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3 text-sm">
+              {readerFit.reasons.map((reason) => (
+                <SignalLine
+                  key={reason.label}
+                  label={reason.label}
+                  value={reason.detail}
+                />
+              ))}
+            </div>
+            {readerFit.nextStep ? (
+              <Link
+                className="mt-4 block border-t border-[#161616]/20 pt-4 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                href={`/news/${readerFit.nextStep.id}`}
+              >
+                <span className="block font-mono text-xs">
+                  {readerFit.nextStep.label} / {readerFit.nextStep.scoreLabel}
+                </span>
+                <span className="font-bold">{readerFit.nextStep.title}</span>
+                <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                  {readerFit.nextStep.reason}
+                </span>
+              </Link>
+            ) : (
+              <p className="mt-4 border-t border-[#161616]/20 pt-4 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                Open another story or save this one to train the article queue.
+              </p>
+            )}
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Feedback Loop</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {articleFeedbackLoop.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {articleFeedbackLoop.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              {articleFeedbackLoop.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {articleFeedbackLoop.notices.map((notice) => (
+                <div
+                  key={notice.label}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="font-semibold">{notice.label}</div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {notice.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Learning Impact</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {learningImpact.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {learningImpact.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              {learningImpact.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {learningImpact.actions.map((action) => (
+                <div
+                  key={action.action}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-semibold">{action.label}</span>
+                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                      {action.signalLabel} / {action.biasLabel}
+                    </span>
+                  </div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {action.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+            {learningImpact.nextStories.length > 0 ? (
+              <div className="mt-4 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+                <h3 className="text-sm font-black">Next Recommendation</h3>
+                <div className="mt-2 grid gap-3">
+                  {learningImpact.nextStories.slice(0, 2).map((item) => (
+                    <Link
+                      className="text-sm leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                      href={`/news/${item.id}`}
+                      key={item.id}
+                    >
+                      <span className="block font-mono text-xs">
+                        {item.reason} / {item.scoreLabel}
+                      </span>
+                      <span className="font-bold">{item.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Next Reads</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {nextReads.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {nextReads.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-4 border-y border-[#161616]/20 text-center text-xs dark:border-[#f4f1ea]/15">
+              {nextReads.metrics.map((metric) => (
+                <div
+                  className="border-r border-[#161616]/20 py-3 last:border-r-0 dark:border-[#f4f1ea]/15"
+                  key={metric.label}
+                >
+                  <dt className="text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-base">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {nextReads.reads.length > 0 ? (
+                nextReads.reads.map((item) => (
+                  <Link
+                    className="border-t border-[#161616]/20 pt-3 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                    href={`/news/${item.id}`}
+                    key={item.id}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-semibold">{item.title}</span>
+                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                        {item.statusLabel}
+                      </span>
+                    </div>
+                    <span className="mt-1 block font-mono text-xs">
+                      {item.categoryLabel} / {item.sourceName} /{" "}
+                      {item.scoreLabel}
+                    </span>
+                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {item.reason}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Continue reading and saving stories to unlock the article
+                  queue.
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
             <h2 className="text-xl font-black">Article Signals</h2>
             <dl className="mt-4 grid gap-3 text-sm">
               {readingPath.context.map((signal) => (

@@ -27,6 +27,13 @@ export interface NewsIdentity {
   id: string;
 }
 
+export interface NewsUrlReference {
+  canonicalUrl?: string | null;
+  originalUrl?: string | null;
+}
+
+export type NewsUrlIdentity = NewsIdentity & NewsUrlReference;
+
 export type ReaderInteractionAction =
   | "view"
   | "click_source"
@@ -36,6 +43,7 @@ export type ReaderInteractionAction =
 
 export interface ReaderInteraction {
   action: ReaderInteractionAction;
+  readPercent?: number;
 }
 
 const normalizeSet = (values: readonly string[]) =>
@@ -132,6 +140,33 @@ const interactionWeights = {
   view: 0.15,
 } as const satisfies Record<Exclude<ReaderInteractionAction, "hide">, number>;
 
+const minimumTrainingReadPercent = 0.35;
+
+const clampReadPercent = (readPercent: number) =>
+  Math.min(Math.max(readPercent, 0), 1);
+
+export const shouldTrainReaderProfileFromInteraction = (
+  interaction: ReaderInteraction,
+) =>
+  interaction.action !== "view" ||
+  interaction.readPercent === undefined ||
+  clampReadPercent(interaction.readPercent) >= minimumTrainingReadPercent;
+
+const getInteractionWeight = (interaction: ReaderInteraction) => {
+  if (interaction.action === "hide") return 0;
+
+  const actionWeight = interactionWeights[interaction.action];
+
+  if (interaction.action !== "view") return actionWeight;
+
+  const readPercent = clampReadPercent(
+    interaction.readPercent ?? minimumTrainingReadPercent,
+  );
+  const readDepthMultiplier = 0.5 + readPercent;
+
+  return actionWeight * readDepthMultiplier;
+};
+
 export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
   items: readonly TItem[],
   preferences: NewsPreferenceProfile,
@@ -172,9 +207,12 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
         matchedSignals.push("entity");
       }
 
+      const ageHours = hoursSince(item.publishedAt, now);
       const noveltyBoost = noveltyBias * Math.min(item.tags.length * 2, 10);
-      const recencyBoost =
-        recencyBias * Math.max(16 - hoursSince(item.publishedAt, now) / 3, 0);
+      const recencyBoost = recencyBias * Math.max(16 - ageHours / 3, 0);
+      const stalenessPenalty =
+        recencyBias * Math.min(Math.max(ageHours - 48, 0) / 2, 24);
+      const sourceTrustPenalty = Math.max(60 - item.sourceScore, 0) * 0.35;
 
       return {
         ...item,
@@ -184,7 +222,9 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
             item.sourceScore / 10 +
             preferenceBoost +
             noveltyBoost +
-            recencyBoost,
+            recencyBoost -
+            stalenessPenalty -
+            sourceTrustPenalty,
         ),
       };
     })
@@ -209,14 +249,19 @@ export const filterHiddenNewsItems = <TItem extends NewsIdentity>(
   return items.filter((item) => !hiddenIds.has(item.id));
 };
 
-export type DedupeNewsItem = NewsIdentity & {
-  canonicalUrl?: string | null;
+export type DedupeNewsItem = NewsUrlIdentity & {
   category: string;
   publishedAt: string;
   sourceScore: number;
   title: string;
   trendScore: number;
 };
+
+const getNewsDedupeUrlKeys = (item: NewsUrlReference) =>
+  [item.canonicalUrl, item.originalUrl]
+    .map(normalizeNewsDedupeUrl)
+    .filter((url): url is string => url !== null)
+    .map((url) => `url:${url}`);
 
 const normalizeNewsDedupeUrl = (url: string | null | undefined) => {
   if (!url) return null;
@@ -239,13 +284,16 @@ const normalizeNewsDedupeTitle = (title: string) =>
     .trim()
     .replace(/\s+/g, " ");
 
-const getNewsDedupeKey = (item: DedupeNewsItem) => {
-  const canonicalUrl = normalizeNewsDedupeUrl(item.canonicalUrl);
-  if (canonicalUrl) return `url:${canonicalUrl}`;
+const getNewsDedupeKeys = (item: DedupeNewsItem) => {
+  const urlKeys = getNewsDedupeUrlKeys(item);
 
-  return `title:${item.category.trim().toLowerCase()}:${normalizeNewsDedupeTitle(
-    item.title,
-  )}`;
+  if (urlKeys.length > 0) return Array.from(new Set(urlKeys));
+
+  return [
+    `title:${item.category.trim().toLowerCase()}:${normalizeNewsDedupeTitle(
+      item.title,
+    )}`,
+  ];
 };
 
 const compareNewsDedupeStrength = (
@@ -268,23 +316,65 @@ const compareNewsDedupeStrength = (
 export const dedupeNewsItems = <TItem extends DedupeNewsItem>(
   items: readonly TItem[],
 ): TItem[] => {
-  const dedupedByKey = new Map<string, { index: number; item: TItem }>();
+  const dedupeGroups: {
+    index: number;
+    item: TItem;
+    keys: Set<string>;
+  }[] = [];
 
   for (const item of items) {
-    const key = getNewsDedupeKey(item);
-    const existing = dedupedByKey.get(key);
+    const keys = getNewsDedupeKeys(item);
+    const matchingGroups = dedupeGroups.filter((group) =>
+      keys.some((key) => group.keys.has(key)),
+    );
 
-    if (!existing || compareNewsDedupeStrength(item, existing.item) > 0) {
-      dedupedByKey.set(key, {
-        index: existing?.index ?? dedupedByKey.size,
+    if (matchingGroups.length === 0) {
+      dedupeGroups.push({
+        index: dedupeGroups.length,
         item,
+        keys: new Set(keys),
       });
+      continue;
+    }
+
+    const [primaryGroup, ...mergedGroups] = matchingGroups;
+    if (!primaryGroup) continue;
+
+    keys.forEach((key) => primaryGroup.keys.add(key));
+
+    for (const mergedGroup of mergedGroups) {
+      mergedGroup.keys.forEach((key) => primaryGroup.keys.add(key));
+
+      if (compareNewsDedupeStrength(mergedGroup.item, primaryGroup.item) > 0) {
+        primaryGroup.item = mergedGroup.item;
+      }
+
+      dedupeGroups.splice(dedupeGroups.indexOf(mergedGroup), 1);
+    }
+
+    if (compareNewsDedupeStrength(item, primaryGroup.item) > 0) {
+      primaryGroup.item = item;
     }
   }
 
-  return Array.from(dedupedByKey.values())
+  return dedupeGroups
     .sort((left, right) => left.index - right.index)
     .map((entry) => entry.item);
+};
+
+export const filterBlockedNewsItems = <TItem extends DedupeNewsItem>(
+  items: readonly TItem[],
+  hiddenNewsItemIds: readonly string[],
+  hiddenNewsItems: readonly DedupeNewsItem[] = [],
+): TItem[] => {
+  const hiddenIds = new Set(hiddenNewsItemIds);
+  const hiddenDedupeKeys = new Set(hiddenNewsItems.flatMap(getNewsDedupeKeys));
+
+  return items.filter(
+    (item) =>
+      !hiddenIds.has(item.id) &&
+      getNewsDedupeKeys(item).every((key) => !hiddenDedupeKeys.has(key)),
+  );
 };
 
 export const selectDiverseNewsFeed = <TItem extends RecommendableNewsItem>(
@@ -298,6 +388,17 @@ export const selectDiverseNewsFeed = <TItem extends RecommendableNewsItem>(
   const remaining = [...rankedItems];
   const usedSources = new Set<string>();
   const usedCategories = new Set<string>();
+
+  const hasRecentFeedFatigue = (item: RankedNewsItem<TItem>) => {
+    const previousItem = selected.at(-1);
+
+    if (!previousItem) return false;
+
+    return (
+      previousItem.sourceSlug === item.sourceSlug ||
+      previousItem.category === item.category
+    );
+  };
 
   while (selected.length < limit && remaining.length > 0) {
     const shouldExplore =
@@ -345,6 +446,25 @@ export const selectDiverseNewsFeed = <TItem extends RecommendableNewsItem>(
       nextIndex = 0;
     }
 
+    const fatigueSafeIndex = remaining.findIndex(
+      (item) =>
+        !hasRecentFeedFatigue(item) &&
+        (!selectedForExploration || item.matchedSignals.length === 0),
+    );
+
+    const candidateItem = remaining[nextIndex];
+
+    if (
+      candidateItem &&
+      hasRecentFeedFatigue(candidateItem) &&
+      fatigueSafeIndex !== -1
+    ) {
+      nextIndex = fatigueSafeIndex;
+      selectedForExploration =
+        selectedForExploration &&
+        remaining[nextIndex]?.matchedSignals.length === 0;
+    }
+
     const [nextItem] = remaining.splice(nextIndex, 1);
     if (!nextItem) continue;
 
@@ -363,6 +483,493 @@ export const selectDiverseNewsFeed = <TItem extends RecommendableNewsItem>(
   return selected;
 };
 
+const hasDiscoverySignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.includes("discovery_slot") ||
+  item.matchedSignals.includes("exploration");
+
+const isQualifiedDiscoveryCandidate = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  (item.matchedSignals.length === 0 ||
+    item.matchedSignals.every((signal) => signal === "exploration")) &&
+  item.sourceScore >= 70 &&
+  item.trendScore >= 60;
+
+export const selectDiscoverySlotNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  {
+    maxPersonalizedRank = 5,
+    slotIndex = 3,
+  }: { maxPersonalizedRank?: number; slotIndex?: number } = {},
+): RankedNewsItem<TItem>[] => {
+  const topItems = rankedItems.slice(0, maxPersonalizedRank);
+
+  if (topItems.some(hasDiscoverySignal)) return [...rankedItems];
+
+  const discoveryIndex = rankedItems.findIndex(
+    (item, index) =>
+      index >= maxPersonalizedRank && isQualifiedDiscoveryCandidate(item),
+  );
+
+  if (discoveryIndex === -1) return [...rankedItems];
+
+  const nextItems = [...rankedItems];
+  const [discoveryItem] = nextItems.splice(discoveryIndex, 1);
+
+  if (!discoveryItem) return [...rankedItems];
+
+  nextItems.splice(
+    Math.min(slotIndex, nextItems.length),
+    0,
+    addMatchedSignal(discoveryItem, "discovery_slot"),
+  );
+
+  return nextItems;
+};
+
+export const selectFatigueBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+): RankedNewsItem<TItem>[] => {
+  const remaining = [...rankedItems];
+  const selected: RankedNewsItem<TItem>[] = [];
+
+  const hasSharedEntity = (
+    item: RankedNewsItem<TItem>,
+    previousItem: RankedNewsItem<TItem>,
+  ) => {
+    const previousEntities = normalizeSet(previousItem.entities);
+
+    return item.entities.some((entity) =>
+      previousEntities.has(entity.toLowerCase()),
+    );
+  };
+  const isPositiveFeedbackAnchor = (item: RankedNewsItem<TItem>) =>
+    item.matchedSignals.includes("positive_feedback");
+
+  while (remaining.length > 0) {
+    const previousItem = selected.at(-1);
+    let nextIndex = 0;
+
+    if (
+      previousItem &&
+      !(
+        isPositiveFeedbackAnchor(previousItem) &&
+        remaining[0] &&
+        isPositiveFeedbackAnchor(remaining[0])
+      )
+    ) {
+      const hasSourceOrCategoryFatigue = (item: RankedNewsItem<TItem>) =>
+        item.sourceSlug === previousItem.sourceSlug ||
+        item.category === previousItem.category;
+      const fullAlternateIndex = remaining.findIndex(
+        (item) =>
+          !hasSourceOrCategoryFatigue(item) &&
+          !hasSharedEntity(item, previousItem),
+      );
+      const sourceTopicAlternateIndex = remaining.findIndex(
+        (item) => !hasSourceOrCategoryFatigue(item),
+      );
+      const partialAlternateIndex = remaining.findIndex(
+        (item) =>
+          item.sourceSlug !== previousItem.sourceSlug ||
+          item.category !== previousItem.category ||
+          !hasSharedEntity(item, previousItem),
+      );
+
+      if (fullAlternateIndex !== -1) {
+        nextIndex = fullAlternateIndex;
+      } else if (sourceTopicAlternateIndex !== -1) {
+        nextIndex = sourceTopicAlternateIndex;
+      } else if (partialAlternateIndex !== -1) {
+        nextIndex = partialAlternateIndex;
+      }
+    }
+
+    const [nextItem] = remaining.splice(nextIndex, 1);
+    if (nextItem) selected.push(nextItem);
+  }
+
+  return selected;
+};
+
+export const selectReaderFreshNewsFeed = <
+  TItem extends RecommendableNewsItem & NewsUrlIdentity,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  viewedNewsItemIds: readonly string[],
+  viewedNewsItems: readonly NewsUrlReference[] = [],
+): RankedNewsItem<TItem>[] => {
+  if (viewedNewsItemIds.length === 0 && viewedNewsItems.length === 0) {
+    return [...rankedItems];
+  }
+
+  const viewedIds = new Set(viewedNewsItemIds);
+  const viewedUrlKeys = new Set(viewedNewsItems.flatMap(getNewsDedupeUrlKeys));
+  const unseenItems: RankedNewsItem<TItem>[] = [];
+  const viewedItems: RankedNewsItem<TItem>[] = [];
+
+  for (const item of rankedItems) {
+    const hasViewedUrl = getNewsDedupeUrlKeys(item).some((key) =>
+      viewedUrlKeys.has(key),
+    );
+
+    if (viewedIds.has(item.id) || hasViewedUrl) {
+      viewedItems.push(item);
+    } else {
+      unseenItems.push(item);
+    }
+  }
+
+  return [...unseenItems, ...viewedItems];
+};
+
+export type NegativeFeedbackNewsItem = Pick<
+  RecommendableNewsItem,
+  "category" | "entities" | "sourceSlug"
+> & {
+  occurredAt?: string;
+};
+
+type PositiveFeedbackAction = Extract<
+  ReaderInteractionAction,
+  "click_source" | "save" | "share"
+>;
+
+export type PositiveFeedbackNewsItem = Pick<
+  RecommendableNewsItem,
+  "category" | "entities" | "sourceSlug"
+> & {
+  action?: PositiveFeedbackAction;
+  occurredAt?: string;
+};
+
+export type RecentExposureNewsItem = Pick<
+  RecommendableNewsItem,
+  "category" | "entities" | "sourceSlug"
+> &
+  NewsUrlReference & {
+    occurredAt?: string;
+  };
+
+const addMatchedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  signal: string,
+): RankedNewsItem<TItem> =>
+  item.matchedSignals.includes(signal)
+    ? item
+    : {
+        ...item,
+        matchedSignals: [...item.matchedSignals, signal],
+      };
+
+const getNewsSignalSets = (
+  items: readonly Pick<
+    RecommendableNewsItem,
+    "category" | "entities" | "sourceSlug"
+  >[],
+) => ({
+  categories: normalizeSet(items.map((item) => item.category)),
+  entities: normalizeSet(items.flatMap((item) => item.entities)),
+  sources: normalizeSet(items.map((item) => item.sourceSlug)),
+});
+
+const hasNewsSignalMatch = (
+  item: RecommendableNewsItem,
+  signalSets: ReturnType<typeof getNewsSignalSets>,
+) =>
+  signalSets.sources.has(item.sourceSlug.toLowerCase()) ||
+  signalSets.categories.has(item.category.toLowerCase()) ||
+  item.entities.some((entity) => signalSets.entities.has(entity.toLowerCase()));
+
+const positiveFeedbackActionStrength = {
+  click_source: 1,
+  save: 2,
+  share: 3,
+} as const satisfies Record<PositiveFeedbackAction, number>;
+
+const getPositiveFeedbackActionStrength = (
+  action: PositiveFeedbackAction | undefined,
+) =>
+  action
+    ? positiveFeedbackActionStrength[action]
+    : positiveFeedbackActionStrength.save;
+
+const getPositiveFeedbackTimestamp = (occurredAt: string | undefined) => {
+  if (!occurredAt) return 0;
+
+  const timestamp = new Date(occurredAt).getTime();
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+};
+
+const isActivePositiveFeedback = (
+  item: PositiveFeedbackNewsItem,
+  now: Date,
+) => {
+  if (item.action !== "click_source") return true;
+  if (!item.occurredAt) return true;
+
+  return hoursSince(item.occurredAt, now) <= 14 * 24;
+};
+
+const getPositiveFeedbackMatch = (
+  item: RecommendableNewsItem,
+  positiveFeedbackItems: readonly PositiveFeedbackNewsItem[],
+  now: Date,
+) => {
+  let matchStrength = 0;
+  let matchTimestamp = 0;
+
+  for (const feedbackItem of positiveFeedbackItems) {
+    if (!isActivePositiveFeedback(feedbackItem, now)) continue;
+
+    const feedbackStrength = getPositiveFeedbackActionStrength(
+      feedbackItem.action,
+    );
+    const feedbackTimestamp = getPositiveFeedbackTimestamp(
+      feedbackItem.occurredAt,
+    );
+    const matchesSource =
+      item.sourceSlug.toLowerCase() === feedbackItem.sourceSlug.toLowerCase();
+    const canMatchTopicOrEntity = feedbackItem.action !== "click_source";
+    const matchesTopicOrEntity =
+      canMatchTopicOrEntity &&
+      (item.category.toLowerCase() === feedbackItem.category.toLowerCase() ||
+        item.entities.some((entity) =>
+          feedbackItem.entities.some(
+            (feedbackEntity) =>
+              feedbackEntity.toLowerCase() === entity.toLowerCase(),
+          ),
+        ));
+
+    if (matchesSource || matchesTopicOrEntity) {
+      if (
+        feedbackStrength > matchStrength ||
+        (feedbackStrength === matchStrength &&
+          feedbackTimestamp > matchTimestamp)
+      ) {
+        matchStrength = feedbackStrength;
+        matchTimestamp = feedbackTimestamp;
+      }
+    }
+  }
+
+  return { strength: matchStrength, timestamp: matchTimestamp };
+};
+
+const deepPreferenceSignals = new Set(["category", "entity", "source"]);
+const exposureCooldownHours = 24;
+
+const hasDeepPreferenceMatch = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.reduce(
+    (signalCount, signal) =>
+      deepPreferenceSignals.has(signal) ? signalCount + 1 : signalCount,
+    0,
+  ) >= 2;
+
+const isActiveRecentExposure = (item: RecentExposureNewsItem, now: Date) =>
+  !item.occurredAt || hoursSince(item.occurredAt, now) <= exposureCooldownHours;
+
+export const selectExposureBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  recentExposureItems: readonly RecentExposureNewsItem[],
+  now = new Date(),
+): RankedNewsItem<TItem>[] => {
+  if (recentExposureItems.length === 0) return [...rankedItems];
+
+  const activeExposureItems = recentExposureItems.filter((item) =>
+    isActiveRecentExposure(item, now),
+  );
+
+  if (activeExposureItems.length === 0) return [...rankedItems];
+
+  const exposureSignals = getNewsSignalSets(activeExposureItems);
+  const freshItems: RankedNewsItem<TItem>[] = [];
+  const cooledItems: RankedNewsItem<TItem>[] = [];
+
+  for (const item of rankedItems) {
+    if (hasNewsSignalMatch(item, exposureSignals)) {
+      if (hasDeepPreferenceMatch(item)) {
+        freshItems.push(addMatchedSignal(item, "deep_preference"));
+      } else {
+        cooledItems.push(addMatchedSignal(item, "exposure_cooldown"));
+      }
+    } else {
+      freshItems.push(item);
+    }
+  }
+
+  if (freshItems.length === 0) {
+    return [...rankedItems];
+  }
+
+  if (cooledItems.length === 0) return freshItems;
+
+  return [...freshItems, ...cooledItems];
+};
+
+export const selectPositiveFeedbackAnchoredNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  positiveFeedbackItems: readonly PositiveFeedbackNewsItem[],
+  now = new Date(),
+): RankedNewsItem<TItem>[] => {
+  if (positiveFeedbackItems.length === 0) return [...rankedItems];
+
+  const anchoredItems: {
+    item: RankedNewsItem<TItem>;
+    rank: number;
+    strength: number;
+    timestamp: number;
+  }[] = [];
+  const otherItems: RankedNewsItem<TItem>[] = [];
+
+  rankedItems.forEach((item, rank) => {
+    const match = getPositiveFeedbackMatch(item, positiveFeedbackItems, now);
+
+    if (match.strength > 0) {
+      anchoredItems.push({
+        item: addMatchedSignal(item, "positive_feedback"),
+        rank,
+        strength: match.strength,
+        timestamp: match.timestamp,
+      });
+    } else {
+      otherItems.push(item);
+    }
+  });
+
+  if (anchoredItems.length === 0) return [...rankedItems];
+
+  return [
+    ...anchoredItems
+      .sort((firstItem, secondItem) =>
+        firstItem.strength === secondItem.strength
+          ? firstItem.timestamp === secondItem.timestamp
+            ? firstItem.rank - secondItem.rank
+            : secondItem.timestamp - firstItem.timestamp
+          : secondItem.strength - firstItem.strength,
+      )
+      .map(({ item }) => item),
+    ...otherItems,
+  ];
+};
+
+export const selectNegativeFeedbackAdjustedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  negativeFeedbackItems: readonly NegativeFeedbackNewsItem[],
+  now = new Date(),
+): RankedNewsItem<TItem>[] => {
+  if (negativeFeedbackItems.length === 0) return [...rankedItems];
+
+  const activeNegativeFeedbackItems = negativeFeedbackItems.filter((item) => {
+    if (!item.occurredAt) return true;
+
+    return hoursSince(item.occurredAt, now) <= 30 * 24;
+  });
+
+  if (activeNegativeFeedbackItems.length === 0) return [...rankedItems];
+
+  const feedbackSources = normalizeSet(
+    activeNegativeFeedbackItems.map((item) => item.sourceSlug),
+  );
+  const feedbackCategories = normalizeSet(
+    activeNegativeFeedbackItems.map((item) => item.category),
+  );
+  const feedbackEntities = normalizeSet(
+    activeNegativeFeedbackItems.flatMap((item) => item.entities),
+  );
+  const openItems: RankedNewsItem<TItem>[] = [];
+  const suppressedItems: RankedNewsItem<TItem>[] = [];
+
+  for (const item of rankedItems) {
+    const hasNegativeSignal =
+      feedbackSources.has(item.sourceSlug.toLowerCase()) ||
+      feedbackCategories.has(item.category.toLowerCase()) ||
+      item.entities.some((entity) =>
+        feedbackEntities.has(entity.toLowerCase()),
+      );
+
+    if (hasNegativeSignal) {
+      suppressedItems.push(addMatchedSignal(item, "negative_feedback"));
+    } else {
+      openItems.push(item);
+    }
+  }
+
+  return [...openItems, ...suppressedItems];
+};
+
+const isBreakingNewsItem = (
+  item: RankedNewsItem<RecommendableNewsItem>,
+  now: Date,
+) =>
+  item.sourceScore >= 85 &&
+  item.trendScore >= 90 &&
+  hoursSince(item.publishedAt, now) <= 6 &&
+  !item.matchedSignals.includes("negative_feedback");
+
+export const selectBreakingNewsPriorityFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  now = new Date(),
+): RankedNewsItem<TItem>[] => {
+  const breakingItems: RankedNewsItem<TItem>[] = [];
+  const otherItems: RankedNewsItem<TItem>[] = [];
+
+  for (const item of rankedItems) {
+    if (isBreakingNewsItem(item, now)) {
+      breakingItems.push(addMatchedSignal(item, "breaking_news"));
+    } else {
+      otherItems.push(item);
+    }
+  }
+
+  if (breakingItems.length === 0) return [...rankedItems];
+
+  return [...breakingItems, ...otherItems];
+};
+
+const needsSourceTrustReview = (item: RecommendableNewsItem) =>
+  item.sourceScore < 60 && item.trendScore >= 85;
+
+export const selectSourceTrustBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+): RankedNewsItem<TItem>[] => {
+  const openItems: RankedNewsItem<TItem>[] = [];
+  const reviewItems: RankedNewsItem<TItem>[] = [];
+
+  for (const item of rankedItems) {
+    if (needsSourceTrustReview(item)) {
+      reviewItems.push(item);
+    } else {
+      openItems.push(item);
+    }
+  }
+
+  if (openItems.length === 0 || reviewItems.length === 0) {
+    return [...rankedItems];
+  }
+
+  return [...openItems, ...reviewItems];
+};
+
 export const updateReaderProfileWithInteraction = <
   TItem extends RecommendableNewsItem,
 >(
@@ -372,25 +979,36 @@ export const updateReaderProfileWithInteraction = <
 ): NewsPreferenceProfile => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
 
+  if (!shouldTrainReaderProfileFromInteraction(interaction)) {
+    return normalizedProfile;
+  }
+
   if (interaction.action === "hide") {
+    const hiddenCategory = item.category.trim().toLowerCase();
+    const hiddenSource = item.sourceSlug.trim().toLowerCase();
+    const hiddenEntities = normalizeSet(item.entities);
+
     return {
       ...normalizedProfile,
       preferredCategories: normalizedProfile.preferredCategories.filter(
-        (category) => category !== item.category,
+        (category) => category.trim().toLowerCase() !== hiddenCategory,
       ),
       preferredSources: normalizedProfile.preferredSources.filter(
-        (source) => source !== item.sourceSlug,
+        (source) => source.trim().toLowerCase() !== hiddenSource,
       ),
       preferredEntities: normalizedProfile.preferredEntities.filter(
-        (entity) => !item.entities.includes(entity),
+        (entity) => !hiddenEntities.has(entity.trim().toLowerCase()),
       ),
       noveltyBias: clampBias(normalizedProfile.noveltyBias - 0.2),
       recencyBias: clampBias(normalizedProfile.recencyBias - 0.2),
     };
   }
 
-  const actionWeight = interactionWeights[interaction.action];
+  const actionWeight = getInteractionWeight(interaction);
   const entityLimit = interaction.action === "view" ? 8 : 12;
+  const shouldLearnEntities =
+    interaction.action !== "view" ||
+    Math.min(Math.max(interaction.readPercent ?? 0.35, 0), 1) >= 0.75;
 
   return {
     preferredCategories: uniqueAppend(
@@ -405,7 +1023,7 @@ export const updateReaderProfileWithInteraction = <
     ),
     preferredEntities: uniqueAppend(
       normalizedProfile.preferredEntities,
-      item.entities,
+      shouldLearnEntities ? item.entities : [],
       entityLimit,
     ),
     noveltyBias: clampBias(normalizedProfile.noveltyBias + actionWeight),

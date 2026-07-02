@@ -3,7 +3,15 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod/v4";
 
 import type { SQL } from "@acme/db";
-import type { NewsPreferenceProfile } from "@acme/validators";
+import type {
+  DedupeNewsItem,
+  NegativeFeedbackNewsItem,
+  NewsPreferenceProfile,
+  PositiveFeedbackNewsItem,
+  RankedNewsItem,
+  RecentExposureNewsItem,
+  RecommendableNewsItem,
+} from "@acme/validators";
 import { and, desc, eq, ilike, lt, or, sql } from "@acme/db";
 import {
   NewsCategorySchema,
@@ -17,11 +25,20 @@ import {
 } from "@acme/db/schema";
 import {
   dedupeNewsItems,
-  filterHiddenNewsItems,
+  filterBlockedNewsItems,
   getNewsExplorationInterval,
   normalizeNewsPreferenceProfile,
   rankNewsForReader,
+  selectBreakingNewsPriorityFeed,
+  selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
+  selectExposureBalancedNewsFeed,
+  selectFatigueBalancedNewsFeed,
+  selectNegativeFeedbackAdjustedNewsFeed,
+  selectPositiveFeedbackAnchoredNewsFeed,
+  selectReaderFreshNewsFeed,
+  selectSourceTrustBalancedNewsFeed,
+  shouldTrainReaderProfileFromInteraction,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
@@ -75,12 +92,73 @@ export const NewsForYouInputSchema = NewsFeedInputSchema.extend({
   visitorKey: optionalVisitorKey,
 });
 
+const NewsFeedModeSchema = z.enum(["for_you", "latest", "trending"]);
+
+const NewsInteractionMetadataSchema = z
+  .object({
+    exposure: z.boolean().optional(),
+    exposureSlot: z.number().int().min(0).max(50).optional(),
+    feedMode: NewsFeedModeSchema.optional(),
+    readPercent: z.number().min(0).max(1).optional(),
+    surface: z.string().trim().min(1).max(80).optional(),
+  })
+  .passthrough();
+
 export const NewsRecordInteractionInputSchema = z.object({
   visitorKey: optionalVisitorKey,
   newsItemId: z.string().uuid(),
   action: NewsReaderInteractionActionSchema,
-  metadata: z.record(z.string(), z.unknown()).optional(),
+  metadata: NewsInteractionMetadataSchema.optional(),
 });
+
+type NewsRecordInteractionInput = z.infer<
+  typeof NewsRecordInteractionInputSchema
+>;
+
+export const shouldTrainNewsProfileFromInteraction = ({
+  action,
+  metadata,
+}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+  if (action !== "view") return true;
+  if (metadata?.surface?.trim().toLowerCase() !== "article") return false;
+  if (metadata.readPercent === undefined) return false;
+
+  return shouldTrainReaderProfileFromInteraction({
+    action,
+    readPercent: metadata.readPercent,
+  });
+};
+
+export const shouldIncludeNewsInteractionInReadingHistory = ({
+  action,
+  metadata,
+}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+  if (action !== "view") return false;
+  if (metadata?.surface?.trim().toLowerCase() !== "article") return false;
+  if (metadata.readPercent === undefined) return false;
+
+  return shouldTrainReaderProfileFromInteraction({
+    action,
+    readPercent: metadata.readPercent,
+  });
+};
+
+export const shouldIncludeNewsInteractionAsPositiveFeedback = ({
+  action,
+  metadata,
+}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+  if (action === "click_source" || action === "save" || action === "share") {
+    return true;
+  }
+
+  if (action !== "view") return false;
+  if (metadata?.surface?.trim().toLowerCase() !== "article") return false;
+
+  return (metadata.readPercent ?? 0) >= 0.8;
+};
+
+const meaningfulNewsArticleReadCondition = (): SQL<unknown> =>
+  sql`${NewsReaderInteraction.metadata}->>'surface' = 'article' and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.35`;
 
 export const NewsPreferenceProfileInputSchema = z.object({
   preferredCategories: z.array(NewsCategorySchema).max(12),
@@ -101,6 +179,169 @@ type NewsSearchCandidatesInput = z.infer<
   typeof NewsSearchCandidatesInputSchema
 >;
 type NewsReaderProfileRow = typeof NewsReaderProfile.$inferSelect;
+
+export interface NewsReaderProfileSignalInteraction {
+  action: NewsRecordInteractionInput["action"];
+  category: z.infer<typeof NewsCategorySchema>;
+  entities: readonly string[];
+  metadata?: NewsRecordInteractionInput["metadata"];
+  occurredAt: string;
+  sourceSlug: string;
+}
+
+interface NewsReaderProfileSignalCount {
+  count: number;
+  firstSeenIndex: number;
+  key: string;
+}
+
+const formatProfileAuditList = (values: readonly string[]) => {
+  if (values.length === 0) return "";
+  if (values.length === 1) return values[0] ?? "";
+
+  return `${values.slice(0, -1).join(", ")} and ${values.at(-1)}`;
+};
+
+const createSignalCounter = () =>
+  new Map<string, NewsReaderProfileSignalCount>();
+
+const addSignalCount = (
+  counter: Map<string, NewsReaderProfileSignalCount>,
+  key: string,
+  index: number,
+) => {
+  const current = counter.get(key);
+
+  counter.set(key, {
+    count: (current?.count ?? 0) + 1,
+    firstSeenIndex: current?.firstSeenIndex ?? index,
+    key,
+  });
+};
+
+const toTopSignalCounts = (
+  counter: Map<string, NewsReaderProfileSignalCount>,
+) =>
+  Array.from(counter.values())
+    .sort(
+      (left, right) =>
+        right.count - left.count || left.firstSeenIndex - right.firstSeenIndex,
+    )
+    .map(({ count, key }) => ({ count, key }));
+
+const summarizeProfilePreference = ({
+  ignoredSignalCount,
+  positiveSignalCount,
+  profile,
+}: {
+  ignoredSignalCount: number;
+  positiveSignalCount: number;
+  profile: NewsPreferenceProfile;
+}) => {
+  if (positiveSignalCount === 0) {
+    return ignoredSignalCount > 0
+      ? "Profile is still learning; recent signals are mostly exposure or low-depth reads."
+      : "Profile is still learning from the next meaningful read, save, share, or source click.";
+  }
+
+  const categoryText = formatProfileAuditList(
+    profile.preferredCategories.slice(0, 2),
+  );
+  const leaderText = formatProfileAuditList(
+    [profile.preferredSources[0], profile.preferredEntities[0]].filter(
+      (value): value is string => Boolean(value),
+    ),
+  );
+
+  if (categoryText && leaderText) {
+    return `Profile leans toward ${categoryText}, led by ${leaderText}.`;
+  }
+
+  if (categoryText) return `Profile leans toward ${categoryText}.`;
+  if (leaderText) return `Profile is led by ${leaderText}.`;
+
+  return "Profile is learning from recent meaningful reader signals.";
+};
+
+export const summarizeNewsReaderProfileSignals = ({
+  interactions,
+  profile,
+}: {
+  interactions: readonly NewsReaderProfileSignalInteraction[];
+  profile: NewsPreferenceProfile;
+}) => {
+  const categoryCounts = createSignalCounter();
+  const entityCounts = createSignalCounter();
+  const sourceCounts = createSignalCounter();
+  let ignoredSignalCount = 0;
+  let negativeSignalCount = 0;
+  let positiveSignalCount = 0;
+
+  interactions.forEach((interaction, index) => {
+    if (interaction.action === "hide") {
+      negativeSignalCount += 1;
+      return;
+    }
+
+    if (!shouldTrainNewsProfileFromInteraction(interaction)) {
+      ignoredSignalCount += 1;
+      return;
+    }
+
+    positiveSignalCount += 1;
+    addSignalCount(categoryCounts, interaction.category, index);
+    addSignalCount(sourceCounts, interaction.sourceSlug, index);
+    interaction.entities.forEach((entity) =>
+      addSignalCount(entityCounts, entity, index),
+    );
+  });
+
+  return {
+    ignoredSignalCount,
+    negativeSignalCount,
+    positiveSignalCount,
+    summary: summarizeProfilePreference({
+      ignoredSignalCount,
+      positiveSignalCount,
+      profile,
+    }),
+    topCategories: toTopSignalCounts(categoryCounts),
+    topEntities: toTopSignalCounts(entityCounts),
+    topSources: toTopSignalCounts(sourceCounts),
+    trainedSignalCount: positiveSignalCount,
+  };
+};
+
+export const buildNewsReaderProfileResponse = ({
+  interactions,
+  persisted,
+  profile,
+}: {
+  interactions: readonly NewsReaderProfileSignalInteraction[];
+  persisted: boolean;
+  profile: NewsPreferenceProfile;
+}) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return {
+    ...normalizedProfile,
+    audit: summarizeNewsReaderProfileSignals({
+      interactions,
+      profile: normalizedProfile,
+    }),
+    persisted,
+  };
+};
+
+export type NewsForYouCandidate = DedupeNewsItem &
+  RecommendableNewsItem & {
+    canonicalUrl: string | null;
+    imageUrl: string | null;
+    originalUrl?: string | null;
+    sourceName: string;
+    sourceType: string;
+    summary: string;
+  };
 
 interface ReaderIdentity {
   readerKey: string;
@@ -189,37 +430,131 @@ const toPreferenceProfile = (
   });
 };
 
+export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
+  hiddenNewsItemIds,
+  hiddenNewsItems = [],
+  items,
+  limit,
+  negativeFeedbackItems,
+  now,
+  positiveFeedbackItems = [],
+  profile,
+  viewedNewsItemIds,
+  viewedNewsItems = [],
+}: {
+  hiddenNewsItemIds: readonly string[];
+  hiddenNewsItems?: readonly NewsForYouCandidate[];
+  items: readonly TItem[];
+  limit: number;
+  negativeFeedbackItems: readonly NegativeFeedbackNewsItem[];
+  now?: Date;
+  positiveFeedbackItems?: readonly PositiveFeedbackNewsItem[];
+  profile: NewsPreferenceProfile;
+  viewedNewsItemIds: readonly string[];
+  viewedNewsItems?: readonly RecentExposureNewsItem[];
+}): RankedNewsItem<TItem>[] => {
+  const recommendableRows = dedupeNewsItems(
+    filterBlockedNewsItems(items, hiddenNewsItemIds, hiddenNewsItems),
+  );
+  const rankedRows = rankNewsForReader(recommendableRows, profile, now);
+  const diverseRows = selectDiverseNewsFeed(rankedRows, {
+    explorationInterval: getNewsExplorationInterval(profile),
+    limit: rankedRows.length,
+  });
+  const exposureBalancedRows = selectExposureBalancedNewsFeed(
+    diverseRows,
+    viewedNewsItems,
+    now,
+  );
+  const positiveAnchoredRows = selectPositiveFeedbackAnchoredNewsFeed(
+    exposureBalancedRows,
+    positiveFeedbackItems,
+    now,
+  );
+  const feedbackAdjustedRows = selectNegativeFeedbackAdjustedNewsFeed(
+    positiveAnchoredRows,
+    negativeFeedbackItems,
+    now,
+  );
+  const trustBalancedRows =
+    selectSourceTrustBalancedNewsFeed(feedbackAdjustedRows);
+  const fatigueBalancedRows = selectFatigueBalancedNewsFeed(trustBalancedRows);
+  const breakingPriorityRows = selectBreakingNewsPriorityFeed(
+    fatigueBalancedRows,
+    now,
+  );
+  const discoverySlotRows = selectDiscoverySlotNewsFeed(breakingPriorityRows);
+
+  return selectReaderFreshNewsFeed(
+    discoverySlotRows,
+    viewedNewsItemIds,
+    viewedNewsItems,
+  ).slice(0, limit);
+};
+
+export const selectUniqueNewsCollectionItems = <TItem extends DedupeNewsItem>(
+  items: readonly TItem[],
+): TItem[] => dedupeNewsItems(items);
+
+export const selectNewsFeedItems = <TItem extends DedupeNewsItem>({
+  items,
+  limit,
+}: {
+  items: readonly TItem[];
+  limit: number;
+}): TItem[] => dedupeNewsItems(items).slice(0, limit);
+
+export const selectNewsSearchCandidateItems = <TItem extends DedupeNewsItem>({
+  items,
+  limit,
+}: {
+  items: readonly TItem[];
+  limit: number;
+}): TItem[] => selectNewsFeedItems({ items, limit });
+
 export const newsRouter = {
-  feed: publicProcedure.input(NewsFeedInputSchema).query(({ ctx, input }) => {
-    return ctx.db
-      .select({
-        id: NewsItem.id,
-        title: NewsItem.title,
-        summary: NewsItem.summary,
-        canonicalUrl: NewsItem.canonicalUrl,
-        imageUrl: NewsItem.imageUrl,
-        publishedAt: NewsItem.publishedAt,
-        category: NewsItem.category,
-        tags: NewsItem.tags,
-        entities: NewsItem.entities,
-        sourceScore: NewsItem.sourceScore,
-        trendScore: NewsItem.trendScore,
-        embeddingStatus: NewsItem.embeddingStatus,
-        source: {
-          id: NewsSource.id,
-          name: NewsSource.name,
-          slug: NewsSource.slug,
-          homepageUrl: NewsSource.homepageUrl,
-          sourceType: NewsSource.sourceType,
-          credibility: NewsSource.credibility,
-        },
-      })
-      .from(NewsItem)
-      .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-      .where(publishedFeedConditions(input))
-      .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
-      .limit(input.limit);
-  }),
+  feed: publicProcedure
+    .input(NewsFeedInputSchema)
+    .query(async ({ ctx, input }) => {
+      const candidateLimit = Math.min(input.limit * 3, 150);
+      const rows = await ctx.db
+        .select({
+          id: NewsItem.id,
+          title: NewsItem.title,
+          summary: NewsItem.summary,
+          canonicalUrl: NewsItem.canonicalUrl,
+          imageUrl: NewsItem.imageUrl,
+          originalUrl: NewsItem.originalUrl,
+          publishedAt: NewsItem.publishedAt,
+          category: NewsItem.category,
+          tags: NewsItem.tags,
+          entities: NewsItem.entities,
+          sourceScore: NewsItem.sourceScore,
+          trendScore: NewsItem.trendScore,
+          embeddingStatus: NewsItem.embeddingStatus,
+          source: {
+            id: NewsSource.id,
+            name: NewsSource.name,
+            slug: NewsSource.slug,
+            homepageUrl: NewsSource.homepageUrl,
+            sourceType: NewsSource.sourceType,
+            credibility: NewsSource.credibility,
+          },
+        })
+        .from(NewsItem)
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(publishedFeedConditions(input))
+        .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
+        .limit(candidateLimit);
+
+      return selectNewsFeedItems({
+        items: rows.map((row) => ({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+        })),
+        limit: input.limit,
+      });
+    }),
 
   profile: publicProcedure
     .input(NewsReaderProfileInputSchema)
@@ -230,10 +565,11 @@ export const newsRouter = {
       );
 
       if (!identity) {
-        return {
-          ...defaultNewsPreferenceProfile,
+        return buildNewsReaderProfileResponse({
+          interactions: [],
           persisted: false,
-        };
+          profile: defaultNewsPreferenceProfile,
+        });
       }
 
       const [profile] = await ctx.db
@@ -242,10 +578,45 @@ export const newsRouter = {
         .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
         .limit(1);
 
-      return {
-        ...toPreferenceProfile(profile),
+      const interactions = profile
+        ? await ctx.db
+            .select({
+              action: NewsReaderInteraction.action,
+              category: NewsItem.category,
+              entities: NewsItem.entities,
+              metadata: NewsReaderInteraction.metadata,
+              occurredAt: NewsReaderInteraction.occurredAt,
+              sourceSlug: NewsSource.slug,
+            })
+            .from(NewsReaderInteraction)
+            .innerJoin(
+              NewsItem,
+              eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+            )
+            .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+            .where(eq(NewsReaderInteraction.readerProfileId, profile.id))
+            .orderBy(desc(NewsReaderInteraction.occurredAt))
+            .limit(50)
+        : [];
+
+      return buildNewsReaderProfileResponse({
+        interactions: interactions.map((interaction) => {
+          const metadata = NewsInteractionMetadataSchema.safeParse(
+            interaction.metadata,
+          );
+
+          return {
+            action: interaction.action,
+            category: interaction.category,
+            entities: interaction.entities,
+            metadata: metadata.success ? metadata.data : undefined,
+            occurredAt: interaction.occurredAt.toISOString(),
+            sourceSlug: interaction.sourceSlug,
+          };
+        }),
         persisted: Boolean(profile),
-      };
+        profile: toPreferenceProfile(profile),
+      });
     }),
 
   forYou: publicProcedure
@@ -257,6 +628,11 @@ export const newsRouter = {
       );
       let profile = defaultNewsPreferenceProfile;
       let hiddenNewsItemIds: string[] = [];
+      let hiddenNewsItems: NewsForYouCandidate[] = [];
+      let negativeFeedbackItems: NegativeFeedbackNewsItem[] = [];
+      let positiveFeedbackItems: PositiveFeedbackNewsItem[] = [];
+      let viewedNewsItemIds: string[] = [];
+      let viewedNewsItems: RecentExposureNewsItem[] = [];
 
       if (identity) {
         const [persistedProfile] = await ctx.db
@@ -268,21 +644,160 @@ export const newsRouter = {
         profile = toPreferenceProfile(persistedProfile);
 
         if (persistedProfile) {
-          const hiddenRows = await ctx.db
-            .select({
-              newsItemId: NewsReaderInteraction.newsItemId,
-            })
-            .from(NewsReaderInteraction)
-            .where(
-              compactConditions([
-                eq(NewsReaderInteraction.readerProfileId, persistedProfile.id),
-                eq(NewsReaderInteraction.action, "hide"),
-              ]),
-            )
-            .orderBy(desc(NewsReaderInteraction.occurredAt))
-            .limit(500);
+          const [hiddenRows, positiveRows, viewedRows] = await Promise.all([
+            ctx.db
+              .select({
+                canonicalUrl: NewsItem.canonicalUrl,
+                category: NewsItem.category,
+                entities: NewsItem.entities,
+                id: NewsItem.id,
+                imageUrl: NewsItem.imageUrl,
+                newsItemId: NewsReaderInteraction.newsItemId,
+                occurredAt: NewsReaderInteraction.occurredAt,
+                originalUrl: NewsItem.originalUrl,
+                publishedAt: NewsItem.publishedAt,
+                sourceName: NewsSource.name,
+                sourceSlug: NewsSource.slug,
+                sourceScore: NewsItem.sourceScore,
+                sourceType: NewsSource.sourceType,
+                summary: NewsItem.summary,
+                tags: NewsItem.tags,
+                title: NewsItem.title,
+                trendScore: NewsItem.trendScore,
+              })
+              .from(NewsReaderInteraction)
+              .innerJoin(
+                NewsItem,
+                eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+              )
+              .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+              .where(
+                compactConditions([
+                  eq(
+                    NewsReaderInteraction.readerProfileId,
+                    persistedProfile.id,
+                  ),
+                  eq(NewsReaderInteraction.action, "hide"),
+                  eq(NewsItem.status, "published"),
+                ]),
+              )
+              .orderBy(desc(NewsReaderInteraction.occurredAt))
+              .limit(500),
+            ctx.db
+              .select({
+                action: NewsReaderInteraction.action,
+                category: NewsItem.category,
+                entities: NewsItem.entities,
+                metadata: NewsReaderInteraction.metadata,
+                occurredAt: NewsReaderInteraction.occurredAt,
+                sourceSlug: NewsSource.slug,
+              })
+              .from(NewsReaderInteraction)
+              .innerJoin(
+                NewsItem,
+                eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+              )
+              .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+              .where(
+                compactConditions([
+                  eq(
+                    NewsReaderInteraction.readerProfileId,
+                    persistedProfile.id,
+                  ),
+                  or(
+                    eq(NewsReaderInteraction.action, "click_source"),
+                    eq(NewsReaderInteraction.action, "save"),
+                    eq(NewsReaderInteraction.action, "share"),
+                    eq(NewsReaderInteraction.action, "view"),
+                  ),
+                  eq(NewsItem.status, "published"),
+                ]),
+              )
+              .orderBy(desc(NewsReaderInteraction.occurredAt))
+              .limit(500),
+            ctx.db
+              .select({
+                canonicalUrl: NewsItem.canonicalUrl,
+                category: NewsItem.category,
+                entities: NewsItem.entities,
+                newsItemId: NewsReaderInteraction.newsItemId,
+                occurredAt: NewsReaderInteraction.occurredAt,
+                originalUrl: NewsItem.originalUrl,
+                sourceSlug: NewsSource.slug,
+              })
+              .from(NewsReaderInteraction)
+              .innerJoin(
+                NewsItem,
+                eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+              )
+              .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+              .where(
+                compactConditions([
+                  eq(
+                    NewsReaderInteraction.readerProfileId,
+                    persistedProfile.id,
+                  ),
+                  eq(NewsReaderInteraction.action, "view"),
+                  eq(NewsItem.status, "published"),
+                ]),
+              )
+              .orderBy(desc(NewsReaderInteraction.occurredAt))
+              .limit(500),
+          ]);
 
           hiddenNewsItemIds = hiddenRows.map((row) => row.newsItemId);
+          hiddenNewsItems = hiddenRows.map((row) => ({
+            ...row,
+            canonicalUrl: row.canonicalUrl,
+            id: row.id,
+            imageUrl: row.imageUrl,
+            publishedAt: row.publishedAt.toISOString(),
+          }));
+          negativeFeedbackItems = hiddenRows.map((row) => ({
+            category: row.category,
+            entities: row.entities,
+            occurredAt: row.occurredAt.toISOString(),
+            sourceSlug: row.sourceSlug,
+          }));
+          positiveFeedbackItems = positiveRows.flatMap((row) => {
+            const metadata = NewsInteractionMetadataSchema.safeParse(
+              row.metadata,
+            );
+            const parsedMetadata = metadata.success ? metadata.data : undefined;
+
+            if (
+              !shouldIncludeNewsInteractionAsPositiveFeedback({
+                action: row.action,
+                metadata: parsedMetadata,
+              })
+            ) {
+              return [];
+            }
+
+            return [
+              {
+                action:
+                  row.action === "click_source" ||
+                  row.action === "save" ||
+                  row.action === "share"
+                    ? row.action
+                    : undefined,
+                category: row.category,
+                entities: row.entities,
+                occurredAt: row.occurredAt.toISOString(),
+                sourceSlug: row.sourceSlug,
+              },
+            ];
+          });
+          viewedNewsItemIds = viewedRows.map((row) => row.newsItemId);
+          viewedNewsItems = viewedRows.map((row) => ({
+            canonicalUrl: row.canonicalUrl,
+            category: row.category,
+            entities: row.entities,
+            occurredAt: row.occurredAt.toISOString(),
+            originalUrl: row.originalUrl,
+            sourceSlug: row.sourceSlug,
+          }));
         }
       }
 
@@ -294,6 +809,7 @@ export const newsRouter = {
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
           imageUrl: NewsItem.imageUrl,
+          originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
           category: NewsItem.category,
           tags: NewsItem.tags,
@@ -310,23 +826,20 @@ export const newsRouter = {
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
         .limit(candidateLimit);
 
-      const recommendableRows = dedupeNewsItems(
-        filterHiddenNewsItems(
-          rows.map((row) => ({
-            ...row,
-            publishedAt: row.publishedAt.toISOString(),
-          })),
-          hiddenNewsItemIds,
-        ),
-      );
-
-      return selectDiverseNewsFeed(
-        rankNewsForReader(recommendableRows, profile),
-        {
-          explorationInterval: getNewsExplorationInterval(profile),
-          limit: input.limit,
-        },
-      );
+      return selectNewsForYouItems({
+        hiddenNewsItemIds,
+        hiddenNewsItems,
+        items: rows.map((row) => ({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+        })),
+        limit: input.limit,
+        negativeFeedbackItems,
+        positiveFeedbackItems,
+        profile,
+        viewedNewsItemIds,
+        viewedNewsItems,
+      });
     }),
 
   saved: publicProcedure
@@ -346,6 +859,7 @@ export const newsRouter = {
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
           imageUrl: NewsItem.imageUrl,
+          originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
           category: NewsItem.category,
           tags: NewsItem.tags,
@@ -374,20 +888,13 @@ export const newsRouter = {
         .orderBy(desc(NewsReaderInteraction.occurredAt))
         .limit(input.limit * 3);
 
-      const seenIds = new Set<string>();
-      const savedItems = [];
-
-      for (const row of rows) {
-        if (seenIds.has(row.id)) continue;
-        seenIds.add(row.id);
-        savedItems.push({
+      return selectUniqueNewsCollectionItems(
+        rows.map((row) => ({
           ...row,
           publishedAt: row.publishedAt.toISOString(),
           savedAt: row.savedAt.toISOString(),
-        });
-      }
-
-      return savedItems.slice(0, input.limit);
+        })),
+      ).slice(0, input.limit);
     }),
 
   history: publicProcedure
@@ -407,6 +914,7 @@ export const newsRouter = {
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
           imageUrl: NewsItem.imageUrl,
+          originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
           category: NewsItem.category,
           tags: NewsItem.tags,
@@ -429,26 +937,20 @@ export const newsRouter = {
           compactConditions([
             eq(NewsReaderProfile.readerKey, identity.readerKey),
             eq(NewsReaderInteraction.action, "view"),
+            meaningfulNewsArticleReadCondition(),
             eq(NewsItem.status, "published"),
           ]),
         )
         .orderBy(desc(NewsReaderInteraction.occurredAt))
         .limit(input.limit * 3);
 
-      const seenIds = new Set<string>();
-      const historyItems = [];
-
-      for (const row of rows) {
-        if (seenIds.has(row.id)) continue;
-        seenIds.add(row.id);
-        historyItems.push({
+      return selectUniqueNewsCollectionItems(
+        rows.map((row) => ({
           ...row,
           publishedAt: row.publishedAt.toISOString(),
           viewedAt: row.viewedAt.toISOString(),
-        });
-      }
-
-      return historyItems.slice(0, input.limit);
+        })),
+      ).slice(0, input.limit);
     }),
 
   byId: publicProcedure
@@ -578,14 +1080,20 @@ export const newsRouter = {
         .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
         .limit(1);
 
-      const nextProfile = updateReaderProfileWithInteraction(
-        toPreferenceProfile(existingProfile),
-        {
-          ...item,
-          publishedAt: item.publishedAt.toISOString(),
-        },
-        { action: input.action },
-      );
+      const currentProfile = toPreferenceProfile(existingProfile);
+      const nextProfile = shouldTrainNewsProfileFromInteraction(input)
+        ? updateReaderProfileWithInteraction(
+            currentProfile,
+            {
+              ...item,
+              publishedAt: item.publishedAt.toISOString(),
+            },
+            {
+              action: input.action,
+              readPercent: input.metadata?.readPercent,
+            },
+          )
+        : currentProfile;
 
       const [profile] = await ctx.db
         .insert(NewsReaderProfile)
@@ -695,13 +1203,15 @@ export const newsRouter = {
 
   searchCandidates: publicProcedure
     .input(NewsSearchCandidatesInputSchema)
-    .query(({ ctx, input }) => {
-      return ctx.db
+    .query(async ({ ctx, input }) => {
+      const candidateLimit = Math.min(input.limit * 3, 75);
+      const rows = await ctx.db
         .select({
           id: NewsItem.id,
           title: NewsItem.title,
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
+          originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
           category: NewsItem.category,
           tags: NewsItem.tags,
@@ -718,6 +1228,14 @@ export const newsRouter = {
         .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
         .where(searchCandidateConditions(input))
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
-        .limit(input.limit);
+        .limit(candidateLimit);
+
+      return selectNewsSearchCandidateItems({
+        items: rows.map((row) => ({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+        })),
+        limit: input.limit,
+      });
     }),
 } satisfies TRPCRouterRecord;

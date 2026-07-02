@@ -1,6 +1,16 @@
-import type { RankedNewsItem } from "@acme/validators";
+import type {
+  NewsPreferenceProfile,
+  RankedNewsItem,
+  ReaderInteractionAction,
+} from "@acme/validators";
+import {
+  shouldTrainReaderProfileFromInteraction,
+  updateReaderProfileWithInteraction,
+} from "@acme/validators";
 
+import type { NewsServerProfileAudit } from "../../_components/news-home-model";
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
+import { getNewsServerProfileAuditDisplay } from "../../_components/news-home-model";
 
 const normalizeValue = (value: string) => value.trim().toLowerCase();
 
@@ -86,6 +96,45 @@ const getReadTimeLabel = (text: string) => {
 
   return `${minutes} min read`;
 };
+
+export const getNewsArticleReadPercent = ({
+  documentHeight,
+  scrollY,
+  viewportHeight,
+}: {
+  documentHeight: number;
+  scrollY: number;
+  viewportHeight: number;
+}) => {
+  if (documentHeight <= 0) return 0;
+
+  const readPercent = (Math.max(scrollY, 0) + viewportHeight) / documentHeight;
+
+  return Math.min(Math.max(Math.round(readPercent * 100) / 100, 0), 1);
+};
+
+export const shouldTrainNewsArticleProfileFromReadPercent = (
+  readPercent: number,
+) =>
+  shouldTrainReaderProfileFromInteraction({
+    action: "view",
+    readPercent,
+  });
+
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export const shouldPersistNewsArticleReaderSignals = ({
+  articleId,
+  visitorKey,
+}: {
+  articleId: string;
+  visitorKey: string | null;
+}) => Boolean(visitorKey) && uuidPattern.test(articleId);
+
+export const getNewsArticleServerProfileAuditDisplay = (
+  audit: NewsServerProfileAudit | undefined,
+) => getNewsServerProfileAuditDisplay(audit);
 
 export const getNewsArticleDigest = ({
   article,
@@ -243,5 +292,898 @@ export const getNewsArticleReadingPath = ({
       recommendations.length > 0
         ? `${recommendations.length} follow-ups ranked by article overlap, shared entities, and reader signals.`
         : "Reading path will appear as related stories load.",
+  };
+};
+
+type ArticleNextReadStatus = "Continue" | "Explore" | "Verify";
+
+const articleNextReadStatusPriority = {
+  Continue: 0,
+  Explore: 1,
+  Verify: 2,
+} as const satisfies Record<ArticleNextReadStatus, number>;
+
+const getArticleNextReadStatus = ({
+  article,
+  item,
+  profile,
+  signalCount,
+}: {
+  article: NewsArticleItem;
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+  signalCount: number;
+}): ArticleNextReadStatus => {
+  const needsVerification =
+    item.sourceScore < 65 || (item.trendScore >= 90 && signalCount === 0);
+
+  if (needsVerification) return "Verify";
+
+  if (
+    signalCount >= 2 ||
+    item.category === article.category ||
+    item.sourceSlug === article.sourceSlug
+  ) {
+    return "Continue";
+  }
+
+  if (
+    item.matchedSignals.includes("exploration") ||
+    profile.noveltyBias >= profile.recencyBias ||
+    item.category !== article.category
+  ) {
+    return "Explore";
+  }
+
+  return "Continue";
+};
+
+const getArticleNextReadReason = ({
+  article,
+  item,
+  sameCategory,
+  sameSource,
+  sharedEntities,
+  sharedTags,
+  status,
+}: {
+  article: NewsArticleItem;
+  item: RankedNewsItem<NewsHomeItem>;
+  sameCategory: boolean;
+  sameSource: boolean;
+  sharedEntities: readonly string[];
+  sharedTags: readonly string[];
+  status: ArticleNextReadStatus;
+}) => {
+  if (status === "Verify") return "High heat needs source check";
+  if (status === "Explore" && item.matchedSignals.includes("exploration")) {
+    return "Exploration match";
+  }
+  if (status === "Explore") return "Broaden reader graph";
+
+  return getRecommendationReason({
+    sameCategory: sameCategory || item.category === article.category,
+    sameSource,
+    sharedEntities,
+    sharedTags,
+  });
+};
+
+const formatNextReadSummary = ({
+  continueCount,
+  exploreCount,
+  readsCount,
+  verifyCount,
+}: {
+  continueCount: number;
+  exploreCount: number;
+  readsCount: number;
+  verifyCount: number;
+}) => {
+  if (readsCount === 0) {
+    return "Next reads will appear as related stories load.";
+  }
+
+  return `${readsCount} next reads: ${continueCount} continue, ${exploreCount} explore, and ${verifyCount} verify.`;
+};
+
+const selectNewsArticleNextReadCandidates = <
+  TRead extends {
+    id: string;
+    sharesArticleEntity: boolean;
+    statusLabel: ArticleNextReadStatus;
+  },
+>({
+  limit,
+  reads,
+}: {
+  limit: number;
+  reads: readonly TRead[];
+}) => {
+  const selectedReads = reads.slice(0, limit);
+  const sameEntityContinueCount = selectedReads.filter(
+    (item) => item.statusLabel === "Continue" && item.sharesArticleEntity,
+  ).length;
+
+  if (
+    selectedReads.length < 2 ||
+    sameEntityContinueCount < 2 ||
+    selectedReads.some((item) => item.statusLabel === "Explore")
+  ) {
+    return selectedReads;
+  }
+
+  const exploreRead = reads.find((item) => item.statusLabel === "Explore");
+
+  if (!exploreRead) return selectedReads;
+
+  let replaceIndex = -1;
+
+  for (let index = selectedReads.length - 1; index >= 0; index -= 1) {
+    const item = selectedReads[index];
+
+    if (item?.statusLabel === "Continue" && item.sharesArticleEntity) {
+      replaceIndex = index;
+      break;
+    }
+  }
+
+  if (replaceIndex < 0) return selectedReads;
+
+  return selectedReads.map((item, index) =>
+    index === replaceIndex ? exploreRead : item,
+  );
+};
+
+export const getNewsArticleNextReads = ({
+  article,
+  formatCategory,
+  limit,
+  profile,
+  relatedItems,
+}: {
+  article: NewsArticleItem;
+  formatCategory: (category: string) => string;
+  limit: number;
+  profile: NewsPreferenceProfile;
+  relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+}) => {
+  const sortedReads = relatedItems
+    .map((item) => {
+      const sharedEntities = getSharedValues(article.entities, item.entities);
+      const sharedTags = getSharedValues(article.tags, item.tags);
+      const sameCategory = item.category === article.category;
+      const sameSource = item.sourceSlug === article.sourceSlug;
+      const overlapSignalCount =
+        sharedEntities.length +
+        sharedTags.length +
+        (sameCategory ? 1 : 0) +
+        (sameSource ? 1 : 0);
+      const signalCount = Math.max(
+        overlapSignalCount,
+        item.matchedSignals.length,
+      );
+      const status = getArticleNextReadStatus({
+        article,
+        item,
+        profile,
+        signalCount,
+      });
+
+      return {
+        categoryLabel: formatCategory(item.category),
+        id: item.id,
+        personalizedScore: item.personalizedScore,
+        publishedAt: item.publishedAt,
+        reason: getArticleNextReadReason({
+          article,
+          item,
+          sameCategory,
+          sameSource,
+          sharedEntities,
+          sharedTags,
+          status,
+        }),
+        scoreLabel: `${formatSignalCount(signalCount)} / ${
+          item.personalizedScore
+        } score`,
+        sharesArticleEntity: sharedEntities.length > 0,
+        sourceName: item.sourceName,
+        statusLabel: status,
+        title: item.title,
+      };
+    })
+    .sort((left, right) => {
+      const statusDelta =
+        articleNextReadStatusPriority[left.statusLabel] -
+        articleNextReadStatusPriority[right.statusLabel];
+      if (statusDelta !== 0) return statusDelta;
+
+      if (right.personalizedScore !== left.personalizedScore) {
+        return right.personalizedScore - left.personalizedScore;
+      }
+
+      return (
+        new Date(right.publishedAt).getTime() -
+        new Date(left.publishedAt).getTime()
+      );
+    });
+  const reads = selectNewsArticleNextReadCandidates({
+    limit,
+    reads: sortedReads,
+  }).map((item) => ({
+    categoryLabel: item.categoryLabel,
+    id: item.id,
+    reason: item.reason,
+    scoreLabel: item.scoreLabel,
+    sourceName: item.sourceName,
+    statusLabel: item.statusLabel,
+    title: item.title,
+  }));
+  const continueCount = reads.filter(
+    (item) => item.statusLabel === "Continue",
+  ).length;
+  const exploreCount = reads.filter(
+    (item) => item.statusLabel === "Explore",
+  ).length;
+  const verifyCount = reads.filter(
+    (item) => item.statusLabel === "Verify",
+  ).length;
+
+  return {
+    label: reads.length > 0 ? "Next Reads Ready" : "Next Reads Waiting",
+    metrics: [
+      { label: "Candidates", value: String(reads.length) },
+      { label: "Continue", value: String(continueCount) },
+      { label: "Explore", value: String(exploreCount) },
+      { label: "Verify", value: String(verifyCount) },
+    ],
+    reads,
+    summary: formatNextReadSummary({
+      continueCount,
+      exploreCount,
+      readsCount: reads.length,
+      verifyCount,
+    }),
+  };
+};
+
+const getReaderBiasLabel = (profile: NewsPreferenceProfile) => {
+  if (Math.abs(profile.noveltyBias - profile.recencyBias) < 0.05) {
+    return "Balanced";
+  }
+
+  return profile.noveltyBias > profile.recencyBias ? "Novel" : "Fresh";
+};
+
+const getNextStepLabel = (reason: string) => {
+  if (reason.includes("thread")) return "Continue Thread";
+  if (reason === "Same topic") return "Broaden Topic";
+  if (reason === "Same source") return "Source Follow-Up";
+
+  return "Next Read";
+};
+
+export const getNewsArticleReaderFit = ({
+  article,
+  formatCategory,
+  profile,
+  relatedItems,
+}: {
+  article: NewsArticleItem;
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+  relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+}) => {
+  const preferredCategories = getNormalizedSet(profile.preferredCategories);
+  const preferredSources = getNormalizedSet(profile.preferredSources);
+  const matchedEntities = getSharedValues(
+    article.entities,
+    profile.preferredEntities,
+  );
+  const categoryMatch = preferredCategories.has(
+    normalizeValue(article.category),
+  );
+  const sourceMatch = preferredSources.has(normalizeValue(article.sourceSlug));
+  const reasons: { detail: string; label: string }[] = [];
+
+  if (categoryMatch) {
+    reasons.push({
+      detail: `${formatCategory(article.category)} is in your reader profile.`,
+      label: "Topic",
+    });
+  }
+
+  if (sourceMatch) {
+    reasons.push({
+      detail: `${article.sourceName} is a preferred source.`,
+      label: "Source",
+    });
+  }
+
+  const [matchedEntity] = matchedEntities;
+  if (matchedEntity) {
+    reasons.push({
+      detail: `${matchedEntity} matches your entity memory.`,
+      label: "Entity",
+    });
+  }
+
+  const matchCount =
+    (categoryMatch ? 1 : 0) + (sourceMatch ? 1 : 0) + matchedEntities.length;
+  const readingPath = getNewsArticleReadingPath({
+    article,
+    formatCategory,
+    limit: 3,
+    relatedItems,
+  });
+  const [nextRecommendation] = readingPath.recommendations;
+  const followUpCount = readingPath.recommendations.length;
+
+  return {
+    label:
+      matchCount >= 3
+        ? "Strong Fit"
+        : matchCount > 0
+          ? "Reader Fit"
+          : "Discovery Read",
+    metrics: [
+      { label: "Profile matches", value: String(matchCount) },
+      { label: "Follow-ups", value: String(followUpCount) },
+      { label: "Reader bias", value: getReaderBiasLabel(profile) },
+    ],
+    nextStep: nextRecommendation
+      ? {
+          id: nextRecommendation.id,
+          label: getNextStepLabel(nextRecommendation.reason),
+          reason: nextRecommendation.reason,
+          scoreLabel: nextRecommendation.scoreLabel,
+          title: nextRecommendation.title,
+        }
+      : null,
+    reasons:
+      reasons.length > 0
+        ? reasons
+        : [
+            {
+              detail: "This article is training a new reader profile.",
+              label: "Discovery",
+            },
+          ],
+    summary:
+      matchCount > 0
+        ? `${matchCount} reader ${
+            matchCount === 1 ? "signal matches" : "signals match"
+          } this article; ${followUpCount} ${
+            followUpCount === 1 ? "follow-up keeps" : "follow-ups keep"
+          } the thread moving.`
+        : "No saved reader signals match this article yet.",
+  };
+};
+
+const articleFeedbackActionLabels = {
+  click_source: "Source",
+  hide: "Less",
+  save: "Save",
+  share: "Share",
+  view: "Deep read",
+} as const satisfies Record<ReaderInteractionAction, string>;
+
+const getNormalizedSignalSet = (values: readonly string[]) =>
+  new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean));
+
+const countArticleFeedbackDelta = ({
+  after,
+  before,
+}: {
+  after: readonly string[];
+  before: readonly string[];
+}) => {
+  const beforeSignals = getNormalizedSignalSet(before);
+  const afterSignals = getNormalizedSignalSet(after);
+
+  return {
+    added: Array.from(afterSignals).filter(
+      (signal) => !beforeSignals.has(signal),
+    ).length,
+    removed: Array.from(beforeSignals).filter(
+      (signal) => !afterSignals.has(signal),
+    ).length,
+  };
+};
+
+const getArticleFeedbackSignalValues = ({
+  after,
+  before,
+  negative,
+}: {
+  after: readonly string[];
+  before: readonly string[];
+  negative: boolean;
+}) => {
+  const beforeSignals = new Map(
+    before.map((signal) => [signal.trim().toLowerCase(), signal.trim()]),
+  );
+  const afterSignals = new Map(
+    after.map((signal) => [signal.trim().toLowerCase(), signal.trim()]),
+  );
+  const source = negative ? beforeSignals : afterSignals;
+  const comparison = negative ? afterSignals : beforeSignals;
+
+  return Array.from(source.entries())
+    .filter(([key, value]) => value && !comparison.has(key))
+    .map(([, value]) => value);
+};
+
+const formatArticleFeedbackBiasShift = ({
+  afterProfile,
+  beforeProfile,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+}) => {
+  const delta =
+    afterProfile.noveltyBias +
+    afterProfile.recencyBias -
+    beforeProfile.noveltyBias -
+    beforeProfile.recencyBias;
+  const roundedDelta = Math.round(delta * 10) / 10;
+
+  return roundedDelta > 0 ? `+${roundedDelta}` : String(roundedDelta);
+};
+
+export const getNewsArticleFeedbackLoop = ({
+  action,
+  afterProfile,
+  article,
+  beforeProfile,
+  formatCategory,
+}: {
+  action: ReaderInteractionAction | null;
+  afterProfile: NewsPreferenceProfile;
+  article: NewsArticleItem;
+  beforeProfile: NewsPreferenceProfile;
+  formatCategory: (category: string) => string;
+}) => {
+  const topicLabel = formatCategory(article.category);
+
+  if (!action) {
+    return {
+      label: "Waiting",
+      metrics: [
+        { label: "Action", value: "None" },
+        { label: "Signal delta", value: "0" },
+        { label: "Bias shift", value: "0" },
+        { label: "Topic", value: topicLabel },
+      ],
+      notices: [
+        {
+          detail:
+            "Deep read, save, share, or press Less to show article-level training feedback.",
+          label: "Awaiting feedback",
+        },
+      ],
+      summary: "Article feedback loop will appear after an explicit action.",
+    };
+  }
+
+  const negative = action === "hide";
+  const categoryDelta = countArticleFeedbackDelta({
+    after: afterProfile.preferredCategories,
+    before: beforeProfile.preferredCategories,
+  });
+  const sourceDelta = countArticleFeedbackDelta({
+    after: afterProfile.preferredSources,
+    before: beforeProfile.preferredSources,
+  });
+  const entityDelta = countArticleFeedbackDelta({
+    after: afterProfile.preferredEntities,
+    before: beforeProfile.preferredEntities,
+  });
+  const signalDelta = negative
+    ? categoryDelta.removed + sourceDelta.removed + entityDelta.removed
+    : categoryDelta.added + sourceDelta.added + entityDelta.added;
+  const entitySignals = getArticleFeedbackSignalValues({
+    after: afterProfile.preferredEntities,
+    before: beforeProfile.preferredEntities,
+    negative,
+  });
+  const notices: { detail: string; label: string }[] = [
+    {
+      detail: negative
+        ? `${topicLabel} will be guarded after this article signal.`
+        : `${topicLabel} will rank higher after this article signal.`,
+      label: negative ? "Topic guarded" : "Topic learned",
+    },
+    {
+      detail: negative
+        ? `${article.sourceName} lost source weight from this article.`
+        : `${article.sourceName} gained source weight from this article.`,
+      label: negative ? "Source guarded" : "Source learned",
+    },
+  ];
+
+  if (entitySignals.length > 0) {
+    notices.push({
+      detail: negative
+        ? `${entitySignals.join(", ")} were removed from related coverage memory.`
+        : `${entitySignals.join(", ")} were added to related coverage memory.`,
+      label: negative ? "Entities guarded" : "Entities learned",
+    });
+  }
+
+  return {
+    label: negative ? "Negative Signal" : "Positive Signal",
+    metrics: [
+      { label: "Action", value: articleFeedbackActionLabels[action] },
+      {
+        label: "Signal delta",
+        value: `${negative ? "-" : "+"}${signalDelta}`,
+      },
+      {
+        label: "Bias shift",
+        value: formatArticleFeedbackBiasShift({ afterProfile, beforeProfile }),
+      },
+      { label: "Topic", value: topicLabel },
+    ],
+    notices,
+    summary: `${articleFeedbackActionLabels[action]} trained the article queue ${
+      negative ? "away from" : "toward"
+    } ${topicLabel} from ${article.sourceName}.`,
+  };
+};
+
+export const getNewsArticleDeepReadTrainingState = ({
+  article,
+  beforeProfile,
+  formatCategory,
+  readPercent,
+}: {
+  article: NewsArticleItem;
+  beforeProfile: NewsPreferenceProfile;
+  formatCategory: (category: string) => string;
+  readPercent: number;
+}) => {
+  if (!shouldTrainNewsArticleProfileFromReadPercent(readPercent)) return null;
+
+  const profile = updateReaderProfileWithInteraction(beforeProfile, article, {
+    action: "view",
+    readPercent,
+  });
+
+  return {
+    feedbackLoop: getNewsArticleFeedbackLoop({
+      action: "view",
+      afterProfile: profile,
+      article,
+      beforeProfile,
+      formatCategory,
+    }),
+    profile,
+  };
+};
+
+type ArticleLearningAction = Extract<
+  ReaderInteractionAction,
+  "hide" | "save" | "share" | "view"
+>;
+
+interface ArticleLearningSignal {
+  key: string;
+  kind: "category" | "entity" | "source";
+  label: string;
+}
+
+const articleLearningActions = [
+  "view",
+  "save",
+  "share",
+  "hide",
+] as const satisfies readonly ArticleLearningAction[];
+
+const articleLearningActionLabels = {
+  hide: "Less",
+  save: "Save",
+  share: "Share",
+  view: "Read",
+} as const satisfies Record<ArticleLearningAction, string>;
+
+const getArticleLearningSignals = ({
+  article,
+  formatCategory,
+}: {
+  article: NewsArticleItem;
+  formatCategory: (category: string) => string;
+}): ArticleLearningSignal[] => [
+  {
+    key: `category:${normalizeValue(article.category)}`,
+    kind: "category" as const,
+    label: formatCategory(article.category),
+  },
+  {
+    key: `source:${normalizeValue(article.sourceSlug)}`,
+    kind: "source" as const,
+    label: article.sourceName,
+  },
+  ...getUniqueValues(article.entities, 6).map((entity) => ({
+    key: `entity:${normalizeValue(entity)}`,
+    kind: "entity" as const,
+    label: entity,
+  })),
+];
+
+const getProfileLearningSignalKeys = (profile: NewsPreferenceProfile) =>
+  new Set([
+    ...profile.preferredCategories.map(
+      (category) => `category:${normalizeValue(category)}`,
+    ),
+    ...profile.preferredSources.map(
+      (source) => `source:${normalizeValue(source)}`,
+    ),
+    ...profile.preferredEntities.map(
+      (entity) => `entity:${normalizeValue(entity)}`,
+    ),
+  ]);
+
+const getArticleLearningSignalDelta = ({
+  afterProfile,
+  articleSignals,
+  beforeProfile,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  articleSignals: readonly ArticleLearningSignal[];
+  beforeProfile: NewsPreferenceProfile;
+}) => {
+  const beforeKeys = getProfileLearningSignalKeys(beforeProfile);
+  const afterKeys = getProfileLearningSignalKeys(afterProfile);
+
+  return {
+    added: articleSignals.filter(
+      (signal) => !beforeKeys.has(signal.key) && afterKeys.has(signal.key),
+    ),
+    removed: articleSignals.filter(
+      (signal) => beforeKeys.has(signal.key) && !afterKeys.has(signal.key),
+    ),
+  };
+};
+
+const getActiveArticleLearningSignals = ({
+  articleSignals,
+  profile,
+}: {
+  articleSignals: readonly ArticleLearningSignal[];
+  profile: NewsPreferenceProfile;
+}) => {
+  const profileKeys = getProfileLearningSignalKeys(profile);
+
+  return articleSignals.filter((signal) => profileKeys.has(signal.key));
+};
+
+const formatLearningSignalList = (signals: readonly ArticleLearningSignal[]) =>
+  signals.map((signal) => signal.label).join(", ");
+
+const formatLearningSignalLabel = ({
+  count,
+  signed,
+}: {
+  count: number;
+  signed: "negative" | "none" | "positive";
+}) => {
+  const prefix =
+    count === 0
+      ? ""
+      : signed === "positive"
+        ? "+"
+        : signed === "negative"
+          ? "-"
+          : "";
+
+  return `${prefix}${count} ${count === 1 ? "signal" : "signals"}`;
+};
+
+const formatLearningMetricDelta = ({
+  count,
+  signed,
+}: {
+  count: number;
+  signed: "negative" | "positive";
+}) => {
+  if (count === 0) return "0";
+
+  return `${signed === "positive" ? "+" : "-"}${count}`;
+};
+
+const getLearningBiasLabel = ({
+  afterProfile,
+  beforeProfile,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+}) => `${formatArticleFeedbackBiasShift({ afterProfile, beforeProfile })} bias`;
+
+const getLearningActionDetail = ({
+  action,
+  activeSignals,
+  addedSignals,
+  article,
+  removedSignals,
+  topicLabel,
+}: {
+  action: ArticleLearningAction;
+  activeSignals: readonly ArticleLearningSignal[];
+  addedSignals: readonly ArticleLearningSignal[];
+  article: NewsArticleItem;
+  removedSignals: readonly ArticleLearningSignal[];
+  topicLabel: string;
+}) => {
+  if (action === "view") {
+    if (activeSignals.length > 0) {
+      return `Read memory is active for ${formatLearningSignalList(activeSignals)}.`;
+    }
+
+    if (
+      article.entities.length > 0 &&
+      !addedSignals.some((signal) => signal.kind === "entity")
+    ) {
+      return `Read would start a new ${topicLabel} memory; entity memory waits for a deeper read.`;
+    }
+
+    return `Read would start a new ${topicLabel} memory.`;
+  }
+
+  if (action === "hide") {
+    if (removedSignals.length > 0) {
+      return `Less would remove ${formatLearningSignalList(
+        removedSignals,
+      )} from this reader profile.`;
+    }
+
+    return "Less would only dampen ranking bias until a signal exists.";
+  }
+
+  if (action === "save") {
+    const [addedSignal] = addedSignals;
+
+    if (addedSignals.length === 1 && addedSignal?.kind === "source") {
+      return `Save would add ${article.sourceName} as a source preference.`;
+    }
+
+    if (addedSignals.length > 0) {
+      return `Save would add ${formatLearningSignalList(
+        addedSignals,
+      )} to the reader profile.`;
+    }
+
+    return `Save would reinforce ${topicLabel} without adding new signals.`;
+  }
+
+  if (addedSignals.length > 0) {
+    return `Share would add ${formatLearningSignalList(
+      addedSignals,
+    )} and push freshness and novelty harder.`;
+  }
+
+  return `Share would push freshness and novelty harder around ${topicLabel}.`;
+};
+
+export const getNewsArticleLearningImpact = ({
+  article,
+  formatCategory,
+  profile,
+  relatedItems,
+}: {
+  article: NewsArticleItem;
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+  relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+}) => {
+  const topicLabel = formatCategory(article.category);
+  const articleSignals = getArticleLearningSignals({ article, formatCategory });
+  const activeSignals = getActiveArticleLearningSignals({
+    articleSignals,
+    profile,
+  });
+  const actionDeltas = new Map(
+    articleLearningActions.map((action) => {
+      const nextProfile = updateReaderProfileWithInteraction(profile, article, {
+        action,
+      });
+
+      return [
+        action,
+        {
+          delta: getArticleLearningSignalDelta({
+            afterProfile: nextProfile,
+            articleSignals,
+            beforeProfile: profile,
+          }),
+          nextProfile,
+        },
+      ];
+    }),
+  );
+  const readingPath = getNewsArticleReadingPath({
+    article,
+    formatCategory,
+    limit: 3,
+    relatedItems,
+  });
+  const nextStories = readingPath.recommendations.map((item) => ({
+    id: item.id,
+    reason: item.reason,
+    scoreLabel: item.scoreLabel,
+    title: item.title,
+  }));
+  const saveDelta = actionDeltas.get("save")?.delta.added.length ?? 0;
+  const hideDelta = actionDeltas.get("hide")?.delta.removed.length ?? 0;
+
+  return {
+    actions: articleLearningActions.map((action) => {
+      const actionDelta = actionDeltas.get(action);
+      const addedSignals = actionDelta?.delta.added ?? [];
+      const removedSignals = actionDelta?.delta.removed ?? [];
+      const signalCount =
+        action === "hide"
+          ? removedSignals.length
+          : action === "view" && activeSignals.length > 0
+            ? activeSignals.length
+            : addedSignals.length;
+      const signed =
+        action === "hide"
+          ? "negative"
+          : action === "view" && activeSignals.length > 0
+            ? "none"
+            : "positive";
+
+      return {
+        action,
+        biasLabel: getLearningBiasLabel({
+          afterProfile: actionDelta?.nextProfile ?? profile,
+          beforeProfile: profile,
+        }),
+        detail: getLearningActionDetail({
+          action,
+          activeSignals,
+          addedSignals,
+          article,
+          removedSignals,
+          topicLabel,
+        }),
+        label: articleLearningActionLabels[action],
+        signalLabel: formatLearningSignalLabel({ count: signalCount, signed }),
+      };
+    }),
+    label: activeSignals.length > 0 ? "Learning Active" : "Learning Ready",
+    metrics: [
+      { label: "Article memory", value: String(activeSignals.length) },
+      {
+        label: "Save adds",
+        value: formatLearningMetricDelta({
+          count: saveDelta,
+          signed: "positive",
+        }),
+      },
+      {
+        label: "Less removes",
+        value: formatLearningMetricDelta({
+          count: hideDelta,
+          signed: "negative",
+        }),
+      },
+      { label: "Next candidates", value: String(nextStories.length) },
+    ],
+    nextStories,
+    summary:
+      activeSignals.length > 0
+        ? `This article has ${activeSignals.length} active reader-memory ${
+            activeSignals.length === 1 ? "signal" : "signals"
+          } and ${nextStories.length} follow-up ${
+            nextStories.length === 1 ? "recommendation" : "recommendations"
+          }.`
+        : nextStories.length > 0
+          ? `This article can start reader-memory signals and stage ${nextStories.length} follow-up ${
+              nextStories.length === 1 ? "recommendation" : "recommendations"
+            }.`
+          : "This article can start reader-memory signals; follow-up recommendations will appear after related stories load.",
   };
 };

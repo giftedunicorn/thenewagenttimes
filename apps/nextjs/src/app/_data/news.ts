@@ -7,7 +7,13 @@ import type {
   NewsHomeItem,
   NewsHomeStatus,
 } from "../_components/news-home-model";
-import { buildNewsDeskStatus } from "../_components/news-home-model";
+import {
+  buildNewsDeskStatus,
+  getPreviewNewsArticleData,
+  getPreviewNewsHomeItems,
+  selectInitialNewsHomeItems,
+  selectRelatedNewsHomeItems,
+} from "../_components/news-home-model";
 
 export type {
   NewsDeskStatus,
@@ -37,6 +43,7 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
           imageUrl: NewsItem.imageUrl,
+          originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
           category: NewsItem.category,
           tags: NewsItem.tags,
@@ -51,16 +58,20 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
         .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
         .where(eq(NewsItem.status, "published"))
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
-        .limit(30),
+        .limit(90),
       getNewsDeskStatus(),
     ]);
-
-    return {
+    const items = selectInitialNewsHomeItems({
       items: rows.map((row) => ({
         ...row,
         publishedAt: row.publishedAt.toISOString(),
       })),
-      status: rows.length > 0 ? "ready" : "empty",
+      limit: 30,
+    });
+
+    return {
+      items,
+      status: items.length > 0 ? "ready" : "empty",
       deskStatus,
     };
   } catch (error: unknown) {
@@ -70,7 +81,7 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
     );
 
     return {
-      items: [],
+      items: getPreviewNewsHomeItems(),
       status: "unavailable",
       deskStatus: getUnavailableNewsDeskStatus(),
     };
@@ -87,7 +98,7 @@ const getUnavailableNewsDeskStatus = () =>
     unavailable: true,
   });
 
-const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
+export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
   const [sourceCounts, itemCounts, latestRuns] = await Promise.all([
     db
       .select({
@@ -172,7 +183,7 @@ export const getNewsArticleData = async (
       .limit(1);
 
     if (!article) {
-      return { article: null, related: [] };
+      return getPreviewNewsArticleData(id);
     }
 
     const relatedRows = await db
@@ -182,6 +193,7 @@ export const getNewsArticleData = async (
         summary: NewsItem.summary,
         canonicalUrl: NewsItem.canonicalUrl,
         imageUrl: NewsItem.imageUrl,
+        originalUrl: NewsItem.originalUrl,
         publishedAt: NewsItem.publishedAt,
         category: NewsItem.category,
         tags: NewsItem.tags,
@@ -198,18 +210,25 @@ export const getNewsArticleData = async (
         sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${id} and (${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${article.entities})`,
       )
       .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
-      .limit(8);
+      .limit(24);
+
+    const articleItem = {
+      ...article,
+      publishedAt: article.publishedAt.toISOString(),
+      collectedAt: article.collectedAt.toISOString(),
+    };
+    const relatedItems = relatedRows.map((row) => ({
+      ...row,
+      publishedAt: row.publishedAt.toISOString(),
+    }));
 
     return {
-      article: {
-        ...article,
-        publishedAt: article.publishedAt.toISOString(),
-        collectedAt: article.collectedAt.toISOString(),
-      },
-      related: relatedRows.map((row) => ({
-        ...row,
-        publishedAt: row.publishedAt.toISOString(),
-      })),
+      article: articleItem,
+      related: selectRelatedNewsHomeItems({
+        article: articleItem,
+        limit: 8,
+        relatedItems,
+      }),
     };
   } catch (error: unknown) {
     console.error(
@@ -217,6 +236,6 @@ export const getNewsArticleData = async (
       error instanceof Error ? error.message : String(error),
     );
 
-    return { article: null, related: [] };
+    return getPreviewNewsArticleData(id);
   }
 };

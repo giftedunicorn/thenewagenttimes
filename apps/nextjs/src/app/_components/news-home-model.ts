@@ -2804,6 +2804,59 @@ export const getNewsFeedbackTrainingUpdate = ({
   };
 };
 
+export const getNewsReaderMemoryResetTrainingUpdate = ({
+  persisted = true,
+}: {
+  persisted?: boolean;
+} = {}) =>
+  persisted
+    ? {
+        label: "Memory Reset",
+        metrics: [
+          { label: "Profile", value: "Default" },
+          { label: "Saved", value: "Cleared" },
+          { label: "History", value: "Cleared" },
+          { label: "Guardrails", value: "Cleared" },
+        ],
+        notices: [
+          {
+            detail:
+              "For You will restart from default AI topics and learn again from new reads, saves, source clicks, and Less feedback.",
+            label: "Fresh training loop",
+          },
+        ],
+        signals: [
+          { label: "Topics", value: "Models, Agents, Funding" },
+          { label: "Sources", value: "No saved sources" },
+          { label: "Entities", value: "No saved entities" },
+        ],
+        summary:
+          "Reader memory was reset across profile, saved stories, reading history, and feedback guardrails.",
+      }
+    : {
+        label: "Local Reset",
+        metrics: [
+          { label: "Profile", value: "Default" },
+          { label: "Saved", value: "Not synced" },
+          { label: "History", value: "Not synced" },
+          { label: "Guardrails", value: "Local only" },
+        ],
+        notices: [
+          {
+            detail:
+              "This device profile was reset locally. Server memory will clear once a reader key and live API are available.",
+            label: "Local training loop",
+          },
+        ],
+        signals: [
+          { label: "Topics", value: "Models, Agents, Funding" },
+          { label: "Sources", value: "No local sources" },
+          { label: "Entities", value: "No local entities" },
+        ],
+        summary:
+          "Local reader memory was reset; persisted saved stories, reading history, and feedback guardrails were not contacted.",
+      };
+
 type NewsPreferenceStarterKind = "category" | "entity" | "source" | "tag";
 
 interface NewsPreferenceStarterSuggestion {
@@ -14291,6 +14344,16 @@ export const shouldFetchServerRecommendations = ({
   visitorKey: string | null;
 }) => status === "ready" && Boolean(visitorKey);
 
+const newsHomeReaderMemoryResetCacheScopes = [
+  "forYou",
+  "profile",
+  "saved",
+  "history",
+] as const;
+
+export const getNewsHomeReaderMemoryResetCacheScopes = () =>
+  newsHomeReaderMemoryResetCacheScopes;
+
 const recommendationReasonLabels = {
   breaking_news: "Breaking high-trust story",
   category: "Preferred topic",
@@ -14458,6 +14521,16 @@ export const getNewsStoryRankDetails = ({
       summary: supportText
         ? `Inserted as an exploration story outside your usual mix, supported by ${supportText}.`
         : "Inserted as an exploration story outside your usual mix.",
+    };
+  }
+
+  if (item.matchedSignals.includes("positive_feedback")) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Ranked from your reader-memory signals, with ${supportText}.`
+        : "Ranked from your reader-memory signals.",
     };
   }
 

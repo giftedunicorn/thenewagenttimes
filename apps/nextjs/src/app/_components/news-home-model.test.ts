@@ -35,6 +35,7 @@ import {
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHotBoard,
   getNewsInterestDrift,
   getNewsInterestGraph,
@@ -58,6 +59,7 @@ import {
   getNewsReaderJourneyMap,
   getNewsReaderLearningLoop,
   getNewsReaderMemory,
+  getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
@@ -2577,6 +2579,62 @@ describe("getNewsFeedbackTrainingUpdate", () => {
         { label: "Entities", value: "OpenAI" },
       ],
       summary: "Less trained the feed away from Models from Local Source.",
+    });
+  });
+});
+
+describe("getNewsReaderMemoryResetTrainingUpdate", () => {
+  it("explains that reset clears persisted reader memory and restarts training", () => {
+    expect(getNewsReaderMemoryResetTrainingUpdate()).toEqual({
+      label: "Memory Reset",
+      metrics: [
+        { label: "Profile", value: "Default" },
+        { label: "Saved", value: "Cleared" },
+        { label: "History", value: "Cleared" },
+        { label: "Guardrails", value: "Cleared" },
+      ],
+      notices: [
+        {
+          detail:
+            "For You will restart from default AI topics and learn again from new reads, saves, source clicks, and Less feedback.",
+          label: "Fresh training loop",
+        },
+      ],
+      signals: [
+        { label: "Topics", value: "Models, Agents, Funding" },
+        { label: "Sources", value: "No saved sources" },
+        { label: "Entities", value: "No saved entities" },
+      ],
+      summary:
+        "Reader memory was reset across profile, saved stories, reading history, and feedback guardrails.",
+    });
+  });
+
+  it("keeps reset feedback honest when only local reader memory can be cleared", () => {
+    expect(
+      getNewsReaderMemoryResetTrainingUpdate({ persisted: false }),
+    ).toEqual({
+      label: "Local Reset",
+      metrics: [
+        { label: "Profile", value: "Default" },
+        { label: "Saved", value: "Not synced" },
+        { label: "History", value: "Not synced" },
+        { label: "Guardrails", value: "Local only" },
+      ],
+      notices: [
+        {
+          detail:
+            "This device profile was reset locally. Server memory will clear once a reader key and live API are available.",
+          label: "Local training loop",
+        },
+      ],
+      signals: [
+        { label: "Topics", value: "Models, Agents, Funding" },
+        { label: "Sources", value: "No local sources" },
+        { label: "Entities", value: "No local entities" },
+      ],
+      summary:
+        "Local reader memory was reset; persisted saved stories, reading history, and feedback guardrails were not contacted.",
     });
   });
 });
@@ -12676,6 +12734,17 @@ describe("shouldFetchServerRecommendations", () => {
   });
 });
 
+describe("getNewsHomeReaderMemoryResetCacheScopes", () => {
+  it("refreshes every persisted reader-memory surface after a reset", () => {
+    expect(getNewsHomeReaderMemoryResetCacheScopes()).toEqual([
+      "forYou",
+      "profile",
+      "saved",
+      "history",
+    ]);
+  });
+});
+
 describe("getNewsRecommendationReasons", () => {
   it("turns matched ranking signals into reader-facing recommendation reasons", () => {
     expect(
@@ -12779,6 +12848,30 @@ describe("getNewsStoryRankDetails", () => {
       summary:
         "Ranked for your angle signals, with fresh publication timing and source credibility.",
       scoreLabel: "118 score",
+    });
+  });
+
+  it("explains reader-memory anchors without falling back to edition-wide momentum", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["positive_feedback"],
+          personalizedScore: 126,
+          sourceScore: 84,
+          trendScore: 61,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: [
+        "Deep read, save, share, or source-click signal",
+        "Fresh",
+        "Strong source",
+      ],
+      summary:
+        "Ranked from your reader-memory signals, with fresh publication timing and source credibility.",
+      scoreLabel: "126 score",
     });
   });
 

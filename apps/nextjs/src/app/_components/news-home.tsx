@@ -67,6 +67,7 @@ import {
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHotBoard,
   getNewsInterestDrift,
   getNewsInterestGraph,
@@ -90,6 +91,7 @@ import {
   getNewsReaderJourneyMap,
   getNewsReaderLearningLoop,
   getNewsReaderMemory,
+  getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
@@ -451,6 +453,39 @@ export function NewsHome({
       },
     }),
   );
+  const resetReaderMemory = useMutation(
+    trpc.news.resetProfile.mutationOptions({
+      onSuccess: async (serverProfile) => {
+        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
+        setProfile(nextProfile);
+        writeStoredProfile(nextProfile);
+        const invalidations = getNewsHomeReaderMemoryResetCacheScopes().map(
+          (scope) => {
+            switch (scope) {
+              case "forYou":
+                return queryClient.invalidateQueries(
+                  trpc.news.forYou.pathFilter(),
+                );
+              case "profile":
+                return queryClient.invalidateQueries(
+                  trpc.news.profile.pathFilter(),
+                );
+              case "saved":
+                return queryClient.invalidateQueries(
+                  trpc.news.saved.pathFilter(),
+                );
+              case "history":
+                return queryClient.invalidateQueries(
+                  trpc.news.history.pathFilter(),
+                );
+            }
+          },
+        );
+
+        await Promise.all(invalidations);
+      },
+    }),
+  );
   const recordInteraction = useMutation(
     trpc.news.recordInteraction.mutationOptions({
       onSuccess: async (serverProfile) => {
@@ -609,10 +644,22 @@ export function NewsHome({
   };
 
   const resetProfile = () => {
-    commitProfile(() => createDefaultNewsPreferenceProfile());
+    const nextProfile = createDefaultNewsPreferenceProfile();
+
+    setProfile(nextProfile);
+    writeStoredProfile(nextProfile);
     setHiddenItemIds([]);
     setNegativeFeedbackItems([]);
     setPositiveFeedbackItems([]);
+    setTrainingUpdate(
+      getNewsReaderMemoryResetTrainingUpdate({
+        persisted: Boolean(visitorKey && canPersistProfile),
+      }),
+    );
+
+    if (visitorKey && canPersistProfile) {
+      resetReaderMemory.mutate({ visitorKey });
+    }
   };
 
   const loadMoreStories = useCallback(async () => {

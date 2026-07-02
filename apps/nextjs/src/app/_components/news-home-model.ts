@@ -754,14 +754,32 @@ const genericNewsAngleTags = new Set([
 const formatNewsAngleQuery = (tag: string) =>
   tag.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 
+const getNewsAngleSignalKey = (tag: string) =>
+  formatNewsAngleQuery(tag).toLowerCase();
+
 const isSpecificNewsAngleTag = (tag: string) => {
-  const query = formatNewsAngleQuery(tag).toLowerCase();
+  const query = getNewsAngleSignalKey(tag);
 
   return Boolean(query) && !genericNewsAngleTags.has(query);
 };
 
 const isNewsReaderAngleSignal = (signal: string) =>
   signal === signal.toLowerCase() && isSpecificNewsAngleTag(signal);
+
+const hasNewsReaderAngleSignal = (
+  values: readonly string[],
+  tag: string,
+) => {
+  if (!isSpecificNewsAngleTag(tag)) return false;
+
+  const normalizedTag = getNewsAngleSignalKey(tag);
+
+  return values.some(
+    (value) =>
+      isNewsReaderAngleSignal(value) &&
+      getNewsAngleSignalKey(value) === normalizedTag,
+  );
+};
 
 export const getNewsAnglePreferenceOptions = ({
   items,
@@ -4494,7 +4512,12 @@ export const getNewsPreferencePresets = ({
 };
 
 type NewsPreferenceTuningAction = "add" | "explore" | "keep" | "reduce";
-type NewsPreferenceTuningKind = "bias" | "category" | "entity" | "source";
+type NewsPreferenceTuningKind =
+  | "bias"
+  | "category"
+  | "entity"
+  | "source"
+  | "tag";
 
 interface NewsPreferenceTuningSignalAccumulator {
   count: number;
@@ -4630,6 +4653,7 @@ const getPreferenceTuningBehaviorStores = ({
   const categories = new Map<string, NewsPreferenceTuningSignalAccumulator>();
   const entities = new Map<string, NewsPreferenceTuningSignalAccumulator>();
   const sources = new Map<string, NewsPreferenceTuningSignalAccumulator>();
+  const tags = new Map<string, NewsPreferenceTuningSignalAccumulator>();
 
   for (const item of items) {
     upsertPreferenceTuningSignal({
@@ -4656,9 +4680,23 @@ const getPreferenceTuningBehaviorStores = ({
         store: entities,
       });
     }
+
+    for (const tag of item.tags ?? []) {
+      if (!isSpecificNewsAngleTag(tag)) continue;
+
+      const label = formatNewsAngleQuery(tag);
+
+      upsertPreferenceTuningSignal({
+        evidence: item.title,
+        key: label,
+        label,
+        signal: tag,
+        store: tags,
+      });
+    }
   }
 
-  return { categories, entities, sources };
+  return { categories, entities, sources, tags };
 };
 
 export const getNewsPreferenceTuningPlan = ({
@@ -4754,6 +4792,27 @@ export const getNewsPreferenceTuningPlan = ({
     );
   }
 
+  const topBehaviorTag = getTopPreferenceTuningSignal({
+    excludedSignals: normalizedProfile.preferredEntities,
+    store: behaviorStores.tags,
+  });
+
+  if (topBehaviorTag) {
+    suggestions.push(
+      createPreferenceTuningSuggestion({
+        action: "add",
+        actionLabel: "Add angle",
+        detail: `${topBehaviorTag.count} saved/read ${
+          topBehaviorTag.count === 1 ? "signal points" : "signals point"
+        } to ${topBehaviorTag.label}.`,
+        evidence: topBehaviorTag.evidence,
+        kind: "tag",
+        label: `Add ${topBehaviorTag.label}`,
+        signal: topBehaviorTag.signal,
+      }),
+    );
+  }
+
   const negativeStores = getPreferenceTuningBehaviorStores({
     formatCategory,
     items: negativeFeedbackItems,
@@ -4775,6 +4834,27 @@ export const getNewsPreferenceTuningPlan = ({
         kind: "source",
         label: `Reduce ${topNegativeSource.label}`,
         signal: topNegativeSource.signal,
+      }),
+    );
+  }
+
+  const topNegativeTag = getTopPreferenceTuningSignal({
+    excludedSignals: [],
+    store: negativeStores.tags,
+  });
+
+  if (topNegativeTag) {
+    suggestions.push(
+      createPreferenceTuningSuggestion({
+        action: "reduce",
+        actionLabel: "Reduce angle",
+        detail: `${topNegativeTag.count} Less ${
+          topNegativeTag.count === 1 ? "signal is" : "signals are"
+        } guarding ${topNegativeTag.label}.`,
+        evidence: topNegativeTag.evidence,
+        kind: "tag",
+        label: `Reduce ${topNegativeTag.label}`,
+        signal: topNegativeTag.signal,
       }),
     );
   }
@@ -4907,6 +4987,17 @@ const getNewsProfileImpactMatches = ({
     }
   }
 
+  for (const tag of item.tags) {
+    const angle = formatNewsAngleQuery(tag);
+
+    if (
+      hasNewsReaderAngleSignal(profile.preferredEntities, tag) &&
+      !matches.includes(angle)
+    ) {
+      matches.push(angle);
+    }
+  }
+
   return matches;
 };
 
@@ -4943,6 +5034,20 @@ const getNewsProfileImpactDampenedReason = ({
     );
 
     if (hiddenEntity) return `Matches hidden entity ${hiddenEntity}.`;
+
+    const hiddenTag = item.tags.find(
+      (tag) =>
+        isSpecificNewsAngleTag(tag) &&
+        negativeItem.tags?.some(
+          (negativeTag) =>
+            isSpecificNewsAngleTag(negativeTag) &&
+            getNewsAngleSignalKey(negativeTag) === getNewsAngleSignalKey(tag),
+        ),
+    );
+
+    if (hiddenTag) {
+      return `Matches hidden angle ${formatNewsAngleQuery(hiddenTag)}.`;
+    }
   }
 
   return null;
@@ -7337,6 +7442,17 @@ const getRecommendationTraceProfileSignals = ({
     }
   }
 
+  for (const tag of item.tags) {
+    const angle = formatNewsAngleQuery(tag);
+
+    if (
+      hasNewsReaderAngleSignal(profile.preferredEntities, tag) &&
+      !signals.includes(angle)
+    ) {
+      signals.push(angle);
+    }
+  }
+
   return signals.slice(0, 3);
 };
 
@@ -7352,6 +7468,14 @@ const getRecommendationTraceGuardSignals = ({
 
   if (entity) signals.push(entity);
   if (item.sourceName) signals.push(item.sourceName);
+
+  for (const tag of item.tags ?? []) {
+    const angle = formatNewsAngleQuery(tag);
+
+    if (isSpecificNewsAngleTag(tag) && !signals.includes(angle)) {
+      signals.push(angle);
+    }
+  }
 
   return signals;
 };
@@ -8655,7 +8779,7 @@ export const getNewsDiscoveryLadder = ({
   };
 };
 
-type NewsNextRefreshSignalKind = "entity" | "topic" | "source";
+type NewsNextRefreshSignalKind = "angle" | "entity" | "topic" | "source";
 
 interface NewsNextRefreshSignalEntry {
   count: number;
@@ -8666,15 +8790,17 @@ interface NewsNextRefreshSignalEntry {
 }
 
 const nextRefreshBoostSignalKindPriority = {
-  entity: 0,
-  topic: 1,
-  source: 2,
+  angle: 0,
+  entity: 1,
+  topic: 2,
+  source: 3,
 } satisfies Record<NewsNextRefreshSignalKind, number>;
 
 const nextRefreshDamperSignalKindPriority = {
-  topic: 0,
-  entity: 1,
-  source: 2,
+  angle: 0,
+  topic: 1,
+  entity: 2,
+  source: 3,
 } satisfies Record<NewsNextRefreshSignalKind, number>;
 
 const getNextRefreshSignalKey = (
@@ -8750,6 +8876,21 @@ const addNextRefreshItemSignals = ({
       store,
     });
   }
+
+  for (const tag of getUniqueSignals(item.tags ?? [], 12)) {
+    if (!isSpecificNewsAngleTag(tag)) continue;
+
+    const angle = formatNewsAngleQuery(tag);
+
+    addNextRefreshSignal({
+      amount,
+      item,
+      keyValue: angle,
+      kind: "angle",
+      label: angle,
+      store,
+    });
+  }
 };
 
 const sortNextRefreshSignalsByPriority = (
@@ -8806,6 +8947,10 @@ const matchesNextRefreshSignal = (
 
   if (signal.kind === "source") {
     return item.sourceSlug.trim().toLowerCase() === signal.key;
+  }
+
+  if (signal.kind === "angle") {
+    return item.tags.some((tag) => getNewsAngleSignalKey(tag) === signal.key);
   }
 
   return item.entities.some(
@@ -8943,8 +9088,20 @@ const newsRefreshSimulationPriority = {
 } satisfies Record<NewsRefreshSimulationStatus, number>;
 
 const getRefreshSimulationMatchers = (
-  items: readonly Pick<NewsHomeItem, "category" | "entities" | "sourceSlug">[],
+  items: readonly {
+    category: string;
+    entities: readonly string[];
+    sourceSlug: string;
+    tags?: readonly string[];
+  }[],
 ) => ({
+  angles: new Set(
+    items.flatMap((item) =>
+      (item.tags ?? [])
+        .filter(isSpecificNewsAngleTag)
+        .map((tag) => getNewsAngleSignalKey(tag)),
+    ),
+  ),
   categories: new Set(
     items.map((item) => normalizePreferenceSignal(item.category)),
   ),
@@ -8966,13 +9123,28 @@ const hasRefreshSimulationMatch = ({
   const itemCategory = normalizePreferenceSignal(item.category);
   const itemSource = normalizePreferenceSignal(item.sourceSlug);
   const itemEntities = item.entities.map(normalizePreferenceSignal);
+  const itemAngles = item.tags
+    .filter(isSpecificNewsAngleTag)
+    .map((tag) => getNewsAngleSignalKey(tag));
 
   return (
     matchers.categories.has(itemCategory) ||
     matchers.sources.has(itemSource) ||
-    itemEntities.some((entity) => matchers.entities.has(entity))
+    itemEntities.some((entity) => matchers.entities.has(entity)) ||
+    itemAngles.some((angle) => matchers.angles.has(angle))
   );
 };
+
+const hasRefreshSimulationAngleMatch = ({
+  item,
+  matchers,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  matchers: ReturnType<typeof getRefreshSimulationMatchers>;
+}) =>
+  item.tags
+    .filter(isSpecificNewsAngleTag)
+    .some((tag) => matchers.angles.has(getNewsAngleSignalKey(tag)));
 
 const hasRefreshSimulationProfileMatch = ({
   item,
@@ -8986,6 +9158,9 @@ const hasRefreshSimulationProfileMatch = ({
   hasPreferenceSignal(profile.preferredSources, item.sourceSlug) ||
   item.entities.some((entity) =>
     hasPreferenceSignal(profile.preferredEntities, entity),
+  ) ||
+  item.tags.some((tag) =>
+    hasNewsReaderAngleSignal(profile.preferredEntities, tag),
   );
 
 const getNewsRefreshSimulationMove = ({
@@ -9005,6 +9180,10 @@ const getNewsRefreshSimulationMove = ({
 }) => {
   const categoryLabel = formatCategory(item.category);
   const hasNegativeMatch = hasRefreshSimulationMatch({
+    item,
+    matchers: negativeMatchers,
+  });
+  const hasNegativeAngleMatch = hasRefreshSimulationAngleMatch({
     item,
     matchers: negativeMatchers,
   });
@@ -9031,7 +9210,9 @@ const getNewsRefreshSimulationMove = ({
       delta: -42,
       id: item.id,
       label: `Dampen ${categoryLabel}`,
-      reason: "Hidden feedback overlaps this topic, source, or entity.",
+      reason: hasNegativeAngleMatch
+        ? "Hidden feedback overlaps this topic, source, entity, or angle."
+        : "Hidden feedback overlaps this topic, source, or entity.",
       sourceName: item.sourceName,
       statusLabel: "Dampen" as const,
       title: item.title,
@@ -12634,6 +12815,12 @@ const getNewsFrontPageProfileMatchCount = ({
 
   for (const entity of item.entities) {
     if (hasPreferenceSignal(normalizedProfile.preferredEntities, entity)) {
+      count += 1;
+    }
+  }
+
+  for (const tag of item.tags) {
+    if (hasNewsReaderAngleSignal(normalizedProfile.preferredEntities, tag)) {
       count += 1;
     }
   }

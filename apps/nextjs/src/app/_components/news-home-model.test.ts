@@ -4441,6 +4441,142 @@ describe("getNewsPreferenceTuningPlan", () => {
         "Preference tuning will appear after profile signals or reader behavior arrive.",
     });
   });
+
+  it("suggests specific angle signals learned from saved and read tags", () => {
+    expect(
+      getNewsPreferenceTuningPlan({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        historyItems: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["OpenAI"],
+            id: "read-prompt-defense",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection", "agents"],
+            title: "Read prompt defense",
+          },
+        ],
+        items: [],
+        limit: 3,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["security"],
+          preferredSources: ["security-desk"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1.4,
+          recencyBias: 1,
+        },
+        savedItems: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["OpenAI"],
+            id: "saved-prompt-defense",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection", "research"],
+            title: "Saved prompt defense",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Ready to Tune",
+      metrics: [
+        { label: "Active signals", value: "3" },
+        { label: "Behavior", value: "2" },
+        { label: "Guardrails", value: "0" },
+        { label: "Suggestions", value: "1" },
+      ],
+      suggestions: [
+        {
+          action: "add",
+          actionLabel: "Add angle",
+          detail: "2 saved/read signals point to prompt injection.",
+          evidence: ["Saved prompt defense", "Read prompt defense"],
+          kind: "tag",
+          label: "Add prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      summary:
+        "1 tuning suggestion from 3 active signals, 2 behavior signals, and 0 guardrails.",
+    });
+  });
+
+  it("suggests angle guardrails learned from Less feedback tags", () => {
+    expect(
+      getNewsPreferenceTuningPlan({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        historyItems: [],
+        items: [],
+        limit: 3,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["OpenAI"],
+            id: "hidden-prompt-defense",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection", "agents"],
+            title: "Hidden prompt defense",
+          },
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Anthropic"],
+            id: "hidden-jailbreak-report",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection", "research"],
+            title: "Hidden jailbreak report",
+          },
+        ],
+        profile: {
+          preferredCategories: ["security"],
+          preferredSources: ["security-desk"],
+          preferredEntities: ["prompt_injection"],
+          noveltyBias: 1,
+          recencyBias: 1.2,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Ready to Tune",
+      metrics: [
+        { label: "Active signals", value: "3" },
+        { label: "Behavior", value: "0" },
+        { label: "Guardrails", value: "2" },
+        { label: "Suggestions", value: "2" },
+      ],
+      suggestions: [
+        {
+          action: "reduce",
+          actionLabel: "Reduce source",
+          detail: "2 Less signals are guarding Security Desk.",
+          evidence: ["Hidden prompt defense", "Hidden jailbreak report"],
+          kind: "source",
+          label: "Reduce Security Desk",
+          signal: "security-desk",
+        },
+        {
+          action: "reduce",
+          actionLabel: "Reduce angle",
+          detail: "2 Less signals are guarding prompt injection.",
+          evidence: ["Hidden prompt defense", "Hidden jailbreak report"],
+          kind: "tag",
+          label: "Reduce prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      summary:
+        "2 tuning suggestions from 3 active signals, 0 behavior signals, and 2 guardrails.",
+    });
+  });
 });
 
 describe("getNewsProfileImpactPreview", () => {
@@ -4583,6 +4719,108 @@ describe("getNewsProfileImpactPreview", () => {
       ],
       summary:
         "Profile impact preview will appear after stories and reader signals arrive.",
+    });
+  });
+
+  it("explains active and hidden angle matches in profile impact lanes", () => {
+    expect(
+      getNewsProfileImpactPreview({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : "Safety",
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["OpenAI"],
+            id: "boosted-angle",
+            matchedSignals: [],
+            personalizedScore: 134,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection defense playbook",
+          },
+          {
+            ...localItem,
+            category: "safety",
+            entities: ["Anthropic"],
+            id: "dampened-angle",
+            matchedSignals: [],
+            personalizedScore: 101,
+            sourceName: "Safety Lab",
+            sourceSlug: "safety-lab",
+            tags: ["jailbreaks"],
+            title: "Jailbreak benchmark controversy",
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["Mistral"],
+            id: "hidden-jailbreak",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["jailbreaks"],
+            title: "Hidden jailbreak story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: ["prompt_injection"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Profile Impact",
+      lanes: [
+        {
+          count: 1,
+          key: "boosted",
+          label: "Boosted",
+          stories: [
+            {
+              id: "boosted-angle",
+              reason: "Matches prompt injection.",
+              sourceName: "Security Desk",
+              title: "Prompt injection defense playbook",
+            },
+          ],
+          summary: "Profile signals lift 1 ranked story.",
+        },
+        {
+          count: 0,
+          key: "explore",
+          label: "Exploration",
+          stories: [],
+          summary: "0 stories test adjacent coverage outside the profile.",
+        },
+        {
+          count: 1,
+          key: "dampened",
+          label: "Dampened",
+          stories: [
+            {
+              id: "dampened-angle",
+              reason: "Matches hidden angle jailbreaks.",
+              sourceName: "Safety Lab",
+              title: "Jailbreak benchmark controversy",
+            },
+          ],
+          summary: "1 story is held back by negative feedback.",
+        },
+      ],
+      metrics: [
+        { label: "Active signals", value: "1" },
+        { label: "Boosted", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Dampened", value: "1" },
+      ],
+      summary:
+        "Current profile lifts 1 story, explores 0 adjacent stories, and dampens 1 story.",
     });
   });
 });
@@ -6221,6 +6459,137 @@ describe("getNewsFrontPageSlotMix", () => {
           scoreLabel: "93 heat",
           sourceName: "VentureWire",
           title: "Funding heat cools around AI infra",
+          treatment: "Market slot",
+        },
+      ],
+      summary:
+        "4 front-page slots balance 2 reader-led stories, 1 exploration story, and 1 cooldown candidate.",
+    });
+  });
+
+  it("uses active angle preferences to select front-page follow-up stories", () => {
+    expect(
+      getNewsFrontPageSlotMix({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "security"
+              ? "Security"
+              : category === "agent_product"
+                ? "Agents"
+                : "Markets",
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "lead-model",
+            matchedSignals: [],
+            personalizedScore: 168,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Model launch leads the edition",
+            trendScore: 92,
+          },
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Anthropic"],
+            id: "angle-follow-up",
+            matchedSignals: [],
+            personalizedScore: 127,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection defenses follow the model launch",
+            trendScore: 86,
+          },
+          {
+            ...olderItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "explore-agent",
+            matchedSignals: ["exploration"],
+            personalizedScore: 118,
+            sourceName: "Agent Scout",
+            sourceSlug: "agent-scout",
+            title: "Agent workflow startup tests memory",
+            trendScore: 84,
+          },
+          {
+            ...olderItem,
+            category: "market_map",
+            entities: ["GPU Cloud"],
+            id: "cooldown-market",
+            matchedSignals: [],
+            personalizedScore: 101,
+            sourceName: "Market Wire",
+            sourceSlug: "market-wire",
+            title: "GPU cloud market cools",
+            trendScore: 91,
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredEntities: ["prompt_injection"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Slot Mix Ready",
+      metrics: [
+        { label: "Slots", value: "4" },
+        { label: "Reader-led", value: "2" },
+        { label: "Exploration", value: "1" },
+        { label: "Cooldown", value: "1" },
+      ],
+      slots: [
+        {
+          categoryLabel: "Models",
+          id: "lead-model",
+          key: "lead",
+          label: "Lead",
+          reason:
+            "Highest personalized score leads because 0 reader signals are active.",
+          scoreLabel: "168 score",
+          sourceName: "Model Desk",
+          title: "Model launch leads the edition",
+          treatment: "Top story",
+        },
+        {
+          categoryLabel: "Security",
+          id: "angle-follow-up",
+          key: "follow_up",
+          label: "Follow-up",
+          reason: "Matches the active profile and keeps the reader in context.",
+          scoreLabel: "1 reader signal",
+          sourceName: "Security Desk",
+          title: "Prompt injection defenses follow the model launch",
+          treatment: "Context slot",
+        },
+        {
+          categoryLabel: "Agents",
+          id: "explore-agent",
+          key: "explore",
+          label: "Explore",
+          reason: "Exploration signal tests Agents outside the active profile.",
+          scoreLabel: "118 score",
+          sourceName: "Agent Scout",
+          title: "Agent workflow startup tests memory",
+          treatment: "Discovery slot",
+        },
+        {
+          categoryLabel: "Markets",
+          id: "cooldown-market",
+          key: "cooldown",
+          label: "Cooldown",
+          reason:
+            "No active reader signal, so the story stays below stronger matches.",
+          scoreLabel: "91 heat",
+          sourceName: "Market Wire",
+          title: "GPU cloud market cools",
           treatment: "Market slot",
         },
       ],
@@ -8886,6 +9255,61 @@ describe("getNewsRecommendationTrace", () => {
     });
   });
 
+  it("explains active and guarded angle signals in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : "Safety",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["OpenAI"],
+          id: "angle-match",
+          matchedSignals: [],
+          personalizedScore: 137,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection defense playbook",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          category: "safety",
+          entities: ["Anthropic"],
+          id: "hidden-jailbreak",
+          sourceName: "Safety Lab",
+          sourceSlug: "safety-lab",
+          tags: ["jailbreaks"],
+          title: "Hidden jailbreak story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["prompt_injection"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.steps).toContainEqual({
+      detail: "prompt injection match the active profile.",
+      label: "Reader profile",
+      scoreLabel: "1 signal",
+      title: "Prompt injection defense playbook",
+    });
+    expect(trace.steps).toContainEqual({
+      detail: "Less feedback guards Safety, Anthropic, Safety Lab, and jailbreaks.",
+      label: "Guardrail",
+      scoreLabel: "1 signal",
+      title: "Hidden jailbreak story",
+    });
+  });
+
   it("explains the lead, profile match, exploration, and guardrail decisions behind a ranked feed", () => {
     expect(
       getNewsRecommendationTrace({
@@ -10284,6 +10708,156 @@ describe("getNewsNextRefreshPlan", () => {
     });
   });
 
+  it("uses saved/read and hidden angles to plan the next refresh", () => {
+    expect(
+      getNewsNextRefreshPlan({
+        formatCategory: (category) =>
+          category === "security"
+            ? "Security"
+            : category === "safety"
+              ? "Safety"
+              : "Markets",
+        historyItems: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "read-prompt-defense",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection", "agents"],
+            title: "Read prompt defense",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "prompt-candidate",
+            matchedSignals: [],
+            personalizedScore: 133,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection defense candidate",
+            trendScore: 86,
+          },
+          {
+            ...localItem,
+            category: "safety",
+            entities: [],
+            id: "jailbreak-candidate",
+            matchedSignals: [],
+            personalizedScore: 128,
+            sourceName: "Safety Lab",
+            sourceSlug: "safety-lab",
+            tags: ["jailbreaks"],
+            title: "Jailbreak story should be dampened",
+            trendScore: 91,
+          },
+          {
+            ...olderItem,
+            category: "market_map",
+            entities: [],
+            id: "market-heat",
+            matchedSignals: [],
+            personalizedScore: 104,
+            sourceName: "Market Wire",
+            sourceSlug: "market-wire",
+            tags: ["benchmarks"],
+            title: "Benchmark market heat remains",
+            trendScore: 92,
+          },
+        ],
+        limit: 3,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            category: "safety",
+            entities: [],
+            id: "hidden-jailbreak",
+            sourceName: "Safety Lab",
+            sourceSlug: "safety-lab",
+            tags: ["jailbreaks", "research"],
+            title: "Hidden jailbreak story",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "saved-prompt-defense",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Saved prompt defense",
+          },
+        ],
+      }),
+    ).toEqual({
+      boosts: [
+        {
+          detail: "2 saved/read stories",
+          label: "prompt injection",
+          weightLabel: "+3",
+        },
+        {
+          detail: "2 saved/read stories",
+          label: "Security",
+          weightLabel: "+3",
+        },
+        {
+          detail: "2 saved/read stories",
+          label: "Security Desk",
+          weightLabel: "+3",
+        },
+      ],
+      dampers: [
+        {
+          detail: "1 hidden story",
+          label: "jailbreaks",
+          weightLabel: "-1",
+        },
+        {
+          detail: "1 hidden story",
+          label: "Safety",
+          weightLabel: "-1",
+        },
+        {
+          detail: "1 hidden story",
+          label: "Safety Lab",
+          weightLabel: "-1",
+        },
+      ],
+      label: "Learning Refresh",
+      metrics: [
+        { label: "Boosts", value: "3" },
+        { label: "Dampers", value: "3" },
+        { label: "Candidate slots", value: "2" },
+      ],
+      slots: [
+        {
+          id: "prompt-candidate",
+          reason: "prompt injection boost",
+          scoreLabel: "133 score",
+          sourceName: "Security Desk",
+          title: "Prompt injection defense candidate",
+        },
+        {
+          id: "market-heat",
+          reason: "Heat check",
+          scoreLabel: "104 score",
+          sourceName: "Market Wire",
+          title: "Benchmark market heat remains",
+        },
+      ],
+      summary:
+        "Next refresh will boost 3 signals, dampen 3 signals, and stage 2 candidate slots.",
+    });
+  });
+
   it("returns a stable cold refresh plan before stories and signals load", () => {
     expect(
       getNewsNextRefreshPlan({
@@ -10457,6 +11031,146 @@ describe("getNewsRefreshSimulation", () => {
     });
   });
 
+  it("uses saved/read and hidden angles in refresh simulation moves", () => {
+    expect(
+      getNewsRefreshSimulation({
+        formatCategory: (category) =>
+          category === "security"
+            ? "Security"
+            : category === "safety"
+              ? "Safety"
+              : category === "agent_product"
+                ? "Agents"
+                : "Models",
+        historyItems: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: [],
+            id: "read-prompt-defense",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["prompt_injection"],
+            title: "Read prompt defense",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "refresh-prompt",
+            matchedSignals: [],
+            personalizedScore: 132,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection refresh candidate",
+            trendScore: 84,
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "refresh-agent",
+            matchedSignals: ["exploration"],
+            personalizedScore: 121,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent workflow exploration candidate",
+            trendScore: 92,
+          },
+          {
+            ...localItem,
+            category: "safety",
+            entities: [],
+            id: "refresh-jailbreak",
+            matchedSignals: [],
+            personalizedScore: 119,
+            sourceName: "Safety Lab",
+            sourceSlug: "safety-lab",
+            tags: ["jailbreaks"],
+            title: "Jailbreak story to reduce",
+            trendScore: 88,
+          },
+        ],
+        limit: 3,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: [],
+            id: "hidden-jailbreak",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["jailbreaks"],
+            title: "Hidden jailbreak story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1.4,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Refresh Simulation Ready",
+      metrics: [
+        { label: "Moves", value: "3" },
+        { label: "Boosts", value: "1" },
+        { label: "Explore", value: "1" },
+        { label: "Dampers", value: "1" },
+      ],
+      moves: [
+        {
+          actionLabel: "Raise weight",
+          category: "security",
+          categoryLabel: "Security",
+          deltaLabel: "+36 next",
+          id: "refresh-prompt",
+          key: "boost-refresh-prompt",
+          label: "Boost Security",
+          reason:
+            "Saved or read signals reinforce this story for the next refresh.",
+          sourceName: "Security Desk",
+          statusLabel: "Boost",
+          title: "Prompt injection refresh candidate",
+        },
+        {
+          actionLabel: "Keep exploring",
+          category: "agent_product",
+          categoryLabel: "Agents",
+          deltaLabel: "+18 next",
+          id: "refresh-agent",
+          key: "explore-refresh-agent",
+          label: "Explore Agents",
+          reason: "Novelty bias leaves room for an adjacent topic test.",
+          sourceName: "Agent Desk",
+          statusLabel: "Explore",
+          title: "Agent workflow exploration candidate",
+        },
+        {
+          actionLabel: "Lower weight",
+          category: "safety",
+          categoryLabel: "Safety",
+          deltaLabel: "-42 next",
+          id: "refresh-jailbreak",
+          key: "dampen-refresh-jailbreak",
+          label: "Dampen Safety",
+          reason: "Hidden feedback overlaps this topic, source, entity, or angle.",
+          sourceName: "Safety Lab",
+          statusLabel: "Dampen",
+          title: "Jailbreak story to reduce",
+        },
+      ],
+      summary:
+        "3 simulated refresh moves: 1 boost, 1 exploration, and 1 dampen.",
+    });
+  });
+
   it("keeps refresh simulation empty before stories are ranked", () => {
     expect(
       getNewsRefreshSimulation({
@@ -10621,6 +11335,107 @@ describe("getNewsTasteCalibration", () => {
       ],
       summary:
         "3 stories calibrate this taste model: 1 profile fit, 1 exploration, and 1 friction signal.",
+    });
+  });
+
+  it("treats explicit angle preferences as profile fit during calibration", () => {
+    expect(
+      getNewsTasteCalibration({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : "Safety",
+        historyItems: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: [],
+            id: "read-prompt-defense",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["prompt_injection"],
+            title: "Read prompt defense",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "calibrate-prompt",
+            matchedSignals: [],
+            personalizedScore: 136,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection calibration story",
+            trendScore: 84,
+          },
+          {
+            ...localItem,
+            category: "safety",
+            entities: [],
+            id: "calibrate-jailbreak",
+            matchedSignals: [],
+            personalizedScore: 121,
+            sourceName: "Safety Lab",
+            sourceSlug: "safety-lab",
+            tags: ["jailbreaks"],
+            title: "Jailbreak story to dampen",
+            trendScore: 88,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: [],
+            id: "hidden-jailbreak",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["jailbreaks"],
+            title: "Hidden jailbreak story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: ["prompt_injection"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          actionLabel: "Keep signal",
+          detail:
+            "Prompt injection calibration story reinforces saved/read behavior and explicit preferences.",
+          key: "aligned-calibrate-prompt",
+          label: "Strengthen Security",
+          signal: "Security",
+          statusLabel: "Aligned",
+          storyTitle: "Prompt injection calibration story",
+        },
+        {
+          actionLabel: "Reduce weight",
+          detail: "Jailbreak story to dampen overlaps hidden feedback.",
+          key: "dampen-calibrate-jailbreak",
+          label: "Reduce Safety",
+          signal: "Safety",
+          statusLabel: "Dampen",
+          storyTitle: "Jailbreak story to dampen",
+        },
+      ],
+      label: "Taste Calibration Ready",
+      metrics: [
+        { label: "Stories", value: "2" },
+        { label: "Profile fit", value: "1/2" },
+        { label: "Memory hits", value: "1" },
+        { label: "Friction", value: "1" },
+      ],
+      summary:
+        "2 stories calibrate this taste model: 1 profile fit, 0 explorations, and 1 friction signal.",
     });
   });
 

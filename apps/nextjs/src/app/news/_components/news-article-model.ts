@@ -302,6 +302,70 @@ export const getNewsArticleLocalHistoryItem = ({
   viewedAt,
 });
 
+export const getNewsArticleLocalSavedItem = ({
+  article,
+  savedAt,
+}: {
+  article: NewsArticleItem;
+  savedAt: string;
+}): NewsReaderMemoryItem => ({
+  category: article.category,
+  entities: [...article.entities],
+  id: article.id,
+  savedAt,
+  sourceName: article.sourceName,
+  sourceSlug: article.sourceSlug,
+  tags: [...article.tags],
+  title: article.title,
+});
+
+export const getNewsArticleLocalGuardrailItem = ({
+  article,
+  hiddenAt,
+}: {
+  article: NewsArticleItem;
+  hiddenAt: string;
+}): NewsReaderMemoryItem => ({
+  category: article.category,
+  entities: [...article.entities],
+  hiddenAt,
+  id: article.id,
+  occurredAt: hiddenAt,
+  sourceName: article.sourceName,
+  sourceSlug: article.sourceSlug,
+  tags: [...article.tags],
+  title: article.title,
+});
+
+export const getNewsArticleLocalMemoryItemForAction = ({
+  action,
+  article,
+  occurredAt,
+}: {
+  action: ReaderInteractionAction;
+  article: NewsArticleItem;
+  occurredAt: string;
+}) => {
+  if (action === "save") {
+    return {
+      item: getNewsArticleLocalSavedItem({ article, savedAt: occurredAt }),
+      storage: "saved" as const,
+    };
+  }
+
+  if (action === "hide") {
+    return {
+      item: getNewsArticleLocalGuardrailItem({
+        article,
+        hiddenAt: occurredAt,
+      }),
+      storage: "guardrail" as const,
+    };
+  }
+
+  return null;
+};
+
 export const getNewsArticleHeroVisual = ({
   article,
   formatCategory,

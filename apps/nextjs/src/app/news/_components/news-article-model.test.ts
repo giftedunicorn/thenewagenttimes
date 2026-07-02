@@ -6,7 +6,10 @@ import {
   getNewsArticleFeedbackLoop,
   getNewsArticleHeroVisual,
   getNewsArticleLearningImpact,
+  getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
+  getNewsArticleLocalMemoryItemForAction,
+  getNewsArticleLocalSavedItem,
   getNewsArticleNextReads,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
@@ -259,6 +262,110 @@ describe("getNewsArticleLocalHistoryItem", () => {
       title: "OpenAI releases a new agent stack",
       viewedAt: "2026-07-01T09:30:00.000Z",
     });
+  });
+});
+
+describe("getNewsArticleLocalSavedItem", () => {
+  it("converts an article save into a homepage saved-memory item", () => {
+    expect(
+      getNewsArticleLocalSavedItem({
+        article,
+        savedAt: "2026-07-01T09:45:00.000Z",
+      }),
+    ).toEqual({
+      category: "model_release",
+      entities: ["OpenAI", "Agents"],
+      id: "article-openai-agents",
+      savedAt: "2026-07-01T09:45:00.000Z",
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      tags: ["model", "agent"],
+      title: "OpenAI releases a new agent stack",
+    });
+  });
+});
+
+describe("getNewsArticleLocalGuardrailItem", () => {
+  it("converts Less article feedback into a homepage guardrail-memory item", () => {
+    expect(
+      getNewsArticleLocalGuardrailItem({
+        article,
+        hiddenAt: "2026-07-01T10:15:00.000Z",
+      }),
+    ).toEqual({
+      category: "model_release",
+      entities: ["OpenAI", "Agents"],
+      hiddenAt: "2026-07-01T10:15:00.000Z",
+      id: "article-openai-agents",
+      occurredAt: "2026-07-01T10:15:00.000Z",
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      tags: ["model", "agent"],
+      title: "OpenAI releases a new agent stack",
+    });
+  });
+});
+
+describe("getNewsArticleLocalMemoryItemForAction", () => {
+  it("maps article Save and Less actions into the matching homepage memory collections", () => {
+    expect(
+      getNewsArticleLocalMemoryItemForAction({
+        action: "save",
+        article,
+        occurredAt: "2026-07-01T09:45:00.000Z",
+      }),
+    ).toEqual({
+      item: {
+        category: "model_release",
+        entities: ["OpenAI", "Agents"],
+        id: "article-openai-agents",
+        savedAt: "2026-07-01T09:45:00.000Z",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        tags: ["model", "agent"],
+        title: "OpenAI releases a new agent stack",
+      },
+      storage: "saved",
+    });
+
+    expect(
+      getNewsArticleLocalMemoryItemForAction({
+        action: "hide",
+        article,
+        occurredAt: "2026-07-01T10:15:00.000Z",
+      }),
+    ).toEqual({
+      item: {
+        category: "model_release",
+        entities: ["OpenAI", "Agents"],
+        hiddenAt: "2026-07-01T10:15:00.000Z",
+        id: "article-openai-agents",
+        occurredAt: "2026-07-01T10:15:00.000Z",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        tags: ["model", "agent"],
+        title: "OpenAI releases a new agent stack",
+      },
+      storage: "guardrail",
+    });
+  });
+
+  it("does not create local collection entries for share or source clicks", () => {
+    expect(
+      getNewsArticleLocalMemoryItemForAction({
+        action: "share",
+        article,
+        occurredAt: "2026-07-01T09:45:00.000Z",
+      }),
+    ).toBeNull();
+
+    expect(
+      getNewsArticleLocalMemoryItemForAction({
+        action: "click_source",
+        article,
+        occurredAt: "2026-07-01T09:45:00.000Z",
+      }),
+    ).toBeNull();
   });
 });
 

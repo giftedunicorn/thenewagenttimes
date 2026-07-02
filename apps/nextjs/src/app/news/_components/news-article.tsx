@@ -18,6 +18,7 @@ import {
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
+import type { NewsReaderMemoryItem } from "../../_components/news-home-model";
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import type { NewsArticleReadMilestone } from "./news-article-model";
 import { useTRPC } from "~/trpc/react";
@@ -35,6 +36,7 @@ import {
   getNewsArticleHeroVisual,
   getNewsArticleLearningImpact,
   getNewsArticleLocalHistoryItem,
+  getNewsArticleLocalMemoryItemForAction,
   getNewsArticleNextReads,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
@@ -56,7 +58,9 @@ interface NewsArticleProps {
 }
 
 const profileStorageKey = "new-ai-times-profile";
+const savedStorageKey = "new-ai-times-saved";
 const historyStorageKey = "new-ai-times-history";
+const guardrailStorageKey = "new-ai-times-guardrails";
 const visitorStorageKey = "new-ai-times-visitor-key";
 
 const categoryLabels: Record<string, string> = {
@@ -126,10 +130,10 @@ const writeStoredProfile = (profile: NewsPreferenceProfile) => {
   );
 };
 
-const readStoredHistoryItems = () => {
+const readStoredMemoryItems = (storageKey: string) => {
   if (typeof window === "undefined") return [];
 
-  const stored = window.localStorage.getItem(historyStorageKey);
+  const stored = window.localStorage.getItem(storageKey);
   if (!stored) return [];
 
   try {
@@ -139,6 +143,24 @@ const readStoredHistoryItems = () => {
   }
 };
 
+const writeStoredMemoryItem = ({
+  item,
+  storageKey,
+}: {
+  item: NewsReaderMemoryItem;
+  storageKey: string;
+}) => {
+  window.localStorage.setItem(
+    storageKey,
+    JSON.stringify(
+      mergeNewsReaderMemoryItems({
+        localItems: [item],
+        serverItems: readStoredMemoryItems(storageKey),
+      }),
+    ),
+  );
+};
+
 const writeStoredHistoryItem = ({
   article,
   viewedAt,
@@ -146,20 +168,13 @@ const writeStoredHistoryItem = ({
   article: NewsArticleItem;
   viewedAt: string;
 }) => {
-  window.localStorage.setItem(
-    historyStorageKey,
-    JSON.stringify(
-      mergeNewsReaderMemoryItems({
-        localItems: [
-          getNewsArticleLocalHistoryItem({
-            article,
-            viewedAt,
-          }),
-        ],
-        serverItems: readStoredHistoryItems(),
-      }),
-    ),
-  );
+  writeStoredMemoryItem({
+    item: getNewsArticleLocalHistoryItem({
+      article,
+      viewedAt,
+    }),
+    storageKey: historyStorageKey,
+  });
 };
 
 const readOrCreateVisitorKey = () => {
@@ -534,6 +549,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   });
 
   const recordAction = (action: ReaderInteractionAction) => {
+    const occurredAt = new Date().toISOString();
     const nextProfile = updateReaderProfileWithInteraction(profile, article, {
       action,
     });
@@ -548,6 +564,22 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     );
     setProfile(nextProfile);
     writeStoredProfile(nextProfile);
+
+    const localMemoryItem = getNewsArticleLocalMemoryItemForAction({
+      action,
+      article,
+      occurredAt,
+    });
+
+    if (localMemoryItem) {
+      writeStoredMemoryItem({
+        item: localMemoryItem.item,
+        storageKey:
+          localMemoryItem.storage === "saved"
+            ? savedStorageKey
+            : guardrailStorageKey,
+      });
+    }
 
     if (canPersistReaderSignals && visitorKey) {
       recordInteraction.mutate({

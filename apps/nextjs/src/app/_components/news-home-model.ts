@@ -984,6 +984,101 @@ const getTopMemorySignal = (
   );
 };
 
+const getTopGuardrailShelfSignal = (
+  values: readonly string[],
+): { count: number; value: string } | null => {
+  const countsByValue = new Map<
+    string,
+    {
+      count: number;
+      firstIndex: number;
+      value: string;
+    }
+  >();
+
+  values.forEach((value, index) => {
+    const signal = value.trim();
+    const normalizedSignal = signal.toLowerCase();
+
+    if (!signal) return;
+
+    const existing = countsByValue.get(normalizedSignal);
+
+    countsByValue.set(normalizedSignal, {
+      count: (existing?.count ?? 0) + 1,
+      firstIndex: existing?.firstIndex ?? index,
+      value: existing?.value ?? signal,
+    });
+  });
+
+  return (
+    Array.from(countsByValue.values()).sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      return left.firstIndex - right.firstIndex;
+    })[0] ?? null
+  );
+};
+
+export const getNewsGuardrailShelf = ({
+  formatCategory,
+  guardrailItems,
+  limit = 3,
+}: {
+  formatCategory: (category: string) => string;
+  guardrailItems: readonly NewsReaderMemoryItem[];
+  limit?: number;
+}) => {
+  const sortedItems = [...guardrailItems].sort((left, right) => {
+    const timestampDelta =
+      getNewsReaderMemoryTimestamp(right) - getNewsReaderMemoryTimestamp(left);
+
+    if (timestampDelta !== 0) return timestampDelta;
+
+    return left.title.localeCompare(right.title);
+  });
+  const topTopic = getTopGuardrailShelfSignal(
+    sortedItems.map((item) => item.category),
+  );
+  const topSource = getTopGuardrailShelfSignal(
+    sortedItems.map((item) => item.sourceName),
+  );
+  const topTopicLabel = topTopic ? formatCategory(topTopic.value) : "None";
+  const topSourceLabel = topSource?.value ?? "None";
+
+  if (sortedItems.length === 0) {
+    return {
+      items: [],
+      label: "0 active",
+      metrics: [
+        { label: "Guardrails", value: "0" },
+        { label: "Top topic", value: "None" },
+        { label: "Top source", value: "None" },
+      ],
+      summary:
+        "Press Less on stories to hide them and dampen similar topics, sources, and entities.",
+    };
+  }
+
+  return {
+    items: sortedItems.slice(0, limit).map((item) => ({
+      categoryLabel: formatCategory(item.category),
+      hiddenAt: item.hiddenAt ?? item.occurredAt,
+      id: item.id,
+      sourceName: item.sourceName,
+      title: item.title,
+    })),
+    label: `${sortedItems.length} active`,
+    metrics: [
+      { label: "Guardrails", value: String(sortedItems.length) },
+      { label: "Top topic", value: topTopicLabel },
+      { label: "Top source", value: topSourceLabel },
+    ],
+    summary: `Less feedback is damping ${sortedItems.length} recent ${
+      sortedItems.length === 1 ? "story" : "stories"
+    }, led by ${topTopicLabel} from ${topSourceLabel}.`,
+  };
+};
+
 export const getNewsReaderMemory = ({
   formatCategory,
   historyItems,

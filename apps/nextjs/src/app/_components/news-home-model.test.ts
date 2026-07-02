@@ -37,6 +37,7 @@ import {
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsGuardrailShelf,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHotBoard,
   getNewsInterestDrift,
@@ -1513,6 +1514,77 @@ describe("selectStoredNewsReaderMemoryItems", () => {
         title: "Source registry covers labs",
       },
     ]);
+  });
+});
+
+describe("getNewsGuardrailShelf", () => {
+  it("summarizes recent Less feedback as a visible guardrail shelf", () => {
+    expect(
+      getNewsGuardrailShelf({
+        formatCategory: (category) =>
+          category === "hot_take" ? "Hot Takes" : "Funding",
+        guardrailItems: [
+          {
+            ...localItem,
+            category: "hot_take",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-hot-take",
+            sourceName: "Rumor Feed",
+            sourceSlug: "rumor-feed",
+            tags: ["rumor", "opinion"],
+            title: "Hidden rumor story",
+          },
+          {
+            ...olderItem,
+            category: "funding",
+            hiddenAt: "2026-07-01T09:00:00.000Z",
+            id: "hidden-funding",
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+            tags: ["funding"],
+            title: "Hidden funding story",
+          },
+        ],
+        limit: 1,
+      }),
+    ).toEqual({
+      items: [
+        {
+          categoryLabel: "Hot Takes",
+          hiddenAt: "2026-07-01T11:00:00.000Z",
+          id: "hidden-hot-take",
+          sourceName: "Rumor Feed",
+          title: "Hidden rumor story",
+        },
+      ],
+      label: "2 active",
+      metrics: [
+        { label: "Guardrails", value: "2" },
+        { label: "Top topic", value: "Hot Takes" },
+        { label: "Top source", value: "Rumor Feed" },
+      ],
+      summary:
+        "Less feedback is damping 2 recent stories, led by Hot Takes from Rumor Feed.",
+    });
+  });
+
+  it("keeps the guardrail shelf explicit before Less feedback exists", () => {
+    expect(
+      getNewsGuardrailShelf({
+        formatCategory: (category) => category,
+        guardrailItems: [],
+      }),
+    ).toEqual({
+      items: [],
+      label: "0 active",
+      metrics: [
+        { label: "Guardrails", value: "0" },
+        { label: "Top topic", value: "None" },
+        { label: "Top source", value: "None" },
+      ],
+      summary:
+        "Press Less on stories to hide them and dampen similar topics, sources, and entities.",
+    });
   });
 });
 

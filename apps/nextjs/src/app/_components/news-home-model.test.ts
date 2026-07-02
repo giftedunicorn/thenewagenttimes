@@ -3445,7 +3445,7 @@ describe("getNewsPreferenceStarter", () => {
             matchedSignals: [],
             personalizedScore: 126,
             sourceSlug: "openai-news",
-            tags: ["agents", "benchmarks"],
+            tags: ["agents", "prompt_injection", "benchmarks"],
             trendScore: 90,
           },
           {
@@ -3454,7 +3454,7 @@ describe("getNewsPreferenceStarter", () => {
             matchedSignals: [],
             personalizedScore: 118,
             sourceSlug: "research-lab",
-            tags: ["agents"],
+            tags: ["agents", "prompt_injection"],
             trendScore: 86,
           },
         ],
@@ -3474,9 +3474,10 @@ describe("getNewsPreferenceStarter", () => {
             {
               actionLabel: "Follow angle",
               kind: "tag",
-              label: "agents",
-              reason: "2 stories from 2 sources carry the agents angle.",
-              signal: "agents",
+              label: "prompt injection",
+              reason:
+                "2 stories from 2 sources carry the prompt injection angle.",
+              signal: "prompt_injection",
             },
             {
               actionLabel: "Follow angle",
@@ -3699,7 +3700,7 @@ describe("getNewsStoryQuickTuneActions", () => {
       ],
       label: "Tune this story",
       summary:
-        "Add topic, source, or entity signals from this story to retrain For You.",
+        "Add topic, source, entity, or angle signals from this story to retrain For You.",
     });
   });
 
@@ -3727,6 +3728,42 @@ describe("getNewsStoryQuickTuneActions", () => {
       actions: [],
       label: "Story covered",
       summary: "This story's main signals are already in your profile.",
+    });
+  });
+
+  it("offers a story-level angle action for specific unfollowed tags", () => {
+    expect(
+      getNewsStoryQuickTuneActions({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["agents", "prompt_injection", "red_team"],
+        },
+        profile: {
+          preferredCategories: ["security"],
+          preferredEntities: ["Agent Security"],
+          preferredSources: ["security-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actions: [
+        {
+          actionLabel: "Follow angle",
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      label: "Tune this story",
+      summary:
+        "Add topic, source, entity, or angle signals from this story to retrain For You.",
     });
   });
 });
@@ -4974,6 +5011,57 @@ describe("getNewsSearchTrends", () => {
         id: "local-story",
         sourceName: "OpenAI News",
         title: "OpenAI ships a new agent runtime",
+      },
+    });
+  });
+
+  it("turns repeated story tags into clickable angle search trends", () => {
+    expect(
+      getNewsSearchTrends({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Agent Security"],
+            matchedSignals: ["tag"],
+            personalizedScore: 142,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection", "red_team"],
+            title: "Prompt injection exploits hit browser agents",
+            trendScore: 91,
+          },
+          {
+            ...serverItem,
+            category: "security",
+            entities: ["Browser Agents"],
+            matchedSignals: ["tag"],
+            personalizedScore: 133,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            tags: ["prompt_injection", "mitigation"],
+            title: "Researchers test prompt injection mitigations",
+            trendScore: 87,
+          },
+        ],
+        limit: 4,
+        profile: createDefaultNewsPreferenceProfile(),
+      }).trends,
+    ).toContainEqual({
+      key: "tag:prompt_injection",
+      kind: "Angle",
+      label: "Rising Search",
+      query: "prompt injection",
+      reason: "Multiple stories are pushing this query up the search rail.",
+      score: 131,
+      sourceNames: ["Security Desk", "Research Wire"],
+      supportLabel: "2 stories / 2 sources",
+      topStory: {
+        id: "local-story",
+        sourceName: "Security Desk",
+        title: "Prompt injection exploits hit browser agents",
       },
     });
   });

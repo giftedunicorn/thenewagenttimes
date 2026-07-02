@@ -3737,6 +3737,7 @@ export const getNewsPreferenceStarter = ({
       if (
         !normalizedTag ||
         seenTags.has(normalizedTag) ||
+        !isSpecificNewsAngleTag(tag) ||
         hasPreferenceSignal(normalizedProfile.preferredEntities, tag)
       ) {
         return;
@@ -3746,7 +3747,7 @@ export const getNewsPreferenceStarter = ({
 
       upsertPreferenceStarterEntry({
         firstIndex: index * 100 + tagIndex,
-        label: tag,
+        label: formatNewsAngleQuery(tag),
         signal: tag,
         store: tagEntries,
         supportKey: item.sourceSlug,
@@ -3947,7 +3948,7 @@ export const getNewsPreferenceControlPanel = ({
   };
 };
 
-type NewsStoryQuickTuneActionKind = "category" | "entity" | "source";
+type NewsStoryQuickTuneActionKind = "category" | "entity" | "source" | "tag";
 
 const createNewsStoryQuickTuneAction = ({
   actionLabel,
@@ -4020,12 +4021,29 @@ export const getNewsStoryQuickTuneActions = ({
     );
   }
 
+  const tag = item.tags.find(
+    (currentTag) =>
+      isSpecificNewsAngleTag(currentTag) &&
+      !hasPreferenceSignal(normalizedProfile.preferredEntities, currentTag),
+  );
+
+  if (tag) {
+    actions.push(
+      createNewsStoryQuickTuneAction({
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: formatNewsAngleQuery(tag),
+        signal: tag,
+      }),
+    );
+  }
+
   return {
     actions,
     label: actions.length > 0 ? "Tune this story" : "Story covered",
     summary:
       actions.length > 0
-        ? "Add topic, source, or entity signals from this story to retrain For You."
+        ? "Add topic, source, entity, or angle signals from this story to retrain For You."
         : "This story's main signals are already in your profile.",
   };
 };
@@ -5542,14 +5560,40 @@ export const getNewsHotBoard = ({
   };
 };
 
-type NewsSearchTrendKind = "Entity" | "Source" | "Topic";
+type NewsSearchTrendKind = "Angle" | "Entity" | "Source" | "Topic";
 type NewsSearchTrendLabel = "Market Search" | "Reader Search" | "Rising Search";
 
 const newsSearchTrendKindRank = {
   Entity: 0,
-  Source: 1,
-  Topic: 2,
+  Angle: 1,
+  Source: 2,
+  Topic: 3,
 } satisfies Record<NewsSearchTrendKind, number>;
+
+const genericNewsAngleTags = new Set([
+  "agent",
+  "agents",
+  "funding",
+  "model",
+  "models",
+  "open source",
+  "open-source",
+  "open_source",
+  "policy",
+  "research",
+  "security",
+  "startup",
+  "startups",
+]);
+
+const formatNewsAngleQuery = (tag: string) =>
+  tag.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+const isSpecificNewsAngleTag = (tag: string) => {
+  const query = formatNewsAngleQuery(tag).toLowerCase();
+
+  return Boolean(query) && !genericNewsAngleTags.has(query);
+};
 
 interface NewsSearchTrendWorking {
   firstIndex: number;
@@ -5775,6 +5819,20 @@ export const getNewsSearchTrends = ({
         key: `entity:${normalizePreferenceSignal(entity)}`,
         kind: "Entity",
         query: entity,
+        store: trends,
+      });
+    }
+
+    for (const tag of getUniqueSignals(item.tags, 8)) {
+      if (!isSpecificNewsAngleTag(tag)) continue;
+
+      upsertNewsSearchTrend({
+        firstIndex: index,
+        isReaderMatch: false,
+        item,
+        key: `tag:${normalizePreferenceSignal(tag)}`,
+        kind: "Angle",
+        query: formatNewsAngleQuery(tag),
         store: trends,
       });
     }

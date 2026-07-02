@@ -2443,10 +2443,19 @@ describe("getNewsServerProfileAuditDisplay", () => {
           { count: 1, key: "Operator" },
         ],
         topSources: [{ count: 2, key: "openai-news" }],
+        topTags: [
+          { count: 2, key: "agents" },
+          { count: 1, key: "browser" },
+        ],
         trainedSignalCount: 3,
       }),
     ).toEqual({
-      chips: ["agent_product 2", "model_release 1", "openai-news 2"],
+      chips: [
+        "agent_product 2",
+        "model_release 1",
+        "openai-news 2",
+        "agents 2",
+      ],
       label: "Server Learned",
       metrics: [
         { label: "Trained", value: "3" },
@@ -11933,6 +11942,7 @@ describe("selectNegativeFeedbackAdjustedNewsHomeItems", () => {
             matchedSignals: ["category"],
             personalizedScore: 120,
             sourceSlug: "agent-desk",
+            tags: ["agents"],
           },
           {
             ...olderItem,
@@ -11950,6 +11960,49 @@ describe("selectNegativeFeedbackAdjustedNewsHomeItems", () => {
       "same-source-follow-up",
       "shared-entity-follow-up",
     ]);
+  });
+
+  it("moves stories sharing hidden tags behind unrelated alternatives", () => {
+    const hiddenFeedbackItem = {
+      ...localItem,
+      id: "hidden-agent-angle",
+      category: "model_release",
+      entities: ["OpenAI"],
+      sourceSlug: "local-source",
+      tags: ["agents"],
+    };
+
+    const feed = selectNegativeFeedbackAdjustedNewsHomeItems({
+      negativeFeedbackItems: [hiddenFeedbackItem],
+      items: [
+        {
+          ...localItem,
+          id: "shared-agent-angle",
+          category: "research",
+          entities: ["Benchmarks"],
+          matchedSignals: ["tag"],
+          personalizedScore: 180,
+          sourceSlug: "research-lab",
+          tags: ["agents"],
+        },
+        {
+          ...serverItem,
+          id: "fresh-market-angle",
+          category: "market_map",
+          entities: ["AI market"],
+          matchedSignals: [],
+          personalizedScore: 130,
+          sourceSlug: "market-map",
+          tags: ["enterprise"],
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "shared-agent-angle",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("negative_feedback");
   });
 
   it("keeps ranked order when there is no negative feedback context", () => {
@@ -12449,6 +12502,18 @@ describe("getNewsRecommendationReasons", () => {
     ).toEqual(["Preferred topic", "Trusted source", "Followed entity"]);
   });
 
+  it("explains fine-grained tag matches from the reader interest graph", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["tag"],
+          personalizedScore: 128,
+        },
+      }),
+    ).toEqual(["Preferred angle"]);
+  });
+
   it("explains positive feedback from deep reads, saves, shares, or source clicks", () => {
     expect(
       getNewsRecommendationReasons({
@@ -12508,6 +12573,25 @@ describe("getNewsStoryRankDetails", () => {
       summary:
         "Ranked for your topic, source, and entity signals, with high story heat and fresh publication timing.",
       scoreLabel: "136 score",
+    });
+  });
+
+  it("includes tag signals in personalized rank explanations", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["tag"],
+          personalizedScore: 118,
+          trendScore: 64,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Preferred angle", "Fresh", "Strong source"],
+      summary:
+        "Ranked for your angle signals, with fresh publication timing and source credibility.",
+      scoreLabel: "118 score",
     });
   });
 

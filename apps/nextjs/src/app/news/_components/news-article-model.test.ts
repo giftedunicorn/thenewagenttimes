@@ -536,7 +536,7 @@ describe("getNewsArticleFeedbackLoop", () => {
         },
         {
           detail: "OpenAI, Agents were added to related coverage memory.",
-          label: "Entities learned",
+          label: "Signals learned",
         },
       ],
       summary: "Save trained the article queue toward Models from OpenAI News.",
@@ -584,7 +584,7 @@ describe("getNewsArticleFeedbackLoop", () => {
         },
         {
           detail: "OpenAI, Agents were removed from related coverage memory.",
-          label: "Entities guarded",
+          label: "Signals guarded",
         },
       ],
       summary:
@@ -633,7 +633,7 @@ describe("getNewsArticleFeedbackLoop", () => {
         },
         {
           detail: "OpenAI, Agents were added to related coverage memory.",
-          label: "Entities learned",
+          label: "Signals learned",
         },
       ],
       summary:
@@ -703,7 +703,7 @@ describe("getNewsArticleDeepReadTrainingState", () => {
         label: "Positive Signal",
         metrics: [
           { label: "Action", value: "Deep read" },
-          { label: "Signal delta", value: "+3" },
+          { label: "Signal delta", value: "+5" },
           { label: "Bias shift", value: "+0.4" },
           { label: "Topic", value: "Models" },
         ],
@@ -717,8 +717,9 @@ describe("getNewsArticleDeepReadTrainingState", () => {
             label: "Source learned",
           },
           {
-            detail: "OpenAI, Agents were added to related coverage memory.",
-            label: "Entities learned",
+            detail:
+              "OpenAI, Agents, model, agent were added to related coverage memory.",
+            label: "Signals learned",
           },
         ],
         summary:
@@ -727,7 +728,7 @@ describe("getNewsArticleDeepReadTrainingState", () => {
       profile: {
         preferredCategories: ["model_release"],
         preferredSources: [],
-        preferredEntities: ["OpenAI", "Agents"],
+        preferredEntities: ["OpenAI", "Agents", "model", "agent"],
         noveltyBias: 1.198,
         recencyBias: 1.198,
       },
@@ -922,10 +923,16 @@ describe("getNewsArticleServerProfileAuditDisplay", () => {
         ],
         topEntities: [{ count: 5, key: "OpenAI" }],
         topSources: [{ count: 3, key: "openai-news" }],
+        topTags: [{ count: 4, key: "agents" }],
         trainedSignalCount: 7,
       }),
     ).toEqual({
-      chips: ["model_release 4", "agent_product 2", "openai-news 3"],
+      chips: [
+        "model_release 4",
+        "agent_product 2",
+        "openai-news 3",
+        "agents 4",
+      ],
       label: "Server Learned",
       metrics: [
         { label: "Trained", value: "7" },

@@ -48,6 +48,7 @@ export interface NewsServerProfileAudit {
   topCategories: readonly NewsServerProfileAuditSignal[];
   topEntities: readonly NewsServerProfileAuditSignal[];
   topSources: readonly NewsServerProfileAuditSignal[];
+  topTags?: readonly NewsServerProfileAuditSignal[];
   trainedSignalCount: number;
 }
 
@@ -2610,6 +2611,7 @@ export const getNewsServerProfileAuditDisplay = (
   const chips = [
     ...audit.topCategories.slice(0, 2),
     ...audit.topSources.slice(0, 1),
+    ...(audit.topTags ?? []).slice(0, 1),
   ].map((signal) => `${signal.key} ${signal.count}`);
 
   return {
@@ -14120,6 +14122,7 @@ const recommendationReasonLabels = {
   positive_feedback: "Deep read, save, share, or source-click signal",
   source: "Trusted source",
   entity: "Followed entity",
+  tag: "Preferred angle",
 } as const;
 
 type NewsRecommendationReason =
@@ -14156,6 +14159,7 @@ const signalSummaryLabels = {
   category: "topic",
   entity: "entity",
   source: "source",
+  tag: "angle",
 } as const;
 
 const formatReadableList = (values: readonly string[]) => {

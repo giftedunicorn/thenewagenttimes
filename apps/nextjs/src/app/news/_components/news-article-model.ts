@@ -808,7 +808,7 @@ export const getNewsArticleFeedbackLoop = ({
       detail: negative
         ? `${entitySignals.join(", ")} were removed from related coverage memory.`
         : `${entitySignals.join(", ")} were added to related coverage memory.`,
-      label: negative ? "Entities guarded" : "Entities learned",
+      label: negative ? "Signals guarded" : "Signals learned",
     });
   }
 

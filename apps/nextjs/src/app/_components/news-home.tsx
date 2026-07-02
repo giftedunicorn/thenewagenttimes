@@ -32,6 +32,7 @@ import type {
   NewsFeedMode,
   NewsHomeItem,
   NewsHomeStatus,
+  NewsReaderMemoryItem,
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
@@ -117,6 +118,7 @@ import {
   getNextNewsHomeCursor,
   getPreviewNewsHomeItems,
   mergeNewsHomeItems,
+  mergeNewsReaderMemoryItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectNegativeFeedbackAdjustedNewsHomeItems,
@@ -127,6 +129,7 @@ import {
   selectReaderFreshNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
+  selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -197,6 +200,9 @@ const getCategoryLabel = (category: string) =>
   isNewsCategoryKey(category) ? categoryLabels[category] : category;
 
 const profileStorageKey = "new-ai-times-profile";
+const savedStorageKey = "new-ai-times-saved";
+const historyStorageKey = "new-ai-times-history";
+const guardrailStorageKey = "new-ai-times-guardrails";
 const visitorStorageKey = "new-ai-times-visitor-key";
 const previewItems = getPreviewNewsHomeItems();
 
@@ -245,6 +251,78 @@ const writeStoredProfile = (profile: NewsPreferenceProfile) => {
     profileStorageKey,
     JSON.stringify(normalizeNewsPreferenceProfile(profile)),
   );
+};
+
+const readStoredMemoryItems = (storageKey: string): NewsReaderMemoryItem[] => {
+  if (typeof window === "undefined") return [];
+
+  const stored = window.localStorage.getItem(storageKey);
+  if (!stored) return [];
+
+  try {
+    return selectStoredNewsReaderMemoryItems(JSON.parse(stored) as unknown);
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredMemoryItems = (
+  storageKey: string,
+  items: readonly NewsReaderMemoryItem[],
+) => {
+  window.localStorage.setItem(storageKey, JSON.stringify(items));
+};
+
+const clearStoredMemoryItems = (storageKey: string) => {
+  window.localStorage.removeItem(storageKey);
+};
+
+const toLocalSavedMemoryItem = ({
+  item,
+  savedAt,
+}: {
+  item: NewsHomeItem;
+  savedAt: string;
+}): NewsReaderMemoryItem => ({
+  category: item.category,
+  entities: [...item.entities],
+  id: item.id,
+  savedAt,
+  sourceName: item.sourceName,
+  sourceSlug: item.sourceSlug,
+  tags: [...item.tags],
+  title: item.title,
+});
+
+const toLocalGuardrailMemoryItem = ({
+  hiddenAt,
+  item,
+}: {
+  hiddenAt: string;
+  item: NewsHomeItem;
+}): NewsReaderMemoryItem => ({
+  category: item.category,
+  entities: [...item.entities],
+  hiddenAt,
+  id: item.id,
+  occurredAt: hiddenAt,
+  sourceName: item.sourceName,
+  sourceSlug: item.sourceSlug,
+  tags: [...item.tags],
+  title: item.title,
+});
+
+const readStoredHistoryItems = () => readStoredMemoryItems(historyStorageKey);
+
+const readStoredSavedItems = () => readStoredMemoryItems(savedStorageKey);
+
+const readStoredGuardrailItems = () =>
+  readStoredMemoryItems(guardrailStorageKey);
+
+const clearReaderMemoryStorage = () => {
+  clearStoredMemoryItems(guardrailStorageKey);
+  clearStoredMemoryItems(historyStorageKey);
+  clearStoredMemoryItems(savedStorageKey);
 };
 
 const readOrCreateVisitorKey = () => {
@@ -395,6 +473,15 @@ export function NewsHome({
   const [positiveFeedbackItems, setPositiveFeedbackItems] = useState<
     PositiveNewsHomeFeedbackItem[]
   >([]);
+  const [localSavedItems, setLocalSavedItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
+  const [localHistoryItems, setLocalHistoryItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
+  const [localGuardrailItems, setLocalGuardrailItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
   const [loadedItems, setLoadedItems] = useState<NewsHomeItem[]>([]);
   const [hasMoreItems, setHasMoreItems] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -476,7 +563,14 @@ export function NewsHome({
       onSuccess: async (serverProfile) => {
         const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
         setProfile(nextProfile);
+        setHiddenItemIds([]);
+        setLocalGuardrailItems([]);
+        setLocalHistoryItems([]);
+        setLocalSavedItems([]);
+        setNegativeFeedbackItems([]);
+        setPositiveFeedbackItems([]);
         writeStoredProfile(nextProfile);
+        clearReaderMemoryStorage();
         const invalidations = getNewsHomeReaderMemoryResetCacheScopes().map(
           (scope) => {
             switch (scope) {
@@ -548,7 +642,13 @@ export function NewsHome({
   });
 
   useEffect(() => {
+    const storedGuardrails = readStoredGuardrailItems();
+
     setProfile(readStoredProfile());
+    setLocalHistoryItems(readStoredHistoryItems());
+    setLocalSavedItems(readStoredSavedItems());
+    setLocalGuardrailItems(storedGuardrails);
+    setHiddenItemIds(storedGuardrails.map((item) => item.id));
     setVisitorKey(readOrCreateVisitorKey());
     setReaderLocalHour(new Date().getHours());
     setReaderStateHydrated(true);
@@ -621,10 +721,26 @@ export function NewsHome({
       );
     }
 
+    const occurredAt = new Date().toISOString();
+
     if (action === "hide") {
       setHiddenItemIds((current) =>
         current.includes(item.id) ? current : [...current, item.id],
       );
+      setLocalGuardrailItems((current) => {
+        const nextItems = mergeNewsReaderMemoryItems({
+          localItems: [
+            toLocalGuardrailMemoryItem({
+              hiddenAt: occurredAt,
+              item,
+            }),
+          ],
+          serverItems: current,
+        });
+
+        writeStoredMemoryItems(guardrailStorageKey, nextItems);
+        return nextItems;
+      });
       setNegativeFeedbackItems((current) =>
         current.some((feedbackItem) => feedbackItem.id === item.id)
           ? current
@@ -633,13 +749,27 @@ export function NewsHome({
     }
 
     if (action === "click_source" || action === "save" || action === "share") {
+      if (action === "save") {
+        setLocalSavedItems((current) => {
+          const nextItems = mergeNewsReaderMemoryItems({
+            localItems: [
+              toLocalSavedMemoryItem({
+                item,
+                savedAt: occurredAt,
+              }),
+            ],
+            serverItems: current,
+          });
+
+          writeStoredMemoryItems(savedStorageKey, nextItems);
+          return nextItems;
+        });
+      }
+
       setPositiveFeedbackItems((current) =>
         current.some((feedbackItem) => feedbackItem.id === item.id)
           ? current
-          : [
-              ...current,
-              { ...item, action, occurredAt: new Date().toISOString() },
-            ],
+          : [...current, { ...item, action, occurredAt }],
       );
     }
 
@@ -675,8 +805,12 @@ export function NewsHome({
     setProfile(nextProfile);
     writeStoredProfile(nextProfile);
     setHiddenItemIds([]);
+    setLocalGuardrailItems([]);
+    setLocalHistoryItems([]);
+    setLocalSavedItems([]);
     setNegativeFeedbackItems([]);
     setPositiveFeedbackItems([]);
+    clearReaderMemoryStorage();
     setTrainingUpdate(
       getNewsReaderMemoryResetTrainingUpdate({
         persisted: getNewsReaderMemoryResetPersistence({
@@ -784,10 +918,37 @@ export function NewsHome({
     return () => observer.disconnect();
   }, [hasMoreItems, isPreview, loadMoreStories, nextCursor, visitorKey]);
 
-  const savedItems = useMemo(() => savedQuery.data ?? [], [savedQuery.data]);
-  const historyItems = useMemo(
+  const serverSavedItems = useMemo(
+    () => savedQuery.data ?? [],
+    [savedQuery.data],
+  );
+  const savedItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        localItems: localSavedItems,
+        serverItems: serverSavedItems,
+      }),
+    [localSavedItems, serverSavedItems],
+  );
+  const serverHistoryItems = useMemo(
     () => historyQuery.data ?? [],
     [historyQuery.data],
+  );
+  const historyItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        localItems: localHistoryItems,
+        serverItems: serverHistoryItems,
+      }),
+    [localHistoryItems, serverHistoryItems],
+  );
+  const negativeFeedbackMemoryItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        localItems: localGuardrailItems,
+        serverItems: negativeFeedbackItems,
+      }),
+    [localGuardrailItems, negativeFeedbackItems],
   );
   const positiveFeedbackAnchors = useMemo(
     () =>
@@ -836,7 +997,7 @@ export function NewsHome({
     );
     const feedbackAdjustedItems = selectNegativeFeedbackAdjustedNewsHomeItems({
       items: positiveAnchoredItems,
-      negativeFeedbackItems,
+      negativeFeedbackItems: negativeFeedbackMemoryItems,
     });
     const trustBalancedItems = selectSourceTrustBalancedNewsFeed(
       feedbackAdjustedItems,
@@ -865,7 +1026,7 @@ export function NewsHome({
     feedMode,
     generatedAt,
     historyItems,
-    negativeFeedbackItems,
+    negativeFeedbackMemoryItems,
     personalizedItems,
     positiveFeedbackAnchors,
     searchQuery,
@@ -6529,7 +6690,8 @@ export function NewsHome({
                       {item.title}
                     </span>
                     <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / saved {formatTime(item.savedAt)}
+                      {item.sourceName} / saved{" "}
+                      {item.savedAt ? formatTime(item.savedAt) : "recently"}
                     </span>
                   </Link>
                 ))
@@ -6633,7 +6795,8 @@ export function NewsHome({
                       {item.title}
                     </span>
                     <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / read {formatTime(item.viewedAt)}
+                      {item.sourceName} / read{" "}
+                      {item.viewedAt ? formatTime(item.viewedAt) : "recently"}
                     </span>
                   </Link>
                 ))

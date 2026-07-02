@@ -43,6 +43,7 @@ export type ReaderInteractionAction =
 
 export interface ReaderInteraction {
   action: ReaderInteractionAction;
+  rankSlot?: number;
   readPercent?: number;
 }
 
@@ -145,6 +146,14 @@ const minimumTrainingReadPercent = 0.35;
 const clampReadPercent = (readPercent: number) =>
   Math.min(Math.max(readPercent, 0), 1);
 
+const getRankSlotIntentMultiplier = (rankSlot: number | undefined) => {
+  if (rankSlot === undefined || !Number.isFinite(rankSlot)) return 1;
+
+  const normalizedRankSlot = Math.min(Math.max(Math.trunc(rankSlot), 0), 20);
+
+  return 1 + normalizedRankSlot * 0.015;
+};
+
 export const shouldTrainReaderProfileFromInteraction = (
   interaction: ReaderInteraction,
 ) =>
@@ -156,15 +165,18 @@ const getInteractionWeight = (interaction: ReaderInteraction) => {
   if (interaction.action === "hide") return 0;
 
   const actionWeight = interactionWeights[interaction.action];
+  const rankSlotMultiplier = getRankSlotIntentMultiplier(interaction.rankSlot);
 
-  if (interaction.action !== "view") return actionWeight;
+  if (interaction.action !== "view") {
+    return actionWeight * rankSlotMultiplier;
+  }
 
   const readPercent = clampReadPercent(
     interaction.readPercent ?? minimumTrainingReadPercent,
   );
   const readDepthMultiplier = 0.5 + readPercent;
 
-  return actionWeight * readDepthMultiplier;
+  return actionWeight * readDepthMultiplier * rankSlotMultiplier;
 };
 
 export const rankNewsForReader = <TItem extends RecommendableNewsItem>(

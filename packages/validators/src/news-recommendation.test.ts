@@ -2619,6 +2619,34 @@ describe("updateReaderProfileWithInteraction", () => {
     expect(sharedProfile.recencyBias).toBeGreaterThan(savedProfile.recencyBias);
   });
 
+  test("weights lower-ranked positive feedback as stronger reader intent", () => {
+    const startingProfile = {
+      preferredCategories: [],
+      preferredSources: [],
+      preferredEntities: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    const leadStoryProfile = updateReaderProfileWithInteraction(
+      startingProfile,
+      items[0],
+      { action: "save", rankSlot: 0 },
+    );
+    const lowerRankedStoryProfile = updateReaderProfileWithInteraction(
+      startingProfile,
+      items[0],
+      { action: "save", rankSlot: 12 },
+    );
+
+    expect(lowerRankedStoryProfile.noveltyBias).toBeGreaterThan(
+      leadStoryProfile.noveltyBias,
+    );
+    expect(lowerRankedStoryProfile.recencyBias).toBeGreaterThan(
+      leadStoryProfile.recencyBias,
+    );
+  });
+
   test("dampens freshness and novelty bias after negative feedback", () => {
     const profile = updateReaderProfileWithInteraction(
       {

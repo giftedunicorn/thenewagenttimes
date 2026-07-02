@@ -187,6 +187,7 @@ export interface NewsReaderProfileSignalInteraction {
   metadata?: NewsRecordInteractionInput["metadata"];
   occurredAt: string;
   sourceSlug: string;
+  tags?: readonly string[];
 }
 
 interface NewsReaderProfileSignalCount {
@@ -273,6 +274,7 @@ export const summarizeNewsReaderProfileSignals = ({
   const categoryCounts = createSignalCounter();
   const entityCounts = createSignalCounter();
   const sourceCounts = createSignalCounter();
+  const tagCounts = createSignalCounter();
   let ignoredSignalCount = 0;
   let negativeSignalCount = 0;
   let positiveSignalCount = 0;
@@ -294,6 +296,7 @@ export const summarizeNewsReaderProfileSignals = ({
     interaction.entities.forEach((entity) =>
       addSignalCount(entityCounts, entity, index),
     );
+    interaction.tags?.forEach((tag) => addSignalCount(tagCounts, tag, index));
   });
 
   return {
@@ -308,6 +311,7 @@ export const summarizeNewsReaderProfileSignals = ({
     topCategories: toTopSignalCounts(categoryCounts),
     topEntities: toTopSignalCounts(entityCounts),
     topSources: toTopSignalCounts(sourceCounts),
+    topTags: toTopSignalCounts(tagCounts),
     trainedSignalCount: positiveSignalCount,
   };
 };
@@ -587,6 +591,7 @@ export const newsRouter = {
               metadata: NewsReaderInteraction.metadata,
               occurredAt: NewsReaderInteraction.occurredAt,
               sourceSlug: NewsSource.slug,
+              tags: NewsItem.tags,
             })
             .from(NewsReaderInteraction)
             .innerJoin(
@@ -612,6 +617,7 @@ export const newsRouter = {
             metadata: metadata.success ? metadata.data : undefined,
             occurredAt: interaction.occurredAt.toISOString(),
             sourceSlug: interaction.sourceSlug,
+            tags: interaction.tags,
           };
         }),
         persisted: Boolean(profile),
@@ -691,6 +697,7 @@ export const newsRouter = {
                 metadata: NewsReaderInteraction.metadata,
                 occurredAt: NewsReaderInteraction.occurredAt,
                 sourceSlug: NewsSource.slug,
+                tags: NewsItem.tags,
               })
               .from(NewsReaderInteraction)
               .innerJoin(
@@ -724,6 +731,7 @@ export const newsRouter = {
                 occurredAt: NewsReaderInteraction.occurredAt,
                 originalUrl: NewsItem.originalUrl,
                 sourceSlug: NewsSource.slug,
+                tags: NewsItem.tags,
               })
               .from(NewsReaderInteraction)
               .innerJoin(
@@ -758,6 +766,7 @@ export const newsRouter = {
             entities: row.entities,
             occurredAt: row.occurredAt.toISOString(),
             sourceSlug: row.sourceSlug,
+            tags: row.tags,
           }));
           positiveFeedbackItems = positiveRows.flatMap((row) => {
             const metadata = NewsInteractionMetadataSchema.safeParse(
@@ -786,6 +795,7 @@ export const newsRouter = {
                 entities: row.entities,
                 occurredAt: row.occurredAt.toISOString(),
                 sourceSlug: row.sourceSlug,
+                tags: row.tags,
               },
             ];
           });
@@ -797,6 +807,7 @@ export const newsRouter = {
             occurredAt: row.occurredAt.toISOString(),
             originalUrl: row.originalUrl,
             sourceSlug: row.sourceSlug,
+            tags: row.tags,
           }));
         }
       }

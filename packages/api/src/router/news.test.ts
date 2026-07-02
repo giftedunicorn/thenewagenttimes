@@ -494,6 +494,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
             action: "save",
             category: "agent_product",
             entities: ["OpenAI", "Operator"],
+            tags: ["agents", "browser"],
             metadata: {},
             occurredAt: "2026-07-01T09:00:00.000Z",
             sourceSlug: "openai-news",
@@ -502,6 +503,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
             action: "share",
             category: "agent_product",
             entities: ["OpenAI"],
+            tags: ["agents"],
             metadata: {},
             occurredAt: "2026-07-01T08:00:00.000Z",
             sourceSlug: "openai-news",
@@ -510,6 +512,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
             action: "view",
             category: "model_release",
             entities: ["Anthropic"],
+            tags: ["model"],
             metadata: { readPercent: 0.9, surface: "article" },
             occurredAt: "2026-07-01T07:00:00.000Z",
             sourceSlug: "anthropic-news",
@@ -542,6 +545,11 @@ describe("summarizeNewsReaderProfileSignals", () => {
         { key: "openai-news", count: 2 },
         { key: "anthropic-news", count: 1 },
       ],
+      topTags: [
+        { key: "agents", count: 2 },
+        { key: "browser", count: 1 },
+        { key: "model", count: 1 },
+      ],
       trainedSignalCount: 3,
     });
   });
@@ -554,6 +562,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
             action: "view",
             category: "funding",
             entities: ["Series A"],
+            tags: ["startup"],
             metadata: { exposure: true, surface: "home" },
             occurredAt: "2026-07-01T09:00:00.000Z",
             sourceSlug: "venturewire",
@@ -562,6 +571,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
             action: "view",
             category: "funding",
             entities: ["Series A"],
+            tags: ["startup"],
             metadata: { readPercent: 0.2, surface: "article" },
             occurredAt: "2026-07-01T08:00:00.000Z",
             sourceSlug: "venturewire",
@@ -570,6 +580,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
             action: "hide",
             category: "hot_take",
             entities: ["Rumor"],
+            tags: ["rumor"],
             metadata: {},
             occurredAt: "2026-07-01T07:00:00.000Z",
             sourceSlug: "hot-takes",
@@ -592,6 +603,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
       topCategories: [],
       topEntities: [],
       topSources: [],
+      topTags: [],
       trainedSignalCount: 0,
     });
   });
@@ -621,6 +633,7 @@ describe("buildNewsReaderProfileResponse", () => {
         topCategories: [],
         topEntities: [],
         topSources: [],
+        topTags: [],
         trainedSignalCount: 0,
       },
       noveltyBias: 1,
@@ -640,6 +653,7 @@ describe("buildNewsReaderProfileResponse", () => {
             action: "save",
             category: "agent_product",
             entities: ["OpenAI"],
+            tags: ["agents"],
             metadata: {},
             occurredAt: "2026-07-01T09:00:00.000Z",
             sourceSlug: "openai-news",
@@ -648,6 +662,7 @@ describe("buildNewsReaderProfileResponse", () => {
             action: "view",
             category: "funding",
             entities: ["Series A"],
+            tags: ["startup"],
             metadata: { exposure: true, surface: "home" },
             occurredAt: "2026-07-01T08:00:00.000Z",
             sourceSlug: "venturewire",
@@ -670,6 +685,7 @@ describe("buildNewsReaderProfileResponse", () => {
           "Profile leans toward agent_product, led by openai-news and OpenAI.",
         topCategories: [{ key: "agent_product", count: 1 }],
         topSources: [{ key: "openai-news", count: 1 }],
+        topTags: [{ key: "agents", count: 1 }],
         trainedSignalCount: 1,
       },
       persisted: true,
@@ -961,6 +977,63 @@ describe("selectNewsForYouItems", () => {
       "fresh-market-angle",
       "same-source-follow-up",
       "same-entity-analysis",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("exposure_cooldown");
+  });
+
+  it("cools down server recommendations matching recent reading exposure tags", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      hiddenNewsItems: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "same-agent-angle",
+          canonicalUrl: "https://example.com/same-agent-angle",
+          category: "research",
+          entities: ["Benchmarks"],
+          sourceName: "Research Lab",
+          sourceSlug: "research-lab",
+          tags: ["agents"],
+          trendScore: 86,
+        },
+        {
+          ...baseNewsItem,
+          id: "fresh-market-angle",
+          canonicalUrl: "https://example.com/fresh-market-angle",
+          category: "market_map",
+          entities: ["AI market"],
+          sourceName: "Market Map",
+          sourceSlug: "market-map",
+          tags: ["enterprise"],
+          trendScore: 76,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T09:00:00.000Z"),
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["agents"],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+      viewedNewsItemIds: [],
+      viewedNewsItems: [
+        {
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceSlug: "openai-news",
+          tags: ["agents"],
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "same-agent-angle",
     ]);
     expect(feed[1]?.matchedSignals).toContain("exposure_cooldown");
   });
@@ -1287,6 +1360,67 @@ describe("selectNewsForYouItems", () => {
     ]);
   });
 
+  it("moves server recommendations sharing hidden tags behind unrelated candidates", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: ["hidden-agent-angle"],
+      hiddenNewsItems: [
+        {
+          ...baseNewsItem,
+          id: "hidden-agent-angle",
+          tags: ["agents"],
+        },
+      ],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "shared-agent-angle",
+          canonicalUrl: "https://example.com/shared-agent-angle",
+          category: "research",
+          entities: ["Benchmarks"],
+          sourceName: "Research Lab",
+          sourceSlug: "research-lab",
+          tags: ["agents"],
+          trendScore: 96,
+        },
+        {
+          ...baseNewsItem,
+          id: "fresh-market-angle",
+          canonicalUrl: "https://example.com/fresh-market-angle",
+          category: "market_map",
+          entities: ["AI market"],
+          sourceName: "Market Map",
+          sourceSlug: "market-map",
+          tags: ["enterprise"],
+          trendScore: 78,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [
+        {
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceSlug: "openai-news",
+          tags: ["agents"],
+        },
+      ],
+      now: new Date("2026-07-01T09:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["agents"],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "shared-agent-angle",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("negative_feedback");
+  });
+
   it("does not suppress server recommendations from stale hidden feedback", () => {
     const feed = selectNewsForYouItems({
       hiddenNewsItemIds: [],
@@ -1455,6 +1589,65 @@ describe("selectNewsForYouItems", () => {
 
     expect(feed[0]?.id).toBe("saved-agent-follow-up");
     expect(feed[1]?.id).toBe("saved-entity-analysis");
+    expect(feed[0]?.matchedSignals).toContain("positive_feedback");
+  });
+
+  it("anchors server recommendations around saved tag signals", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      hiddenNewsItems: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "unrelated-market-story",
+          canonicalUrl: "https://example.com/unrelated-market-story",
+          title: "Broad AI market story gets attention",
+          category: "market_map",
+          entities: ["AI market"],
+          sourceName: "Market Map",
+          sourceSlug: "market-map",
+          tags: ["enterprise"],
+          trendScore: 86,
+        },
+        {
+          ...baseNewsItem,
+          id: "saved-agent-angle",
+          canonicalUrl: "https://example.com/saved-agent-angle",
+          title: "Agent workflow follow-up matches a saved angle",
+          category: "research",
+          entities: ["Benchmarks"],
+          sourceName: "Research Lab",
+          sourceSlug: "research-lab",
+          tags: ["agents"],
+          trendScore: 70,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T09:00:00.000Z"),
+      positiveFeedbackItems: [
+        {
+          action: "save",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceSlug: "openai-news",
+          tags: ["agents"],
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "saved-agent-angle",
+      "unrelated-market-story",
+    ]);
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
   });
 

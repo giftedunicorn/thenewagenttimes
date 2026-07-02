@@ -22,6 +22,7 @@ import {
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,
+  selectNewsRecommendationRotationFeed,
   selectPositiveFeedbackAnchoredNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   updateReaderProfileWithInteraction,
@@ -101,6 +102,7 @@ import {
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
   getNewsRecommendationAudit,
+  getNewsRecommendationRotationQueue,
   getNewsRecommendationTrace,
   getNewsRefreshSimulation,
   getNewsSearchTrends,
@@ -1017,9 +1019,14 @@ export function NewsHome({
       breakingPriorityItems,
     );
 
-    return selectReaderFreshNewsHomeItems({
+    const readerFreshItems = selectReaderFreshNewsHomeItems({
       historyItems,
       items: discoverySlotItems,
+    });
+
+    return selectNewsRecommendationRotationFeed({
+      items: readerFreshItems,
+      limit: readerFreshItems.length,
     });
   }, [
     activeCategory,
@@ -1157,6 +1164,12 @@ export function NewsHome({
   const readerDigest = getNewsReaderDigest({
     formatCategory: getCategoryLabel,
     items: rankedItems,
+    profile,
+  });
+  const recommendationRotationQueue = getNewsRecommendationRotationQueue({
+    formatCategory: getCategoryLabel,
+    items: rankedItems,
+    limit: 4,
     profile,
   });
   const readerDaypartPlan = getNewsReaderDaypartPlan({
@@ -2677,6 +2690,70 @@ export function NewsHome({
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">
+                    Recommendation Rotation
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {recommendationRotationQueue.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {recommendationRotationQueue.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {recommendationRotationQueue.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {recommendationRotationQueue.entries.length > 0 ? (
+                  recommendationRotationQueue.entries.map((entry, index) => (
+                    <Link
+                      key={`${entry.label}-${entry.id}`}
+                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                      href={`/news/${entry.id}`}
+                    >
+                      <span className="flex flex-wrap items-center gap-2 font-semibold">
+                        <span className="font-mono">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span>{entry.label}</span>
+                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                          {entry.scoreLabel}
+                        </span>
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {entry.title}
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {entry.sourceName} / {entry.categoryLabel}
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {entry.reason}
+                      </span>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    Recommendation rotation will appear after stories are
+                    ranked.
+                  </div>
+                )}
               </div>
             </div>
 

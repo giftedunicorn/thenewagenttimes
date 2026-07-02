@@ -1,5 +1,7 @@
 import type {
   NewsPreferenceProfile,
+  NewsRecommendationRotationObjective,
+  NewsRecommendationRotationScoreKind,
   NewsUrlReference,
   PositiveFeedbackNewsItem,
   RankedNewsItem,
@@ -14,6 +16,7 @@ import {
   normalizeNewsPreferenceProfile,
   selectFatigueBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
+  selectNewsRecommendationRotationSlots,
   selectReaderFreshNewsFeed,
   selectSourceCorroboratedNewsFeed,
 } from "@acme/validators";
@@ -6398,6 +6401,116 @@ export const getNewsRecommendationAudit = ({
     }: ${personalizedCount} personalized, ${explorationCount} exploratory, and ${trendLedCount} trend-led across ${
       sourceBalance.uniqueSourceCount
     } ${sourceLabel} and ${entityBalance.uniqueEntityCount} ${entityLabel}.`,
+  };
+};
+
+type NewsRecommendationRotationLabel =
+  | "Exploration"
+  | "Market Heat"
+  | "Reader Match"
+  | "Source Trust";
+
+interface NewsRecommendationRotationDefinition {
+  label: NewsRecommendationRotationLabel;
+  reason: string;
+}
+
+const newsRecommendationRotationDisplay = {
+  exploration: {
+    label: "Exploration",
+    reason: "Adjacent coverage tests what the reader may want next.",
+  },
+  market_heat: {
+    label: "Market Heat",
+    reason: "High trend keeps the edition connected to the live market.",
+  },
+  reader_match: {
+    label: "Reader Match",
+    reason: "Profile signals make this the safest next story.",
+  },
+  source_trust: {
+    label: "Source Trust",
+    reason: "High-trust coverage stabilizes the recommendation mix.",
+  },
+} satisfies Record<
+  NewsRecommendationRotationObjective,
+  NewsRecommendationRotationDefinition
+>;
+
+const formatNewsRecommendationRotationScore = ({
+  score,
+  scoreKind,
+}: {
+  score: number;
+  scoreKind: NewsRecommendationRotationScoreKind;
+}) => `${score} ${scoreKind}`;
+
+export const getNewsRecommendationRotationQueue = ({
+  formatCategory,
+  items,
+  limit,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  profile: NewsPreferenceProfile;
+}) => {
+  const entries = selectNewsRecommendationRotationSlots({
+    items,
+    limit,
+  }).map(({ item, objective, score, scoreKind }) => {
+    const display = newsRecommendationRotationDisplay[objective];
+
+    return {
+      categoryLabel: formatCategory(item.category),
+      id: item.id,
+      label: display.label,
+      reason: display.reason,
+      scoreLabel: formatNewsRecommendationRotationScore({
+        score,
+        scoreKind,
+      }),
+      sourceName: item.sourceName,
+      title: item.title,
+    };
+  });
+
+  const readerCount = entries.filter(
+    (entry) => entry.label === "Reader Match",
+  ).length;
+  const explorationCount = entries.filter(
+    (entry) => entry.label === "Exploration",
+  ).length;
+  const sourceCount = new Set(entries.map((entry) => entry.sourceName)).size;
+
+  if (entries.length === 0) {
+    return {
+      entries,
+      label: "Rotation Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Reader", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Sources", value: "0" },
+      ],
+      summary: "Recommendation rotation will appear after stories are ranked.",
+    };
+  }
+
+  return {
+    entries,
+    label: "Rotation Ready",
+    metrics: [
+      { label: "Slots", value: String(entries.length) },
+      { label: "Reader", value: String(readerCount) },
+      { label: "Explore", value: String(explorationCount) },
+      { label: "Sources", value: String(sourceCount) },
+    ],
+    summary: `${entries.length} rotation ${
+      entries.length === 1 ? "slot blends" : "slots blend"
+    } reader fit, exploration, market heat, and source trust across ${sourceCount} ${
+      sourceCount === 1 ? "source" : "sources"
+    }.`,
   };
 };
 

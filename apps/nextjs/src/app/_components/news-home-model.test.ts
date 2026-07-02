@@ -69,6 +69,7 @@ import {
   getNewsReaderWatchlist,
   getNewsRecommendationAudit,
   getNewsRecommendationReasons,
+  getNewsRecommendationRotationQueue,
   getNewsRecommendationTrace,
   getNewsRefreshSimulation,
   getNewsSearchTrends,
@@ -1080,6 +1081,164 @@ describe("getNewsReaderScorecards", () => {
       ],
       scorecards: [],
       summary: "Reader scorecards will appear after stories are ranked.",
+    });
+  });
+});
+
+describe("getNewsRecommendationRotationQueue", () => {
+  it("interleaves reader, exploration, market, and trust slots with source diversity", () => {
+    expect(
+      getNewsRecommendationRotationQueue({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "agent_product"
+              ? "Agents"
+              : category === "funding"
+                ? "Funding"
+                : category === "research"
+                  ? "Research"
+                  : category,
+        items: [
+          {
+            ...localItem,
+            id: "reader-fit",
+            category: "model_release",
+            matchedSignals: ["category", "entity"],
+            personalizedScore: 172,
+            sourceName: "Model Desk",
+            sourceScore: 84,
+            sourceSlug: "model-desk",
+            title: "OpenAI model launch matches your profile",
+            trendScore: 84,
+          },
+          {
+            ...localItem,
+            id: "same-source-hot",
+            category: "funding",
+            matchedSignals: [],
+            personalizedScore: 126,
+            sourceName: "Model Desk",
+            sourceScore: 82,
+            sourceSlug: "model-desk",
+            title: "Funding story from a repeated source",
+            trendScore: 99,
+          },
+          {
+            ...localItem,
+            id: "explore-adjacent",
+            category: "agent_product",
+            matchedSignals: ["exploration"],
+            personalizedScore: 132,
+            sourceName: "Agent Scout",
+            sourceScore: 78,
+            sourceSlug: "agent-scout",
+            title: "Agent startup tests workflow memory",
+            trendScore: 88,
+          },
+          {
+            ...localItem,
+            id: "market-hot",
+            category: "funding",
+            matchedSignals: [],
+            personalizedScore: 119,
+            sourceName: "VentureWire",
+            sourceScore: 76,
+            sourceSlug: "venturewire",
+            title: "Funding heat follows model tooling",
+            trendScore: 96,
+          },
+          {
+            ...localItem,
+            id: "trusted-analysis",
+            category: "research",
+            matchedSignals: [],
+            personalizedScore: 121,
+            sourceName: "Research Review",
+            sourceScore: 97,
+            sourceSlug: "research-review",
+            title: "Independent lab checks agent benchmarks",
+            trendScore: 74,
+          },
+        ],
+        limit: 4,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["model-desk"],
+          noveltyBias: 1.5,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      entries: [
+        {
+          categoryLabel: "Models",
+          id: "reader-fit",
+          label: "Reader Match",
+          reason: "Profile signals make this the safest next story.",
+          scoreLabel: "172 score",
+          sourceName: "Model Desk",
+          title: "OpenAI model launch matches your profile",
+        },
+        {
+          categoryLabel: "Agents",
+          id: "explore-adjacent",
+          label: "Exploration",
+          reason: "Adjacent coverage tests what the reader may want next.",
+          scoreLabel: "88 heat",
+          sourceName: "Agent Scout",
+          title: "Agent startup tests workflow memory",
+        },
+        {
+          categoryLabel: "Funding",
+          id: "market-hot",
+          label: "Market Heat",
+          reason: "High trend keeps the edition connected to the live market.",
+          scoreLabel: "96 heat",
+          sourceName: "VentureWire",
+          title: "Funding heat follows model tooling",
+        },
+        {
+          categoryLabel: "Research",
+          id: "trusted-analysis",
+          label: "Source Trust",
+          reason: "High-trust coverage stabilizes the recommendation mix.",
+          scoreLabel: "97 trust",
+          sourceName: "Research Review",
+          title: "Independent lab checks agent benchmarks",
+        },
+      ],
+      label: "Rotation Ready",
+      metrics: [
+        { label: "Slots", value: "4" },
+        { label: "Reader", value: "1" },
+        { label: "Explore", value: "1" },
+        { label: "Sources", value: "4" },
+      ],
+      summary:
+        "4 rotation slots blend reader fit, exploration, market heat, and source trust across 4 sources.",
+    });
+  });
+
+  it("keeps the queue explicit while ranked stories are unavailable", () => {
+    expect(
+      getNewsRecommendationRotationQueue({
+        formatCategory: (category) => category,
+        items: [],
+        limit: 4,
+        profile: createDefaultNewsPreferenceProfile(),
+      }),
+    ).toEqual({
+      entries: [],
+      label: "Rotation Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Reader", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Sources", value: "0" },
+      ],
+      summary: "Recommendation rotation will appear after stories are ranked.",
     });
   });
 });

@@ -93,6 +93,7 @@ import {
   getPreviewNewsHomeItems,
   isNewsHomePreviewEdition,
   mergeNewsHomeItems,
+  mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
@@ -13328,6 +13329,56 @@ describe("selectNewsHomePositiveFeedbackAnchors", () => {
         sourceSlug: olderItem.sourceSlug,
       }),
     ]);
+  });
+});
+
+describe("mergeNewsHomePositiveFeedbackItems", () => {
+  it("upgrades a saved story to a stronger shared feedback anchor", () => {
+    const merged = mergeNewsHomePositiveFeedbackItems({
+      currentItems: [
+        {
+          ...localItem,
+          action: "save",
+          occurredAt: "2026-07-01T09:00:00.000Z",
+        },
+      ],
+      nextItem: {
+        ...localItem,
+        action: "share",
+        occurredAt: "2026-07-01T09:05:00.000Z",
+      },
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      action: "share",
+      id: localItem.id,
+      occurredAt: "2026-07-01T09:05:00.000Z",
+    });
+  });
+
+  it("does not downgrade a shared story after weaker source feedback", () => {
+    const merged = mergeNewsHomePositiveFeedbackItems({
+      currentItems: [
+        {
+          ...localItem,
+          action: "share",
+          occurredAt: "2026-07-01T09:05:00.000Z",
+        },
+      ],
+      nextItem: {
+        ...localItem,
+        action: "click_source",
+        occurredAt: "2026-07-01T09:10:00.000Z",
+      },
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      action: "share",
+      id: localItem.id,
+      occurredAt: "2026-07-01T09:05:00.000Z",
+    });
   });
 });
 

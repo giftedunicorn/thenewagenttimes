@@ -125,6 +125,7 @@ import {
   getPreviewNewsHomeItems,
   isNewsHomePreviewEdition,
   mergeNewsHomeItems,
+  mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
@@ -806,9 +807,10 @@ export function NewsHome({
       }
 
       setPositiveFeedbackItems((current) =>
-        current.some((feedbackItem) => feedbackItem.id === item.id)
-          ? current
-          : [...current, { ...item, action, occurredAt }],
+        mergeNewsHomePositiveFeedbackItems({
+          currentItems: current,
+          nextItem: { ...item, action, occurredAt },
+        }),
       );
     }
 

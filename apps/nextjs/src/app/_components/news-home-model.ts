@@ -1174,6 +1174,46 @@ type NewsHomePositiveFeedbackSource = Pick<
 
 export type NewsHomePositiveFeedbackAnchor = PositiveFeedbackNewsItem;
 
+const newsHomePositiveFeedbackActionStrength = {
+  click_source: 1,
+  save: 2,
+  share: 3,
+} as const satisfies Record<NewsHomePositiveFeedbackAction, number>;
+
+export const mergeNewsHomePositiveFeedbackItems = <
+  TItem extends {
+    action: NewsHomePositiveFeedbackAction;
+    id: string;
+    occurredAt: string;
+  },
+>({
+  currentItems,
+  nextItem,
+}: {
+  currentItems: readonly TItem[];
+  nextItem: TItem;
+}): TItem[] => {
+  const existingIndex = currentItems.findIndex(
+    (item) => item.id === nextItem.id,
+  );
+
+  if (existingIndex < 0) return [...currentItems, nextItem];
+
+  const existingItem = currentItems[existingIndex];
+
+  if (
+    existingItem &&
+    newsHomePositiveFeedbackActionStrength[nextItem.action] <
+      newsHomePositiveFeedbackActionStrength[existingItem.action]
+  ) {
+    return [...currentItems];
+  }
+
+  return currentItems.map((item, index) =>
+    index === existingIndex ? nextItem : item,
+  );
+};
+
 const toNewsHomePositiveFeedbackAnchor = ({
   action,
   item,

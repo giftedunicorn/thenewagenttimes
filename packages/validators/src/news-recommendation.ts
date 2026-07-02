@@ -841,6 +841,12 @@ export interface NewsCollaborativeSignal {
   score: number;
 }
 
+export interface NewsSessionIntentFilter {
+  category?: string | null | undefined;
+  query?: string | null | undefined;
+  sourceSlug?: string | null | undefined;
+}
+
 type NewsReaderDaypart = "evening" | "midday" | "morning" | "overnight";
 
 interface NewsDaypartBalanceOptions {
@@ -1060,8 +1066,10 @@ const collaborativeProtectedSignals = new Set([
   "home_exposure_cooldown",
   "negative_feedback",
   "positive_feedback",
+  "session_intent",
   "semantic_feedback",
   "source",
+  "source_corroboration",
   "tag",
 ]);
 const readerPreferenceSignals = new Set([
@@ -1077,6 +1085,32 @@ const daypartBlockedSignals = new Set([
   "exposure_cooldown",
   "home_exposure_cooldown",
   "negative_feedback",
+]);
+const sessionIntentBlockedSignals = new Set([
+  "exposure_cooldown",
+  "home_exposure_cooldown",
+  "negative_feedback",
+]);
+const sessionIntentProtectedSignals = new Set(["positive_feedback"]);
+const sourceCorroborationBlockedSignals = new Set([
+  "exposure_cooldown",
+  "home_exposure_cooldown",
+  "negative_feedback",
+]);
+const sourceCorroborationProtectedSignals = new Set(["positive_feedback"]);
+const sessionIntentQueryStopwords = new Set([
+  "a",
+  "ai",
+  "an",
+  "and",
+  "for",
+  "in",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
 ]);
 
 const newsDaypartCategoryBoosts: Record<
@@ -1579,6 +1613,265 @@ export const selectDaypartBalancedNewsFeed = <
       if (
         !previousEntry.blocked &&
         nextEntry.adjustedScore <= previousEntry.item.personalizedScore
+      ) {
+        break;
+      }
+
+      insertionIndex -= 1;
+    }
+
+    selectedItems.splice(insertionIndex, 0, nextEntry);
+  }
+
+  return selectedItems.map(({ item }) => item);
+};
+
+const normalizeSessionIntentValue = (value: string | null | undefined) =>
+  value?.trim().toLowerCase() ?? "";
+
+const hasActiveSessionIntent = (intent: NewsSessionIntentFilter) =>
+  Boolean(
+    normalizeSessionIntentValue(intent.category) ||
+      normalizeSessionIntentValue(intent.sourceSlug) ||
+      normalizeSessionIntentValue(intent.query),
+  );
+
+const getSessionIntentQueryTerms = (query: string | null | undefined) =>
+  normalizeSessionIntentValue(query)
+    .split(/[^a-z0-9]+/)
+    .map((term) => term.trim())
+    .filter(
+      (term) => term.length >= 2 && !sessionIntentQueryStopwords.has(term),
+    )
+    .slice(0, 6);
+
+const getSessionIntentSearchText = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) => {
+  const itemWithSearchFields = item as Partial<{
+    sourceName: string | null;
+    summary: string | null;
+  }>;
+
+  return [
+    item.title,
+    itemWithSearchFields.summary ?? "",
+    item.category,
+    itemWithSearchFields.sourceName ?? "",
+    item.sourceSlug,
+    ...item.entities,
+    ...item.tags,
+  ]
+    .join(" ")
+    .toLowerCase();
+};
+
+const hasSessionIntentBlockedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) => sessionIntentBlockedSignals.has(signal));
+
+const hasSessionIntentProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    sessionIntentProtectedSignals.has(signal),
+  );
+
+const canApplySessionIntentBoost = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.sourceScore >= 60 &&
+  !item.matchedSignals.includes("session_intent") &&
+  !hasSessionIntentBlockedSignal(item);
+
+const getSessionIntentBoost = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  intent: NewsSessionIntentFilter,
+) => {
+  if (!canApplySessionIntentBoost(item)) return 0;
+
+  let boost = 0;
+  const category = normalizeSessionIntentValue(intent.category);
+  const sourceSlug = normalizeSessionIntentValue(intent.sourceSlug);
+
+  if (category && item.category.toLowerCase() === category) boost += 14;
+  if (sourceSlug && item.sourceSlug.toLowerCase() === sourceSlug) boost += 14;
+
+  const queryTerms = getSessionIntentQueryTerms(intent.query);
+
+  if (queryTerms.length > 0) {
+    const searchText = getSessionIntentSearchText(item);
+    const matchCount = queryTerms.filter((term) =>
+      searchText.includes(term),
+    ).length;
+
+    boost += Math.min(16, matchCount * 5);
+  }
+
+  return boost;
+};
+
+export const selectSessionIntentNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  intent: NewsSessionIntentFilter,
+): RankedNewsItem<TItem>[] => {
+  if (rankedItems.length < 2 || !hasActiveSessionIntent(intent)) {
+    return [...rankedItems];
+  }
+
+  const selectedItems: {
+    blocked: boolean;
+    item: RankedNewsItem<TItem>;
+    protectedByFeedback: boolean;
+  }[] = [];
+
+  for (const item of rankedItems) {
+    const boost = getSessionIntentBoost(item, intent);
+    const nextItem =
+      boost > 0
+        ? {
+            ...addMatchedSignal(item, "session_intent"),
+            personalizedScore: item.personalizedScore + boost,
+          }
+        : item;
+    const nextEntry = {
+      blocked: hasSessionIntentBlockedSignal(item),
+      item: nextItem,
+      protectedByFeedback: hasSessionIntentProtectedSignal(item),
+    };
+
+    if (boost <= 0) {
+      selectedItems.push(nextEntry);
+      continue;
+    }
+
+    let insertionIndex = selectedItems.length;
+
+    while (insertionIndex > 0) {
+      const previousEntry = selectedItems[insertionIndex - 1];
+
+      if (!previousEntry) break;
+      if (previousEntry.protectedByFeedback) break;
+      if (
+        !previousEntry.blocked &&
+        nextEntry.item.personalizedScore <= previousEntry.item.personalizedScore
+      ) {
+        break;
+      }
+
+      insertionIndex -= 1;
+    }
+
+    selectedItems.splice(insertionIndex, 0, nextEntry);
+  }
+
+  return selectedItems.map(({ item }) => item);
+};
+
+const getSourceCorroborationKeys = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) => {
+  const category = item.category.trim().toLowerCase();
+
+  return item.entities
+    .map((entity) => entity.trim().toLowerCase())
+    .filter(Boolean)
+    .map((entity) => `${category}:${entity}`);
+};
+
+const hasSourceCorroborationBlockedSignal = <
+  TItem extends RecommendableNewsItem,
+>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    sourceCorroborationBlockedSignals.has(signal),
+  );
+
+const hasSourceCorroborationProtectedSignal = <
+  TItem extends RecommendableNewsItem,
+>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    sourceCorroborationProtectedSignals.has(signal),
+  );
+
+const canApplySourceCorroborationBoost = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.sourceScore >= 60 &&
+  !item.matchedSignals.includes("source_corroboration") &&
+  !hasSourceCorroborationBlockedSignal(item);
+
+export const selectSourceCorroboratedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+): RankedNewsItem<TItem>[] => {
+  if (rankedItems.length < 2) return [...rankedItems];
+
+  const sourcesByKey = new Map<string, Set<string>>();
+
+  for (const item of rankedItems) {
+    if (!canApplySourceCorroborationBoost(item)) continue;
+
+    for (const key of getSourceCorroborationKeys(item)) {
+      const sources = sourcesByKey.get(key) ?? new Set<string>();
+
+      sources.add(item.sourceSlug.trim().toLowerCase());
+      sourcesByKey.set(key, sources);
+    }
+  }
+
+  const selectedItems: {
+    blocked: boolean;
+    item: RankedNewsItem<TItem>;
+    protectedByFeedback: boolean;
+  }[] = [];
+
+  for (const item of rankedItems) {
+    const corroboratedSourceCount = Math.max(
+      0,
+      ...getSourceCorroborationKeys(item).map(
+        (key) => sourcesByKey.get(key)?.size ?? 0,
+      ),
+    );
+    const boost =
+      canApplySourceCorroborationBoost(item) && corroboratedSourceCount >= 2
+        ? Math.min(16, 8 + corroboratedSourceCount * 2)
+        : 0;
+    const nextItem =
+      boost > 0
+        ? {
+            ...addMatchedSignal(item, "source_corroboration"),
+            personalizedScore: item.personalizedScore + boost,
+          }
+        : item;
+    const nextEntry = {
+      blocked: hasSourceCorroborationBlockedSignal(item),
+      item: nextItem,
+      protectedByFeedback: hasSourceCorroborationProtectedSignal(item),
+    };
+
+    if (boost <= 0) {
+      selectedItems.push(nextEntry);
+      continue;
+    }
+
+    let insertionIndex = selectedItems.length;
+
+    while (insertionIndex > 0) {
+      const previousEntry = selectedItems[insertionIndex - 1];
+
+      if (!previousEntry) break;
+      if (previousEntry.protectedByFeedback) break;
+      if (
+        !previousEntry.blocked &&
+        nextEntry.item.personalizedScore <= previousEntry.item.personalizedScore
       ) {
         break;
       }

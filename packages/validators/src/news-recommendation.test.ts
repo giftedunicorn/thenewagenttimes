@@ -19,6 +19,8 @@ import {
   selectPositiveFeedbackAnchoredNewsFeed,
   selectReaderFreshNewsFeed,
   selectSemanticSimilarityNewsFeed,
+  selectSessionIntentNewsFeed,
+  selectSourceCorroboratedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   updateReaderProfileWithInteraction,
 } from "./news-recommendation";
@@ -1432,6 +1434,232 @@ describe("selectDaypartBalancedNewsFeed", () => {
       "morning-security-briefing",
     ]);
     expect(feed[0]?.matchedSignals).toContain("daypart");
+  });
+});
+
+describe("selectSessionIntentNewsFeed", () => {
+  test("lifts stories matching the current search and topic intent", () => {
+    const feed = selectSessionIntentNewsFeed(
+      [
+        {
+          ...items[0],
+          id: "high-profile-model",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+          tags: ["model"],
+          title: "OpenAI ships a model refresh",
+        },
+        {
+          ...items[1],
+          id: "session-agent-match",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: [],
+          personalizedScore: 120,
+          tags: ["agents"],
+          title: "LangChain agent runtime adds workflow memory",
+        },
+      ],
+      {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "session-agent-match",
+      "high-profile-model",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("session_intent");
+    expect(feed[0]?.personalizedScore).toBeGreaterThan(132);
+  });
+
+  test("does not boost blocked stories for the current session intent", () => {
+    const feed = selectSessionIntentNewsFeed(
+      [
+        {
+          ...items[0],
+          id: "safe-model-story",
+          matchedSignals: [],
+          personalizedScore: 126,
+          title: "OpenAI ships a model refresh",
+        },
+        {
+          ...items[1],
+          id: "blocked-agent-story",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 120,
+          tags: ["agents"],
+          title: "LangChain agent runtime adds workflow memory",
+        },
+      ],
+      {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "safe-model-story",
+      "blocked-agent-story",
+    ]);
+    expect(feed[1]?.matchedSignals).not.toContain("session_intent");
+  });
+
+  test("does not apply the session intent boost twice to server-ranked stories", () => {
+    const feed = selectSessionIntentNewsFeed(
+      [
+        {
+          ...items[1],
+          id: "server-ranked-agent-story",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: ["session_intent"],
+          personalizedScore: 134,
+          tags: ["agents"],
+          title: "LangChain agent runtime adds workflow memory",
+        },
+        {
+          ...items[0],
+          id: "high-profile-model",
+          matchedSignals: [],
+          personalizedScore: 132,
+          tags: ["model"],
+          title: "OpenAI ships a model refresh",
+        },
+      ],
+      {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "server-ranked-agent-story",
+      "high-profile-model",
+    ]);
+    expect(feed[0]?.personalizedScore).toBe(134);
+  });
+
+  test("matches session search terms from optional summaries and source names", () => {
+    const feed = selectSessionIntentNewsFeed(
+      [
+        {
+          ...items[0],
+          id: "title-only-model-story",
+          matchedSignals: [],
+          personalizedScore: 132,
+          tags: ["model"],
+          title: "OpenAI ships a model refresh",
+        },
+        {
+          ...items[1],
+          id: "summary-source-match",
+          matchedSignals: [],
+          personalizedScore: 124,
+          sourceName: "AgentOps Daily",
+          summary: "LangChain adds workflow memory for production agents.",
+          tags: ["runtime"],
+          title: "Runtime notes from the field",
+        },
+      ],
+      {
+        category: null,
+        query: "LangChain AgentOps",
+        sourceSlug: null,
+      },
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "summary-source-match",
+      "title-only-model-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("session_intent");
+  });
+});
+
+describe("selectSourceCorroboratedNewsFeed", () => {
+  test("lifts trusted stories covered by multiple independent sources", () => {
+    const feed = selectSourceCorroboratedNewsFeed([
+      {
+        ...items[0],
+        id: "single-source-high-score",
+        category: "model_release",
+        entities: ["Anthropic"],
+        matchedSignals: [],
+        personalizedScore: 132,
+        sourceSlug: "single-lab",
+        tags: ["model"],
+      },
+      {
+        ...items[0],
+        id: "corroborated-openai-story",
+        category: "model_release",
+        entities: ["OpenAI"],
+        matchedSignals: [],
+        personalizedScore: 124,
+        sourceScore: 90,
+        sourceSlug: "openai-news",
+        tags: ["frontier-model"],
+      },
+      {
+        ...items[1],
+        id: "openai-analysis-follow-up",
+        category: "model_release",
+        entities: ["OpenAI"],
+        matchedSignals: [],
+        personalizedScore: 116,
+        sourceScore: 84,
+        sourceSlug: "agent-desk",
+        tags: ["frontier-model"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "corroborated-openai-story",
+      "single-source-high-score",
+      "openai-analysis-follow-up",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("source_corroboration");
+  });
+
+  test("does not treat repeated coverage from the same source as corroboration", () => {
+    const feed = selectSourceCorroboratedNewsFeed([
+      {
+        ...items[0],
+        id: "first-openai-wire",
+        category: "model_release",
+        entities: ["OpenAI"],
+        matchedSignals: [],
+        personalizedScore: 132,
+        sourceSlug: "openai-news",
+        tags: ["frontier-model"],
+      },
+      {
+        ...items[1],
+        id: "second-openai-wire",
+        category: "model_release",
+        entities: ["OpenAI"],
+        matchedSignals: [],
+        personalizedScore: 124,
+        sourceSlug: "openai-news",
+        tags: ["frontier-model"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "first-openai-wire",
+      "second-openai-wire",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("source_corroboration");
+    expect(feed[1]?.matchedSignals).not.toContain("source_corroboration");
   });
 });
 

@@ -2505,6 +2505,190 @@ describe("selectNewsForYouItems", () => {
       "morning-security-briefing",
     ]);
   });
+
+  it("applies current search and topic intent in server-side For You ranking", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "high-profile-model",
+          title: "OpenAI ships a model refresh",
+          canonicalUrl: "https://example.com/high-profile-model",
+          originalUrl: "https://example.com/high-profile-model",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceSlug: "openai-news",
+          sourceScore: 92,
+          tags: ["model"],
+          trendScore: 89,
+        },
+        {
+          ...baseNewsItem,
+          id: "session-agent-match",
+          title: "LangChain agent runtime adds workflow memory",
+          canonicalUrl: "https://example.com/session-agent-match",
+          originalUrl: "https://example.com/session-agent-match",
+          category: "agent_product",
+          entities: ["LangChain"],
+          sourceSlug: "agent-desk",
+          sourceScore: 88,
+          tags: ["agents"],
+          trendScore: 82,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T12:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      sessionIntent: {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "session-agent-match",
+      "high-profile-model",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("session_intent");
+  });
+
+  it("uses summaries and source names for server-side session search intent", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "title-only-model-story",
+          title: "OpenAI ships a model refresh",
+          summary: "A model update without the searched runtime label.",
+          canonicalUrl: "https://example.com/title-only-model-story",
+          originalUrl: "https://example.com/title-only-model-story",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          sourceScore: 92,
+          tags: ["model"],
+          trendScore: 89,
+        },
+        {
+          ...baseNewsItem,
+          id: "summary-source-match",
+          title: "Runtime notes from the field",
+          summary: "LangChain adds workflow memory for production agents.",
+          canonicalUrl: "https://example.com/summary-source-match",
+          originalUrl: "https://example.com/summary-source-match",
+          category: "agent_product",
+          entities: ["Runtime"],
+          sourceName: "AgentOps Daily",
+          sourceSlug: "agentops-daily",
+          sourceScore: 88,
+          tags: ["runtime"],
+          trendScore: 82,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T12:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      sessionIntent: {
+        category: null,
+        query: "LangChain AgentOps",
+        sourceSlug: null,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "summary-source-match",
+      "title-only-model-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("session_intent");
+  });
+
+  it("applies source corroboration in server-side For You ranking", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "single-source-high-score",
+          title: "Anthropic ships a model refresh",
+          canonicalUrl: "https://example.com/single-source-high-score",
+          originalUrl: "https://example.com/single-source-high-score",
+          category: "model_release",
+          entities: ["Anthropic"],
+          sourceName: "Single Lab",
+          sourceSlug: "single-lab",
+          sourceScore: 88,
+          tags: ["model"],
+          trendScore: 84,
+        },
+        {
+          ...baseNewsItem,
+          id: "corroborated-openai-story",
+          title: "OpenAI model release draws independent coverage",
+          canonicalUrl: "https://example.com/corroborated-openai-story",
+          originalUrl: "https://example.com/corroborated-openai-story",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          sourceScore: 90,
+          tags: ["frontier-model"],
+          trendScore: 82,
+        },
+        {
+          ...baseNewsItem,
+          id: "openai-analysis-follow-up",
+          title: "Agent Desk tracks the OpenAI release",
+          canonicalUrl: "https://example.com/openai-analysis-follow-up",
+          originalUrl: "https://example.com/openai-analysis-follow-up",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          sourceScore: 84,
+          tags: ["frontier-model"],
+          trendScore: 72,
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T12:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "corroborated-openai-story",
+      "single-source-high-score",
+      "openai-analysis-follow-up",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("source_corroboration");
+  });
 });
 
 describe("selectUniqueNewsCollectionItems", () => {

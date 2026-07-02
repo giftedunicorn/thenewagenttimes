@@ -10,6 +10,7 @@ import type {
   NewsPreferenceProfile,
   NewsSemanticSimilarityMatch,
   NewsSemanticVector,
+  NewsSessionIntentFilter,
   PositiveFeedbackNewsItem,
   RankedNewsItem,
   ReaderInteraction,
@@ -45,6 +46,8 @@ import {
   selectPositiveFeedbackAnchoredNewsFeed,
   selectReaderFreshNewsFeed,
   selectSemanticSimilarityNewsFeed,
+  selectSessionIntentNewsFeed,
+  selectSourceCorroboratedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   shouldTrainReaderProfileFromInteraction,
   updateReaderProfileWithInteraction,
@@ -550,6 +553,7 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   profile,
   readerLocalHour,
   semanticMatches = [],
+  sessionIntent,
   viewedNewsItemIds,
   viewedNewsItems = [],
 }: {
@@ -564,6 +568,7 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   profile: NewsPreferenceProfile;
   readerLocalHour?: number;
   semanticMatches?: readonly NewsSemanticSimilarityMatch[];
+  sessionIntent?: NewsSessionIntentFilter;
   viewedNewsItemIds: readonly string[];
   viewedNewsItems?: readonly RecentExposureNewsItem[];
 }): RankedNewsItem<TItem>[] => {
@@ -600,12 +605,19 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   );
   const trustBalancedRows =
     selectSourceTrustBalancedNewsFeed(feedbackAdjustedRows);
-  const daypartBalancedRows = selectDaypartBalancedNewsFeed(trustBalancedRows, {
-    now,
-    readerLocalHour,
-  });
-  const fatigueBalancedRows =
-    selectFatigueBalancedNewsFeed(daypartBalancedRows);
+  const sourceCorroboratedRows =
+    selectSourceCorroboratedNewsFeed(trustBalancedRows);
+  const daypartBalancedRows = selectDaypartBalancedNewsFeed(
+    sourceCorroboratedRows,
+    {
+      now,
+      readerLocalHour,
+    },
+  );
+  const sessionIntentRows = sessionIntent
+    ? selectSessionIntentNewsFeed(daypartBalancedRows, sessionIntent)
+    : daypartBalancedRows;
+  const fatigueBalancedRows = selectFatigueBalancedNewsFeed(sessionIntentRows);
   const breakingPriorityRows = selectBreakingNewsPriorityFeed(
     fatigueBalancedRows,
     now,
@@ -1097,6 +1109,11 @@ export const newsRouter = {
         profile,
         readerLocalHour: input.readerLocalHour,
         semanticMatches,
+        sessionIntent: {
+          category: input.category ?? null,
+          query: input.q ?? "",
+          sourceSlug: input.sourceSlug ?? null,
+        },
         viewedNewsItemIds,
         viewedNewsItems,
       });

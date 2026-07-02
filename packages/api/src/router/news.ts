@@ -362,7 +362,7 @@ const compactConditions = (
   return definedConditions.length > 0 ? and(...definedConditions) : undefined;
 };
 
-const textSearchCondition = (
+export const buildNewsTextSearchCondition = (
   query: string | undefined,
 ): SQL<unknown> | undefined => {
   if (!query) return undefined;
@@ -372,7 +372,10 @@ const textSearchCondition = (
   return or(
     ilike(NewsItem.title, pattern),
     ilike(NewsItem.summary, pattern),
+    ilike(NewsSource.name, pattern),
+    ilike(NewsSource.slug, pattern),
     sql`exists (select 1 from unnest(${NewsItem.entities}) as entity where entity ilike ${pattern})`,
+    sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${pattern})`,
   );
 };
 
@@ -391,7 +394,7 @@ const publishedFeedConditions = (
     input.sourceSlug ? eq(NewsSource.slug, input.sourceSlug) : undefined,
     input.cursor ? lt(NewsItem.publishedAt, new Date(input.cursor)) : undefined,
     tagCondition(input.tag),
-    textSearchCondition(input.q),
+    buildNewsTextSearchCondition(input.q),
   ]);
 
 const searchCandidateConditions = (
@@ -400,7 +403,7 @@ const searchCandidateConditions = (
   compactConditions([
     eq(NewsItem.status, "published"),
     input.category ? eq(NewsItem.category, input.category) : undefined,
-    textSearchCondition(input.q),
+    buildNewsTextSearchCondition(input.q),
   ]);
 
 const resolveReaderIdentity = (

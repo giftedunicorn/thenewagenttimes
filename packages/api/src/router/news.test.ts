@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { NewsForYouCandidate } from "./news";
 import {
   buildNewsReaderProfileResponse,
+  buildNewsTextSearchCondition,
   NewsFeedInputSchema,
   NewsForYouInputSchema,
   NewsHistoryInputSchema,
@@ -20,6 +21,32 @@ import {
   shouldTrainNewsProfileFromInteraction,
   summarizeNewsReaderProfileSignals,
 } from "./news";
+
+interface SqlDebugChunk {
+  name?: unknown;
+  queryChunks?: unknown;
+  value?: unknown;
+}
+
+const isSqlDebugChunk = (value: unknown): value is SqlDebugChunk =>
+  typeof value === "object" && value !== null;
+
+const collectSqlDebugText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (!isSqlDebugChunk(value)) return "";
+
+  const stringValues = Array.isArray(value.value)
+    ? value.value
+        .filter((entry): entry is string => typeof entry === "string")
+        .join(" ")
+    : "";
+  const name = typeof value.name === "string" ? value.name : "";
+  const chunks = Array.isArray(value.queryChunks)
+    ? value.queryChunks.map(collectSqlDebugText).join(" ")
+    : "";
+
+  return [name, stringValues, chunks].filter(Boolean).join(" ");
+};
 
 const baseNewsItem = {
   id: "openai-model-lead",
@@ -443,6 +470,20 @@ describe("selectNewsFeedItems", () => {
 });
 
 describe("selectNewsSearchCandidateItems", () => {
+  it("matches search queries against story tags as fine-grained angles", () => {
+    const condition = buildNewsTextSearchCondition("agents");
+
+    expect(collectSqlDebugText(condition)).toContain("tags");
+  });
+
+  it("matches search queries against source names and slugs", () => {
+    const condition = buildNewsTextSearchCondition("OpenAI News");
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("name");
+    expect(sqlText).toContain("slug");
+  });
+
   it("deduplicates search result URL variants before limiting candidates", () => {
     const candidates = selectNewsSearchCandidateItems({
       items: [

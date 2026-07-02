@@ -43,6 +43,7 @@ import {
   selectExposureBalancedNewsFeed,
   selectFatigueBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
+  selectNewsRecommendationRotationFeed,
   selectPositiveFeedbackAnchoredNewsFeed,
   selectReaderFreshNewsFeed,
   selectSemanticSimilarityNewsFeed,
@@ -629,11 +630,16 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   );
   const discoverySlotRows = selectDiscoverySlotNewsFeed(breakingPriorityRows);
 
-  return selectReaderFreshNewsFeed(
+  const readerFreshRows = selectReaderFreshNewsFeed(
     discoverySlotRows,
     viewedNewsItemIds,
     viewedNewsItems,
-  ).slice(0, limit);
+  );
+
+  return selectNewsRecommendationRotationFeed({
+    items: readerFreshRows,
+    limit,
+  });
 };
 
 export const getNewsForYouCandidateLimit = (limit: number) =>

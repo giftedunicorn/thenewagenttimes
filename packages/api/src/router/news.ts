@@ -6,13 +6,16 @@ import type { SQL } from "@acme/db";
 import type {
   DedupeNewsItem,
   NegativeFeedbackNewsItem,
+  NewsCollaborativeSignal,
   NewsPreferenceProfile,
+  NewsSemanticSimilarityMatch,
+  NewsSemanticVector,
   PositiveFeedbackNewsItem,
   RankedNewsItem,
   RecentExposureNewsItem,
   RecommendableNewsItem,
 } from "@acme/validators";
-import { and, desc, eq, ilike, lt, or, sql } from "@acme/db";
+import { and, desc, eq, ilike, inArray, lt, or, sql } from "@acme/db";
 import {
   NewsCategorySchema,
   NewsItem,
@@ -24,12 +27,14 @@ import {
   NewsSource,
 } from "@acme/db/schema";
 import {
+  buildNewsSemanticSimilarityMatches,
   dedupeNewsItems,
   filterBlockedNewsItems,
   getNewsExplorationInterval,
   normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectBreakingNewsPriorityFeed,
+  selectCollaborativeSignalNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,
@@ -37,6 +42,7 @@ import {
   selectNegativeFeedbackAdjustedNewsFeed,
   selectPositiveFeedbackAnchoredNewsFeed,
   selectReaderFreshNewsFeed,
+  selectSemanticSimilarityNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   shouldTrainReaderProfileFromInteraction,
   updateReaderProfileWithInteraction,
@@ -156,6 +162,28 @@ export const shouldIncludeNewsInteractionAsPositiveFeedback = ({
 
   return (metadata.readPercent ?? 0) >= 0.8;
 };
+
+const getNewsSemanticFeedbackStrength = (
+  action: NewsRecordInteractionInput["action"],
+) => {
+  if (action === "share") return 3;
+  if (action === "save") return 2;
+  if (action === "click_source") return 1;
+
+  return 2;
+};
+
+export const getNewsCollaborativeSignalScore = ({
+  deepReadCount,
+  saveCount,
+  shareCount,
+  sourceClickCount,
+}: {
+  deepReadCount: number;
+  saveCount: number;
+  shareCount: number;
+  sourceClickCount: number;
+}) => shareCount * 3 + saveCount * 2 + deepReadCount * 2 + sourceClickCount;
 
 const meaningfulNewsArticleReadCondition = (): SQL<unknown> =>
   sql`${NewsReaderInteraction.metadata}->>'surface' = 'article' and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.35`;
@@ -446,6 +474,7 @@ const toPreferenceProfile = (
 };
 
 export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
+  collaborativeSignals = [],
   hiddenNewsItemIds,
   hiddenNewsItems = [],
   items,
@@ -454,9 +483,11 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   now,
   positiveFeedbackItems = [],
   profile,
+  semanticMatches = [],
   viewedNewsItemIds,
   viewedNewsItems = [],
 }: {
+  collaborativeSignals?: readonly NewsCollaborativeSignal[];
   hiddenNewsItemIds: readonly string[];
   hiddenNewsItems?: readonly NewsForYouCandidate[];
   items: readonly TItem[];
@@ -465,6 +496,7 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   now?: Date;
   positiveFeedbackItems?: readonly PositiveFeedbackNewsItem[];
   profile: NewsPreferenceProfile;
+  semanticMatches?: readonly NewsSemanticSimilarityMatch[];
   viewedNewsItemIds: readonly string[];
   viewedNewsItems?: readonly RecentExposureNewsItem[];
 }): RankedNewsItem<TItem>[] => {
@@ -481,8 +513,16 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
     viewedNewsItems,
     now,
   );
-  const positiveAnchoredRows = selectPositiveFeedbackAnchoredNewsFeed(
+  const semanticSimilarityRows = selectSemanticSimilarityNewsFeed(
     exposureBalancedRows,
+    semanticMatches,
+  );
+  const collaborativeSignalRows = selectCollaborativeSignalNewsFeed(
+    semanticSimilarityRows,
+    collaborativeSignals,
+  );
+  const positiveAnchoredRows = selectPositiveFeedbackAnchoredNewsFeed(
+    collaborativeSignalRows,
     positiveFeedbackItems,
     now,
   );
@@ -651,6 +691,10 @@ export const newsRouter = {
       let hiddenNewsItems: NewsForYouCandidate[] = [];
       let negativeFeedbackItems: NegativeFeedbackNewsItem[] = [];
       let positiveFeedbackItems: PositiveFeedbackNewsItem[] = [];
+      let semanticFeedbackRefs: Pick<
+        NewsSemanticVector,
+        "newsItemId" | "occurredAt" | "strength"
+      >[] = [];
       let viewedNewsItemIds: string[] = [];
       let viewedNewsItems: RecentExposureNewsItem[] = [];
 
@@ -709,6 +753,7 @@ export const newsRouter = {
                 category: NewsItem.category,
                 entities: NewsItem.entities,
                 metadata: NewsReaderInteraction.metadata,
+                newsItemId: NewsReaderInteraction.newsItemId,
                 occurredAt: NewsReaderInteraction.occurredAt,
                 sourceSlug: NewsSource.slug,
                 tags: NewsItem.tags,
@@ -782,7 +827,7 @@ export const newsRouter = {
             sourceSlug: row.sourceSlug,
             tags: row.tags,
           }));
-          positiveFeedbackItems = positiveRows.flatMap((row) => {
+          const positiveFeedbackRows = positiveRows.flatMap((row) => {
             const metadata = NewsInteractionMetadataSchema.safeParse(
               row.metadata,
             );
@@ -799,20 +844,34 @@ export const newsRouter = {
 
             return [
               {
-                action:
-                  row.action === "click_source" ||
-                  row.action === "save" ||
-                  row.action === "share"
-                    ? row.action
-                    : undefined,
+                action: row.action,
                 category: row.category,
                 entities: row.entities,
+                newsItemId: row.newsItemId,
                 occurredAt: row.occurredAt.toISOString(),
                 sourceSlug: row.sourceSlug,
                 tags: row.tags,
               },
             ];
           });
+          positiveFeedbackItems = positiveFeedbackRows.map((row) => ({
+            action:
+              row.action === "click_source" ||
+              row.action === "save" ||
+              row.action === "share"
+                ? row.action
+                : undefined,
+            category: row.category,
+            entities: row.entities,
+            occurredAt: row.occurredAt,
+            sourceSlug: row.sourceSlug,
+            tags: row.tags,
+          }));
+          semanticFeedbackRefs = positiveFeedbackRows.map((row) => ({
+            newsItemId: row.newsItemId,
+            occurredAt: row.occurredAt,
+            strength: getNewsSemanticFeedbackStrength(row.action),
+          }));
           viewedNewsItemIds = viewedRows.map((row) => row.newsItemId);
           viewedNewsItems = viewedRows.map((row) => ({
             canonicalUrl: row.canonicalUrl,
@@ -851,17 +910,106 @@ export const newsRouter = {
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
         .limit(candidateLimit);
 
+      const items = rows.map((row) => ({
+        ...row,
+        publishedAt: row.publishedAt.toISOString(),
+      }));
+      let collaborativeSignals: NewsCollaborativeSignal[] = [];
+      let semanticMatches: NewsSemanticSimilarityMatch[] = [];
+
+      if (items.length > 0) {
+        const collaborativeSince = new Date(Date.now() - 7 * 24 * 3_600_000);
+        const collaborativeRows = await ctx.db
+          .select({
+            deepReadCount: sql<number>`count(*) filter (where ${
+              NewsReaderInteraction.action
+            } = 'view' and ${
+              NewsReaderInteraction.metadata
+            }->>'surface' = 'article' and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.8)::int`,
+            newsItemId: NewsReaderInteraction.newsItemId,
+            saveCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'save')::int`,
+            shareCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'share')::int`,
+            sourceClickCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'click_source')::int`,
+          })
+          .from(NewsReaderInteraction)
+          .innerJoin(
+            NewsItem,
+            eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+          )
+          .where(
+            compactConditions([
+              inArray(
+                NewsReaderInteraction.newsItemId,
+                items.map((item) => item.id),
+              ),
+              eq(NewsItem.status, "published"),
+              sql`${NewsReaderInteraction.occurredAt} >= ${collaborativeSince}`,
+            ]),
+          )
+          .groupBy(NewsReaderInteraction.newsItemId);
+
+        collaborativeSignals = collaborativeRows.flatMap((row) => {
+          const score = getNewsCollaborativeSignalScore(row);
+
+          return score > 0 ? [{ newsItemId: row.newsItemId, score }] : [];
+        });
+      }
+
+      if (semanticFeedbackRefs.length > 0 && items.length > 0) {
+        const vectorNewsItemIds = Array.from(
+          new Set([
+            ...items.map((item) => item.id),
+            ...semanticFeedbackRefs.map((item) => item.newsItemId),
+          ]),
+        );
+        const vectorRows = await ctx.db
+          .select({
+            createdAt: NewsItemVector.createdAt,
+            embedding: NewsItemVector.embedding,
+            newsItemId: NewsItemVector.newsItemId,
+          })
+          .from(NewsItemVector)
+          .where(inArray(NewsItemVector.newsItemId, vectorNewsItemIds))
+          .orderBy(desc(NewsItemVector.createdAt))
+          .limit(vectorNewsItemIds.length * 3);
+        const latestEmbeddingByNewsItemId = new Map<
+          string,
+          readonly number[]
+        >();
+
+        for (const vectorRow of vectorRows) {
+          if (latestEmbeddingByNewsItemId.has(vectorRow.newsItemId)) continue;
+          if (!vectorRow.embedding || vectorRow.embedding.length === 0)
+            continue;
+
+          latestEmbeddingByNewsItemId.set(
+            vectorRow.newsItemId,
+            vectorRow.embedding,
+          );
+        }
+
+        semanticMatches = buildNewsSemanticSimilarityMatches({
+          candidateVectors: items.map((item) => ({
+            embedding: latestEmbeddingByNewsItemId.get(item.id) ?? null,
+            newsItemId: item.id,
+          })),
+          feedbackVectors: semanticFeedbackRefs.map((item) => ({
+            ...item,
+            embedding: latestEmbeddingByNewsItemId.get(item.newsItemId) ?? null,
+          })),
+        });
+      }
+
       return selectNewsForYouItems({
+        collaborativeSignals,
         hiddenNewsItemIds,
         hiddenNewsItems,
-        items: rows.map((row) => ({
-          ...row,
-          publishedAt: row.publishedAt.toISOString(),
-        })),
+        items,
         limit: input.limit,
         negativeFeedbackItems,
         positiveFeedbackItems,
         profile,
+        semanticMatches,
         viewedNewsItemIds,
         viewedNewsItems,
       });

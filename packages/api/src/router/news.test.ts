@@ -934,6 +934,125 @@ describe("selectNewsForYouItems", () => {
     ]);
   });
 
+  it("lifts server recommendations with semantic similarity to positive feedback", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      hiddenNewsItems: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "generic-fresh-funding",
+          canonicalUrl: "https://example.com/generic-fresh-funding",
+          category: "funding",
+          entities: ["Series A"],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          sourceScore: 84,
+          trendScore: 86,
+        },
+        {
+          ...baseNewsItem,
+          id: "semantic-agent-follow-up",
+          canonicalUrl: "https://example.com/semantic-agent-follow-up",
+          category: "research",
+          entities: ["Agents"],
+          sourceName: "Research Lab",
+          sourceSlug: "research-lab",
+          sourceScore: 86,
+          trendScore: 78,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T09:00:00.000Z"),
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      semanticMatches: [
+        {
+          newsItemId: "semantic-agent-follow-up",
+          similarity: 0.98,
+          strength: 3,
+        },
+      ],
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "semantic-agent-follow-up",
+      "generic-fresh-funding",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("semantic_feedback");
+  });
+
+  it("lifts weak server recommendations from collaborative reader signals", () => {
+    const feed = selectNewsForYouItems({
+      collaborativeSignals: [
+        {
+          newsItemId: "crowd-backed-research",
+          score: 6,
+        },
+      ],
+      hiddenNewsItemIds: [],
+      hiddenNewsItems: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "personal-model-match",
+          canonicalUrl: "https://example.com/personal-model-match",
+          sourceScore: 90,
+          trendScore: 84,
+        },
+        {
+          ...baseNewsItem,
+          id: "generic-market-story",
+          canonicalUrl: "https://example.com/generic-market-story",
+          category: "market_map",
+          entities: ["Market"],
+          sourceName: "Market Desk",
+          sourceSlug: "market-desk",
+          sourceScore: 84,
+          trendScore: 88,
+        },
+        {
+          ...baseNewsItem,
+          id: "crowd-backed-research",
+          canonicalUrl: "https://example.com/crowd-backed-research",
+          category: "research",
+          entities: ["Benchmarks"],
+          sourceName: "Research Lab",
+          sourceSlug: "research-lab",
+          sourceScore: 86,
+          trendScore: 78,
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T09:00:00.000Z"),
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "personal-model-match",
+      "crowd-backed-research",
+      "generic-market-story",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("collaborative_feedback");
+  });
+
   it("moves server recommendations with viewed canonical or original URLs behind unseen candidates", () => {
     const feed = selectNewsForYouItems({
       hiddenNewsItemIds: [],

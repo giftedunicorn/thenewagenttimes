@@ -6,15 +6,19 @@ import {
   getNewsArticleFeedbackLoop,
   getNewsArticleLearningImpact,
   getNewsArticleNextReads,
+  getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
   getNewsArticleReaderSignalCacheScopes,
   getNewsArticleReadingPath,
   getNewsArticleReadPercent,
+  getNewsArticleReadTrainingReceipt,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
   selectNewsArticleReadMilestone,
+  shouldApplyNewsArticleLocalProfileFromMilestone,
   shouldApplyNewsArticleServerProfileFromInteraction,
   shouldPersistNewsArticleReaderSignals,
+  shouldTrackNewsArticleReaderSignals,
   shouldTrainNewsArticleProfileFromReadPercent,
 } from "./news-article-model";
 
@@ -104,6 +108,21 @@ describe("shouldTrainNewsArticleProfileFromReadPercent", () => {
 });
 
 describe("selectNewsArticleReadMilestone", () => {
+  it("exposes observable checkpoints for meaningful and deep article reads", () => {
+    expect(getNewsArticleReadDepthCheckpoints()).toEqual([
+      {
+        key: "meaningful_read",
+        readPercent: 0.35,
+        topPercent: 35,
+      },
+      {
+        key: "deep_read",
+        readPercent: 0.8,
+        topPercent: 80,
+      },
+    ]);
+  });
+
   it("records article open, meaningful read, and deep read milestones once", () => {
     expect(
       selectNewsArticleReadMilestone({
@@ -167,7 +186,86 @@ describe("selectNewsArticleReadMilestone", () => {
   });
 });
 
+describe("getNewsArticleReadTrainingReceipt", () => {
+  it("shows the next training target as article read milestones advance", () => {
+    expect(
+      getNewsArticleReadTrainingReceipt({
+        article,
+        formatCategory: formatArticleCategory,
+        recordedMilestones: ["opened"],
+      }),
+    ).toEqual({
+      label: "Opened",
+      metrics: [
+        { label: "Opened", value: "Yes" },
+        { label: "Training signals", value: "0" },
+        { label: "Next target", value: "35%" },
+      ],
+      nextStep:
+        "Read to 35% to train Models and add this article to reading history.",
+      stages: [
+        {
+          detail:
+            "The article open is logged, but it does not train preferences yet.",
+          key: "opened",
+          label: "Opened",
+          status: "done",
+          target: "Open",
+        },
+        {
+          detail: "Reading to 35% starts profile training and reading history.",
+          key: "meaningful_read",
+          label: "Meaningful read",
+          status: "next",
+          target: "35%",
+        },
+        {
+          detail: "Reading to 80% strengthens related topic and entity memory.",
+          key: "deep_read",
+          label: "Deep read",
+          status: "locked",
+          target: "80%",
+        },
+      ],
+      summary:
+        "This open is logged; the For You model waits for a meaningful read.",
+    });
+
+    expect(
+      getNewsArticleReadTrainingReceipt({
+        article,
+        formatCategory: formatArticleCategory,
+        recordedMilestones: ["opened", "meaningful_read", "deep_read"],
+      }).nextStep,
+    ).toBe("Deep read has trained For You toward Models from OpenAI News.");
+  });
+});
+
 describe("shouldApplyNewsArticleServerProfileFromInteraction", () => {
+  it("applies local profile updates once an article read starts training", () => {
+    expect(
+      shouldApplyNewsArticleLocalProfileFromMilestone({
+        readPercent: 0.2,
+        shouldShowFeedback: false,
+        shouldTrainProfile: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldApplyNewsArticleLocalProfileFromMilestone({
+        readPercent: 0.42,
+        shouldShowFeedback: false,
+        shouldTrainProfile: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldApplyNewsArticleLocalProfileFromMilestone({
+        readPercent: 0.86,
+        shouldShowFeedback: true,
+        shouldTrainProfile: true,
+      }),
+    ).toBe(true);
+  });
+
   it("ignores shallow article-open responses that do not train reader memory", () => {
     expect(
       shouldApplyNewsArticleServerProfileFromInteraction({
@@ -197,6 +295,20 @@ describe("shouldApplyNewsArticleServerProfileFromInteraction", () => {
 });
 
 describe("shouldPersistNewsArticleReaderSignals", () => {
+  it("allows local article read training even when preview stories cannot persist", () => {
+    expect(
+      shouldTrackNewsArticleReaderSignals({
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistNewsArticleReaderSignals({
+        articleId: "preview-desk",
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(false);
+  });
+
   it("keeps preview article ids out of server profile calls", () => {
     expect(
       shouldPersistNewsArticleReaderSignals({

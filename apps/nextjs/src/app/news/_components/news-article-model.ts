@@ -150,6 +150,16 @@ const newsArticleReadMilestones = [
   },
 ] as const satisfies readonly NewsArticleReadMilestoneDefinition[];
 
+export const getNewsArticleReadDepthCheckpoints = () =>
+  [...newsArticleReadMilestones]
+    .filter((milestone) => milestone.key !== "opened")
+    .sort((left, right) => left.minReadPercent - right.minReadPercent)
+    .map((milestone) => ({
+      key: milestone.key,
+      readPercent: milestone.minReadPercent,
+      topPercent: Math.round(milestone.minReadPercent * 100),
+    }));
+
 const newsArticleReadMilestoneRank = new Map<NewsArticleReadMilestone, number>(
   newsArticleReadMilestones.map((milestone, index) => [milestone.key, index]),
 );
@@ -170,6 +180,107 @@ const isNewsArticleReadMilestoneCovered = ({
 
     return recordedRank !== undefined && recordedRank <= milestoneRank;
   });
+};
+
+export const getNewsArticleReadTrainingReceipt = ({
+  article,
+  formatCategory,
+  recordedMilestones,
+}: {
+  article: NewsArticleItem;
+  formatCategory: (category: string) => string;
+  recordedMilestones: readonly NewsArticleReadMilestone[];
+}) => {
+  const topicLabel = formatCategory(article.category);
+  const opened = isNewsArticleReadMilestoneCovered({
+    milestone: "opened",
+    recordedMilestones,
+  });
+  const meaningfulRead = isNewsArticleReadMilestoneCovered({
+    milestone: "meaningful_read",
+    recordedMilestones,
+  });
+  const deepRead = isNewsArticleReadMilestoneCovered({
+    milestone: "deep_read",
+    recordedMilestones,
+  });
+  const trainingSignalCount = Number(meaningfulRead) + Number(deepRead);
+  const nextTarget = !opened
+    ? "Open"
+    : !meaningfulRead
+      ? "35%"
+      : !deepRead
+        ? "80%"
+        : "Complete";
+  const getStageStatus = (
+    milestone: NewsArticleReadMilestone,
+  ): "done" | "locked" | "next" => {
+    if (
+      isNewsArticleReadMilestoneCovered({
+        milestone,
+        recordedMilestones,
+      })
+    ) {
+      return "done";
+    }
+
+    if (milestone === "opened") return "next";
+    if (milestone === "meaningful_read") return opened ? "next" : "locked";
+    return meaningfulRead ? "next" : "locked";
+  };
+
+  return {
+    label: deepRead
+      ? "Deep Read"
+      : meaningfulRead
+        ? "Training"
+        : opened
+          ? "Opened"
+          : "Awaiting Read",
+    metrics: [
+      { label: "Opened", value: opened ? "Yes" : "No" },
+      { label: "Training signals", value: String(trainingSignalCount) },
+      { label: "Next target", value: nextTarget },
+    ],
+    nextStep: deepRead
+      ? `Deep read has trained For You toward ${topicLabel} from ${article.sourceName}.`
+      : meaningfulRead
+        ? `Read to 80% to strengthen ${topicLabel} and related entity memory.`
+        : opened
+          ? `Read to 35% to train ${topicLabel} and add this article to reading history.`
+          : `Open this article to start reader-memory training for ${topicLabel}.`,
+    stages: [
+      {
+        detail:
+          "The article open is logged, but it does not train preferences yet.",
+        key: "opened",
+        label: "Opened",
+        status: getStageStatus("opened"),
+        target: "Open",
+      },
+      {
+        detail: "Reading to 35% starts profile training and reading history.",
+        key: "meaningful_read",
+        label: "Meaningful read",
+        status: getStageStatus("meaningful_read"),
+        target: "35%",
+      },
+      {
+        detail: "Reading to 80% strengthens related topic and entity memory.",
+        key: "deep_read",
+        label: "Deep read",
+        status: getStageStatus("deep_read"),
+        target: "80%",
+      },
+    ],
+    summary: deepRead
+      ? `Deep read trained the For You model toward ${topicLabel}.`
+      : meaningfulRead
+        ? `Meaningful read is training ${topicLabel}; deep read adds stronger memory.`
+        : opened
+          ? "This open is logged; the For You model waits for a meaningful read."
+          : "Article read training starts after the reader opens this story.",
+  };
 };
 
 export const selectNewsArticleReadMilestone = ({
@@ -216,6 +327,14 @@ export const shouldApplyNewsArticleServerProfileFromInteraction = ({
   return shouldTrainNewsArticleProfileFromReadPercent(metadata.readPercent);
 };
 
+export const shouldApplyNewsArticleLocalProfileFromMilestone = ({
+  shouldTrainProfile,
+}: {
+  readPercent: number;
+  shouldShowFeedback: boolean;
+  shouldTrainProfile: boolean;
+}) => shouldTrainProfile;
+
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -226,6 +345,12 @@ export const shouldPersistNewsArticleReaderSignals = ({
   articleId: string;
   visitorKey: string | null;
 }) => Boolean(visitorKey) && uuidPattern.test(articleId);
+
+export const shouldTrackNewsArticleReaderSignals = ({
+  visitorKey,
+}: {
+  visitorKey: string | null;
+}) => Boolean(visitorKey);
 
 const newsArticleReaderSignalCacheScopes = [
   "forYou",

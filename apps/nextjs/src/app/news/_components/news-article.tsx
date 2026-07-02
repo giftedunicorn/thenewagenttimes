@@ -32,15 +32,18 @@ import {
   getNewsArticleFeedbackLoop,
   getNewsArticleLearningImpact,
   getNewsArticleNextReads,
+  getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
   getNewsArticleReaderSignalCacheScopes,
   getNewsArticleReadingPath,
-  getNewsArticleReadPercent,
+  getNewsArticleReadTrainingReceipt,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
   selectNewsArticleReadMilestone,
+  shouldApplyNewsArticleLocalProfileFromMilestone,
   shouldApplyNewsArticleServerProfileFromInteraction,
   shouldPersistNewsArticleReaderSignals,
+  shouldTrackNewsArticleReaderSignals,
 } from "./news-article-model";
 
 interface NewsArticleProps {
@@ -161,11 +164,24 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     typeof getNewsArticleFeedbackLoop
   > | null>(null);
   const [visitorKey, setVisitorKey] = useState<string | null>(null);
+  const [readTrainingMilestones, setReadTrainingMilestones] = useState<
+    NewsArticleReadMilestone[]
+  >([]);
   const recordedReadMilestonesRef = useRef<NewsArticleReadMilestone[]>([]);
+  const articleReadCheckpointRefs = useRef(
+    new Map<NewsArticleReadMilestone, HTMLSpanElement>(),
+  );
   const canPersistReaderSignals = shouldPersistNewsArticleReaderSignals({
     articleId: article.id,
     visitorKey,
   });
+  const canTrackReaderSignals = shouldTrackNewsArticleReaderSignals({
+    visitorKey,
+  });
+  const articleReadDepthCheckpoints = useMemo(
+    () => getNewsArticleReadDepthCheckpoints(),
+    [],
+  );
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -229,10 +245,11 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
 
   useEffect(() => {
     recordedReadMilestonesRef.current = [];
+    setReadTrainingMilestones([]);
   }, [article.id]);
 
   useEffect(() => {
-    if (!canPersistReaderSignals || !visitorKey) return;
+    if (!canTrackReaderSignals || !visitorKey) return;
 
     const milestone = selectNewsArticleReadMilestone({
       readPercent: 0.2,
@@ -245,6 +262,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       ...recordedReadMilestonesRef.current,
       milestone.key,
     ];
+    setReadTrainingMilestones(recordedReadMilestonesRef.current);
 
     if (milestone.shouldShowFeedback) {
       setProfile((current) => {
@@ -261,29 +279,46 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       });
     }
 
-    recordInteraction.mutate({
-      visitorKey,
-      newsItemId: article.id,
-      action: "view",
-      metadata: {
-        readMilestone: milestone.key,
-        readPercent: milestone.readPercent,
-        surface: "article",
-      },
-    });
+    if (canPersistReaderSignals) {
+      recordInteraction.mutate({
+        visitorKey,
+        newsItemId: article.id,
+        action: "view",
+        metadata: {
+          readMilestone: milestone.key,
+          readPercent: milestone.readPercent,
+          surface: "article",
+        },
+      });
+    }
     // This should run once per article open after the reader key is available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article.id, canPersistReaderSignals, visitorKey]);
+  }, [article.id, canPersistReaderSignals, canTrackReaderSignals, visitorKey]);
 
   useEffect(() => {
-    if (!canPersistReaderSignals || !visitorKey) return;
+    if (!canTrackReaderSignals || !visitorKey) return;
 
-    const recordDeepRead = () => {
-      const readPercent = getNewsArticleReadPercent({
-        documentHeight: document.documentElement.scrollHeight,
-        scrollY: window.scrollY,
-        viewportHeight: window.innerHeight,
-      });
+    const checkpointNodes = articleReadDepthCheckpoints
+      .map((checkpoint) => ({
+        ...checkpoint,
+        node: articleReadCheckpointRefs.current.get(checkpoint.key),
+      }))
+      .filter(
+        (
+          checkpoint,
+        ): checkpoint is (typeof articleReadDepthCheckpoints)[number] & {
+          node: HTMLSpanElement;
+        } => Boolean(checkpoint.node),
+      );
+
+    if (
+      checkpointNodes.length === 0 ||
+      typeof window.IntersectionObserver !== "function"
+    ) {
+      return;
+    }
+
+    const recordCheckpointRead = (readPercent: number) => {
       const milestone = selectNewsArticleReadMilestone({
         readPercent,
         recordedMilestones: recordedReadMilestonesRef.current,
@@ -295,8 +330,9 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
         ...recordedReadMilestonesRef.current,
         milestone.key,
       ];
+      setReadTrainingMilestones(recordedReadMilestonesRef.current);
 
-      if (milestone.shouldShowFeedback) {
+      if (shouldApplyNewsArticleLocalProfileFromMilestone(milestone)) {
         setProfile((current) => {
           const trainingState = getNewsArticleDeepReadTrainingState({
             article,
@@ -307,34 +343,63 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
 
           if (!trainingState) return current;
 
-          setFeedbackLoop(trainingState.feedbackLoop);
+          if (milestone.shouldShowFeedback) {
+            setFeedbackLoop(trainingState.feedbackLoop);
+          }
           writeStoredProfile(trainingState.profile);
           return trainingState.profile;
         });
       }
-      recordInteraction.mutate({
-        visitorKey,
-        newsItemId: article.id,
-        action: "view",
-        metadata: {
-          readMilestone: milestone.key,
-          readPercent: milestone.readPercent,
-          surface: "article",
-        },
-      });
+      if (canPersistReaderSignals) {
+        recordInteraction.mutate({
+          visitorKey,
+          newsItemId: article.id,
+          action: "view",
+          metadata: {
+            readMilestone: milestone.key,
+            readPercent: milestone.readPercent,
+            surface: "article",
+          },
+        });
+      }
     };
 
-    recordDeepRead();
-    window.addEventListener("scroll", recordDeepRead, { passive: true });
-    window.addEventListener("resize", recordDeepRead);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+
+          const checkpoint = checkpointNodes.find(
+            ({ node }) => node === entry.target,
+          );
+
+          if (!checkpoint) return;
+
+          recordCheckpointRead(checkpoint.readPercent);
+          observer.unobserve(checkpoint.node);
+        });
+      },
+      {
+        root: null,
+        rootMargin: "0px 0px -20% 0px",
+        threshold: 0,
+      },
+    );
+
+    checkpointNodes.forEach(({ node }) => observer.observe(node));
 
     return () => {
-      window.removeEventListener("scroll", recordDeepRead);
-      window.removeEventListener("resize", recordDeepRead);
+      observer.disconnect();
     };
-    // This effect tracks browser reading depth for the active article.
+    // This effect tracks browser reading depth for the active article body.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article.id, canPersistReaderSignals, visitorKey]);
+  }, [
+    article.id,
+    articleReadDepthCheckpoints,
+    canPersistReaderSignals,
+    canTrackReaderSignals,
+    visitorKey,
+  ]);
 
   const rankedRelated = useMemo(
     () =>
@@ -376,6 +441,15 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
         relatedItems: rankedRelated,
       }),
     [article, profile, rankedRelated],
+  );
+  const readTrainingReceipt = useMemo(
+    () =>
+      getNewsArticleReadTrainingReceipt({
+        article,
+        formatCategory,
+        recordedMilestones: readTrainingMilestones,
+      }),
+    [article, readTrainingMilestones],
   );
   const nextReads = useMemo(
     () =>
@@ -506,7 +580,29 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             </Button>
           </div>
 
-          <div className="mt-10 max-w-3xl space-y-7 text-lg leading-8 text-[#2d2d2d] dark:text-[#ddd8ce]">
+          <div className="relative mt-10 max-w-3xl space-y-7 text-lg leading-8 text-[#2d2d2d] dark:text-[#ddd8ce]">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 left-0 w-px"
+            >
+              {articleReadDepthCheckpoints.map((checkpoint) => (
+                <span
+                  className="absolute h-px w-px"
+                  key={checkpoint.key}
+                  ref={(node) => {
+                    if (node) {
+                      articleReadCheckpointRefs.current.set(
+                        checkpoint.key,
+                        node,
+                      );
+                    } else {
+                      articleReadCheckpointRefs.current.delete(checkpoint.key);
+                    }
+                  }}
+                  style={{ top: `${checkpoint.topPercent}%` }}
+                />
+              ))}
+            </div>
             {paragraphs.map((paragraph) => (
               <p key={paragraph}>{paragraph}</p>
             ))}
@@ -669,6 +765,58 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
                 Open another story or save this one to train the article queue.
               </p>
             )}
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Read Training</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {readTrainingReceipt.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {readTrainingReceipt.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-3 border-y border-[#161616]/20 text-center text-xs dark:border-[#f4f1ea]/15">
+              {readTrainingReceipt.metrics.map((metric) => (
+                <div
+                  className="border-r border-[#161616]/20 py-3 last:border-r-0 dark:border-[#f4f1ea]/15"
+                  key={metric.label}
+                >
+                  <dt className="text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-base">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <ol className="mt-4 grid gap-3 text-sm">
+              {readTrainingReceipt.stages.map((stage) => (
+                <li
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                  key={stage.key}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-semibold">{stage.label}</span>
+                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                      {stage.status === "done"
+                        ? "Done"
+                        : stage.status === "next"
+                          ? `Next / ${stage.target}`
+                          : `Wait / ${stage.target}`}
+                    </span>
+                  </div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {stage.detail}
+                  </p>
+                </li>
+              ))}
+            </ol>
+            <p className="mt-4 border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+              {readTrainingReceipt.nextStep}
+            </p>
           </section>
 
           <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">

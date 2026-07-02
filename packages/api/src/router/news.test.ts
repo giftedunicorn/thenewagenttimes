@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { NewsForYouCandidate } from "./news";
 import {
+  attachNewsRecommendationExplanations,
   buildNewsCollaborativeSignalCondition,
+  buildNewsReaderMutationProfileResponse,
   buildNewsReaderProfileResponse,
   buildNewsTextSearchCondition,
   getNewsCollaborativeSignalScore,
@@ -574,6 +576,35 @@ describe("getNewsForYouCandidateLimit", () => {
   });
 });
 
+describe("attachNewsRecommendationExplanations", () => {
+  it("adds the shared recommendation explanation to server For You rows", () => {
+    const [item] = attachNewsRecommendationExplanations(
+      [
+        {
+          ...baseNewsItem,
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 174,
+          publishedAt: "2026-07-01T09:30:00.000Z",
+        },
+      ],
+      new Date("2026-07-01T10:00:00.000Z"),
+    );
+
+    expect(item?.recommendation).toEqual({
+      badges: [
+        "Preferred topic",
+        "Followed entity",
+        "High heat",
+        "Fresh",
+        "Strong source",
+      ],
+      scoreLabel: "174 score",
+      summary:
+        "Ranked for your topic and entity signals, with high story heat, fresh publication timing, and source credibility.",
+    });
+  });
+});
+
 describe("getNewsCollaborativeSignalScore", () => {
   it("requires at least two distinct readers before cohort lift is trusted", () => {
     expect(
@@ -991,6 +1022,82 @@ describe("buildNewsReaderProfileResponse", () => {
       preferredCategories: ["agent_product"],
       preferredEntities: ["OpenAI"],
       preferredSources: ["openai-news"],
+    });
+  });
+});
+
+describe("buildNewsReaderMutationProfileResponse", () => {
+  it("returns an audited profile response for the interaction just recorded", () => {
+    expect(
+      buildNewsReaderMutationProfileResponse({
+        interaction: {
+          action: "save",
+          category: "agent_product",
+          entities: ["OpenAI", "Agents"],
+          tags: ["agent"],
+          metadata: {
+            feedMode: "for_you",
+            matchedSignals: ["category", "entity"],
+            rankSlot: 2,
+            surface: "home",
+          },
+          occurredAt: "2026-07-01T10:00:00.000Z",
+          sourceSlug: "openai-news",
+        },
+        profile: {
+          noveltyBias: 1.3,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI", "Agents"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.3,
+        },
+      }),
+    ).toMatchObject({
+      audit: {
+        averageHomeRankSlot: 2,
+        positiveSignalCount: 1,
+        summary:
+          "Profile leans toward agent_product, led by openai-news and OpenAI.",
+        topCategories: [{ count: 1, key: "agent_product" }],
+        topEntities: [
+          { count: 1, key: "OpenAI" },
+          { count: 1, key: "Agents" },
+        ],
+        topFeedModes: [{ count: 1, key: "for_you" }],
+        topMatchedSignals: [
+          { count: 1, key: "category" },
+          { count: 1, key: "entity" },
+        ],
+        topSources: [{ count: 1, key: "openai-news" }],
+        topTags: [{ count: 1, key: "agent" }],
+        trainedSignalCount: 1,
+      },
+      persisted: true,
+      preferredCategories: ["agent_product"],
+    });
+  });
+
+  it("returns a cold audited profile response for manual updates without an interaction", () => {
+    expect(
+      buildNewsReaderMutationProfileResponse({
+        profile: {
+          noveltyBias: 1,
+          preferredCategories: ["model_release"],
+          preferredEntities: [],
+          preferredSources: [],
+          recencyBias: 1,
+        },
+      }),
+    ).toMatchObject({
+      audit: {
+        ignoredSignalCount: 0,
+        positiveSignalCount: 0,
+        summary:
+          "Profile is still learning from the next meaningful read, save, share, or source click.",
+        trainedSignalCount: 0,
+      },
+      persisted: true,
+      preferredCategories: ["model_release"],
     });
   });
 });

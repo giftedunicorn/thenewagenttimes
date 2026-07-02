@@ -8,6 +8,7 @@ import type {
   NegativeFeedbackNewsItem,
   NewsCollaborativeSignal,
   NewsPreferenceProfile,
+  NewsRecommendationExplanation,
   NewsSemanticSimilarityMatch,
   NewsSemanticVector,
   NewsSessionIntentFilter,
@@ -51,6 +52,7 @@ import {
   selectSourceCorroboratedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   shouldTrainReaderProfileFromInteraction,
+  summarizeNewsRecommendation,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
@@ -439,6 +441,19 @@ export const buildNewsReaderProfileResponse = ({
   };
 };
 
+export const buildNewsReaderMutationProfileResponse = ({
+  interaction,
+  profile,
+}: {
+  interaction?: NewsReaderProfileSignalInteraction;
+  profile: NewsPreferenceProfile;
+}) =>
+  buildNewsReaderProfileResponse({
+    interactions: interaction ? [interaction] : [],
+    persisted: true,
+    profile,
+  });
+
 export type NewsForYouCandidate = DedupeNewsItem &
   RecommendableNewsItem & {
     canonicalUrl: string | null;
@@ -641,6 +656,23 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
     limit,
   });
 };
+
+export type ExplainedNewsForYouItem<
+  TItem extends RankedNewsItem<NewsForYouCandidate>,
+> = TItem & {
+  recommendation: NewsRecommendationExplanation;
+};
+
+export const attachNewsRecommendationExplanations = <
+  TItem extends RankedNewsItem<NewsForYouCandidate>,
+>(
+  items: readonly TItem[],
+  now = new Date(),
+): ExplainedNewsForYouItem<TItem>[] =>
+  items.map((item) => ({
+    ...item,
+    recommendation: summarizeNewsRecommendation({ item, now }),
+  }));
 
 export const getNewsForYouCandidateLimit = (limit: number) =>
   Math.min(limit * 6, 240);
@@ -1134,13 +1166,15 @@ export const newsRouter = {
         });
       }
 
-      return selectNewsForYouItems({
+      const now = new Date();
+      const forYouItems = selectNewsForYouItems({
         collaborativeSignals,
         hiddenNewsItemIds,
         hiddenNewsItems,
         items,
         limit: input.limit,
         negativeFeedbackItems,
+        now,
         positiveFeedbackItems,
         profile,
         readerLocalHour: input.readerLocalHour,
@@ -1153,6 +1187,8 @@ export const newsRouter = {
         viewedNewsItemIds,
         viewedNewsItems,
       });
+
+      return attachNewsRecommendationExplanations(forYouItems, now);
     }),
 
   saved: publicProcedure
@@ -1444,10 +1480,18 @@ export const newsRouter = {
         readerProfileId: profile.id,
       });
 
-      return {
-        ...toPreferenceProfile(profile),
-        persisted: true,
-      };
+      return buildNewsReaderMutationProfileResponse({
+        interaction: {
+          action: input.action,
+          category: item.category,
+          entities: item.entities,
+          metadata: input.metadata,
+          occurredAt: new Date().toISOString(),
+          sourceSlug: item.sourceSlug,
+          tags: item.tags,
+        },
+        profile: toPreferenceProfile(profile),
+      });
     }),
 
   updateProfile: publicProcedure
@@ -1505,10 +1549,9 @@ export const newsRouter = {
         });
       }
 
-      return {
-        ...toPreferenceProfile(profile),
-        persisted: true,
-      };
+      return buildNewsReaderMutationProfileResponse({
+        profile: toPreferenceProfile(profile),
+      });
     }),
 
   resetProfile: publicProcedure
@@ -1572,10 +1615,9 @@ export const newsRouter = {
         .delete(NewsReaderInteraction)
         .where(eq(NewsReaderInteraction.readerProfileId, profile.id));
 
-      return {
-        ...toPreferenceProfile(profile),
-        persisted: true,
-      };
+      return buildNewsReaderMutationProfileResponse({
+        profile: toPreferenceProfile(profile),
+      });
     }),
 
   searchCandidates: publicProcedure

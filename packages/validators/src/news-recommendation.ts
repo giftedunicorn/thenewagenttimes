@@ -1031,15 +1031,17 @@ export const updateReaderProfileWithInteraction = <
   }
 
   const actionWeight = getInteractionWeight(interaction);
+  const shouldOnlyLearnSource = interaction.action === "click_source";
   const entityLimit = interaction.action === "view" ? 8 : 12;
   const shouldLearnEntities =
-    interaction.action !== "view" ||
-    Math.min(Math.max(interaction.readPercent ?? 0.35, 0), 1) >= 0.75;
+    !shouldOnlyLearnSource &&
+    (interaction.action !== "view" ||
+      Math.min(Math.max(interaction.readPercent ?? 0.35, 0), 1) >= 0.75);
 
   return {
     preferredCategories: uniqueAppend(
       normalizedProfile.preferredCategories,
-      [item.category],
+      shouldOnlyLearnSource ? [] : [item.category],
       8,
     ),
     preferredSources: uniqueAppend(

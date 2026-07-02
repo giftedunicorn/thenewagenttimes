@@ -1955,6 +1955,32 @@ describe("updateReaderProfileWithInteraction", () => {
     ]);
   });
 
+  test("keeps source clicks focused on source preference", () => {
+    const profile = updateReaderProfileWithInteraction(
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      {
+        ...items[0],
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["agents"],
+      },
+      {
+        action: "click_source",
+      },
+    );
+
+    expect(profile.preferredSources).toEqual(["openai-news"]);
+    expect(profile.preferredCategories).toEqual([]);
+    expect(profile.preferredEntities).toEqual([]);
+  });
+
   test("uses weaker actions to increase recency and novelty bias gradually", () => {
     const profile = updateReaderProfileWithInteraction(
       {

@@ -287,6 +287,7 @@ describe("buildNewsHomeFeedInput", () => {
         cursor: "2026-06-30T08:00:00.000Z",
         limit: 20,
         q: "  agents  ",
+        readerLocalHour: 21,
         sourceSlug: "openai-news",
         visitorKey: "visitor-123",
       }),
@@ -295,6 +296,7 @@ describe("buildNewsHomeFeedInput", () => {
       cursor: "2026-06-30T08:00:00.000Z",
       limit: 20,
       q: "agents",
+      readerLocalHour: 21,
       sourceSlug: "openai-news",
       visitorKey: "visitor-123",
     });
@@ -307,6 +309,7 @@ describe("buildNewsHomeFeedInput", () => {
         cursor: null,
         limit: 30,
         q: "   ",
+        readerLocalHour: null,
         sourceSlug: null,
         visitorKey: null,
       }),
@@ -12967,6 +12970,18 @@ describe("getNewsRecommendationReasons", () => {
         },
       }),
     ).toEqual(["Current session intent"]);
+  });
+
+  it("explains edition timing signals from the daypart scheduler", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["daypart"],
+          personalizedScore: 119,
+        },
+      }),
+    ).toEqual(["Timed for this edition"]);
   });
 
   it("explains exact home exposure cooldown separately from article reads", () => {

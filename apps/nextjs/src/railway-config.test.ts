@@ -161,6 +161,16 @@ describe("Railway Next.js deployment config", () => {
     expect(expoHomeRoute).not.toContain("trpc.news.feed.queryOptions");
   });
 
+  test("Expo shell sends reader local hour for daypart recommendations", async () => {
+    const expoHomeRoute = await readFile(
+      path.join(repoRoot, "apps/expo/src/app/index.tsx"),
+      "utf8",
+    );
+
+    expect(expoHomeRoute).toContain("readerLocalHour");
+    expect(expoHomeRoute).toContain("new Date().getHours()");
+  });
+
   test("Expo article route records meaningful reads for recommendations", async () => {
     const expoArticleRoute = await readFile(
       path.join(repoRoot, "apps/expo/src/app/news/[id].tsx"),

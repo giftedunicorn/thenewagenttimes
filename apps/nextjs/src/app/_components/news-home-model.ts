@@ -292,6 +292,7 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
   cursor,
   limit,
   q,
+  readerLocalHour,
   sourceSlug,
   visitorKey,
 }: {
@@ -299,6 +300,7 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
   cursor: string | null;
   limit: number;
   q: string;
+  readerLocalHour: number | null;
   sourceSlug: string | null;
   visitorKey: string | null;
 }) => {
@@ -308,6 +310,7 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
     cursor?: string;
     limit: number;
     q?: string;
+    readerLocalHour?: number;
     sourceSlug?: string;
     visitorKey?: string;
   } = { limit };
@@ -315,6 +318,14 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
   if (category) input.category = category;
   if (cursor) input.cursor = cursor;
   if (query) input.q = query;
+  if (
+    typeof readerLocalHour === "number" &&
+    Number.isInteger(readerLocalHour) &&
+    readerLocalHour >= 0 &&
+    readerLocalHour <= 23
+  ) {
+    input.readerLocalHour = readerLocalHour;
+  }
   if (sourceSlug) input.sourceSlug = sourceSlug;
   if (visitorKey) input.visitorKey = visitorKey;
 
@@ -14550,6 +14561,7 @@ const recommendationReasonLabels = {
   breaking_news: "Breaking high-trust story",
   category: "Preferred topic",
   collaborative_feedback: "Popular with similar readers",
+  daypart: "Timed for this edition",
   deep_preference: "Deep preference match",
   discovery_slot: "Discovery slot",
   exposure_cooldown: "Fresh angle after reading",

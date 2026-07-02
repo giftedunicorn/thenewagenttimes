@@ -125,10 +125,12 @@ function MobileAuth() {
 export default function Index() {
   const queryClient = useQueryClient();
   const [visitorKey, setVisitorKey] = useState<string | null>(null);
+  const [readerLocalHour, setReaderLocalHour] = useState<number | null>(null);
   const newsQuery = useQuery(
     trpc.news.forYou.queryOptions(
       {
         limit: 30,
+        readerLocalHour: readerLocalHour ?? undefined,
         visitorKey: visitorKey ?? undefined,
       },
       {
@@ -150,6 +152,7 @@ export default function Index() {
 
     void readOrCreateNewsVisitorKey().then((nextVisitorKey) => {
       if (!cancelled) {
+        setReaderLocalHour(new Date().getHours());
         setVisitorKey(nextVisitorKey);
       }
     });

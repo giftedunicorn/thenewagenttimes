@@ -385,6 +385,7 @@ export function NewsHome({
     createDefaultNewsPreferenceProfile,
   );
   const [visitorKey, setVisitorKey] = useState<string | null>(null);
+  const [readerLocalHour, setReaderLocalHour] = useState<number | null>(null);
   const [readerStateHydrated, setReaderStateHydrated] = useState(false);
   const [hiddenItemIds, setHiddenItemIds] = useState<string[]>([]);
   const [negativeFeedbackItems, setNegativeFeedbackItems] = useState<
@@ -439,6 +440,7 @@ export function NewsHome({
         cursor: null,
         limit: 30,
         q: searchQuery,
+        readerLocalHour,
         sourceSlug: activeSourceSlug,
         visitorKey,
       }),
@@ -547,6 +549,7 @@ export function NewsHome({
   useEffect(() => {
     setProfile(readStoredProfile());
     setVisitorKey(readOrCreateVisitorKey());
+    setReaderLocalHour(new Date().getHours());
     setReaderStateHydrated(true);
   }, []);
 
@@ -715,6 +718,7 @@ export function NewsHome({
             cursor,
             limit: 20,
             q: searchQuery,
+            readerLocalHour,
             sourceSlug: activeSourceSlug,
             visitorKey,
           }),
@@ -739,6 +743,7 @@ export function NewsHome({
     isPreview,
     nextCursor,
     queryClient,
+    readerLocalHour,
     searchQuery,
     trpc.news.forYou,
     visitorKey,

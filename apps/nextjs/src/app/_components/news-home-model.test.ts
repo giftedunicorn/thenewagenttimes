@@ -9,6 +9,7 @@ import {
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
   getNewsAlertRouting,
+  getNewsAnglePreferenceOptions,
   getNewsBriefingPack,
   getNewsChannelComparison,
   getNewsChannelRail,
@@ -544,6 +545,7 @@ describe("getNewsReaderSignalSummary", () => {
         recencyBias: 1.4,
       }),
     ).toEqual({
+      angles: [],
       detail: "10 reader signals are shaping story order.",
       entities: ["OpenAI", "Anthropic", "YC", "LangChain"],
       signalCount: 10,
@@ -563,12 +565,39 @@ describe("getNewsReaderSignalSummary", () => {
         recencyBias: 0,
       }),
     ).toEqual({
+      angles: [],
       detail: "Read, save, or hide stories to train your edition.",
       entities: [],
       signalCount: 0,
       sources: [],
       strength: "Exploring",
       topics: [],
+    });
+  });
+
+  it("separates followed angles from named entities", () => {
+    expect(
+      getNewsReaderSignalSummary({
+        preferredCategories: ["security"],
+        preferredSources: [],
+        preferredEntities: [
+          "OpenAI",
+          "prompt_injection",
+          "red_team",
+          "OpenAI",
+          "benchmarks",
+        ],
+        noveltyBias: 1,
+        recencyBias: 1,
+      }),
+    ).toEqual({
+      angles: ["prompt injection", "red team", "benchmarks"],
+      detail: "5 reader signals are shaping story order.",
+      entities: ["OpenAI"],
+      signalCount: 5,
+      sources: [],
+      strength: "Learning",
+      topics: ["security"],
     });
   });
 });
@@ -605,6 +634,36 @@ describe("getNewsReaderRankingFactors", () => {
       {
         label: "Bias",
         detail: "Novel stories are weighted above fresh stories.",
+      },
+    ]);
+  });
+
+  it("explains followed angle signals separately from entities", () => {
+    expect(
+      getNewsReaderRankingFactors({
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [
+          "OpenAI",
+          "prompt_injection",
+          "red_team",
+          "benchmarks",
+        ],
+        noveltyBias: 1,
+        recencyBias: 1,
+      }),
+    ).toEqual([
+      {
+        label: "Entities",
+        detail: "1 entity signal lifts related coverage.",
+      },
+      {
+        label: "Angles",
+        detail: "3 angle signals lift stories with matching angles.",
+      },
+      {
+        label: "Bias",
+        detail: "Freshness and novelty are balanced.",
       },
     ]);
   });
@@ -2669,7 +2728,7 @@ describe("getNewsProfileSignalLedger", () => {
       entries: [
         {
           count: 0,
-          detail: "No explicit topics, sources, or entities are active.",
+          detail: "No explicit topics, sources, entities, or angles are active.",
           effect: "No direct boost yet",
           label: "Explicit profile",
           signals: [],
@@ -2709,6 +2768,32 @@ describe("getNewsProfileSignalLedger", () => {
       ],
       summary:
         "Profile ledger is waiting for explicit preferences or behavior signals.",
+    });
+  });
+
+  it("separates explicit angle signals from entity signals", () => {
+    expect(
+      getNewsProfileSignalLedger({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        historyItems: [],
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["security"],
+          preferredSources: ["security-desk"],
+          preferredEntities: ["OpenAI", "prompt_injection", "red_team"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }).entries[0],
+    ).toEqual({
+      count: 5,
+      detail: "1 topic, 1 source, 1 entity, and 2 angles are active.",
+      effect: "Boosts matching stories",
+      label: "Explicit profile",
+      signals: ["Security", "security-desk", "OpenAI", "prompt injection"],
+      source: "Reader controls",
     });
   });
 });
@@ -3081,6 +3166,7 @@ describe("getNewsFeedbackTrainingUpdate", () => {
         { label: "New topics", value: "1" },
         { label: "New sources", value: "1" },
         { label: "New entities", value: "2" },
+        { label: "New angles", value: "0" },
         { label: "Bias shift", value: "+0.6" },
       ],
       notices: [
@@ -3168,6 +3254,7 @@ describe("getNewsFeedbackTrainingUpdate", () => {
         { label: "Removed topics", value: "1" },
         { label: "Removed sources", value: "1" },
         { label: "Removed entities", value: "1" },
+        { label: "Removed angles", value: "0" },
         { label: "Bias shift", value: "-0.4" },
       ],
       notices: [
@@ -3182,6 +3269,60 @@ describe("getNewsFeedbackTrainingUpdate", () => {
         { label: "Entities", value: "OpenAI" },
       ],
       summary: "Less trained the feed away from Models from Local Source.",
+    });
+  });
+
+  it("separates learned angle feedback from learned entities", () => {
+    expect(
+      getNewsFeedbackTrainingUpdate({
+        action: "save",
+        afterProfile: {
+          preferredCategories: ["security"],
+          preferredSources: ["security-desk"],
+          preferredEntities: ["OpenAI", "Agent Security", "prompt_injection"],
+          noveltyBias: 1.2,
+          recencyBias: 1.2,
+        },
+        beforeProfile: {
+          preferredCategories: ["security"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection defense story",
+        },
+      }),
+    ).toEqual({
+      label: "Positive Signal",
+      metrics: [
+        { label: "New topics", value: "0" },
+        { label: "New sources", value: "1" },
+        { label: "New entities", value: "1" },
+        { label: "New angles", value: "1" },
+        { label: "Bias shift", value: "+0.4" },
+      ],
+      notices: [
+        {
+          detail: "Future stories matching these signals will rank higher.",
+          label: "Profile memory",
+        },
+      ],
+      signals: [
+        { label: "Source", value: "Security Desk" },
+        { label: "Entities", value: "Agent Security" },
+        { label: "Angles", value: "prompt injection" },
+      ],
+      summary: "Save trained the feed toward Security from Security Desk.",
     });
   });
 });
@@ -3583,6 +3724,12 @@ describe("getNewsPreferenceControlPanel", () => {
             },
           ],
         },
+        {
+          emptyLabel: "No angles followed",
+          key: "angles",
+          label: "Angles",
+          signals: [],
+        },
       ],
       label: "Manual Controls",
       metrics: [
@@ -3642,6 +3789,12 @@ describe("getNewsPreferenceControlPanel", () => {
           label: "Entities",
           signals: [],
         },
+        {
+          emptyLabel: "No angles followed",
+          key: "angles",
+          label: "Angles",
+          signals: [],
+        },
       ],
       label: "Control Ready",
       metrics: [
@@ -3653,6 +3806,114 @@ describe("getNewsPreferenceControlPanel", () => {
       summary:
         "Manual controls are ready. Follow topics, sources, or entities to steer For You.",
     });
+  });
+
+  it("separates manual angle controls from entity controls", () => {
+    expect(
+      getNewsPreferenceControlPanel({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        profile: {
+          preferredCategories: ["security"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI", "prompt_injection", "red_team"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }).groups,
+    ).toEqual([
+      {
+        emptyLabel: "No topics followed",
+        key: "categories",
+        label: "Topics",
+        signals: [
+          {
+            kind: "category",
+            label: "Security",
+            signal: "security",
+          },
+        ],
+      },
+      {
+        emptyLabel: "No sources followed",
+        key: "sources",
+        label: "Sources",
+        signals: [],
+      },
+      {
+        emptyLabel: "No entities followed",
+        key: "entities",
+        label: "Entities",
+        signals: [
+          {
+            kind: "entity",
+            label: "OpenAI",
+            signal: "OpenAI",
+          },
+        ],
+      },
+      {
+        emptyLabel: "No angles followed",
+        key: "angles",
+        label: "Angles",
+        signals: [
+          {
+            kind: "tag",
+            label: "prompt injection",
+            signal: "prompt_injection",
+          },
+          {
+            kind: "tag",
+            label: "red team",
+            signal: "red_team",
+          },
+        ],
+      },
+    ]);
+  });
+});
+
+describe("getNewsAnglePreferenceOptions", () => {
+  it("formats specific story tags into reusable angle preference options", () => {
+    expect(
+      getNewsAnglePreferenceOptions({
+        items: [
+          {
+            ...localItem,
+            id: "security-lead",
+            tags: ["agents", "prompt_injection", "red_team", "research"],
+          },
+          {
+            ...serverItem,
+            id: "security-follow",
+            tags: ["prompt-injection", "gpu_cloud", "open_source"],
+          },
+          {
+            ...olderItem,
+            id: "evals-follow",
+            tags: ["red_team", "benchmarks", "security"],
+          },
+        ],
+        limit: 4,
+      }),
+    ).toEqual([
+      {
+        label: "prompt injection",
+        signal: "prompt_injection",
+      },
+      {
+        label: "red team",
+        signal: "red_team",
+      },
+      {
+        label: "gpu cloud",
+        signal: "gpu_cloud",
+      },
+      {
+        label: "benchmarks",
+        signal: "benchmarks",
+      },
+    ]);
   });
 });
 
@@ -4345,7 +4606,7 @@ describe("getNewsInterestGraph", () => {
             sourceName: "OpenAI News",
             sourceScore: 92,
             sourceSlug: "openai-news",
-            tags: ["agents"],
+            tags: ["agent_memory"],
             trendScore: 90,
           },
           {
@@ -4358,7 +4619,7 @@ describe("getNewsInterestGraph", () => {
             sourceName: "VentureWire",
             sourceScore: 84,
             sourceSlug: "venturewire",
-            tags: ["funding"],
+            tags: ["seed_round"],
             trendScore: 96,
           },
           {
@@ -4371,7 +4632,7 @@ describe("getNewsInterestGraph", () => {
             sourceName: "Agent Desk",
             sourceScore: 78,
             sourceSlug: "agent-desk",
-            tags: ["agents"],
+            tags: ["agent_memory"],
             trendScore: 88,
           },
         ],
@@ -4446,14 +4707,14 @@ describe("getNewsInterestGraph", () => {
           label: "Angles",
           nodes: [
             {
-              activeSignal: true,
-              label: "agents",
-              score: 74,
+              activeSignal: false,
+              label: "agent memory",
+              score: 36,
               storyCount: 2,
             },
             {
               activeSignal: false,
-              label: "funding",
+              label: "seed round",
               score: 18,
               storyCount: 1,
             },
@@ -4481,6 +4742,128 @@ describe("getNewsInterestGraph", () => {
       summary:
         "5 reader signals map to 8 interest nodes across 3 ranked stories.",
     });
+  });
+
+  it("keeps followed angle signals out of the entity lane", () => {
+    expect(
+      getNewsInterestGraph({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["OpenAI", "Agent Security"],
+            matchedSignals: ["tag"],
+            personalizedScore: 144,
+            sourceName: "Security Desk",
+            sourceScore: 88,
+            sourceSlug: "security-desk",
+            tags: ["agents", "prompt-injection", "red_team"],
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            category: "security",
+            entities: ["Browser Agents"],
+            matchedSignals: ["tag"],
+            personalizedScore: 132,
+            sourceName: "Research Wire",
+            sourceScore: 84,
+            sourceSlug: "research-wire",
+            tags: ["prompt_injection", "mitigation"],
+            trendScore: 86,
+          },
+        ],
+        limit: 3,
+        profile: {
+          preferredCategories: ["security"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI", "prompt_injection"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }).lanes,
+    ).toEqual([
+      {
+        key: "topics",
+        label: "Topics",
+        nodes: [
+            {
+              activeSignal: true,
+              label: "Security",
+              score: 85,
+              storyCount: 2,
+            },
+        ],
+      },
+      {
+        key: "entities",
+        label: "Entities",
+        nodes: [
+          {
+            activeSignal: true,
+            label: "OpenAI",
+            score: 58,
+            storyCount: 1,
+          },
+          {
+            activeSignal: false,
+            label: "Agent Security",
+            score: 20,
+            storyCount: 1,
+          },
+          {
+            activeSignal: false,
+            label: "Browser Agents",
+            score: 18,
+            storyCount: 1,
+          },
+        ],
+      },
+      {
+        key: "sources",
+        label: "Sources",
+        nodes: [
+          {
+            activeSignal: false,
+            label: "Security Desk",
+            score: 21,
+            storyCount: 1,
+          },
+          {
+            activeSignal: false,
+            label: "Research Wire",
+            score: 19,
+            storyCount: 1,
+          },
+        ],
+      },
+      {
+        key: "angles",
+        label: "Angles",
+        nodes: [
+          {
+            activeSignal: true,
+            label: "prompt injection",
+            score: 76,
+            storyCount: 2,
+          },
+          {
+            activeSignal: false,
+            label: "red team",
+            score: 20,
+            storyCount: 1,
+          },
+          {
+            activeSignal: false,
+            label: "mitigation",
+            score: 18,
+            storyCount: 1,
+          },
+        ],
+      },
+    ]);
   });
 
   it("keeps the cold-start graph empty before preferences or stories exist", () => {

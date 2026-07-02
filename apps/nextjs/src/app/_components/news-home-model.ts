@@ -735,11 +735,92 @@ const getUniqueSignals = (values: readonly string[], limit: number) => {
   return signals.slice(0, limit);
 };
 
+const genericNewsAngleTags = new Set([
+  "agent",
+  "agents",
+  "funding",
+  "model",
+  "models",
+  "open source",
+  "open-source",
+  "open_source",
+  "policy",
+  "research",
+  "security",
+  "startup",
+  "startups",
+]);
+
+const formatNewsAngleQuery = (tag: string) =>
+  tag.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+const isSpecificNewsAngleTag = (tag: string) => {
+  const query = formatNewsAngleQuery(tag).toLowerCase();
+
+  return Boolean(query) && !genericNewsAngleTags.has(query);
+};
+
+const isNewsReaderAngleSignal = (signal: string) =>
+  signal === signal.toLowerCase() && isSpecificNewsAngleTag(signal);
+
+export const getNewsAnglePreferenceOptions = ({
+  items,
+  limit = 10,
+}: {
+  items: readonly NewsHomeItem[];
+  limit?: number;
+}) => {
+  const entries = new Map<
+    string,
+    { count: number; firstIndex: number; label: string; signal: string }
+  >();
+
+  items.forEach((item, itemIndex) => {
+    item.tags.forEach((tag, tagIndex) => {
+      if (!isSpecificNewsAngleTag(tag)) return;
+
+      const label = formatNewsAngleQuery(tag);
+      const key = label.toLowerCase();
+      const existing = entries.get(key);
+
+      if (existing) {
+        existing.count += 1;
+        return;
+      }
+
+      entries.set(key, {
+        count: 1,
+        firstIndex: itemIndex * 100 + tagIndex,
+        label,
+        signal: tag,
+      });
+    });
+  });
+
+  return Array.from(entries.values())
+    .sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      if (left.firstIndex !== right.firstIndex) {
+        return left.firstIndex - right.firstIndex;
+      }
+      return left.label.localeCompare(right.label);
+    })
+    .map(({ label, signal }) => ({ label, signal }))
+    .slice(0, limit);
+};
+
 export const getNewsReaderSignalSummary = (profile: NewsPreferenceProfile) => {
   const topics = getUniqueSignals(profile.preferredCategories, 4);
   const sources = getUniqueSignals(profile.preferredSources, 3);
-  const entities = getUniqueSignals(profile.preferredEntities, 4);
-  const signalCount = topics.length + sources.length + entities.length;
+  const entitySignals = getUniqueSignals(profile.preferredEntities, 8);
+  const angles = entitySignals
+    .filter(isNewsReaderAngleSignal)
+    .map(formatNewsAngleQuery)
+    .slice(0, 4);
+  const entities = entitySignals
+    .filter((signal) => !isNewsReaderAngleSignal(signal))
+    .slice(0, 4);
+  const signalCount = topics.length + sources.length + entitySignals.length;
   const averageBias = (profile.noveltyBias + profile.recencyBias) / 2;
   const strength =
     signalCount >= 8 || averageBias >= 1.5
@@ -749,6 +830,7 @@ export const getNewsReaderSignalSummary = (profile: NewsPreferenceProfile) => {
         : "Exploring";
 
   return {
+    angles,
     detail:
       signalCount > 0
         ? `${signalCount} reader signals are shaping story order.`
@@ -764,30 +846,70 @@ export const getNewsReaderSignalSummary = (profile: NewsPreferenceProfile) => {
 const formatSignalCount = (count: number, signalName: string) =>
   `${count} ${signalName} ${count === 1 ? "signal" : "signals"}`;
 
+const formatSignalLiftDetail = ({
+  count,
+  object,
+  signalName,
+}: {
+  count: number;
+  object: string;
+  signalName: string;
+}) =>
+  `${formatSignalCount(count, signalName)} ${
+    count === 1 ? "lifts" : "lift"
+  } ${object}.`;
+
 export const getNewsReaderRankingFactors = (profile: NewsPreferenceProfile) => {
   const topics = getUniqueSignals(profile.preferredCategories, 12);
   const sources = getUniqueSignals(profile.preferredSources, 12);
-  const entities = getUniqueSignals(profile.preferredEntities, 24);
+  const entitySignals = getUniqueSignals(profile.preferredEntities, 24);
+  const angles = entitySignals.filter(isNewsReaderAngleSignal);
+  const entities = entitySignals.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
   const factors: { label: string; detail: string }[] = [];
 
   if (topics.length > 0) {
     factors.push({
       label: "Topics",
-      detail: `${formatSignalCount(topics.length, "topic")} lift matching stories.`,
+      detail: formatSignalLiftDetail({
+        count: topics.length,
+        object: "matching stories",
+        signalName: "topic",
+      }),
     });
   }
 
   if (sources.length > 0) {
     factors.push({
       label: "Sources",
-      detail: `${formatSignalCount(sources.length, "source")} lift trusted reporting.`,
+      detail: formatSignalLiftDetail({
+        count: sources.length,
+        object: "trusted reporting",
+        signalName: "source",
+      }),
     });
   }
 
   if (entities.length > 0) {
     factors.push({
       label: "Entities",
-      detail: `${formatSignalCount(entities.length, "entity")} lift related coverage.`,
+      detail: formatSignalLiftDetail({
+        count: entities.length,
+        object: "related coverage",
+        signalName: "entity",
+      }),
+    });
+  }
+
+  if (angles.length > 0) {
+    factors.push({
+      label: "Angles",
+      detail: formatSignalLiftDetail({
+        count: angles.length,
+        object: "stories with matching angles",
+        signalName: "angle",
+      }),
     });
   }
 
@@ -2797,6 +2919,79 @@ const getNewsProfileBiasDetail = (profile: NewsPreferenceProfile) => {
   return "Freshness and novelty are balanced.";
 };
 
+const formatProfileLedgerSignalCount = ({
+  count,
+  plural,
+  singular,
+}: {
+  count: number;
+  plural: string;
+  singular: string;
+}) => `${count} ${count === 1 ? singular : plural}`;
+
+const formatProfileLedgerExplicitDetail = ({
+  angleCount,
+  entityCount,
+  sourceCount,
+  topicCount,
+}: {
+  angleCount: number;
+  entityCount: number;
+  sourceCount: number;
+  topicCount: number;
+}) => {
+  const parts = [
+    topicCount > 0
+      ? formatProfileLedgerSignalCount({
+          count: topicCount,
+          plural: "topics",
+          singular: "topic",
+        })
+      : null,
+    sourceCount > 0
+      ? formatProfileLedgerSignalCount({
+          count: sourceCount,
+          plural: "sources",
+          singular: "source",
+        })
+      : null,
+    entityCount > 0
+      ? formatProfileLedgerSignalCount({
+          count: entityCount,
+          plural: "entities",
+          singular: "entity",
+        })
+      : null,
+    angleCount > 0
+      ? formatProfileLedgerSignalCount({
+          count: angleCount,
+          plural: "angles",
+          singular: "angle",
+        })
+      : null,
+  ].filter((part): part is string => part !== null);
+
+  if (parts.length === 0) {
+    return "No explicit topics, sources, entities, or angles are active.";
+  }
+
+  const signalVerb = topicCount + sourceCount + entityCount + angleCount === 1
+    ? "is"
+    : "are";
+
+  if (parts.length === 1) {
+    return `${parts[0]} ${signalVerb} active.`;
+  }
+
+  if (parts.length === 2) {
+    return `${parts[0]} and ${parts[1]} ${signalVerb} active.`;
+  }
+
+  return `${parts.slice(0, -1).join(", ")}, and ${
+    parts[parts.length - 1]
+  } ${signalVerb} active.`;
+};
+
 export const getNewsProfileSignalLedger = ({
   formatCategory,
   historyItems,
@@ -2811,10 +3006,17 @@ export const getNewsProfileSignalLedger = ({
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const explicitEntitySignals = normalizedProfile.preferredEntities.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
+  const explicitAngleSignals = normalizedProfile.preferredEntities.filter(
+    isNewsReaderAngleSignal,
+  );
   const explicitCount =
     normalizedProfile.preferredCategories.length +
     normalizedProfile.preferredSources.length +
-    normalizedProfile.preferredEntities.length;
+    explicitEntitySignals.length +
+    explicitAngleSignals.length;
   const positiveBehaviorCount = savedItems.length + historyItems.length;
   const guardrailCount = negativeFeedbackItems.length;
   const hasLedgerSignals =
@@ -2823,7 +3025,8 @@ export const getNewsProfileSignalLedger = ({
     [
       ...normalizedProfile.preferredCategories.map(formatCategory),
       ...normalizedProfile.preferredSources,
-      ...normalizedProfile.preferredEntities,
+      ...explicitEntitySignals,
+      ...explicitAngleSignals.map(formatNewsAngleQuery),
     ],
     4,
   );
@@ -2844,22 +3047,12 @@ export const getNewsProfileSignalLedger = ({
     entries: [
       {
         count: explicitCount,
-        detail:
-          explicitCount > 0
-            ? `${normalizedProfile.preferredCategories.length} ${
-                normalizedProfile.preferredCategories.length === 1
-                  ? "topic"
-                  : "topics"
-              }, ${normalizedProfile.preferredSources.length} ${
-                normalizedProfile.preferredSources.length === 1
-                  ? "source"
-                  : "sources"
-              }, and ${normalizedProfile.preferredEntities.length} ${
-                normalizedProfile.preferredEntities.length === 1
-                  ? "entity is"
-                  : "entities are"
-              } active.`
-            : "No explicit topics, sources, or entities are active.",
+        detail: formatProfileLedgerExplicitDetail({
+          angleCount: explicitAngleSignals.length,
+          entityCount: explicitEntitySignals.length,
+          sourceCount: normalizedProfile.preferredSources.length,
+          topicCount: normalizedProfile.preferredCategories.length,
+        }),
         effect:
           explicitCount > 0 ? "Boosts matching stories" : "No direct boost yet",
         label: "Explicit profile",
@@ -3373,6 +3566,10 @@ export const getNewsFeedbackTrainingUpdate = ({
   const selectedEntities = isNegativeFeedback
     ? entityDelta.removed
     : entityDelta.added;
+  const selectedAngles = selectedEntities.filter(isNewsReaderAngleSignal);
+  const selectedNamedEntities = selectedEntities.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
   const metricPrefix = isNegativeFeedback ? "Removed" : "New";
   const signals: { label: string; value: string }[] = [];
 
@@ -3396,10 +3593,17 @@ export const getNewsFeedbackTrainingUpdate = ({
     });
   }
 
-  if (selectedEntities.length > 0) {
+  if (selectedNamedEntities.length > 0) {
     signals.push({
       label: "Entities",
-      value: selectedEntities.join(", "),
+      value: selectedNamedEntities.join(", "),
+    });
+  }
+
+  if (selectedAngles.length > 0) {
+    signals.push({
+      label: "Angles",
+      value: selectedAngles.map(formatNewsAngleQuery).join(", "),
     });
   }
 
@@ -3427,7 +3631,11 @@ export const getNewsFeedbackTrainingUpdate = ({
       },
       {
         label: `${metricPrefix} entities`,
-        value: String(selectedEntities.length),
+        value: String(selectedNamedEntities.length),
+      },
+      {
+        label: `${metricPrefix} angles`,
+        value: String(selectedAngles.length),
       },
       {
         label: "Bias shift",
@@ -3846,7 +4054,7 @@ export const getNewsPreferenceStarter = ({
   };
 };
 
-type NewsPreferenceControlSignalKind = "category" | "entity" | "source";
+type NewsPreferenceControlSignalKind = "category" | "entity" | "source" | "tag";
 
 const toPreferenceControlSignal = ({
   kind,
@@ -3875,8 +4083,14 @@ export const getNewsPreferenceControlPanel = ({
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
   const topicCount = normalizedProfile.preferredCategories.length;
   const sourceCount = normalizedProfile.preferredSources.length;
-  const entityCount = normalizedProfile.preferredEntities.length;
-  const activeSignalCount = topicCount + sourceCount + entityCount;
+  const entitySignals = normalizedProfile.preferredEntities.filter(
+    (entity) => !isNewsReaderAngleSignal(entity),
+  );
+  const angleSignals = normalizedProfile.preferredEntities.filter(
+    isNewsReaderAngleSignal,
+  );
+  const activeSignalCount =
+    topicCount + sourceCount + normalizedProfile.preferredEntities.length;
   const biasMode = getFeedGovernorBiasMode(normalizedProfile);
 
   return {
@@ -3923,11 +4137,23 @@ export const getNewsPreferenceControlPanel = ({
         emptyLabel: "No entities followed",
         key: "entities",
         label: "Entities",
-        signals: normalizedProfile.preferredEntities.map((entity) =>
+        signals: entitySignals.map((entity) =>
           toPreferenceControlSignal({
             kind: "entity",
             label: entity,
             signal: entity,
+          }),
+        ),
+      },
+      {
+        emptyLabel: "No angles followed",
+        key: "angles",
+        label: "Angles",
+        signals: angleSignals.map((tag) =>
+          toPreferenceControlSignal({
+            kind: "tag",
+            label: formatNewsAngleQuery(tag),
+            signal: tag,
           }),
         ),
       },
@@ -4985,6 +5211,48 @@ const addInterestGraphNode = ({
   }
 };
 
+const getNewsInterestGraphAngleKey = (tag: string) =>
+  formatNewsAngleQuery(tag).toLowerCase();
+
+const hasNewsInterestGraphAngleSignal = (
+  values: readonly string[],
+  tag: string,
+) => {
+  const normalizedAngleKey = getNewsInterestGraphAngleKey(tag);
+
+  return values.some(
+    (signal) =>
+      isNewsReaderAngleSignal(signal) &&
+      getNewsInterestGraphAngleKey(signal) === normalizedAngleKey,
+  );
+};
+
+const addInterestGraphAngleNode = ({
+  activeSignal,
+  itemId,
+  score,
+  stores,
+  tag,
+}: {
+  activeSignal: boolean;
+  itemId?: string;
+  score: number;
+  stores: ReturnType<typeof createInterestGraphStores>;
+  tag: string;
+}) => {
+  if (!isSpecificNewsAngleTag(tag)) return;
+
+  addInterestGraphNode({
+    activeSignal,
+    itemId,
+    key: getNewsInterestGraphAngleKey(tag),
+    label: formatNewsAngleQuery(tag),
+    lane: "angles",
+    score,
+    stores,
+  });
+};
+
 const selectInterestGraphLaneNodes = ({
   lane,
   limit,
@@ -5036,6 +5304,16 @@ export const getNewsInterestGraph = ({
   }
 
   for (const entity of normalizedProfile.preferredEntities) {
+    if (isNewsReaderAngleSignal(entity)) {
+      addInterestGraphAngleNode({
+        activeSignal: true,
+        score: 38,
+        stores,
+        tag: entity,
+      });
+      continue;
+    }
+
     addInterestGraphNode({
       activeSignal: true,
       key: entity,
@@ -5053,33 +5331,6 @@ export const getNewsInterestGraph = ({
       label: source,
       lane: "sources",
       score: 35,
-      stores,
-    });
-  }
-
-  const uniqueStoryTags = new Map<string, string>();
-
-  for (const item of items) {
-    for (const tagValue of item.tags) {
-      const tag = tagValue.trim();
-      const normalizedTag = tag.toLowerCase();
-
-      if (!tag || uniqueStoryTags.has(normalizedTag)) continue;
-      uniqueStoryTags.set(normalizedTag, tag);
-    }
-  }
-
-  for (const tag of uniqueStoryTags.values()) {
-    if (!hasPreferenceSignal(normalizedProfile.preferredEntities, tag)) {
-      continue;
-    }
-
-    addInterestGraphNode({
-      activeSignal: true,
-      key: tag,
-      label: tag,
-      lane: "angles",
-      score: 38,
       stores,
     });
   }
@@ -5135,23 +5386,23 @@ export const getNewsInterestGraph = ({
 
     for (const tagValue of item.tags) {
       const tag = tagValue.trim();
-      const normalizedTag = tag.toLowerCase();
+      const normalizedTag = getNewsInterestGraphAngleKey(tag);
 
-      if (!tag || seenTags.has(normalizedTag)) continue;
+      if (!isSpecificNewsAngleTag(tag) || seenTags.has(normalizedTag)) {
+        continue;
+      }
 
-      addInterestGraphNode({
-        activeSignal: hasPreferenceSignal(
+      addInterestGraphAngleNode({
+        activeSignal: hasNewsInterestGraphAngleSignal(
           normalizedProfile.preferredEntities,
           tag,
         ),
         itemId: item.id,
-        key: tag,
-        label: tag,
-        lane: "angles",
         score:
           Math.round(item.personalizedScore / 12) +
           Math.round(item.trendScore / 12),
         stores,
+        tag,
       });
       seenTags.add(normalizedTag);
     }
@@ -5569,31 +5820,6 @@ const newsSearchTrendKindRank = {
   Source: 2,
   Topic: 3,
 } satisfies Record<NewsSearchTrendKind, number>;
-
-const genericNewsAngleTags = new Set([
-  "agent",
-  "agents",
-  "funding",
-  "model",
-  "models",
-  "open source",
-  "open-source",
-  "open_source",
-  "policy",
-  "research",
-  "security",
-  "startup",
-  "startups",
-]);
-
-const formatNewsAngleQuery = (tag: string) =>
-  tag.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
-
-const isSpecificNewsAngleTag = (tag: string) => {
-  const query = formatNewsAngleQuery(tag).toLowerCase();
-
-  return Boolean(query) && !genericNewsAngleTags.has(query);
-};
 
 interface NewsSearchTrendWorking {
   firstIndex: number;

@@ -10927,6 +10927,28 @@ const getSharedProfileEntity = (
   );
 };
 
+export const getNewsFeedbackCoachActionState = ({
+  hasSuggestedStory,
+  isPreview,
+}: {
+  hasSuggestedStory: boolean;
+  isPreview: boolean;
+}) => {
+  if (!hasSuggestedStory) {
+    return {
+      disabled: true,
+      helperText: "No matching story is available for this coaching action.",
+    };
+  }
+
+  return {
+    disabled: false,
+    helperText: isPreview
+      ? "Preview coach actions train this device only. Live stories will sync once production news IDs are available."
+      : null,
+  };
+};
+
 export const getNewsFeedbackCoach = ({
   formatCategory,
   items,

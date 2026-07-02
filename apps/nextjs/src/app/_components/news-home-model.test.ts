@@ -30,6 +30,7 @@ import {
   getNewsExperimentAllocation,
   getNewsExplorationSlots,
   getNewsFeedbackCoach,
+  getNewsFeedbackCoachActionState,
   getNewsFeedbackTrainingUpdate,
   getNewsFeedFatigueReport,
   getNewsFeedGovernor,
@@ -11978,6 +11979,33 @@ describe("getNewsFeedbackCoach", () => {
         { label: "Exploration", value: "0" },
       ],
       summary: "Feedback coach will appear as ranked stories load.",
+    });
+  });
+});
+
+describe("getNewsFeedbackCoachActionState", () => {
+  it("keeps coached feedback actions available in the preview edition", () => {
+    expect(
+      getNewsFeedbackCoachActionState({
+        hasSuggestedStory: true,
+        isPreview: true,
+      }),
+    ).toEqual({
+      disabled: false,
+      helperText:
+        "Preview coach actions train this device only. Live stories will sync once production news IDs are available.",
+    });
+  });
+
+  it("disables coached feedback actions when no matching story is available", () => {
+    expect(
+      getNewsFeedbackCoachActionState({
+        hasSuggestedStory: false,
+        isPreview: false,
+      }),
+    ).toEqual({
+      disabled: true,
+      helperText: "No matching story is available for this coaching action.",
     });
   });
 });

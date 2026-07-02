@@ -64,6 +64,7 @@ import {
   getNewsExperimentAllocation,
   getNewsExplorationSlots,
   getNewsFeedbackCoach,
+  getNewsFeedbackCoachActionState,
   getNewsFeedbackTrainingUpdate,
   getNewsFeedFatigueReport,
   getNewsFeedGovernor,
@@ -1340,6 +1341,14 @@ export function NewsHome({
     formatCategory: getCategoryLabel,
     items: rankedItems,
     profile,
+  });
+  const feedbackCoachHasAvailableAction = feedbackCoach.actions.some(
+    (suggestion) =>
+      rankedItems.some((story) => story.id === suggestion.storyId),
+  );
+  const feedbackCoachPreviewActionState = getNewsFeedbackCoachActionState({
+    hasSuggestedStory: feedbackCoachHasAvailableAction,
+    isPreview,
   });
   const feedGovernor = getNewsFeedGovernor({
     formatCategory: getCategoryLabel,
@@ -5962,12 +5971,23 @@ export function NewsHome({
                 </div>
               ))}
             </dl>
+            {isPreview &&
+            feedbackCoachPreviewActionState.helperText &&
+            !feedbackCoachPreviewActionState.disabled ? (
+              <p className="mt-3 border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                {feedbackCoachPreviewActionState.helperText}
+              </p>
+            ) : null}
             <div className="mt-4 grid gap-3">
               {feedbackCoach.actions.length > 0 ? (
                 feedbackCoach.actions.map((suggestion) => {
                   const suggestedStory = rankedItems.find(
                     (story) => story.id === suggestion.storyId,
                   );
+                  const coachActionState = getNewsFeedbackCoachActionState({
+                    hasSuggestedStory: Boolean(suggestedStory),
+                    isPreview,
+                  });
                   const suggestedRankSlot = suggestedStory
                     ? rankedItems.findIndex(
                         (story) => story.id === suggestedStory.id,
@@ -5990,7 +6010,7 @@ export function NewsHome({
                         </div>
                         <Button
                           className="rounded-none"
-                          disabled={!suggestedStory || isPreview}
+                          disabled={coachActionState.disabled}
                           size="sm"
                           type="button"
                           variant="outline"
@@ -6010,6 +6030,12 @@ export function NewsHome({
                       <p className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                         {suggestion.reason}
                       </p>
+                      {coachActionState.disabled &&
+                      coachActionState.helperText ? (
+                        <p className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {coachActionState.helperText}
+                        </p>
+                      ) : null}
                     </div>
                   );
                 })

@@ -118,6 +118,22 @@ describe("news router input contracts", () => {
     ).toBe(20);
   });
 
+  it("accepts a bounded reader local hour for local daypart ranking", () => {
+    expect(
+      NewsForYouInputSchema.parse({
+        readerLocalHour: 23,
+        visitorKey: "visitor-test-123",
+      }).readerLocalHour,
+    ).toBe(23);
+
+    expect(
+      NewsForYouInputSchema.safeParse({
+        readerLocalHour: 24,
+        visitorKey: "visitor-test-123",
+      }).success,
+    ).toBe(false);
+  });
+
   it("defaults saved news collection limit to a compact sidebar shelf", () => {
     expect(
       NewsSavedInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
@@ -2390,6 +2406,104 @@ describe("selectNewsForYouItems", () => {
     });
 
     expect(feed.map((item) => item.id)).toEqual(["fresh-agent-story"]);
+  });
+
+  it("applies edition daypart ranking after base personalization", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "generic-funding-brief",
+          title: "Agent startup funding brief",
+          canonicalUrl: "https://example.com/generic-funding-brief",
+          originalUrl: "https://example.com/generic-funding-brief",
+          category: "funding",
+          entities: ["Series A"],
+          sourceSlug: "venturewire",
+          sourceScore: 82,
+          trendScore: 88,
+        },
+        {
+          ...baseNewsItem,
+          id: "morning-security-brief",
+          title: "AI security briefing for agent platforms",
+          canonicalUrl: "https://example.com/morning-security-brief",
+          originalUrl: "https://example.com/morning-security-brief",
+          category: "security",
+          entities: ["Security"],
+          sourceSlug: "security-desk",
+          sourceScore: 90,
+          trendScore: 82,
+        },
+      ],
+      limit: 2,
+      now: new Date("2026-07-01T06:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      negativeFeedbackItems: [],
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "morning-security-brief",
+      "generic-funding-brief",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("daypart");
+  });
+
+  it("uses reader local hour for server-side daypart ranking", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "morning-security-briefing",
+          title: "AI security briefing for agent platforms",
+          canonicalUrl: "https://example.com/morning-security-briefing",
+          originalUrl: "https://example.com/morning-security-briefing",
+          category: "security",
+          entities: ["Security"],
+          sourceSlug: "security-desk",
+          sourceScore: 90,
+          trendScore: 82,
+        },
+        {
+          ...baseNewsItem,
+          id: "evening-market-map",
+          title: "AI market map for the evening brief",
+          canonicalUrl: "https://example.com/evening-market-map",
+          originalUrl: "https://example.com/evening-market-map",
+          category: "market_map",
+          entities: ["Market Map"],
+          sourceSlug: "market-map",
+          sourceScore: 88,
+          trendScore: 82,
+        },
+      ],
+      limit: 2,
+      now: new Date("2026-07-01T06:00:00.000Z"),
+      readerLocalHour: 20,
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      negativeFeedbackItems: [],
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "evening-market-map",
+      "morning-security-briefing",
+    ]);
   });
 });
 

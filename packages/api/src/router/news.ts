@@ -36,6 +36,7 @@ import {
   rankNewsForReader,
   selectBreakingNewsPriorityFeed,
   selectCollaborativeSignalNewsFeed,
+  selectDaypartBalancedNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,
@@ -96,6 +97,7 @@ export const NewsHistoryInputSchema = NewsReaderProfileInputSchema.extend({
 });
 
 export const NewsForYouInputSchema = NewsFeedInputSchema.extend({
+  readerLocalHour: z.number().int().min(0).max(23).optional(),
   visitorKey: optionalVisitorKey,
 });
 
@@ -546,6 +548,7 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   now,
   positiveFeedbackItems = [],
   profile,
+  readerLocalHour,
   semanticMatches = [],
   viewedNewsItemIds,
   viewedNewsItems = [],
@@ -559,6 +562,7 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   now?: Date;
   positiveFeedbackItems?: readonly PositiveFeedbackNewsItem[];
   profile: NewsPreferenceProfile;
+  readerLocalHour?: number;
   semanticMatches?: readonly NewsSemanticSimilarityMatch[];
   viewedNewsItemIds: readonly string[];
   viewedNewsItems?: readonly RecentExposureNewsItem[];
@@ -596,7 +600,12 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
   );
   const trustBalancedRows =
     selectSourceTrustBalancedNewsFeed(feedbackAdjustedRows);
-  const fatigueBalancedRows = selectFatigueBalancedNewsFeed(trustBalancedRows);
+  const daypartBalancedRows = selectDaypartBalancedNewsFeed(trustBalancedRows, {
+    now,
+    readerLocalHour,
+  });
+  const fatigueBalancedRows =
+    selectFatigueBalancedNewsFeed(daypartBalancedRows);
   const breakingPriorityRows = selectBreakingNewsPriorityFeed(
     fatigueBalancedRows,
     now,
@@ -1086,6 +1095,7 @@ export const newsRouter = {
         negativeFeedbackItems,
         positiveFeedbackItems,
         profile,
+        readerLocalHour: input.readerLocalHour,
         semanticMatches,
         viewedNewsItemIds,
         viewedNewsItems,

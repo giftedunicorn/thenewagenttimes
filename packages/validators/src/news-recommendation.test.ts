@@ -10,6 +10,7 @@ import {
   rankNewsForReader,
   selectBreakingNewsPriorityFeed,
   selectCollaborativeSignalNewsFeed,
+  selectDaypartBalancedNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,
@@ -1333,6 +1334,104 @@ describe("selectCollaborativeSignalNewsFeed", () => {
     ]);
     expect(feed[1]?.matchedSignals).not.toContain("collaborative_feedback");
     expect(feed[2]?.matchedSignals).not.toContain("collaborative_feedback");
+  });
+});
+
+describe("selectDaypartBalancedNewsFeed", () => {
+  test("lifts trusted morning-briefing stories ahead of generic close-score stories", () => {
+    const feed = selectDaypartBalancedNewsFeed(
+      [
+        {
+          ...items[1],
+          id: "generic-funding-story",
+          category: "funding",
+          sourceScore: 82,
+          trendScore: 88,
+          personalizedScore: 150,
+          matchedSignals: [],
+        },
+        {
+          ...items[0],
+          id: "security-briefing",
+          category: "security",
+          sourceScore: 90,
+          trendScore: 82,
+          personalizedScore: 146,
+          matchedSignals: [],
+        },
+      ],
+      new Date("2026-07-01T06:00:00.000Z"),
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "security-briefing",
+      "generic-funding-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("daypart");
+  });
+
+  test("keeps explicit reader matches ahead of daypart-only stories", () => {
+    const feed = selectDaypartBalancedNewsFeed(
+      [
+        {
+          ...items[0],
+          id: "reader-matched-model",
+          personalizedScore: 150,
+          matchedSignals: ["category"],
+        },
+        {
+          ...items[0],
+          id: "security-briefing",
+          category: "security",
+          sourceScore: 90,
+          trendScore: 82,
+          personalizedScore: 146,
+          matchedSignals: [],
+        },
+      ],
+      new Date("2026-07-01T06:00:00.000Z"),
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "reader-matched-model",
+      "security-briefing",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("daypart");
+  });
+
+  test("uses the reader local hour when it differs from server time", () => {
+    const feed = selectDaypartBalancedNewsFeed(
+      [
+        {
+          ...items[0],
+          id: "morning-security-briefing",
+          category: "security",
+          sourceScore: 90,
+          trendScore: 82,
+          personalizedScore: 150,
+          matchedSignals: [],
+        },
+        {
+          ...items[1],
+          id: "evening-market-map",
+          category: "market_map",
+          sourceScore: 88,
+          trendScore: 82,
+          personalizedScore: 146,
+          matchedSignals: [],
+        },
+      ],
+      {
+        now: new Date("2026-07-01T06:00:00.000Z"),
+        readerLocalHour: 20,
+      },
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "evening-market-map",
+      "morning-security-briefing",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("daypart");
   });
 });
 

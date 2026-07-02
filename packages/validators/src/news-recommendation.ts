@@ -841,6 +841,18 @@ export interface NewsCollaborativeSignal {
   score: number;
 }
 
+type NewsReaderDaypart = "evening" | "midday" | "morning" | "overnight";
+
+interface NewsDaypartBalanceOptions {
+  now?: Date;
+  readerLocalHour?: number | undefined;
+}
+
+interface NormalizedNewsDaypartBalanceOptions {
+  now: Date;
+  readerLocalHour: number | undefined;
+}
+
 const addMatchedSignal = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
   signal: string,
@@ -1041,6 +1053,7 @@ const defaultSemanticSimilarityThreshold = 0.78;
 const collaborativeProtectedSignals = new Set([
   "breaking_news",
   "category",
+  "daypart",
   "deep_preference",
   "entity",
   "exposure_cooldown",
@@ -1051,6 +1064,53 @@ const collaborativeProtectedSignals = new Set([
   "source",
   "tag",
 ]);
+const readerPreferenceSignals = new Set([
+  "category",
+  "deep_preference",
+  "entity",
+  "positive_feedback",
+  "semantic_feedback",
+  "source",
+  "tag",
+]);
+const daypartBlockedSignals = new Set([
+  "exposure_cooldown",
+  "home_exposure_cooldown",
+  "negative_feedback",
+]);
+
+const newsDaypartCategoryBoosts: Record<
+  NewsReaderDaypart,
+  Readonly<Record<string, number>>
+> = {
+  evening: {
+    hot_take: 7,
+    market_map: 8,
+    new_concept: 8,
+    research: 5,
+  },
+  midday: {
+    agent_product: 8,
+    funding: 6,
+    model_release: 5,
+    open_source: 7,
+    product_hunt: 8,
+  },
+  morning: {
+    big_tech: 6,
+    model_release: 5,
+    policy: 7,
+    research: 8,
+    security: 8,
+  },
+  overnight: {
+    big_tech: 5,
+    open_source: 6,
+    policy: 7,
+    research: 8,
+    security: 8,
+  },
+};
 
 const hasDeepPreferenceMatch = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
@@ -1404,6 +1464,132 @@ export const selectCollaborativeSignalNewsFeed = <
         : right.item.personalizedScore - left.item.personalizedScore;
     })
     .map(({ item }) => item);
+};
+
+const getNewsReaderDaypartFromHour = (hour: number): NewsReaderDaypart => {
+  const normalizedHour = Math.trunc(hour);
+
+  if (normalizedHour >= 5 && normalizedHour < 11) return "morning";
+  if (normalizedHour >= 11 && normalizedHour < 17) return "midday";
+  if (normalizedHour >= 17 && normalizedHour < 23) return "evening";
+
+  return "overnight";
+};
+
+const getNewsReaderDaypart = ({
+  now,
+  readerLocalHour,
+}: NormalizedNewsDaypartBalanceOptions): NewsReaderDaypart => {
+  if (
+    typeof readerLocalHour === "number" &&
+    Number.isInteger(readerLocalHour) &&
+    readerLocalHour >= 0 &&
+    readerLocalHour <= 23
+  ) {
+    return getNewsReaderDaypartFromHour(readerLocalHour);
+  }
+
+  return getNewsReaderDaypartFromHour(now.getUTCHours());
+};
+
+const normalizeNewsDaypartBalanceOptions = (
+  options: Date | NewsDaypartBalanceOptions | undefined,
+): NormalizedNewsDaypartBalanceOptions => {
+  if (options instanceof Date) {
+    return { now: options, readerLocalHour: undefined };
+  }
+
+  return {
+    now: options?.now ?? new Date(),
+    readerLocalHour: options?.readerLocalHour,
+  };
+};
+
+const hasReaderPreferenceSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) => item.matchedSignals.some((signal) => readerPreferenceSignals.has(signal));
+
+const canApplyDaypartBoost = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.sourceScore >= 70 &&
+  !item.matchedSignals.some((signal) => daypartBlockedSignals.has(signal));
+
+const getDaypartBoost = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  daypart: NewsReaderDaypart,
+) => {
+  if (!canApplyDaypartBoost(item)) return 0;
+
+  return newsDaypartCategoryBoosts[daypart][item.category] ?? 0;
+};
+
+export const selectDaypartBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  options?: Date | NewsDaypartBalanceOptions,
+): RankedNewsItem<TItem>[] => {
+  if (rankedItems.length < 2) return [...rankedItems];
+
+  const daypart = getNewsReaderDaypart(
+    normalizeNewsDaypartBalanceOptions(options),
+  );
+
+  const selectedItems: {
+    adjustedScore: number;
+    blocked: boolean;
+    item: RankedNewsItem<TItem>;
+    movable: boolean;
+    readerMatched: boolean;
+  }[] = [];
+
+  for (const item of rankedItems) {
+    const boost = getDaypartBoost(item, daypart);
+    const readerMatched = hasReaderPreferenceSignal(item);
+    const nextItem =
+      boost > 0
+        ? {
+            ...addMatchedSignal(item, "daypart"),
+            personalizedScore: item.personalizedScore + boost,
+          }
+        : item;
+    const nextEntry = {
+      adjustedScore: item.personalizedScore + boost,
+      blocked: item.matchedSignals.some((signal) =>
+        daypartBlockedSignals.has(signal),
+      ),
+      item: nextItem,
+      movable: boost > 0 && !readerMatched,
+      readerMatched,
+    };
+
+    if (!nextEntry.movable) {
+      selectedItems.push(nextEntry);
+      continue;
+    }
+
+    let insertionIndex = selectedItems.length;
+
+    while (insertionIndex > 0) {
+      const previousEntry = selectedItems[insertionIndex - 1];
+
+      if (!previousEntry) break;
+      if (previousEntry.readerMatched) break;
+      if (
+        !previousEntry.blocked &&
+        nextEntry.adjustedScore <= previousEntry.item.personalizedScore
+      ) {
+        break;
+      }
+
+      insertionIndex -= 1;
+    }
+
+    selectedItems.splice(insertionIndex, 0, nextEntry);
+  }
+
+  return selectedItems.map(({ item }) => item);
 };
 
 export const selectExposureBalancedNewsFeed = <

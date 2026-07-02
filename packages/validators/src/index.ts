@@ -10,6 +10,7 @@ export {
   buildNewsSemanticSimilarityMatches,
   selectBreakingNewsPriorityFeed,
   selectCollaborativeSignalNewsFeed,
+  selectDaypartBalancedNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,

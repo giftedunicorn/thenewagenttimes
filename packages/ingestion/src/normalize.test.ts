@@ -197,6 +197,43 @@ describe("normalizeFeedItem", () => {
     expect(result.category).toBe("other");
     expect(result.tags).toEqual(["other"]);
   });
+
+  it("extracts fine-grained recommendation tags from security and market-map coverage", () => {
+    const securityResult = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "security-ai",
+      item: {
+        title: "AI agent prompt injection vulnerability disclosed",
+        url: "https://example.com/prompt-injection",
+        summary:
+          "Researchers red team a browser agent exploit and publish mitigations.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+    const marketMapResult = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "market-map-ai",
+      item: {
+        title: "AI infrastructure market map tracks GPU cloud startups",
+        url: "https://example.com/gpu-cloud-map",
+        summary:
+          "The landscape compares inference platforms, GPU clouds, and developer tooling.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(securityResult.tags).toEqual(
+      expect.arrayContaining([
+        "security",
+        "agent",
+        "prompt_injection",
+        "red_team",
+      ]),
+    );
+    expect(marketMapResult.tags).toEqual(
+      expect.arrayContaining(["market_map", "gpu_cloud", "infrastructure"]),
+    );
+  });
 });
 
 describe("normalizeManualItem", () => {

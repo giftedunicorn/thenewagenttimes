@@ -309,6 +309,21 @@ const tagsFor = (input: {
   if (hasToken(text, "product hunt") || sourceSlug.includes("product-hunt")) {
     tags.add("product_hunt");
   }
+  if (hasToken(text, "prompt injection")) tags.add("prompt_injection");
+  if (hasToken(text, "red team")) tags.add("red_team");
+  if (hasAnyToken(text, ["gpu cloud", "gpu clouds"])) tags.add("gpu_cloud");
+  if (
+    hasAnyToken(text, [
+      "gpu cloud",
+      "gpu clouds",
+      "inference platform",
+      "inference platforms",
+      "infrastructure",
+      "infrastructure startups",
+    ])
+  ) {
+    tags.add("infrastructure");
+  }
 
   return [...tags];
 };

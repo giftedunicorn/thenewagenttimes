@@ -330,6 +330,42 @@ const getUniqueValues = (items: readonly NewsHomeItem[], key: "sourceSlug") =>
 const getTopEntities = (items: readonly NewsHomeItem[]) =>
   Array.from(new Set(items.flatMap((item) => item.entities))).slice(0, 10);
 
+const getTopTags = (items: readonly NewsHomeItem[]) => {
+  const entries = new Map<
+    string,
+    { count: number; firstIndex: number; label: string }
+  >();
+
+  items.forEach((item, itemIndex) => {
+    item.tags.forEach((tag) => {
+      const label = tag.trim();
+      const key = label.toLowerCase();
+
+      if (!key || !label) return;
+
+      const existing = entries.get(key);
+
+      if (!existing) {
+        entries.set(key, { count: 1, firstIndex: itemIndex, label });
+        return;
+      }
+
+      existing.count += 1;
+    });
+  });
+
+  return Array.from(entries.values())
+    .sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      if (left.firstIndex !== right.firstIndex) {
+        return left.firstIndex - right.firstIndex;
+      }
+      return left.label.localeCompare(right.label);
+    })
+    .map((entry) => entry.label)
+    .slice(0, 10);
+};
+
 export function NewsHome({
   initialItems,
   deskStatus,
@@ -339,9 +375,11 @@ export function NewsHome({
 }: NewsHomeProps) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [profile, setProfile] =
-    useState<NewsPreferenceProfile>(readStoredProfile);
-  const [visitorKey] = useState<string | null>(readOrCreateVisitorKey);
+  const [profile, setProfile] = useState<NewsPreferenceProfile>(
+    createDefaultNewsPreferenceProfile,
+  );
+  const [visitorKey, setVisitorKey] = useState<string | null>(null);
+  const [readerStateHydrated, setReaderStateHydrated] = useState(false);
   const [hiddenItemIds, setHiddenItemIds] = useState<string[]>([]);
   const [negativeFeedbackItems, setNegativeFeedbackItems] = useState<
     NewsHomeItem[]
@@ -457,8 +495,16 @@ export function NewsHome({
   });
 
   useEffect(() => {
+    setProfile(readStoredProfile());
+    setVisitorKey(readOrCreateVisitorKey());
+    setReaderStateHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!readerStateHydrated) return;
+
     writeStoredProfile(profile);
-  }, [profile]);
+  }, [profile, readerStateHydrated]);
 
   useEffect(() => {
     if (!profileQuery.data?.persisted) return;
@@ -775,6 +821,7 @@ export function NewsHome({
     new Set([...fallbackItems, ...items].map((item) => item.sourceSlug)),
   ).slice(0, 8);
   const availableEntities = getTopEntities(items);
+  const availableTags = getTopTags(items);
   const readerMemory = getNewsReaderMemory({
     formatCategory: getCategoryLabel,
     historyItems,
@@ -3571,6 +3618,28 @@ export function NewsHome({
                   }
                 >
                   {source}
+                </PreferenceButton>
+              ))}
+            </PreferenceGroup>
+
+            <PreferenceGroup title="Angles">
+              {availableTags.map((tag) => (
+                <PreferenceButton
+                  key={tag}
+                  active={profile.preferredEntities.some(
+                    (entity) => entity.toLowerCase() === tag.toLowerCase(),
+                  )}
+                  onClick={() =>
+                    commitProfile((current) => ({
+                      ...current,
+                      preferredEntities: toggleValue(
+                        current.preferredEntities,
+                        tag,
+                      ),
+                    }))
+                  }
+                >
+                  {tag}
                 </PreferenceButton>
               ))}
             </PreferenceGroup>

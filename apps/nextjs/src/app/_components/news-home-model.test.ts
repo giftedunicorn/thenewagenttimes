@@ -2635,7 +2635,7 @@ describe("getNewsPreferenceStarter", () => {
         profile: {
           preferredCategories: ["model_release"],
           preferredSources: ["local-source"],
-          preferredEntities: ["OpenAI"],
+          preferredEntities: ["OpenAI", "model"],
           noveltyBias: 1.2,
           recencyBias: 1,
         },
@@ -2706,6 +2706,7 @@ describe("getNewsPreferenceStarter", () => {
         { label: "New topics", value: "2" },
         { label: "New sources", value: "2" },
         { label: "New entities", value: "2" },
+        { label: "New angles", value: "0" },
       ],
       summary:
         "6 preference starters can seed the For You model from 4 ranked stories.",
@@ -2733,8 +2734,76 @@ describe("getNewsPreferenceStarter", () => {
         { label: "New topics", value: "0" },
         { label: "New sources", value: "0" },
         { label: "New entities", value: "0" },
+        { label: "New angles", value: "0" },
       ],
       summary: "Preference starter will appear as stories load.",
+    });
+  });
+
+  it("suggests fine-grained angle tags as preference starters", () => {
+    expect(
+      getNewsPreferenceStarter({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            matchedSignals: [],
+            personalizedScore: 126,
+            sourceSlug: "openai-news",
+            tags: ["agents", "benchmarks"],
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 118,
+            sourceSlug: "research-lab",
+            tags: ["agents"],
+            trendScore: 86,
+          },
+        ],
+        profile: {
+          preferredCategories: ["model_release", "research"],
+          preferredSources: ["openai-news", "research-lab"],
+          preferredEntities: ["OpenAI", "Anthropic"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      groups: [
+        {
+          label: "Angles",
+          suggestions: [
+            {
+              actionLabel: "Follow angle",
+              kind: "tag",
+              label: "agents",
+              reason: "2 stories from 2 sources carry the agents angle.",
+              signal: "agents",
+            },
+            {
+              actionLabel: "Follow angle",
+              kind: "tag",
+              label: "benchmarks",
+              reason: "1 story from 1 source carries the benchmarks angle.",
+              signal: "benchmarks",
+            },
+          ],
+        },
+      ],
+      label: "Starter Picks",
+      metrics: [
+        { label: "Suggestions", value: "2" },
+        { label: "New topics", value: "0" },
+        { label: "New sources", value: "0" },
+        { label: "New entities", value: "0" },
+        { label: "New angles", value: "2" },
+      ],
+      summary:
+        "2 preference starters can seed the For You model from 2 ranked stories.",
     });
   });
 });
@@ -3451,7 +3520,7 @@ describe("getNewsProfileImpactPreview", () => {
 });
 
 describe("getNewsInterestGraph", () => {
-  it("maps reader preferences and ranked stories into topic, entity, and source lanes", () => {
+  it("maps reader preferences and ranked stories into topic, entity, source, and angle lanes", () => {
     expect(
       getNewsInterestGraph({
         formatCategory: (category) =>
@@ -3469,6 +3538,7 @@ describe("getNewsInterestGraph", () => {
             sourceName: "OpenAI News",
             sourceScore: 92,
             sourceSlug: "openai-news",
+            tags: ["agents"],
             trendScore: 90,
           },
           {
@@ -3481,6 +3551,7 @@ describe("getNewsInterestGraph", () => {
             sourceName: "VentureWire",
             sourceScore: 84,
             sourceSlug: "venturewire",
+            tags: ["funding"],
             trendScore: 96,
           },
           {
@@ -3493,6 +3564,7 @@ describe("getNewsInterestGraph", () => {
             sourceName: "Agent Desk",
             sourceScore: 78,
             sourceSlug: "agent-desk",
+            tags: ["agents"],
             trendScore: 88,
           },
         ],
@@ -3562,12 +3634,31 @@ describe("getNewsInterestGraph", () => {
             },
           ],
         },
+        {
+          key: "angles",
+          label: "Angles",
+          nodes: [
+            {
+              activeSignal: true,
+              label: "agents",
+              score: 74,
+              storyCount: 2,
+            },
+            {
+              activeSignal: false,
+              label: "funding",
+              score: 18,
+              storyCount: 1,
+            },
+          ],
+        },
       ],
       metrics: [
         { label: "Active signals", value: "5" },
         { label: "Topic nodes", value: "2" },
         { label: "Entity nodes", value: "2" },
         { label: "Source nodes", value: "2" },
+        { label: "Angle nodes", value: "2" },
       ],
       notices: [
         {
@@ -3581,7 +3672,7 @@ describe("getNewsInterestGraph", () => {
         },
       ],
       summary:
-        "5 reader signals map to 6 interest nodes across 3 ranked stories.",
+        "5 reader signals map to 8 interest nodes across 3 ranked stories.",
     });
   });
 
@@ -3605,12 +3696,14 @@ describe("getNewsInterestGraph", () => {
         { key: "topics", label: "Topics", nodes: [] },
         { key: "entities", label: "Entities", nodes: [] },
         { key: "sources", label: "Sources", nodes: [] },
+        { key: "angles", label: "Angles", nodes: [] },
       ],
       metrics: [
         { label: "Active signals", value: "0" },
         { label: "Topic nodes", value: "0" },
         { label: "Entity nodes", value: "0" },
         { label: "Source nodes", value: "0" },
+        { label: "Angle nodes", value: "0" },
       ],
       notices: [
         {

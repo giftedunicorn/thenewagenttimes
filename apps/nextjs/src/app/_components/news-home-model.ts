@@ -2804,7 +2804,7 @@ export const getNewsFeedbackTrainingUpdate = ({
   };
 };
 
-type NewsPreferenceStarterKind = "category" | "entity" | "source";
+type NewsPreferenceStarterKind = "category" | "entity" | "source" | "tag";
 
 interface NewsPreferenceStarterSuggestion {
   actionLabel: string;
@@ -2826,19 +2826,22 @@ interface NewsPreferenceStarterEntry {
 const getPreferenceStarterMetrics = ({
   entityCount,
   sourceCount,
+  tagCount,
   topicCount,
 }: {
   entityCount: number;
   sourceCount: number;
+  tagCount: number;
   topicCount: number;
 }) => [
   {
     label: "Suggestions",
-    value: String(topicCount + sourceCount + entityCount),
+    value: String(topicCount + sourceCount + entityCount + tagCount),
   },
   { label: "New topics", value: String(topicCount) },
   { label: "New sources", value: String(sourceCount) },
   { label: "New entities", value: String(entityCount) },
+  { label: "New angles", value: String(tagCount) },
 ];
 
 const normalizePreferenceSignal = (value: string) => value.trim().toLowerCase();
@@ -2942,6 +2945,7 @@ export const getNewsPreferenceStarter = ({
       metrics: getPreferenceStarterMetrics({
         entityCount: 0,
         sourceCount: 0,
+        tagCount: 0,
         topicCount: 0,
       }),
       summary: "Preference starter will appear as stories load.",
@@ -2952,6 +2956,7 @@ export const getNewsPreferenceStarter = ({
   const categoryEntries = new Map<string, NewsPreferenceStarterEntry>();
   const sourceEntries = new Map<string, NewsPreferenceStarterEntry>();
   const entityEntries = new Map<string, NewsPreferenceStarterEntry>();
+  const tagEntries = new Map<string, NewsPreferenceStarterEntry>();
 
   items.forEach((item, index) => {
     if (
@@ -3004,6 +3009,31 @@ export const getNewsPreferenceStarter = ({
         trendScore: item.trendScore,
       });
     });
+
+    const seenTags = new Set<string>();
+
+    item.tags.forEach((tag, tagIndex) => {
+      const normalizedTag = normalizePreferenceSignal(tag);
+
+      if (
+        !normalizedTag ||
+        seenTags.has(normalizedTag) ||
+        hasPreferenceSignal(normalizedProfile.preferredEntities, tag)
+      ) {
+        return;
+      }
+
+      seenTags.add(normalizedTag);
+
+      upsertPreferenceStarterEntry({
+        firstIndex: index * 100 + tagIndex,
+        label: tag,
+        signal: tag,
+        store: tagEntries,
+        supportKey: item.sourceSlug,
+        trendScore: item.trendScore,
+      });
+    });
   });
 
   const topicSuggestions = Array.from(categoryEntries.values())
@@ -3048,15 +3078,33 @@ export const getNewsPreferenceStarter = ({
         signal: entry.signal,
       }),
     );
+  const tagSuggestions = Array.from(tagEntries.values())
+    .sort(compareStarterEntries)
+    .slice(0, 2)
+    .map(
+      (entry): NewsPreferenceStarterSuggestion => ({
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: entry.label,
+        reason: `${formatStarterStoryCount(entry.signalCount)} from ${formatStarterSourceCount(
+          entry.supportKeys.size,
+        )} ${
+          entry.signalCount === 1 ? "carries" : "carry"
+        } the ${entry.label} angle.`,
+        signal: entry.signal,
+      }),
+    );
   const groups = [
     { label: "Topics", suggestions: topicSuggestions },
     { label: "Sources", suggestions: sourceSuggestions },
     { label: "Entities", suggestions: entitySuggestions },
+    { label: "Angles", suggestions: tagSuggestions },
   ].filter((group) => group.suggestions.length > 0);
   const suggestionCount =
     topicSuggestions.length +
     sourceSuggestions.length +
-    entitySuggestions.length;
+    entitySuggestions.length +
+    tagSuggestions.length;
 
   return {
     groups,
@@ -3064,6 +3112,7 @@ export const getNewsPreferenceStarter = ({
     metrics: getPreferenceStarterMetrics({
       entityCount: entitySuggestions.length,
       sourceCount: sourceSuggestions.length,
+      tagCount: tagSuggestions.length,
       topicCount: topicSuggestions.length,
     }),
     summary:
@@ -4017,7 +4066,7 @@ export const getNewsProfileImpactPreview = ({
   };
 };
 
-type NewsInterestGraphLaneKey = "entities" | "sources" | "topics";
+type NewsInterestGraphLaneKey = "angles" | "entities" | "sources" | "topics";
 
 interface NewsInterestGraphNode {
   activeSignal: boolean;
@@ -4036,6 +4085,7 @@ const interestGraphLaneDefinitions = [
   { key: "topics", label: "Topics" },
   { key: "entities", label: "Entities" },
   { key: "sources", label: "Sources" },
+  { key: "angles", label: "Angles" },
 ] as const satisfies readonly {
   key: NewsInterestGraphLaneKey;
   label: string;
@@ -4187,6 +4237,33 @@ export const getNewsInterestGraph = ({
     });
   }
 
+  const uniqueStoryTags = new Map<string, string>();
+
+  for (const item of items) {
+    for (const tagValue of item.tags) {
+      const tag = tagValue.trim();
+      const normalizedTag = tag.toLowerCase();
+
+      if (!tag || uniqueStoryTags.has(normalizedTag)) continue;
+      uniqueStoryTags.set(normalizedTag, tag);
+    }
+  }
+
+  for (const tag of uniqueStoryTags.values()) {
+    if (!hasPreferenceSignal(normalizedProfile.preferredEntities, tag)) {
+      continue;
+    }
+
+    addInterestGraphNode({
+      activeSignal: true,
+      key: tag,
+      label: tag,
+      lane: "angles",
+      score: 38,
+      stores,
+    });
+  }
+
   for (const item of items) {
     addInterestGraphNode({
       activeSignal: false,
@@ -4233,6 +4310,31 @@ export const getNewsInterestGraph = ({
       });
       seenEntities.add(normalizedEntity);
     }
+
+    const seenTags = new Set<string>();
+
+    for (const tagValue of item.tags) {
+      const tag = tagValue.trim();
+      const normalizedTag = tag.toLowerCase();
+
+      if (!tag || seenTags.has(normalizedTag)) continue;
+
+      addInterestGraphNode({
+        activeSignal: hasPreferenceSignal(
+          normalizedProfile.preferredEntities,
+          tag,
+        ),
+        itemId: item.id,
+        key: tag,
+        label: tag,
+        lane: "angles",
+        score:
+          Math.round(item.personalizedScore / 12) +
+          Math.round(item.trendScore / 12),
+        stores,
+      });
+      seenTags.add(normalizedTag);
+    }
   }
 
   const lanes: NewsInterestGraphLane[] = interestGraphLaneDefinitions.map(
@@ -4268,6 +4370,7 @@ export const getNewsInterestGraph = ({
         { label: "Topic nodes", value: "0" },
         { label: "Entity nodes", value: "0" },
         { label: "Source nodes", value: "0" },
+        { label: "Angle nodes", value: "0" },
       ],
       notices: [
         {
@@ -4333,6 +4436,12 @@ export const getNewsInterestGraph = ({
         label: "Source nodes",
         value: String(
           lanes.find((lane) => lane.key === "sources")?.nodes.length ?? 0,
+        ),
+      },
+      {
+        label: "Angle nodes",
+        value: String(
+          lanes.find((lane) => lane.key === "angles")?.nodes.length ?? 0,
         ),
       },
     ],

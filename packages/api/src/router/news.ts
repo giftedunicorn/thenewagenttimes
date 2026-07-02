@@ -421,6 +421,14 @@ const resolveReaderIdentity = (
   return null;
 };
 
+export const getNewsReaderProfileResetIdentity = ({
+  userId,
+  visitorKey,
+}: {
+  userId: string | undefined;
+  visitorKey: string | undefined;
+}) => resolveReaderIdentity(userId, visitorKey);
+
 const clampBias = (value: number) => Math.min(Math.max(value, 0), 2);
 
 const toPreferenceProfile = (
@@ -498,6 +506,9 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
     viewedNewsItems,
   ).slice(0, limit);
 };
+
+export const getNewsForYouCandidateLimit = (limit: number) =>
+  Math.min(limit * 6, 240);
 
 export const selectUniqueNewsCollectionItems = <TItem extends DedupeNewsItem>(
   items: readonly TItem[],
@@ -815,7 +826,7 @@ export const newsRouter = {
         }
       }
 
-      const candidateLimit = Math.min(input.limit * 3, 100);
+      const candidateLimit = getNewsForYouCandidateLimit(input.limit);
       const rows = await ctx.db
         .select({
           id: NewsItem.id,
@@ -1218,10 +1229,10 @@ export const newsRouter = {
   resetProfile: publicProcedure
     .input(NewsReaderProfileInputSchema)
     .mutation(async ({ ctx, input }) => {
-      const identity = resolveReaderIdentity(
-        ctx.session?.user.id,
-        input.visitorKey,
-      );
+      const identity = getNewsReaderProfileResetIdentity({
+        userId: ctx.session?.user.id,
+        visitorKey: input.visitorKey,
+      });
 
       if (!identity) {
         throw new TRPCError({

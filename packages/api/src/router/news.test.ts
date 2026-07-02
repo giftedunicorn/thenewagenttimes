@@ -4,6 +4,8 @@ import type { NewsForYouCandidate } from "./news";
 import {
   buildNewsReaderProfileResponse,
   buildNewsTextSearchCondition,
+  getNewsForYouCandidateLimit,
+  getNewsReaderProfileResetIdentity,
   NewsFeedInputSchema,
   NewsForYouInputSchema,
   NewsHistoryInputSchema,
@@ -471,6 +473,28 @@ describe("selectNewsFeedItems", () => {
       "trusted-openai-model",
       "fresh-agent-story",
     ]);
+  });
+});
+
+describe("getNewsForYouCandidateLimit", () => {
+  it("widens server-side personalized candidate recall before reranking", () => {
+    expect(getNewsForYouCandidateLimit(1)).toBe(6);
+    expect(getNewsForYouCandidateLimit(20)).toBe(120);
+    expect(getNewsForYouCandidateLimit(50)).toBe(240);
+  });
+});
+
+describe("getNewsReaderProfileResetIdentity", () => {
+  it("uses the anonymous visitor key when resetting reader memory without a session", () => {
+    expect(
+      getNewsReaderProfileResetIdentity({
+        userId: undefined,
+        visitorKey: "visitor-test-123",
+      }),
+    ).toEqual({
+      readerKey: "visitor:visitor-test-123",
+      userId: null,
+    });
   });
 });
 

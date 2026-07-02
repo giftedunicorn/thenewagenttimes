@@ -9,6 +9,7 @@ import {
   NewsHistoryInputSchema,
   NewsReaderProfileInputSchema,
   NewsRecordInteractionInputSchema,
+  newsRouter,
   NewsSavedInputSchema,
   NewsSearchCandidatesInputSchema,
   NewsUpdateProfileInputSchema,
@@ -260,6 +261,10 @@ describe("news router input contracts", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("exposes a reset endpoint that clears persisted reader memory", () => {
+    expect(newsRouter).toHaveProperty("resetProfile");
   });
 });
 

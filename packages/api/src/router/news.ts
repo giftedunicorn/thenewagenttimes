@@ -1215,6 +1215,73 @@ export const newsRouter = {
       };
     }),
 
+  resetProfile: publicProcedure
+    .input(NewsReaderProfileInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A reader identity is required to reset news preferences.",
+        });
+      }
+
+      const [profile] = await ctx.db
+        .insert(NewsReaderProfile)
+        .values({
+          readerKey: identity.readerKey,
+          userId: identity.userId,
+          preferredCategories: [
+            ...defaultNewsPreferenceProfile.preferredCategories,
+          ],
+          preferredSources: [...defaultNewsPreferenceProfile.preferredSources],
+          preferredEntities: [
+            ...defaultNewsPreferenceProfile.preferredEntities,
+          ],
+          noveltyBias: defaultNewsPreferenceProfile.noveltyBias,
+          recencyBias: defaultNewsPreferenceProfile.recencyBias,
+        })
+        .onConflictDoUpdate({
+          target: NewsReaderProfile.readerKey,
+          set: {
+            userId: identity.userId,
+            preferredCategories: [
+              ...defaultNewsPreferenceProfile.preferredCategories,
+            ],
+            preferredSources: [
+              ...defaultNewsPreferenceProfile.preferredSources,
+            ],
+            preferredEntities: [
+              ...defaultNewsPreferenceProfile.preferredEntities,
+            ],
+            noveltyBias: defaultNewsPreferenceProfile.noveltyBias,
+            recencyBias: defaultNewsPreferenceProfile.recencyBias,
+            updatedAt: sql`now()`,
+          },
+        })
+        .returning();
+
+      if (!profile) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unable to reset reader profile.",
+        });
+      }
+
+      await ctx.db
+        .delete(NewsReaderInteraction)
+        .where(eq(NewsReaderInteraction.readerProfileId, profile.id));
+
+      return {
+        ...toPreferenceProfile(profile),
+        persisted: true,
+      };
+    }),
+
   searchCandidates: publicProcedure
     .input(NewsSearchCandidatesInputSchema)
     .query(async ({ ctx, input }) => {

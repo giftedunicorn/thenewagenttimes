@@ -14481,6 +14481,7 @@ const recommendationReasonLabels = {
   discovery_slot: "Discovery slot",
   exposure_cooldown: "Fresh angle after reading",
   exploration: "Outside your usual mix",
+  home_exposure_cooldown: "Recently seen on home",
   negative_feedback: "Dampened by Less feedback",
   positive_feedback: "Deep read, save, share, or source-click signal",
   semantic_feedback: "Similar to stories you engaged with",
@@ -14565,7 +14566,11 @@ export const getNewsStoryRankDetails = ({
   now?: Date;
 }) => {
   const badges: string[] = [];
+  const isExposureCooldown = item.matchedSignals.includes("exposure_cooldown");
   const isExploration = item.matchedSignals.includes("exploration");
+  const isHomeExposureCooldown = item.matchedSignals.includes(
+    "home_exposure_cooldown",
+  );
   const isNegativeFeedback = item.matchedSignals.includes("negative_feedback");
   const isSemanticFeedback = item.matchedSignals.includes("semantic_feedback");
   const isSessionIntent = item.matchedSignals.includes("session_intent");
@@ -14654,6 +14659,26 @@ export const getNewsStoryRankDetails = ({
       summary: supportText
         ? `Inserted as an exploration story outside your usual mix, supported by ${supportText}.`
         : "Inserted as an exploration story outside your usual mix.",
+    };
+  }
+
+  if (isHomeExposureCooldown) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Moved behind fresh angles because this card or URL was recently seen on the home feed, while still supported by ${supportText}.`
+        : "Moved behind fresh angles because this card or URL was recently seen on the home feed.",
+    };
+  }
+
+  if (isExposureCooldown) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Moved behind fresh angles because you recently read a similar topic, source, or entity, while still supported by ${supportText}.`
+        : "Moved behind fresh angles because you recently read a similar topic, source, or entity.",
     };
   }
 

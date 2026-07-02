@@ -12920,6 +12920,18 @@ describe("getNewsRecommendationReasons", () => {
     ).toEqual(["Current session intent"]);
   });
 
+  it("explains exact home exposure cooldown separately from article reads", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...localItem,
+          matchedSignals: ["home_exposure_cooldown"],
+          personalizedScore: 119,
+        },
+      }),
+    ).toEqual(["Recently seen on home"]);
+  });
+
   it("explains recommendations dampened by Less feedback", () => {
     expect(
       getNewsRecommendationReasons({
@@ -13081,6 +13093,46 @@ describe("getNewsStoryRankDetails", () => {
       badges: ["Current session intent", "Fresh", "Strong source"],
       summary:
         "Ranked by the topic, source, or search intent active in this session, with fresh publication timing and source credibility.",
+      scoreLabel: "119 score",
+    });
+  });
+
+  it("explains home exposure cooldown as a repeated card guardrail", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["home_exposure_cooldown"],
+          personalizedScore: 119,
+          sourceScore: 84,
+          trendScore: 66,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Recently seen on home", "Fresh", "Strong source"],
+      summary:
+        "Moved behind fresh angles because this card or URL was recently seen on the home feed, while still supported by fresh publication timing and source credibility.",
+      scoreLabel: "119 score",
+    });
+  });
+
+  it("explains article-read exposure cooldown as a fresh-angle guardrail", () => {
+    expect(
+      getNewsStoryRankDetails({
+        item: {
+          ...localItem,
+          matchedSignals: ["exposure_cooldown"],
+          personalizedScore: 119,
+          sourceScore: 84,
+          trendScore: 66,
+        },
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Fresh angle after reading", "Fresh", "Strong source"],
+      summary:
+        "Moved behind fresh angles because you recently read a similar topic, source, or entity, while still supported by fresh publication timing and source credibility.",
       scoreLabel: "119 score",
     });
   });

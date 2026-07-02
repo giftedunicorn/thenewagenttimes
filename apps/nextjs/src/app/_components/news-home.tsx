@@ -126,6 +126,7 @@ import {
   selectNewsHomePositiveFeedbackAnchors,
   selectReaderFreshNewsHomeItems,
   selectSessionIntentNewsHomeItems,
+  selectSourceCorroboratedNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -840,8 +841,11 @@ export function NewsHome({
     const trustBalancedItems = selectSourceTrustBalancedNewsFeed(
       feedbackAdjustedItems,
     );
-    const fatigueBalancedItems = selectFeedFatigueBalancedNewsHomeItems({
+    const sourceCorroboratedItems = selectSourceCorroboratedNewsHomeItems({
       items: trustBalancedItems,
+    });
+    const fatigueBalancedItems = selectFeedFatigueBalancedNewsHomeItems({
+      items: sourceCorroboratedItems,
     });
     const breakingPriorityItems = selectBreakingNewsPriorityFeed(
       fatigueBalancedItems,

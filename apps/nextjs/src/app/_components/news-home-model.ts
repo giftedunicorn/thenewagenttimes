@@ -15,6 +15,7 @@ import {
   selectFatigueBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
   selectReaderFreshNewsFeed,
+  selectSourceCorroboratedNewsFeed,
 } from "@acme/validators";
 
 export interface NewsHomeItem extends RecommendableNewsItem {
@@ -14412,6 +14413,12 @@ export const selectFeedFatigueBalancedNewsHomeItems = ({
 }: {
   items: readonly RankedNewsItem<NewsHomeItem>[];
 }) => selectFatigueBalancedNewsFeed(items);
+
+export const selectSourceCorroboratedNewsHomeItems = ({
+  items,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+}) => selectSourceCorroboratedNewsFeed(items);
 
 export const selectNegativeFeedbackAdjustedNewsHomeItems = ({
   items,

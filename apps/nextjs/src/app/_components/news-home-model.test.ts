@@ -98,6 +98,7 @@ import {
   selectReaderFreshNewsHomeItems,
   selectRelatedNewsHomeItems,
   selectSessionIntentNewsHomeItems,
+  selectSourceCorroboratedNewsHomeItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
@@ -12130,6 +12131,84 @@ describe("selectSessionIntentNewsHomeItems", () => {
       "high-profile-model",
     ]);
     expect(feed[0]?.personalizedScore).toBe(134);
+  });
+});
+
+describe("selectSourceCorroboratedNewsHomeItems", () => {
+  it("lifts trusted local stories corroborated by independent sources", () => {
+    const feed = selectSourceCorroboratedNewsHomeItems({
+      items: [
+        {
+          ...localItem,
+          id: "solo-hot-story",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: [],
+          personalizedScore: 132,
+          sourceSlug: "launchwire",
+        },
+        {
+          ...olderItem,
+          id: "corroborated-agent-angle",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: [],
+          personalizedScore: 121,
+          sourceScore: 82,
+          sourceSlug: "agent-desk",
+        },
+        {
+          ...serverItem,
+          id: "independent-agent-confirmation",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceScore: 85,
+          sourceSlug: "developer-weekly",
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "corroborated-agent-angle",
+      "solo-hot-story",
+      "independent-agent-confirmation",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("source_corroboration");
+    expect(feed[2]?.matchedSignals).toContain("source_corroboration");
+  });
+
+  it("does not treat repeated local coverage from one source as corroboration", () => {
+    const feed = selectSourceCorroboratedNewsHomeItems({
+      items: [
+        {
+          ...localItem,
+          id: "single-source-primary",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: [],
+          personalizedScore: 130,
+          sourceSlug: "agent-desk",
+        },
+        {
+          ...olderItem,
+          id: "single-source-follow-up",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: [],
+          personalizedScore: 120,
+          sourceSlug: "agent-desk",
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "single-source-primary",
+      "single-source-follow-up",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("source_corroboration");
+    expect(feed[1]?.matchedSignals).not.toContain("source_corroboration");
   });
 });
 

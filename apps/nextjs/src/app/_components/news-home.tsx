@@ -73,6 +73,7 @@ import {
   getNewsFrontPageSlotMix,
   getNewsGuardrailShelf,
   getNewsHomeReaderMemoryResetCacheScopes,
+  getNewsHomeStoryActionPanel,
   getNewsHotBoard,
   getNewsInterestDrift,
   getNewsInterestGraph,
@@ -121,6 +122,7 @@ import {
   getNewsTopicPulse,
   getNextNewsHomeCursor,
   getPreviewNewsHomeItems,
+  isNewsHomePreviewEdition,
   mergeNewsHomeItems,
   mergeNewsReaderMemoryItems,
   selectFeedFatigueBalancedNewsHomeItems,
@@ -664,10 +666,12 @@ export function NewsHome({
       nextItems: loadedItems,
     }),
   });
-  const isPreview =
-    !hasExploreFilters &&
-    initialItems.length === 0 &&
-    !serverRecommendedItems?.length;
+  const isPreview = isNewsHomePreviewEdition({
+    hasExploreFilters,
+    initialItems,
+    serverRecommendedItems,
+    status,
+  });
   const nextCursor = getNextNewsHomeCursor(items);
   const deskStatusSummary = getNewsDeskStatusSummary(deskStatus);
   const readinessChecklist = getNewsProductionReadinessChecklist({
@@ -7151,61 +7155,66 @@ function StoryAction({
     rankSlot: number,
   ) => void;
 }) {
-  if (isPreview) {
-    return (
-      <p className="max-w-xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-        Live collection will replace preview desk notes after sources and schema
-        are initialized in production.
-      </p>
-    );
-  }
+  const actionPanel = getNewsHomeStoryActionPanel({
+    hasSourceUrl: Boolean(item.canonicalUrl),
+    isPreview,
+  });
 
   return (
-    <div className="flex flex-wrap gap-2">
-      <Button asChild className="rounded-none">
-        <Link
-          href={`/news/${item.id}`}
-          onClick={() => onAction(item, "view", rankSlot)}
-        >
-          Read
-        </Link>
-      </Button>
-      <Button
-        className="rounded-none"
-        type="button"
-        variant="outline"
-        onClick={() => onAction(item, "save", rankSlot)}
-      >
-        Save
-      </Button>
-      <Button
-        className="rounded-none"
-        type="button"
-        variant="outline"
-        onClick={() => onAction(item, "share", rankSlot)}
-      >
-        Share
-      </Button>
-      <Button
-        className="rounded-none"
-        type="button"
-        variant="outline"
-        onClick={() => onAction(item, "hide", rankSlot)}
-      >
-        Less
-      </Button>
-      {item.canonicalUrl ? (
-        <Button asChild className="rounded-none" variant="outline">
-          <a
-            href={item.canonicalUrl}
-            onClick={() => onAction(item, "click_source", rankSlot)}
-            rel="nofollow noopener noreferrer"
-            target="_blank"
-          >
-            Source
-          </a>
-        </Button>
+    <div className="grid gap-2">
+      {actionPanel.helperText ? (
+        <p className="max-w-xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+          {actionPanel.helperText}
+        </p>
       ) : null}
+      <div className="flex flex-wrap gap-2">
+        {actionPanel.actions.map((action) => {
+          if (action.type === "read") {
+            return (
+              <Button key={action.action} asChild className="rounded-none">
+                <Link
+                  href={`/news/${item.id}`}
+                  onClick={() => onAction(item, action.action, rankSlot)}
+                >
+                  {action.label}
+                </Link>
+              </Button>
+            );
+          }
+
+          if (action.type === "source" && item.canonicalUrl) {
+            return (
+              <Button
+                key={action.action}
+                asChild
+                className="rounded-none"
+                variant="outline"
+              >
+                <a
+                  href={item.canonicalUrl}
+                  onClick={() => onAction(item, action.action, rankSlot)}
+                  rel="nofollow noopener noreferrer"
+                  target="_blank"
+                >
+                  {action.label}
+                </a>
+              </Button>
+            );
+          }
+
+          return (
+            <Button
+              key={action.action}
+              className="rounded-none"
+              type="button"
+              variant="outline"
+              onClick={() => onAction(item, action.action, rankSlot)}
+            >
+              {action.label}
+            </Button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -7240,14 +7249,12 @@ function StoryCard({
         {item.summary}
       </p>
       <RecommendationReasons item={item} mode={mode} rankedAt={rankedAt} />
-      {!isPreview ? (
-        <StoryAction
-          item={item}
-          isPreview={isPreview}
-          rankSlot={rankSlot}
-          onAction={onAction}
-        />
-      ) : null}
+      <StoryAction
+        item={item}
+        isPreview={isPreview}
+        rankSlot={rankSlot}
+        onAction={onAction}
+      />
     </article>
   );
 }

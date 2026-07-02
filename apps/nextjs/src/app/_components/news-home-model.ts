@@ -9295,6 +9295,7 @@ export const getNewsFeedGovernor = ({
   const sourceEntries = new Map<string, NewsFeedGovernorEntry>();
   const topicEntries = new Map<string, NewsFeedGovernorEntry>();
   const entityEntries = new Map<string, NewsFeedGovernorEntry>();
+  const angleEntries = new Map<string, NewsFeedGovernorEntry>();
 
   items.forEach((item, index) => {
     incrementFeedGovernorEntry({
@@ -9317,6 +9318,16 @@ export const getNewsFeedGovernor = ({
         store: entityEntries,
       });
     });
+    getUniqueSignals(item.tags, 12).forEach((tag) => {
+      if (!isSpecificNewsAngleTag(tag)) return;
+
+      incrementFeedGovernorEntry({
+        index,
+        key: tag,
+        label: formatNewsAngleQuery(tag),
+        store: angleEntries,
+      });
+    });
   });
 
   const sources = Array.from(sourceEntries.values()).sort(
@@ -9328,9 +9339,13 @@ export const getNewsFeedGovernor = ({
   const entities = Array.from(entityEntries.values()).sort(
     compareFeedGovernorEntries,
   );
+  const angles = Array.from(angleEntries.values()).sort(
+    compareFeedGovernorEntries,
+  );
   const [topSource] = sources;
   const [topTopic] = topics;
   const [topEntity] = entities;
+  const [topAngle] = angles;
   const totalCount = items.length;
   const explorationCount = items.filter((item) =>
     item.matchedSignals.includes("exploration"),
@@ -9344,13 +9359,18 @@ export const getNewsFeedGovernor = ({
   const topEntityPercent = topEntity
     ? formatPercentage(topEntity.count, totalCount)
     : "0%";
+  const topAnglePercent = topAngle
+    ? formatPercentage(topAngle.count, totalCount)
+    : "0%";
   const explorationPercent = formatPercentage(explorationCount, totalCount);
   const topSourceShare = topSource ? topSource.count / totalCount : 0;
   const topTopicShare = topTopic ? topTopic.count / totalCount : 0;
   const topEntityShare = topEntity ? topEntity.count / totalCount : 0;
+  const topAngleShare = topAngle ? topAngle.count / totalCount : 0;
   const sourceConcentrated = topSourceShare >= 0.6;
   const topicConcentrated = topTopicShare >= 0.7;
   const entityConcentrated = topEntityShare >= 0.7;
+  const angleConcentrated = topAngleShare >= 0.7;
   const readerSignalCount =
     normalizedProfile.preferredCategories.length +
     normalizedProfile.preferredSources.length +
@@ -9379,7 +9399,19 @@ export const getNewsFeedGovernor = ({
     });
   }
 
-  if (!sourceConcentrated && !topicConcentrated && !entityConcentrated) {
+  if (angleConcentrated && topAngle) {
+    risks.push({
+      detail: `${topAngle.label} appears in ${topAnglePercent} of this slice.`,
+      label: "Angle concentration",
+    });
+  }
+
+  if (
+    !sourceConcentrated &&
+    !topicConcentrated &&
+    !entityConcentrated &&
+    !angleConcentrated
+  ) {
     risks.push({
       detail: "No source, topic, or entity dominates this edition slice.",
       label: "Coverage healthy",
@@ -9452,6 +9484,11 @@ export const getNewsFeedGovernor = ({
       entity.key.toLowerCase() !== topEntity?.key.toLowerCase() &&
       !hasPreferenceSignal(normalizedProfile.preferredEntities, entity.key),
   );
+  const angleCandidate = angles.find(
+    (angle) =>
+      angle.key.toLowerCase() !== topAngle?.key.toLowerCase() &&
+      !hasPreferenceSignal(normalizedProfile.preferredEntities, angle.key),
+  );
 
   if (sourceConcentrated && topSource && sourceCandidate) {
     controls.push({
@@ -9483,6 +9520,26 @@ export const getNewsFeedGovernor = ({
     });
   }
 
+  if (angleConcentrated && topAngle && angleCandidate) {
+    controls.push({
+      action: "follow_entity",
+      buttonLabel: "Follow angle",
+      label: "Angle spread",
+      reason: `${angleCandidate.label} broadens coverage beyond ${topAngle.label}.`,
+      signal: angleCandidate.key,
+    });
+  }
+
+  const metrics = [
+    { label: "Top source", value: topSourcePercent },
+    { label: "Top topic", value: topTopicPercent },
+    { label: "Top entity", value: topEntityPercent },
+    ...(topAngle ? [{ label: "Top angle", value: topAnglePercent }] : []),
+    { label: "Exploration", value: explorationPercent },
+    { label: "Bias mode", value: biasMode },
+  ];
+  const angleSummary = topAngle ? `, top angle ${topAnglePercent}` : "";
+
   return {
     controls,
     label:
@@ -9491,20 +9548,15 @@ export const getNewsFeedGovernor = ({
         : sourceConcentrated ||
             topicConcentrated ||
             entityConcentrated ||
+            angleConcentrated ||
             explorationCount === 0
           ? "Bubble Watch"
           : "Healthy Mix",
-    metrics: [
-      { label: "Top source", value: topSourcePercent },
-      { label: "Top topic", value: topTopicPercent },
-      { label: "Top entity", value: topEntityPercent },
-      { label: "Exploration", value: explorationPercent },
-      { label: "Bias mode", value: biasMode },
-    ],
+    metrics,
     risks,
     summary: `${totalCount} ${
       totalCount === 1 ? "story" : "stories"
-    } under governance: top source ${topSourcePercent}, top topic ${topTopicPercent}, top entity ${topEntityPercent}, exploration ${explorationPercent}.`,
+    } under governance: top source ${topSourcePercent}, top topic ${topTopicPercent}, top entity ${topEntityPercent}${angleSummary}, exploration ${explorationPercent}.`,
   };
 };
 
@@ -9541,7 +9593,10 @@ const isNewsFilterBubbleProfileMatch = ({
 
   return item.matchedSignals.some(
     (signal) =>
-      signal === "category" || signal === "source" || signal === "entity",
+      signal === "category" ||
+      signal === "source" ||
+      signal === "entity" ||
+      signal === "tag",
   );
 };
 
@@ -9574,6 +9629,10 @@ export const getNewsFilterBubbleReport = ({
   const sourceEntries = new Map<string, NewsFeedGovernorEntry>();
   const topicEntries = new Map<string, NewsFeedGovernorEntry>();
   const entityEntries = new Map<
+    string,
+    NewsFeedGovernorEntry & { sourceSlugs: Set<string> }
+  >();
+  const angleEntries = new Map<
     string,
     NewsFeedGovernorEntry & { sourceSlugs: Set<string> }
   >();
@@ -9619,6 +9678,31 @@ export const getNewsFilterBubbleReport = ({
 
       seenEntities.add(entity.key);
     });
+
+    const seenAngles = new Set<string>();
+
+    getUniqueSignals(item.tags, 12).forEach((tag) => {
+      if (!isSpecificNewsAngleTag(tag) || seenAngles.has(tag)) {
+        return;
+      }
+
+      const existing = angleEntries.get(tag);
+
+      if (existing) {
+        existing.count += 1;
+        existing.sourceSlugs.add(item.sourceSlug);
+      } else {
+        angleEntries.set(tag, {
+          count: 1,
+          firstIndex: index,
+          key: tag,
+          label: formatNewsAngleQuery(tag),
+          sourceSlugs: new Set([item.sourceSlug]),
+        });
+      }
+
+      seenAngles.add(tag);
+    });
   });
 
   const sources = Array.from(sourceEntries.values()).sort(
@@ -9630,9 +9714,13 @@ export const getNewsFilterBubbleReport = ({
   const entities = Array.from(entityEntries.values()).sort(
     compareFeedGovernorEntries,
   );
+  const angles = Array.from(angleEntries.values()).sort(
+    compareFeedGovernorEntries,
+  );
   const [topSource] = sources;
   const [topTopic] = topics;
   const [topEntity] = entities;
+  const [topAngle] = angles;
   const totalCount = items.length;
   const profileMatchCount = items.filter((item) =>
     isNewsFilterBubbleProfileMatch({
@@ -9649,11 +9737,18 @@ export const getNewsFilterBubbleReport = ({
   const explorationShare = explorationCount / totalCount;
   const topSourceShare = topSource ? topSource.count / totalCount : 0;
   const topEntityShare = topEntity ? topEntity.count / totalCount : 0;
+  const topAngleShare = topAngle ? topAngle.count / totalCount : 0;
   const hasEntityLock =
     topEntity !== undefined &&
     topEntity.count >= 3 &&
     topEntity.sourceSlugs.size >= 2 &&
     topEntityShare >= 0.6 &&
+    topSourceShare < 0.7;
+  const hasAngleLock =
+    topAngle !== undefined &&
+    topAngle.count >= 3 &&
+    topAngle.sourceSlugs.size >= 2 &&
+    topAngleShare >= 0.6 &&
     topSourceShare < 0.7;
   const checks: NewsFilterBubbleCheck[] = [];
 
@@ -9701,6 +9796,15 @@ export const getNewsFilterBubbleReport = ({
     });
   }
 
+  if (hasAngleLock) {
+    checks.push({
+      action: `Add another angle before letting ${topAngle.label} dominate the next refresh.`,
+      detail: `${topAngle.label} appears in ${topAngle.count} of ${totalCount} stories across mixed sources.`,
+      label: "Angle lock",
+      status: "risk",
+    });
+  }
+
   if (explorationCount === 0) {
     checks.push({
       action: "Raise novelty or add one outside-profile story.",
@@ -9736,8 +9840,11 @@ export const getNewsFilterBubbleReport = ({
   const entitySpreadLabel = `${entities.length} ${
     entities.length === 1 ? "entity" : "entities"
   }`;
+  const angleSpreadLabel = `${angles.length} ${
+    angles.length === 1 ? "angle" : "angles"
+  }`;
   const label =
-    profileShare >= 0.7 || topSourceShare >= 0.7 || hasEntityLock
+    profileShare >= 0.7 || topSourceShare >= 0.7 || hasEntityLock || hasAngleLock
       ? "Bubble Risk"
       : explorationShare < 0.25 || profileShare >= 0.5
         ? "Watch"
@@ -9757,6 +9864,9 @@ export const getNewsFilterBubbleReport = ({
       },
       { label: "Source spread", value: sourceSpreadLabel },
       { label: "Entity spread", value: entitySpreadLabel },
+      ...(angles.length > 0
+        ? [{ label: "Angle spread", value: angleSpreadLabel }]
+        : []),
       { label: "Dominant topic", value: topTopic?.label ?? "None" },
     ],
     summary:
@@ -9768,6 +9878,14 @@ export const getNewsFilterBubbleReport = ({
           }, and ${sourceSpreadLabel} with ${
             topEntity.label
           } dominating the entity mix.`
+        : label === "Bubble Risk" && hasAngleLock
+          ? `Filter bubble risk is high: ${profileMatchCount} profile-matched ${
+              profileMatchCount === 1 ? "story" : "stories"
+            }, ${explorationCount} exploration ${
+              explorationCount === 1 ? "story" : "stories"
+            }, and ${sourceSpreadLabel} with ${
+              topAngle.label
+            } dominating the angle mix.`
         : label === "Bubble Risk"
           ? `Filter bubble risk is high: ${profileMatchCount} profile-matched ${
               profileMatchCount === 1 ? "story" : "stories"
@@ -9944,6 +10062,69 @@ const getNewsDistributionDominantEntity = ({
   return dominantEntity.count >= 3 && share >= 0.6 ? dominantEntity : null;
 };
 
+const getNewsDistributionDominantAngle = ({
+  hiddenItemIds,
+  items,
+  negativeFeedbackItems,
+}: {
+  hiddenItemIds: ReadonlySet<string>;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsHomeItem[];
+}) => {
+  const angleEntries = new Map<
+    string,
+    { count: number; firstIndex: number; key: string; label: string }
+  >();
+  let eligibleCount = 0;
+
+  items.forEach((item, index) => {
+    if (
+      getNewsDistributionSuppressReason({
+        hiddenItemIds,
+        item,
+        negativeFeedbackItems,
+      })
+    ) {
+      return;
+    }
+
+    eligibleCount += 1;
+
+    const seenAngles = new Set<string>();
+
+    getUniqueSignals(item.tags, 12).forEach((tag) => {
+      if (!isSpecificNewsAngleTag(tag) || seenAngles.has(tag)) {
+        return;
+      }
+
+      const existing = angleEntries.get(tag);
+
+      if (existing) {
+        existing.count += 1;
+      } else {
+        angleEntries.set(tag, {
+          count: 1,
+          firstIndex: index,
+          key: tag,
+          label: formatNewsAngleQuery(tag),
+        });
+      }
+
+      seenAngles.add(tag);
+    });
+  });
+
+  const [dominantAngle] = [...angleEntries.values()].sort(
+    compareFeedGovernorEntries,
+  );
+
+  if (!dominantAngle || eligibleCount === 0) return null;
+
+  const share = dominantAngle.count / eligibleCount;
+
+  return dominantAngle.count >= 3 && share >= 0.6 ? dominantAngle : null;
+};
+
 const hasNewsDistributionEntity = ({
   item,
   key,
@@ -9953,12 +10134,22 @@ const hasNewsDistributionEntity = ({
 }) =>
   getNormalizedFeedFatigueEntities(item).some((entity) => entity.key === key);
 
+const hasNewsDistributionAngle = ({
+  item,
+  key,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  key: string;
+}) => getUniqueSignals(item.tags, 12).some((tag) => tag === key);
+
 const getNewsDistributionQueueKey = ({
+  dominantAngle,
   dominantEntity,
   hiddenItemIds,
   item,
   negativeFeedbackItems,
 }: {
+  dominantAngle: { key: string; label: string } | null;
   dominantEntity: { key: string; label: string } | null;
   hiddenItemIds: ReadonlySet<string>;
   item: RankedNewsItem<NewsHomeItem>;
@@ -9982,6 +10173,17 @@ const getNewsDistributionQueueKey = ({
     return {
       key: "balance",
       reason: `Counterbalances ${dominantEntity.label} concentration`,
+    };
+  }
+
+  if (
+    dominantAngle &&
+    item.matchedSignals.includes("exploration") &&
+    !hasNewsDistributionAngle({ item, key: dominantAngle.key })
+  ) {
+    return {
+      key: "balance",
+      reason: `Counterbalances ${dominantAngle.label} concentration`,
     };
   }
 
@@ -10044,9 +10246,15 @@ export const getNewsDistributionQueue = ({
     items,
     negativeFeedbackItems,
   });
+  const dominantAngle = getNewsDistributionDominantAngle({
+    hiddenItemIds: hiddenIds,
+    items,
+    negativeFeedbackItems,
+  });
 
   for (const item of items) {
     const placement = getNewsDistributionQueueKey({
+      dominantAngle,
       dominantEntity,
       hiddenItemIds: hiddenIds,
       item,

@@ -10273,6 +10273,88 @@ describe("getNewsTasteCalibration", () => {
 });
 
 describe("getNewsFeedGovernor", () => {
+  it("flags a concentrated angle even when sources and topics are mixed", () => {
+    const governor = getNewsFeedGovernor({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "research"
+            ? "Research"
+            : category === "market_map"
+              ? "Market Maps"
+              : category,
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          matchedSignals: ["tag"],
+          personalizedScore: 145,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+        {
+          ...serverItem,
+          category: "research",
+          entities: ["Browser Agents"],
+          matchedSignals: ["tag"],
+          personalizedScore: 130,
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          tags: ["prompt_injection"],
+        },
+        {
+          ...olderItem,
+          category: "market_map",
+          entities: ["AI Market"],
+          matchedSignals: ["tag"],
+          personalizedScore: 120,
+          sourceName: "Market Desk",
+          sourceSlug: "market-desk",
+          tags: ["prompt_injection", "red_team"],
+        },
+        {
+          ...olderItem,
+          category: "research",
+          entities: ["Benchmarks"],
+          id: "red-team-research",
+          matchedSignals: ["exploration"],
+          personalizedScore: 110,
+          sourceName: "Lab Notes",
+          sourceSlug: "lab-notes",
+          tags: ["red_team"],
+        },
+      ],
+      profile: {
+        preferredCategories: ["security"],
+        preferredSources: [],
+        preferredEntities: ["prompt_injection"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(governor.metrics).toContainEqual({
+      label: "Top angle",
+      value: "75%",
+    });
+    expect(governor.risks).toContainEqual({
+      detail: "prompt injection appears in 75% of this slice.",
+      label: "Angle concentration",
+    });
+    expect(governor.controls).toContainEqual({
+      action: "follow_entity",
+      buttonLabel: "Follow angle",
+      label: "Angle spread",
+      reason: "red team broadens coverage beyond prompt injection.",
+      signal: "red_team",
+    });
+    expect(governor.summary).toBe(
+      "4 stories under governance: top source 25%, top topic 50%, top entity 25%, top angle 75%, exploration 25%.",
+    );
+  });
+
   it("flags a concentrated entity even when sources and topics are mixed", () => {
     const governor = getNewsFeedGovernor({
       formatCategory: (category) =>
@@ -10792,6 +10874,106 @@ describe("getNewsFilterBubbleReport", () => {
     });
   });
 
+  it("flags angle concentration even when sources and topics look broad", () => {
+    const report = getNewsFilterBubbleReport({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "research"
+            ? "Research"
+            : category === "market_map"
+              ? "Market Maps"
+              : category === "policy"
+                ? "Policy"
+                : category,
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "prompt-injection-security",
+          matchedSignals: ["tag"],
+          personalizedScore: 150,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection incident response expands",
+        },
+        {
+          ...localItem,
+          category: "research",
+          entities: ["Browser Agents"],
+          id: "prompt-injection-research",
+          matchedSignals: ["tag"],
+          personalizedScore: 142,
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          tags: ["prompt_injection"],
+          title: "Researchers benchmark prompt injection mitigations",
+        },
+        {
+          ...localItem,
+          category: "market_map",
+          entities: ["AI Market"],
+          id: "prompt-injection-market",
+          matchedSignals: ["tag"],
+          personalizedScore: 136,
+          sourceName: "Market Desk",
+          sourceSlug: "market-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection vendors enter market maps",
+        },
+        {
+          ...localItem,
+          category: "policy",
+          entities: ["Policy Teams"],
+          id: "red-team-policy",
+          matchedSignals: ["exploration"],
+          personalizedScore: 128,
+          sourceName: "Policy Desk",
+          sourceSlug: "policy-desk",
+          tags: ["red_team"],
+          title: "Policy teams formalize red-team reporting",
+        },
+        {
+          ...localItem,
+          category: "research",
+          entities: ["Eval Teams"],
+          id: "evals-research",
+          matchedSignals: ["exploration"],
+          personalizedScore: 120,
+          sourceName: "Lab Notes",
+          sourceSlug: "lab-notes",
+          tags: ["evals"],
+          title: "Research teams update eval coverage",
+        },
+      ],
+      profile: {
+        ...localProfile,
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["prompt_injection"],
+      },
+    });
+
+    expect(report.checks).toContainEqual({
+      action:
+        "Add another angle before letting prompt injection dominate the next refresh.",
+      detail:
+        "prompt injection appears in 3 of 5 stories across mixed sources.",
+      label: "Angle lock",
+      status: "risk",
+    });
+    expect(report.metrics).toContainEqual({
+      label: "Angle spread",
+      value: "3 angles",
+    });
+    expect(report.label).toBe("Bubble Risk");
+    expect(report.summary).toBe(
+      "Filter bubble risk is high: 3 profile-matched stories, 2 exploration stories, and 5 sources with prompt injection dominating the angle mix.",
+    );
+  });
+
   it("keeps the report empty while ranked stories are unavailable", () => {
     expect(
       getNewsFilterBubbleReport({
@@ -10925,6 +11107,155 @@ describe("getNewsDistributionQueue", () => {
               scoreLabel: "128 score",
               sourceName: "Agent Desk",
               title: "OpenAI agents add workflow controls",
+            },
+          ],
+          summary:
+            "Useful trend-led stories stay available without overtaking stronger signals.",
+        },
+        {
+          count: 0,
+          key: "explore",
+          label: "Explore",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Outside-profile stories are isolated so the system can test new interests.",
+        },
+        {
+          count: 0,
+          key: "suppress",
+          label: "Suppress",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Hidden or negatively matched stories are kept out of active recommendation lanes.",
+        },
+      ],
+      summary:
+        "4 stories distributed: 2 boost, 1 balance, 1 hold, 0 explore, and 0 suppress.",
+    });
+  });
+
+  it("routes counterweight exploration stories into balance when one angle dominates", () => {
+    expect(
+      getNewsDistributionQueue({
+        hiddenItemIds: [],
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Agent Security"],
+            id: "prompt-injection-lead",
+            matchedSignals: ["tag"],
+            personalizedScore: 152,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection response leads the edition",
+          },
+          {
+            ...localItem,
+            category: "research",
+            entities: ["Browser Agents"],
+            id: "prompt-injection-research",
+            matchedSignals: ["tag"],
+            personalizedScore: 144,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            tags: ["prompt_injection"],
+            title: "Research teams benchmark prompt injection defenses",
+          },
+          {
+            ...localItem,
+            category: "market_map",
+            entities: ["AI Market"],
+            id: "prompt-injection-market",
+            matchedSignals: ["tag"],
+            personalizedScore: 128,
+            sourceName: "Market Desk",
+            sourceSlug: "market-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection tools move into market maps",
+          },
+          {
+            ...localItem,
+            category: "policy",
+            entities: ["Policy Teams"],
+            id: "red-team-counterweight",
+            matchedSignals: ["exploration"],
+            personalizedScore: 119,
+            sourceName: "Policy Desk",
+            sourceSlug: "policy-desk",
+            tags: ["red_team"],
+            title: "Policy teams formalize red-team disclosures",
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }),
+    ).toEqual({
+      label: "Distribution Ready",
+      metrics: [
+        { label: "Boost", value: "2" },
+        { label: "Balance", value: "1" },
+        { label: "Hold", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Suppress", value: "0" },
+      ],
+      queues: [
+        {
+          count: 2,
+          key: "boost",
+          label: "Boost",
+          shareLabel: "50%",
+          stories: [
+            {
+              id: "prompt-injection-lead",
+              reason: "1 reader signal",
+              scoreLabel: "152 score",
+              sourceName: "Security Desk",
+              title: "Prompt injection response leads the edition",
+            },
+            {
+              id: "prompt-injection-research",
+              reason: "1 reader signal",
+              scoreLabel: "144 score",
+              sourceName: "Research Wire",
+              title: "Research teams benchmark prompt injection defenses",
+            },
+          ],
+          summary:
+            "Direct reader matches are ready to lead the next impression.",
+        },
+        {
+          count: 1,
+          key: "balance",
+          label: "Balance",
+          shareLabel: "25%",
+          stories: [
+            {
+              id: "red-team-counterweight",
+              reason: "Counterbalances prompt injection concentration",
+              scoreLabel: "119 score",
+              sourceName: "Policy Desk",
+              title: "Policy teams formalize red-team disclosures",
+            },
+          ],
+          summary:
+            "Counterweight stories keep entity concentration from narrowing the next impression.",
+        },
+        {
+          count: 1,
+          key: "hold",
+          label: "Hold",
+          shareLabel: "25%",
+          stories: [
+            {
+              id: "prompt-injection-market",
+              reason: "Trend-led candidate",
+              scoreLabel: "128 score",
+              sourceName: "Market Desk",
+              title: "Prompt injection tools move into market maps",
             },
           ],
           summary:

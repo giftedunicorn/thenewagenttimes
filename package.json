@@ -20,6 +20,7 @@
     "news:ingest:rss": "pnpm -F @acme/ingestion ingest:rss",
     "news:ingest:rss:active": "pnpm -F @acme/ingestion ingest:rss:active",
     "news:refresh": "pnpm -F @acme/ingestion refresh:rss",
+    "news:health:remote": "pnpm -F @acme/ingestion health:remote",
     "news:refresh:remote": "pnpm -F @acme/ingestion refresh:remote",
     "news:embed:pending": "pnpm -F @acme/ingestion embed:pending",
     "deploy:nextjs": "pnpm run build:nextjs",

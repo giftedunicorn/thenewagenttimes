@@ -37,6 +37,7 @@ Useful news commands:
 pnpm run news:seed-sources
 pnpm run news:ingest:rss:active
 pnpm run news:refresh
+pnpm run news:health:remote
 pnpm run news:refresh:remote
 pnpm run news:embed:pending
 ```
@@ -89,6 +90,20 @@ or non-Railway schedulers.
 `NEWS_REFRESH_SECRET` protects `POST /api/news/refresh`. Send it as
 `Authorization: Bearer <secret>` or `x-news-refresh-secret: <secret>` from a
 Railway cron, manual curl, or other scheduler.
+
+Use `/api/news/health` after deploy to check whether the web process, auth
+secret, refresh secret, schema, sources, and first refresh are ready. It returns
+top-level `ready`, `checks` for automation, and `actionRequired` with the next
+production bootstrap step. The `nextStep` value is a stable machine-readable
+summary such as `configure-auth-secret`, `apply-database-schema`,
+`run-news-refresh`, or `ready`.
+
+You can check the deployed service from the repo root:
+
+```bash
+NEWS_HEALTH_URL=https://thenewagenttimes.up.railway.app \
+pnpm run news:health:remote
+```
 
 `NEWS_REFRESH_URL` is used by `pnpm run news:refresh:remote`. It accepts either
 the deployed app base URL or the full `/api/news/refresh` endpoint. If it is not

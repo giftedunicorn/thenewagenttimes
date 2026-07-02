@@ -1,6 +1,7 @@
 export * from "./embedding";
 export * from "./normalize";
 export * from "./pipeline";
+export * from "./remote-health";
 export * from "./remote-refresh";
 export * from "./repository";
 export * from "./rss";

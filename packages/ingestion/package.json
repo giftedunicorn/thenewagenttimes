@@ -19,6 +19,7 @@
     "ingest:rss": "tsx src/cli.ts ingest:rss",
     "ingest:rss:active": "tsx src/cli.ts ingest:rss:active",
     "refresh:rss": "tsx src/cli.ts refresh:rss",
+    "health:remote": "tsx src/remote-health-cli.ts",
     "refresh:remote": "tsx src/remote-cli.ts",
     "embed:pending": "tsx src/cli.ts embed:pending",
     "test": "vitest run",

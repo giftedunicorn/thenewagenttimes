@@ -44,6 +44,14 @@ export interface PreviewNewsArticleItem extends NewsHomeItem {
 export type NewsHomeStatus = "ready" | "empty" | "unavailable";
 export type NewsFeedMode = "for_you" | "latest" | "trending";
 
+export type NewsHomeStoryActionType = "button" | "read" | "source";
+
+export interface NewsHomeStoryAction {
+  action: ReaderInteractionAction;
+  label: string;
+  type: NewsHomeStoryActionType;
+}
+
 export interface NewsServerProfileAuditSignal {
   count: number;
   key: string;
@@ -86,84 +94,344 @@ export const createDefaultNewsPreferenceProfile =
     recencyBias: defaultNewsPreferenceProfile.recencyBias,
   });
 
+interface PreviewNewsArticleInput
+  extends Omit<
+    PreviewNewsArticleItem,
+    | "bodyText"
+    | "canonicalUrl"
+    | "collectedAt"
+    | "imageUrl"
+    | "originalUrl"
+    | "sourceType"
+  > {
+  bodyParagraphs: readonly string[];
+  canonicalUrl?: string | null;
+  collectedAt?: string;
+  imageSeed: string;
+  originalUrl?: string;
+  sourceType?: string;
+}
+
+const createPreviewNewsArticle = ({
+  bodyParagraphs,
+  canonicalUrl = null,
+  collectedAt,
+  imageSeed,
+  originalUrl,
+  sourceType = "manual",
+  ...item
+}: PreviewNewsArticleInput): PreviewNewsArticleItem => ({
+  ...item,
+  bodyText: bodyParagraphs.join("\n\n"),
+  canonicalUrl,
+  collectedAt: collectedAt ?? item.publishedAt,
+  imageUrl: `https://picsum.photos/seed/${imageSeed}/1200/820`,
+  originalUrl: originalUrl ?? `https://thenewagenttimes.com/news/${item.id}`,
+  sourceType,
+});
+
+const baseNewsHomeStoryActions = [
+  { action: "view", label: "Read", type: "read" },
+  { action: "save", label: "Save", type: "button" },
+  { action: "share", label: "Share", type: "button" },
+  { action: "hide", label: "Less", type: "button" },
+] as const satisfies readonly NewsHomeStoryAction[];
+
+export const getNewsHomeStoryActionPanel = ({
+  hasSourceUrl,
+  isPreview,
+}: {
+  hasSourceUrl: boolean;
+  isPreview: boolean;
+}) => {
+  const actions: NewsHomeStoryAction[] = [...baseNewsHomeStoryActions];
+
+  if (hasSourceUrl) {
+    actions.push({
+      action: "click_source",
+      label: "Source",
+      type: "source",
+    });
+  }
+
+  return {
+    actions,
+    canPersistToServer: !isPreview,
+    helperText: isPreview
+      ? "Preview actions train this device only. Live stories will sync once production news IDs are available."
+      : null,
+  };
+};
+
+export const isNewsHomePreviewEdition = ({
+  hasExploreFilters,
+  initialItems,
+  serverRecommendedItems,
+  status,
+}: {
+  hasExploreFilters: boolean;
+  initialItems: readonly NewsHomeItem[];
+  serverRecommendedItems: readonly NewsHomeItem[] | null | undefined;
+  status: NewsHomeStatus;
+}) =>
+  !hasExploreFilters &&
+  (status === "unavailable" ||
+    (initialItems.length === 0 && !serverRecommendedItems?.length));
+
 const previewNewsArticles: readonly PreviewNewsArticleItem[] = [
-  {
-    id: "preview-desk",
-    title: "The live AI desk is ready for its first crawl",
+  createPreviewNewsArticle({
+    id: "preview-model-shift",
+    title: "Model releases shift from benchmark wins to agent reliability",
     summary:
-      "The ingestion layer, source registry, ranking API, and Railway web service are connected. The first collected stories will take over this slot automatically.",
-    bodyText: [
-      "The New AI Times preview edition is wired for live AI coverage. It spans agents, model releases, funding, research, and platform shifts.",
-      "The ingestion layer, source registry, ranking API, and Railway web service are connected so live stories can replace this desk note after the database schema and first crawl are available.",
-      "Until live collection is seeded, this article keeps the reading experience intact and lets the recommendation controls, feedback loop, and reading path operate like a real edition.",
-    ].join("\n\n"),
-    originalUrl: "https://thenewagenttimes.com/news/preview-desk",
-    authorName: "The New AI Times Desk",
-    collectedAt: "2026-07-01T08:02:00.000Z",
+      "The front page leads with reliability, tool use, eval coverage, and deployment evidence instead of a single leaderboard score.",
+    bodyParagraphs: [
+      "The preview edition treats model launches as product infrastructure, not just benchmark events. Stories are scored for tool reliability, latency claims, source trust, and whether the release changes what builders can ship.",
+      "This sample story keeps the empty-database edition readable while live crawl data warms up. When RSS ingestion is available, real model-release coverage replaces this article automatically.",
+      "Reader signals can still train against the sample edition, so selecting model-release topics will lift similar live coverage after the first crawl.",
+    ],
+    authorName: "Model Desk",
+    category: "model_release",
+    tags: ["models", "evals", "agents"],
+    entities: ["OpenAI", "Anthropic", "Google"],
+    sourceSlug: "preview-model-desk",
+    sourceName: "Model Desk",
+    sourceScore: 94,
+    trendScore: 92,
+    publishedAt: "2026-07-01T08:45:00.000Z",
+    imageSeed: "new-ai-times-model-shift",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-agent-browsers",
+    title: "Agent browsers move from demos into daily software workflows",
+    summary:
+      "Browser agents are being evaluated on repeatable task completion, memory boundaries, and handoff quality for working teams.",
+    bodyParagraphs: [
+      "Agent browsers are moving from highlight reels into everyday workflows where repeatability matters more than novelty. The important question is whether the agent can complete a task, explain what changed, and hand control back cleanly.",
+      "This sample story keeps the empty-database edition readable while live crawl data warms up. It also gives the recommendation system an agent-product anchor before real source data arrives.",
+      "Readers who save or open agent coverage will see the For You feed lift similar workflow, browser, and automation stories in the next ranking pass.",
+    ],
+    authorName: "Agent Product Desk",
     category: "agent_product",
-    tags: ["desk", "pipeline", "recommendations"],
-    entities: ["The New AI Times"],
-    sourceSlug: "new-ai-times-editors-desk",
-    sourceName: "Editor's Desk",
-    sourceType: "manual",
+    tags: ["agents", "browser", "workflow"],
+    entities: ["Browser Agents", "Automation"],
+    sourceSlug: "preview-agent-product-desk",
+    sourceName: "Agent Product Desk",
     sourceScore: 90,
-    trendScore: 64,
-    publishedAt: "2026-07-01T08:00:00.000Z",
-    canonicalUrl: null,
-    imageUrl: "https://picsum.photos/seed/new-ai-times-live-desk/1200/820",
-  },
-  {
-    id: "preview-sources",
-    title: "Source registry covers labs, model blogs, YC AI, OSS, and launches",
+    trendScore: 89,
+    publishedAt: "2026-07-01T08:35:00.000Z",
+    imageSeed: "new-ai-times-agent-browsers",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-infra-funding",
+    title: "AI infrastructure funding turns toward margins and utilization",
     summary:
-      "OpenAI, Anthropic, Google AI, DeepMind, Meta AI, Microsoft AI, NVIDIA, Hugging Face, LangChain, Product Hunt, Hacker News, and YC are modeled as source classes.",
-    bodyText: [
-      "The source registry is shaped around the places where AI news usually breaks first: frontier lab blogs, model release notes, developer platforms, open source repositories, startup launch surfaces, investor updates, and technical communities.",
-      "Each source carries a source type and credibility score so the front page can separate high-trust primary material from faster but noisier social signals.",
-      "That source model powers the Source Balance, Source Trust, Coverage Threads, and Feed Governor panels in the preview edition.",
-    ].join("\n\n"),
-    originalUrl: "https://thenewagenttimes.com/news/preview-sources",
-    authorName: "Source Desk",
-    collectedAt: "2026-07-01T07:32:00.000Z",
-    category: "market_map",
-    tags: ["sources", "labs", "launches"],
-    entities: ["OpenAI", "Anthropic", "YC"],
-    sourceSlug: "new-ai-times-source-desk",
-    sourceName: "Source Desk",
-    sourceType: "manual",
+      "Investors are favoring infrastructure stories that can explain GPU usage, inference costs, and customer retention.",
+    bodyParagraphs: [
+      "The funding lane in this preview edition separates AI infrastructure from generic startup financing. It gives more weight to stories that connect capital to usage, gross margin, customer concentration, and defensible distribution.",
+      "That distinction matters for a personalized news product because some readers want launch momentum while others want market structure and durable business signals.",
+      "Once live sources are seeded, funding stories from startup, venture, and platform feeds will replace this sample while preserving the same ranking behavior.",
+    ],
+    authorName: "Capital Desk",
+    category: "funding",
+    tags: ["funding", "infrastructure", "gpu"],
+    entities: ["GPU Cloud", "Inference"],
+    sourceSlug: "preview-capital-desk",
+    sourceName: "Capital Desk",
+    sourceScore: 84,
+    trendScore: 76,
+    publishedAt: "2026-07-01T08:24:00.000Z",
+    imageSeed: "new-ai-times-infra-funding",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-evals-research",
+    title: "Research teams harden evals for tool-using agents",
+    summary:
+      "Agent benchmarks are shifting toward long-horizon tasks, tool errors, hidden state, and recovery from partial failure.",
+    bodyParagraphs: [
+      "The research shelf is tuned for papers and lab notes that change how teams evaluate AI systems. In the preview edition, tool use, long-horizon reliability, and failure recovery carry more weight than isolated benchmark jumps.",
+      "A New AI Times reader can train the profile toward research by saving these stories or choosing Research in the topic rail.",
+      "The live crawler will use the same category and tag model for arXiv, university feeds, lab blogs, and independent technical writing.",
+    ],
+    authorName: "Research Desk",
+    category: "research",
+    tags: ["research", "evals", "tool-use"],
+    entities: ["Agent Evals", "arXiv"],
+    sourceSlug: "preview-research-desk",
+    sourceName: "Research Desk",
+    sourceScore: 92,
+    trendScore: 72,
+    publishedAt: "2026-07-01T08:12:00.000Z",
+    imageSeed: "new-ai-times-evals-research",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-policy-evidence",
+    title: "AI policy coverage turns toward deployment evidence",
+    summary:
+      "Regulators and companies are putting more emphasis on incident reporting, risk controls, and model-system audits.",
+    bodyParagraphs: [
+      "Policy stories in this edition are grouped around operational evidence: incidents, audit trails, deployment controls, and the gap between model cards and real product behavior.",
+      "The recommendation layer keeps policy coverage visible even when faster product news dominates the heat score, because a broad AI front page needs more than launch velocity.",
+      "Readers who press Less on policy stories will dampen this lane locally without removing high-trust safety or regulation updates from the broader edition.",
+    ],
+    authorName: "Policy Desk",
+    category: "policy",
+    tags: ["policy", "safety", "audits"],
+    entities: ["AI Safety", "Regulators"],
+    sourceSlug: "preview-policy-desk",
+    sourceName: "Policy Desk",
+    sourceScore: 88,
+    trendScore: 68,
+    publishedAt: "2026-07-01T08:02:00.000Z",
+    imageSeed: "new-ai-times-policy-evidence",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-open-source-compression",
+    title:
+      "Open-source model teams compress frontier features into smaller stacks",
+    summary:
+      "The open-source lane tracks compact models, local inference, retrieval tools, and developer adoption signals.",
+    bodyParagraphs: [
+      "Open-source AI coverage often moves through repositories, release notes, community benchmarks, and developer threads before it appears in mainstream coverage.",
+      "This preview story gives the front page an open-source anchor so the source-balance and topic-match panels can show how independent technical work fits beside lab and startup news.",
+      "The recommendation engine treats open-source saves as a durable preference signal, but still rotates in higher-trust primary sources when the story affects deployed systems.",
+    ],
+    authorName: "Open Source Desk",
+    category: "open_source",
+    tags: ["open-source", "local-inference", "models"],
+    entities: ["Hugging Face", "Mistral"],
+    sourceSlug: "preview-open-source-desk",
+    sourceName: "Open Source Desk",
     sourceScore: 86,
-    trendScore: 58,
-    publishedAt: "2026-07-01T07:30:00.000Z",
-    canonicalUrl: null,
-    imageUrl:
-      "https://picsum.photos/seed/new-ai-times-source-registry/1200/820",
-  },
-  {
+    trendScore: 73,
+    publishedAt: "2026-07-01T07:54:00.000Z",
+    imageSeed: "new-ai-times-open-source-compression",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-security-agents",
+    title: "Security teams write playbooks for autonomous coding agents",
+    summary:
+      "The security lane follows sandboxing, dependency changes, source access, review gates, and audit logs for agentic coding tools.",
+    bodyParagraphs: [
+      "Autonomous coding agents create a different security surface from ordinary developer tools. They can read broad context, write files, call services, and chain actions that are easy to miss in a manual review.",
+      "The preview edition uses this story to exercise source trust, risk labels, and the recommendation guardrails that keep sensitive topics from being buried by hotter launch news.",
+      "When live ingestion is active, security stories can be routed into immediate, digest, or watch lanes depending on reader intent and story confidence.",
+    ],
+    authorName: "Security Desk",
+    category: "security",
+    tags: ["security", "coding-agents", "audit"],
+    entities: ["Coding Agents", "Supply Chain"],
+    sourceSlug: "preview-security-desk",
+    sourceName: "Security Desk",
+    sourceScore: 89,
+    trendScore: 70,
+    publishedAt: "2026-07-01T07:46:00.000Z",
+    imageSeed: "new-ai-times-security-agents",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-yc-workflow",
+    title: "YC AI startups sell workflow ownership, not chatbot wrappers",
+    summary:
+      "The startup lane looks for products that own a job, integrate with existing systems, and show repeat usage.",
+    bodyParagraphs: [
+      "YC-style AI coverage can become noisy quickly, so the preview edition scores startup stories by workflow specificity, integration depth, and whether the product has a credible path beyond prompt wrapping.",
+      "This gives the personalization system a startup lane that is useful to founders and investors without overwhelming readers who prefer research or policy.",
+      "Saved YC and startup stories will lift similar founder-market coverage while the discovery slot keeps adjacent technical stories in rotation.",
+    ],
+    authorName: "Startup Desk",
+    category: "yc_ai",
+    tags: ["yc", "startups", "workflow"],
+    entities: ["YC", "AI Startups"],
+    sourceSlug: "preview-startup-desk",
+    sourceName: "Startup Desk",
+    sourceScore: 80,
+    trendScore: 74,
+    publishedAt: "2026-07-01T07:36:00.000Z",
+    imageSeed: "new-ai-times-yc-workflow",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-launch-surface",
+    title: "Launch surfaces fill with vertical AI copilots",
+    summary:
+      "Product launches are clustered by job category so readers can separate durable workflow tools from one-off demos.",
+    bodyParagraphs: [
+      "The Product Hunt lane is useful for discovery, but a personalized AI newspaper needs to avoid treating every launch as equally important.",
+      "This preview article is tagged for launch, product, and workflow signals so the recommendation model can test whether the reader wants new products or prefers slower institutional sources.",
+      "Live launch coverage will be balanced with source trust and repeated-exposure controls to prevent a feed made entirely of early-stage product announcements.",
+    ],
+    authorName: "Launch Desk",
+    category: "product_hunt",
+    tags: ["launches", "copilots", "workflow"],
+    entities: ["Product Hunt", "Copilots"],
+    sourceSlug: "preview-launch-desk",
+    sourceName: "Launch Desk",
+    sourceScore: 72,
+    trendScore: 77,
+    publishedAt: "2026-07-01T07:28:00.000Z",
+    imageSeed: "new-ai-times-launch-surface",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-market-stack",
+    title: "The AI stack splits into labs, routers, tools, and vertical apps",
+    summary:
+      "The market-map lane explains where model labs, inference routers, agent frameworks, and vertical software now compete.",
+    bodyParagraphs: [
+      "Market-map coverage gives readers a way to understand structure instead of chasing every single announcement. It groups stories by where value is accumulating in the AI stack.",
+      "The sample edition uses this article to exercise entity radar, source clusters, and section fronts before the database has a live corpus.",
+      "As real articles arrive, the same lane will connect related stories from labs, infrastructure vendors, open-source projects, and application companies.",
+    ],
+    authorName: "Market Map Desk",
+    category: "market_map",
+    tags: ["market-map", "inference", "agents"],
+    entities: ["Model Routers", "Agent Frameworks"],
+    sourceSlug: "preview-market-map-desk",
+    sourceName: "Market Map Desk",
+    sourceScore: 83,
+    trendScore: 67,
+    publishedAt: "2026-07-01T07:18:00.000Z",
+    imageSeed: "new-ai-times-market-stack",
+  }),
+  createPreviewNewsArticle({
     id: "preview-recommendations",
-    title: "Reader intent now changes the order of the front page",
+    title: "Reader intent changes the order of the AI front page",
     summary:
       "Topic, source, and entity preferences rerank stories while trend and freshness keep the edition from becoming a filter bubble.",
-    bodyText: [
+    bodyParagraphs: [
       "The recommendation layer blends reader-selected topics, saved sources, entity memory, recency, novelty, trend heat, and source credibility into a single ranked edition.",
       "Save, share, source clicks, reads, and Less feedback all move the local profile so the next page view can show a different mix.",
       "The system also adds exploration slots, source fatigue throttling, negative-feedback guardrails, and interest drift summaries to keep the feed from narrowing too quickly.",
-    ].join("\n\n"),
-    originalUrl: "https://thenewagenttimes.com/news/preview-recommendations",
+    ],
     authorName: "Recommendation Desk",
-    collectedAt: "2026-07-01T07:02:00.000Z",
-    category: "new_concept",
+    category: "agent_product",
     tags: ["personalization", "ranking", "signals"],
     entities: ["Recommendation Engine"],
-    sourceSlug: "new-ai-times-recommendation-desk",
+    sourceSlug: "preview-recommendation-desk",
     sourceName: "Recommendation Desk",
-    sourceType: "manual",
     sourceScore: 82,
     trendScore: 61,
-    publishedAt: "2026-07-01T07:00:00.000Z",
-    canonicalUrl: null,
-    imageUrl:
-      "https://picsum.photos/seed/new-ai-times-recommendation-engine/1200/820",
-  },
+    publishedAt: "2026-07-01T07:08:00.000Z",
+    imageSeed: "new-ai-times-recommendation-engine",
+  }),
+  createPreviewNewsArticle({
+    id: "preview-sources",
+    title: "Source registry covers labs, launch surfaces, research, and OSS",
+    summary:
+      "The sample edition models high-trust primary sources, fast launch channels, research feeds, startup signals, and community surfaces.",
+    bodyParagraphs: [
+      "The source registry is shaped around the places where AI news usually breaks first: frontier lab blogs, model release notes, developer platforms, open-source repositories, startup launch surfaces, investor updates, and technical communities.",
+      "Each source carries a source type and credibility score so the front page can separate high-trust primary material from faster but noisier signals.",
+      "That source model powers the Source Balance, Source Trust, Coverage Threads, and Feed Governor panels in the preview edition.",
+    ],
+    authorName: "Source Desk",
+    category: "market_map",
+    tags: ["sources", "labs", "launches"],
+    entities: ["OpenAI", "Anthropic", "YC"],
+    sourceSlug: "preview-source-desk",
+    sourceName: "Source Desk",
+    sourceScore: 86,
+    trendScore: 58,
+    publishedAt: "2026-07-01T06:58:00.000Z",
+    imageSeed: "new-ai-times-source-registry",
+  }),
 ] as const;
 
 const toPreviewNewsHomeItem = ({
@@ -3055,6 +3323,7 @@ export const getNewsFeedbackTrainingUpdate = ({
     before: beforeProfile.preferredEntities,
   });
   const isNegativeFeedback = action === "hide";
+  const isStrongPositiveFeedback = action === "share";
   const selectedCategories = isNegativeFeedback
     ? categoryDelta.removed
     : categoryDelta.added;
@@ -3102,7 +3371,11 @@ export const getNewsFeedbackTrainingUpdate = ({
   }
 
   return {
-    label: isNegativeFeedback ? "Negative Signal" : "Positive Signal",
+    label: isNegativeFeedback
+      ? "Negative Signal"
+      : isStrongPositiveFeedback
+        ? "Strong Signal"
+        : "Positive Signal",
     metrics: [
       {
         label: `${metricPrefix} topics`,
@@ -3127,15 +3400,23 @@ export const getNewsFeedbackTrainingUpdate = ({
             detail: "Stories matching removed signals will be dampened.",
             label: "Profile guard",
           }
-        : {
-            detail: "Future stories matching these signals will rank higher.",
-            label: "Profile memory",
-          },
+        : isStrongPositiveFeedback
+          ? {
+              detail:
+                "Shared stories carry stronger future ranking weight than a simple save.",
+              label: "Profile boost",
+            }
+          : {
+              detail: "Future stories matching these signals will rank higher.",
+              label: "Profile memory",
+            },
     ],
     signals,
-    summary: `${feedbackActionLabels[action]} trained the feed ${
-      isNegativeFeedback ? "away from" : "toward"
-    } ${formatCategory(item.category)} from ${item.sourceName}.`,
+    summary: `${feedbackActionLabels[action]} ${
+      isStrongPositiveFeedback ? "strongly " : ""
+    }trained the feed ${isNegativeFeedback ? "away from" : "toward"} ${formatCategory(
+      item.category,
+    )} from ${item.sourceName}.`,
   };
 };
 
@@ -15170,9 +15451,9 @@ export const getNewsStoryRankDetails = ({
 export const getNewsDeskStatusSummary = (status: NewsDeskStatus) => {
   if (status.health === "unavailable") {
     return {
-      label: "Needs schema",
+      label: "Preview edition",
       detail:
-        "News tables are not reachable yet. Apply the database schema before live collection.",
+        "A readable AI preview edition is serving while the production news tables are unavailable.",
     };
   }
 
@@ -15224,7 +15505,7 @@ export const getNewsProductionReadinessChecklist = ({
     {
       detail: schemaReady
         ? "News tables are reachable in the target database."
-        : "POSTGRES_URL is present, but the news tables are not reachable.",
+        : "Preview stories are serving now; apply the production news schema to unlock live collection.",
       label: "Apply database schema",
       state: schemaReady ? "done" : "current",
     },

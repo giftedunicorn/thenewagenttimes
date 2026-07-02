@@ -39,6 +39,7 @@ import {
   getNewsFrontPageSlotMix,
   getNewsGuardrailShelf,
   getNewsHomeReaderMemoryResetCacheScopes,
+  getNewsHomeStoryActionPanel,
   getNewsHotBoard,
   getNewsInterestDrift,
   getNewsInterestGraph,
@@ -89,6 +90,7 @@ import {
   getNextNewsHomeCursor,
   getPreviewNewsArticleData,
   getPreviewNewsHomeItems,
+  isNewsHomePreviewEdition,
   mergeNewsHomeItems,
   mergeNewsReaderMemoryItems,
   selectFeedFatigueBalancedNewsHomeItems,
@@ -198,36 +200,44 @@ describe("createDefaultNewsPreferenceProfile", () => {
 });
 
 describe("preview news fallback", () => {
-  it("returns homepage preview stories that also have readable article entries", () => {
+  it("returns a complete AI news preview edition when live crawl data is unavailable", () => {
     const previewItems = getPreviewNewsHomeItems();
 
-    expect(previewItems.map((item) => item.id)).toEqual([
-      "preview-desk",
-      "preview-sources",
-      "preview-recommendations",
-    ]);
-    expect(new Set(previewItems.map((item) => item.sourceSlug)).size).toBe(3);
-    expect(previewItems.map((item) => item.imageUrl)).toEqual([
-      "https://picsum.photos/seed/new-ai-times-live-desk/1200/820",
-      "https://picsum.photos/seed/new-ai-times-source-registry/1200/820",
-      "https://picsum.photos/seed/new-ai-times-recommendation-engine/1200/820",
-    ]);
+    expect(previewItems).toHaveLength(12);
+    expect(new Set(previewItems.map((item) => item.sourceSlug)).size).toBe(12);
+    expect(new Set(previewItems.map((item) => item.category))).toEqual(
+      new Set([
+        "agent_product",
+        "funding",
+        "market_map",
+        "model_release",
+        "open_source",
+        "policy",
+        "product_hunt",
+        "research",
+        "security",
+        "yc_ai",
+      ]),
+    );
+    expect(
+      previewItems.every((item) =>
+        item.imageUrl?.startsWith("https://picsum.photos/seed/new-ai-times-"),
+      ),
+    ).toBe(true);
 
-    const previewArticle = getPreviewNewsArticleData("preview-desk");
+    const previewArticle = getPreviewNewsArticleData("preview-agent-browsers");
 
     expect(previewArticle.article).toMatchObject({
-      imageUrl: "https://picsum.photos/seed/new-ai-times-live-desk/1200/820",
-      id: "preview-desk",
-      sourceName: "Editor's Desk",
-      title: "The live AI desk is ready for its first crawl",
+      imageUrl:
+        "https://picsum.photos/seed/new-ai-times-agent-browsers/1200/820",
+      id: "preview-agent-browsers",
+      sourceName: "Agent Product Desk",
+      title: "Agent browsers move from demos into daily software workflows",
     });
     expect(previewArticle.article?.bodyText).toContain(
-      "The New AI Times preview edition is wired for live AI coverage.",
+      "This sample story keeps the empty-database edition readable while live crawl data warms up.",
     );
-    expect(previewArticle.related.map((item) => item.id)).toEqual([
-      "preview-sources",
-      "preview-recommendations",
-    ]);
+    expect(previewArticle.related).toHaveLength(11);
   });
 
   it("returns an empty article fallback for unknown preview ids", () => {
@@ -235,6 +245,66 @@ describe("preview news fallback", () => {
       article: null,
       related: [],
     });
+  });
+});
+
+describe("getNewsHomeStoryActionPanel", () => {
+  it("keeps preview stories locally trainable without server persistence", () => {
+    expect(
+      getNewsHomeStoryActionPanel({
+        hasSourceUrl: false,
+        isPreview: true,
+      }),
+    ).toEqual({
+      actions: [
+        { action: "view", label: "Read", type: "read" },
+        { action: "save", label: "Save", type: "button" },
+        { action: "share", label: "Share", type: "button" },
+        { action: "hide", label: "Less", type: "button" },
+      ],
+      canPersistToServer: false,
+      helperText:
+        "Preview actions train this device only. Live stories will sync once production news IDs are available.",
+    });
+  });
+
+  it("adds source clicks to live stories with canonical URLs", () => {
+    expect(
+      getNewsHomeStoryActionPanel({
+        hasSourceUrl: true,
+        isPreview: false,
+      }).actions,
+    ).toEqual([
+      { action: "view", label: "Read", type: "read" },
+      { action: "save", label: "Save", type: "button" },
+      { action: "share", label: "Share", type: "button" },
+      { action: "hide", label: "Less", type: "button" },
+      { action: "click_source", label: "Source", type: "source" },
+    ]);
+  });
+});
+
+describe("isNewsHomePreviewEdition", () => {
+  it("detects the server-rendered preview edition when live data is unavailable", () => {
+    expect(
+      isNewsHomePreviewEdition({
+        hasExploreFilters: false,
+        initialItems: getPreviewNewsHomeItems(),
+        serverRecommendedItems: [],
+        status: "unavailable",
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps live editions out of preview mode", () => {
+    expect(
+      isNewsHomePreviewEdition({
+        hasExploreFilters: false,
+        initialItems: [localItem],
+        serverRecommendedItems: [],
+        status: "ready",
+      }),
+    ).toBe(false);
   });
 });
 
@@ -3021,6 +3091,48 @@ describe("getNewsFeedbackTrainingUpdate", () => {
         { label: "Entities", value: "Agents, Anthropic" },
       ],
       summary: "Save trained the feed toward Agents from Agent Desk.",
+    });
+  });
+
+  it("marks shared stories as stronger positive feedback", () => {
+    expect(
+      getNewsFeedbackTrainingUpdate({
+        action: "share",
+        afterProfile: {
+          preferredCategories: ["model_release", "agent_product"],
+          preferredSources: ["agent-desk"],
+          preferredEntities: ["OpenAI", "Agents", "Anthropic"],
+          noveltyBias: 1.6,
+          recencyBias: 1.6,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents", "Anthropic"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent desk story",
+        },
+      }),
+    ).toMatchObject({
+      label: "Strong Signal",
+      notices: [
+        {
+          detail:
+            "Shared stories carry stronger future ranking weight than a simple save.",
+          label: "Profile boost",
+        },
+      ],
+      summary: "Share strongly trained the feed toward Agents from Agent Desk.",
     });
   });
 
@@ -14372,9 +14484,9 @@ describe("getNewsDeskStatusSummary", () => {
         latestRun: null,
       }),
     ).toEqual({
-      label: "Needs schema",
+      label: "Preview edition",
       detail:
-        "News tables are not reachable yet. Apply the database schema before live collection.",
+        "A readable AI preview edition is serving while the production news tables are unavailable.",
     });
   });
 });
@@ -14396,7 +14508,7 @@ describe("getNewsProductionReadinessChecklist", () => {
     ).toEqual([
       {
         detail:
-          "POSTGRES_URL is present, but the news tables are not reachable.",
+          "Preview stories are serving now; apply the production news schema to unlock live collection.",
         label: "Apply database schema",
         state: "current",
       },

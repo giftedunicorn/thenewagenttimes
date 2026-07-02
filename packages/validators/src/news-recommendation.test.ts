@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  buildNewsSemanticSimilarityMatches,
   dedupeNewsItems,
   filterBlockedNewsItems,
   filterHiddenNewsItems,
@@ -8,6 +9,7 @@ import {
   normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectBreakingNewsPriorityFeed,
+  selectCollaborativeSignalNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,
@@ -15,6 +17,7 @@ import {
   selectNegativeFeedbackAdjustedNewsFeed,
   selectPositiveFeedbackAnchoredNewsFeed,
   selectReaderFreshNewsFeed,
+  selectSemanticSimilarityNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   updateReaderProfileWithInteraction,
 } from "./news-recommendation";
@@ -990,6 +993,231 @@ describe("selectSourceTrustBalancedNewsFeed", () => {
     expect(
       selectSourceTrustBalancedNewsFeed(ranked).map((item) => item.id),
     ).toEqual(["first-low-trust-claim", "second-low-trust-claim"]);
+  });
+});
+
+describe("buildNewsSemanticSimilarityMatches", () => {
+  test("connects embedded candidates to recent positive feedback vectors", () => {
+    const matches = buildNewsSemanticSimilarityMatches({
+      candidateVectors: [
+        {
+          newsItemId: "agent-runtime-analysis",
+          embedding: [0.96, 0.2, 0],
+        },
+        {
+          newsItemId: "funding-market-map",
+          embedding: [0, 1, 0],
+        },
+      ],
+      feedbackVectors: [
+        {
+          newsItemId: "saved-agent-runtime",
+          embedding: [1, 0, 0],
+          occurredAt: "2026-07-01T08:00:00.000Z",
+          strength: 3,
+        },
+      ],
+      minSimilarity: 0.9,
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]).toMatchObject({
+      newsItemId: "agent-runtime-analysis",
+      strength: 3,
+    });
+    expect(matches[0]?.similarity).toBeCloseTo(0.98, 2);
+  });
+
+  test("ignores stale feedback vectors and incompatible dimensions", () => {
+    expect(
+      buildNewsSemanticSimilarityMatches({
+        candidateVectors: [
+          {
+            newsItemId: "agent-runtime-analysis",
+            embedding: [1, 0, 0],
+          },
+          {
+            newsItemId: "dimension-mismatch",
+            embedding: [1, 0],
+          },
+        ],
+        feedbackVectors: [
+          {
+            newsItemId: "old-agent-runtime",
+            embedding: [1, 0, 0],
+            occurredAt: "2026-06-01T08:00:00.000Z",
+          },
+          {
+            newsItemId: "saved-short-vector",
+            embedding: [0, 1, 0],
+            occurredAt: "2026-07-01T08:00:00.000Z",
+          },
+        ],
+        maxAgeHours: 24,
+        minSimilarity: 0.9,
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("selectSemanticSimilarityNewsFeed", () => {
+  test("lifts embedded stories similar to positive feedback without hiding the signal", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "generic-fresh-funding",
+        personalizedScore: 112,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "agent-runtime-analysis",
+        category: "research",
+        entities: ["Agents"],
+        sourceSlug: "research-lab",
+        personalizedScore: 106,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectSemanticSimilarityNewsFeed(ranked, [
+      {
+        newsItemId: "agent-runtime-analysis",
+        similarity: 0.98,
+        strength: 3,
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "agent-runtime-analysis",
+      "generic-fresh-funding",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("semantic_feedback");
+    expect(feed[0]?.personalizedScore).toBeGreaterThan(112);
+  });
+});
+
+describe("selectCollaborativeSignalNewsFeed", () => {
+  test("lifts high-trust weakly personalized stories from aggregate reader signals", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "direct-reader-match",
+        personalizedScore: 130,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "generic-funding-story",
+        personalizedScore: 124,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "similar-reader-hit",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceScore: 86,
+        sourceSlug: "research-lab",
+        personalizedScore: 118,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectCollaborativeSignalNewsFeed(ranked, [
+      {
+        newsItemId: "similar-reader-hit",
+        score: 6,
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "direct-reader-match",
+      "similar-reader-hit",
+      "generic-funding-story",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("collaborative_feedback");
+    expect(feed[1]?.matchedSignals).toContain("collaborative_feedback");
+  });
+
+  test("keeps collaborative lifts behind explicit reader matches", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "direct-reader-match",
+        personalizedScore: 125,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "crowd-backed-story",
+        sourceScore: 88,
+        personalizedScore: 124,
+        matchedSignals: [],
+      },
+      {
+        ...items[1],
+        id: "generic-story",
+        sourceScore: 84,
+        personalizedScore: 110,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectCollaborativeSignalNewsFeed(ranked, [
+      {
+        newsItemId: "crowd-backed-story",
+        score: 10,
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "direct-reader-match",
+      "crowd-backed-story",
+      "generic-story",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("collaborative_feedback");
+    expect(feed[1]?.matchedSignals).toContain("collaborative_feedback");
+  });
+
+  test("keeps low-trust or already personalized stories out of collaborative lift", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "personal-story",
+        personalizedScore: 120,
+        matchedSignals: ["entity"],
+      },
+      {
+        ...items[1],
+        id: "low-trust-crowd-hit",
+        sourceScore: 55,
+        personalizedScore: 118,
+        matchedSignals: [],
+      },
+      {
+        ...items[1],
+        id: "trusted-generic-story",
+        sourceScore: 84,
+        personalizedScore: 116,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectCollaborativeSignalNewsFeed(ranked, [
+      { newsItemId: "personal-story", score: 8 },
+      { newsItemId: "low-trust-crowd-hit", score: 8 },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "personal-story",
+      "low-trust-crowd-hit",
+      "trusted-generic-story",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("collaborative_feedback");
+    expect(feed[1]?.matchedSignals).not.toContain("collaborative_feedback");
   });
 });
 

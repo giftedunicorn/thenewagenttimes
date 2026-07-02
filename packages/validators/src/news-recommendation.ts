@@ -722,6 +722,25 @@ export type RecentExposureNewsItem = Pick<
     tags?: readonly string[];
   };
 
+export interface NewsSemanticVector {
+  newsItemId: string;
+  embedding: readonly number[] | null | undefined;
+  occurredAt?: string;
+  strength?: number;
+}
+
+export interface NewsSemanticSimilarityMatch {
+  newsItemId: string;
+  similarity: number;
+  occurredAt?: string;
+  strength?: number;
+}
+
+export interface NewsCollaborativeSignal {
+  newsItemId: string;
+  score: number;
+}
+
 const addMatchedSignal = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
   signal: string,
@@ -917,6 +936,19 @@ const diversifyPositiveFeedbackAnchors = <TItem extends RecommendableNewsItem>(
 
 const deepPreferenceSignals = new Set(["category", "entity", "source"]);
 const exposureCooldownHours = 24;
+const defaultSemanticFeedbackMaxAgeHours = 14 * 24;
+const defaultSemanticSimilarityThreshold = 0.78;
+const collaborativeProtectedSignals = new Set([
+  "breaking_news",
+  "category",
+  "deep_preference",
+  "entity",
+  "negative_feedback",
+  "positive_feedback",
+  "semantic_feedback",
+  "source",
+  "tag",
+]);
 
 const hasDeepPreferenceMatch = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
@@ -929,6 +961,252 @@ const hasDeepPreferenceMatch = <TItem extends RecommendableNewsItem>(
 
 const isActiveRecentExposure = (item: RecentExposureNewsItem, now: Date) =>
   !item.occurredAt || hoursSince(item.occurredAt, now) <= exposureCooldownHours;
+
+const isActiveSemanticFeedbackVector = (
+  item: NewsSemanticVector,
+  now: Date,
+  maxAgeHours: number,
+) => !item.occurredAt || hoursSince(item.occurredAt, now) <= maxAgeHours;
+
+const getCosineSimilarity = (
+  left: readonly number[] | null | undefined,
+  right: readonly number[] | null | undefined,
+) => {
+  if (!left || !right || left.length === 0 || left.length !== right.length) {
+    return null;
+  }
+
+  let dotProduct = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index] ?? 0;
+    const rightValue = right[index] ?? 0;
+
+    dotProduct += leftValue * rightValue;
+    leftMagnitude += leftValue * leftValue;
+    rightMagnitude += rightValue * rightValue;
+  }
+
+  if (leftMagnitude === 0 || rightMagnitude === 0) return null;
+
+  return dotProduct / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
+};
+
+const getSemanticMatchRank = (match: NewsSemanticSimilarityMatch) =>
+  match.similarity * (match.strength ?? 1);
+
+export const buildNewsSemanticSimilarityMatches = ({
+  candidateVectors,
+  feedbackVectors,
+  maxAgeHours = defaultSemanticFeedbackMaxAgeHours,
+  minSimilarity = defaultSemanticSimilarityThreshold,
+  now = new Date(),
+}: {
+  candidateVectors: readonly NewsSemanticVector[];
+  feedbackVectors: readonly NewsSemanticVector[];
+  maxAgeHours?: number;
+  minSimilarity?: number;
+  now?: Date;
+}): NewsSemanticSimilarityMatch[] => {
+  const activeFeedbackVectors = feedbackVectors.filter((item) =>
+    isActiveSemanticFeedbackVector(item, now, maxAgeHours),
+  );
+
+  return candidateVectors.flatMap((candidate) => {
+    let bestMatch: NewsSemanticSimilarityMatch | null = null;
+
+    for (const feedback of activeFeedbackVectors) {
+      if (feedback.newsItemId === candidate.newsItemId) continue;
+
+      const similarity = getCosineSimilarity(
+        candidate.embedding,
+        feedback.embedding,
+      );
+
+      if (similarity === null || similarity < minSimilarity) continue;
+
+      const match = {
+        newsItemId: candidate.newsItemId,
+        occurredAt: feedback.occurredAt,
+        similarity,
+        strength: feedback.strength,
+      };
+
+      if (
+        !bestMatch ||
+        getSemanticMatchRank(match) > getSemanticMatchRank(bestMatch)
+      ) {
+        bestMatch = match;
+      }
+    }
+
+    return bestMatch ? [bestMatch] : [];
+  });
+};
+
+const getSemanticSimilarityBoost = ({
+  maxBoost,
+  minSimilarity,
+  similarity,
+  strength,
+}: {
+  maxBoost: number;
+  minSimilarity: number;
+  similarity: number;
+  strength: number;
+}) => {
+  const similarityLift =
+    ((Math.min(Math.max(similarity, minSimilarity), 1) - minSimilarity) /
+      (1 - minSimilarity)) *
+    maxBoost;
+
+  return Math.round(similarityLift + strength * 2);
+};
+
+export const selectSemanticSimilarityNewsFeed = <
+  TItem extends RecommendableNewsItem & NewsIdentity,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  semanticMatches: readonly NewsSemanticSimilarityMatch[],
+  {
+    maxBoost = 18,
+    minSimilarity = defaultSemanticSimilarityThreshold,
+  }: { maxBoost?: number; minSimilarity?: number } = {},
+): RankedNewsItem<TItem>[] => {
+  if (semanticMatches.length === 0) return [...rankedItems];
+
+  const semanticMatchById = new Map<string, NewsSemanticSimilarityMatch>();
+
+  for (const match of semanticMatches) {
+    const currentMatch = semanticMatchById.get(match.newsItemId);
+
+    if (
+      !currentMatch ||
+      getSemanticMatchRank(match) > getSemanticMatchRank(currentMatch)
+    ) {
+      semanticMatchById.set(match.newsItemId, match);
+    }
+  }
+
+  return rankedItems
+    .map((item, index) => {
+      const match = semanticMatchById.get(item.id);
+
+      if (!match || match.similarity < minSimilarity) {
+        return { index, item };
+      }
+
+      return {
+        index,
+        item: {
+          ...addMatchedSignal(item, "semantic_feedback"),
+          personalizedScore:
+            item.personalizedScore +
+            getSemanticSimilarityBoost({
+              maxBoost,
+              minSimilarity,
+              similarity: match.similarity,
+              strength: match.strength ?? 1,
+            }),
+        },
+      };
+    })
+    .sort((left, right) =>
+      right.item.personalizedScore === left.item.personalizedScore
+        ? left.index - right.index
+        : right.item.personalizedScore - left.item.personalizedScore,
+    )
+    .map(({ item }) => item);
+};
+
+const isCollaborativeLiftEligible = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  minSourceScore: number,
+) =>
+  item.sourceScore >= minSourceScore && !hasCollaborativeProtectedSignal(item);
+
+const hasCollaborativeProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    collaborativeProtectedSignals.has(signal),
+  );
+
+const hasCollaborativeFeedbackSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) => item.matchedSignals.includes("collaborative_feedback");
+
+export const selectCollaborativeSignalNewsFeed = <
+  TItem extends RecommendableNewsItem & NewsIdentity,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  collaborativeSignals: readonly NewsCollaborativeSignal[],
+  {
+    maxBoost = 12,
+    minScore = 2,
+    minSourceScore = 70,
+  }: { maxBoost?: number; minScore?: number; minSourceScore?: number } = {},
+): RankedNewsItem<TItem>[] => {
+  if (collaborativeSignals.length === 0) return [...rankedItems];
+
+  const collaborativeScoreById = new Map<string, number>();
+
+  for (const signal of collaborativeSignals) {
+    if (signal.score < minScore) continue;
+
+    collaborativeScoreById.set(
+      signal.newsItemId,
+      Math.max(
+        signal.score,
+        collaborativeScoreById.get(signal.newsItemId) ?? 0,
+      ),
+    );
+  }
+
+  if (collaborativeScoreById.size === 0) return [...rankedItems];
+
+  return rankedItems
+    .map((item, index) => {
+      const collaborativeScore = collaborativeScoreById.get(item.id);
+
+      if (
+        collaborativeScore === undefined ||
+        !isCollaborativeLiftEligible(item, minSourceScore)
+      ) {
+        return { index, item };
+      }
+
+      return {
+        index,
+        item: {
+          ...addMatchedSignal(item, "collaborative_feedback"),
+          personalizedScore:
+            item.personalizedScore +
+            Math.min(maxBoost, Math.round(collaborativeScore * 2)),
+        },
+      };
+    })
+    .sort((left, right) => {
+      const leftCollaborative = hasCollaborativeFeedbackSignal(left.item);
+      const rightCollaborative = hasCollaborativeFeedbackSignal(right.item);
+
+      if (leftCollaborative !== rightCollaborative) {
+        const leftProtected = hasCollaborativeProtectedSignal(left.item);
+        const rightProtected = hasCollaborativeProtectedSignal(right.item);
+
+        if (leftProtected !== rightProtected) {
+          return leftProtected ? -1 : 1;
+        }
+      }
+
+      return right.item.personalizedScore === left.item.personalizedScore
+        ? left.index - right.index
+        : right.item.personalizedScore - left.item.personalizedScore;
+    })
+    .map(({ item }) => item);
+};
 
 export const selectExposureBalancedNewsFeed = <
   TItem extends RecommendableNewsItem,

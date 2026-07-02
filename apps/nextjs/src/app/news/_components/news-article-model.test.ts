@@ -4,6 +4,7 @@ import {
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
+  getNewsArticleHeroVisual,
   getNewsArticleLearningImpact,
   getNewsArticleLocalHistoryItem,
   getNewsArticleNextReads,
@@ -257,6 +258,37 @@ describe("getNewsArticleLocalHistoryItem", () => {
       sourceSlug: "openai-news",
       title: "OpenAI releases a new agent stack",
       viewedAt: "2026-07-01T09:30:00.000Z",
+    });
+  });
+});
+
+describe("getNewsArticleHeroVisual", () => {
+  it("uses the article image when one is available", () => {
+    expect(
+      getNewsArticleHeroVisual({
+        article: {
+          ...article,
+          imageUrl: "https://picsum.photos/seed/article-hero/1200/820",
+        },
+        formatCategory: formatArticleCategory,
+      }),
+    ).toEqual({
+      alt: "OpenAI releases a new agent stack",
+      imageUrl: "https://picsum.photos/seed/article-hero/1200/820",
+      kind: "image",
+      label: "Models",
+    });
+  });
+
+  it("falls back to a category visual when the article has no image", () => {
+    expect(
+      getNewsArticleHeroVisual({
+        article,
+        formatCategory: formatArticleCategory,
+      }),
+    ).toEqual({
+      kind: "fallback",
+      label: "Models",
     });
   });
 });

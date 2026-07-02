@@ -32,6 +32,7 @@ import {
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
+  getNewsArticleHeroVisual,
   getNewsArticleLearningImpact,
   getNewsArticleLocalHistoryItem,
   getNewsArticleNextReads,
@@ -527,6 +528,10 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       formatCategory,
     });
   const paragraphs = paragraphsFromArticle(article);
+  const heroVisual = getNewsArticleHeroVisual({
+    article,
+    formatCategory,
+  });
 
   const recordAction = (action: ReaderInteractionAction) => {
     const nextProfile = updateReaderProfileWithInteraction(profile, article, {
@@ -587,6 +592,29 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           <p className="mt-6 max-w-3xl border-l-4 border-[#8a241c] pl-5 text-xl leading-8 text-[#4a4a4a] dark:border-[#ff8b7e] dark:text-[#c8c4ba]">
             {article.summary}
           </p>
+
+          <figure className="mt-8">
+            {heroVisual.kind === "image" ? (
+              <div
+                aria-label={heroVisual.alt}
+                className="min-h-[320px] border border-[#161616] bg-cover bg-center grayscale dark:border-[#f4f1ea]"
+                role="img"
+                style={{ backgroundImage: `url(${heroVisual.imageUrl})` }}
+              />
+            ) : (
+              <div className="flex min-h-[260px] items-end justify-between border border-[#161616] bg-[#e8e1d4] p-5 dark:border-[#f4f1ea] dark:bg-[#24211d]">
+                <span className="max-w-[14rem] text-4xl leading-none font-black">
+                  {heroVisual.label}
+                </span>
+                <span className="font-mono text-6xl leading-none text-[#8a241c] dark:text-[#ff8b7e]">
+                  AI
+                </span>
+              </div>
+            )}
+            <figcaption className="mt-2 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+              {heroVisual.label} / {article.sourceName}
+            </figcaption>
+          </figure>
 
           <div className="mt-8 flex flex-wrap gap-3">
             <Button

@@ -302,6 +302,28 @@ export const getNewsArticleLocalHistoryItem = ({
   viewedAt,
 });
 
+export const getNewsArticleHeroVisual = ({
+  article,
+  formatCategory,
+}: {
+  article: Pick<NewsArticleItem, "category" | "imageUrl" | "title">;
+  formatCategory: (category: string) => string;
+}) => {
+  const label = formatCategory(article.category);
+
+  return article.imageUrl
+    ? {
+        alt: article.title,
+        imageUrl: article.imageUrl,
+        kind: "image" as const,
+        label,
+      }
+    : {
+        kind: "fallback" as const,
+        label,
+      };
+};
+
 export const selectNewsArticleReadMilestone = ({
   readPercent,
   recordedMilestones,

@@ -1,5 +1,6 @@
 import type {
   NewsPreferenceProfile,
+  NewsRecommendationExplanation,
   NewsRecommendationRotationObjective,
   NewsRecommendationRotationScoreKind,
   NewsUrlReference,
@@ -13,12 +14,14 @@ import {
   dedupeNewsItems,
   filterBlockedNewsItems,
   filterHiddenNewsItems,
+  getNewsRecommendationReasons as getSharedNewsRecommendationReasons,
   normalizeNewsPreferenceProfile,
   selectFatigueBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
   selectNewsRecommendationRotationSlots,
   selectReaderFreshNewsFeed,
   selectSourceCorroboratedNewsFeed,
+  summarizeNewsRecommendation,
 } from "@acme/validators";
 
 export interface NewsHomeItem extends RecommendableNewsItem {
@@ -26,6 +29,7 @@ export interface NewsHomeItem extends RecommendableNewsItem {
   canonicalUrl: string | null;
   imageUrl: string | null;
   originalUrl?: string | null;
+  recommendation?: NewsRecommendationExplanation;
   sourceName: string;
   sourceType: string;
 }
@@ -15051,90 +15055,7 @@ const newsHomeReaderMemoryResetCacheScopes = [
 export const getNewsHomeReaderMemoryResetCacheScopes = () =>
   newsHomeReaderMemoryResetCacheScopes;
 
-const recommendationReasonLabels = {
-  breaking_news: "Breaking high-trust story",
-  category: "Preferred topic",
-  collaborative_feedback: "Popular with similar readers",
-  daypart: "Timed for this edition",
-  deep_preference: "Deep preference match",
-  discovery_slot: "Discovery slot",
-  exposure_cooldown: "Fresh angle after reading",
-  exploration: "Outside your usual mix",
-  home_exposure_cooldown: "Recently seen on home",
-  negative_feedback: "Dampened by Less feedback",
-  positive_feedback: "Deep read, save, share, or source-click signal",
-  semantic_feedback: "Similar to stories you engaged with",
-  session_intent: "Current session intent",
-  source: "Trusted source",
-  source_corroboration: "Corroborated by multiple sources",
-  entity: "Followed entity",
-  tag: "Preferred angle",
-} as const;
-
-type NewsRecommendationReason =
-  (typeof recommendationReasonLabels)[keyof typeof recommendationReasonLabels];
-
-export const getNewsRecommendationReasons = ({
-  item,
-}: {
-  item: RankedNewsItem<NewsHomeItem>;
-}) => {
-  const reasons = item.matchedSignals
-    .map(
-      (signal) =>
-        recommendationReasonLabels[
-          signal as keyof typeof recommendationReasonLabels
-        ],
-    )
-    .filter((reason): reason is NewsRecommendationReason => Boolean(reason));
-
-  if (reasons.length > 0) return reasons;
-
-  return ["Trending now", "Recently published"];
-};
-
-const isRecentlyPublished = (publishedAt: string, now: Date) => {
-  const publishedTime = new Date(publishedAt).getTime();
-  if (Number.isNaN(publishedTime)) return false;
-
-  const ageHours = (now.getTime() - publishedTime) / 3_600_000;
-  return ageHours >= 0 && ageHours <= 12;
-};
-
-const signalSummaryLabels = {
-  category: "topic",
-  entity: "entity",
-  source: "source",
-  tag: "angle",
-} as const;
-
-const formatReadableList = (values: readonly string[]) => {
-  if (values.length === 0) return "";
-  if (values.length === 1) return values[0] ?? "";
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
-
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
-};
-
-const getRankSupportText = ({
-  hasFreshness,
-  hasHighHeat,
-  hasStrongSource,
-  heatLabel,
-}: {
-  hasFreshness: boolean;
-  hasHighHeat: boolean;
-  hasStrongSource: boolean;
-  heatLabel: string;
-}) => {
-  const supports: string[] = [];
-
-  if (hasHighHeat) supports.push(heatLabel);
-  if (hasFreshness) supports.push("fresh publication timing");
-  if (hasStrongSource) supports.push("source credibility");
-
-  return formatReadableList(supports);
-};
+export const getNewsRecommendationReasons = getSharedNewsRecommendationReasons;
 
 export const getNewsStoryRankDetails = ({
   item,
@@ -15145,224 +15066,9 @@ export const getNewsStoryRankDetails = ({
   mode?: NewsFeedMode;
   now?: Date;
 }) => {
-  const badges: string[] = [];
-  const isExposureCooldown = item.matchedSignals.includes("exposure_cooldown");
-  const isExploration = item.matchedSignals.includes("exploration");
-  const isHomeExposureCooldown = item.matchedSignals.includes(
-    "home_exposure_cooldown",
-  );
-  const isNegativeFeedback = item.matchedSignals.includes("negative_feedback");
-  const isSemanticFeedback = item.matchedSignals.includes("semantic_feedback");
-  const isSessionIntent = item.matchedSignals.includes("session_intent");
-  const isCollaborativeFeedback = item.matchedSignals.includes(
-    "collaborative_feedback",
-  );
-  const isSourceCorroborated = item.matchedSignals.includes(
-    "source_corroboration",
-  );
-  const hasHighHeat = item.trendScore >= 70;
-  const hasFreshness = isRecentlyPublished(item.publishedAt, now);
-  const hasStrongSource = item.sourceScore >= 80;
-  const hasSourceSignal = item.matchedSignals.includes("source");
-  const hasPersonalSignals =
-    item.matchedSignals.filter(
-      (signal) => signal !== "exploration" && signal !== "negative_feedback",
-    ).length > 0;
-  const includeStrongSourceSupport = hasStrongSource && !hasSourceSignal;
+  if (mode === "for_you" && item.recommendation) return item.recommendation;
 
-  if (mode === "latest") {
-    badges.push("Newest first");
-    if (hasFreshness) badges.push("Fresh");
-
-    const supportText = getRankSupportText({
-      hasFreshness,
-      hasHighHeat: false,
-      hasStrongSource: false,
-      heatLabel: "story heat",
-    });
-
-    return {
-      badges: getUniqueSignals(badges, 5),
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Ranked by publication time, with ${supportText}.`
-        : "Ranked by publication time.",
-    };
-  }
-
-  if (mode === "trending") {
-    badges.push("Trending now");
-    if (hasHighHeat) badges.push("High heat");
-    if (hasStrongSource) badges.push("Strong source");
-
-    const supportText = getRankSupportText({
-      hasFreshness: false,
-      hasHighHeat,
-      hasStrongSource,
-      heatLabel: "high story heat",
-    });
-
-    return {
-      badges: getUniqueSignals(badges, 5),
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Ranked by story heat, with ${supportText}.`
-        : "Ranked by story heat.",
-    };
-  }
-
-  if (isExploration) {
-    badges.push("Outside your usual mix");
-  } else if (isNegativeFeedback) {
-    badges.push("Dampened by Less feedback");
-  } else if (hasPersonalSignals) {
-    badges.push(...getNewsRecommendationReasons({ item }));
-  } else {
-    badges.push("Trending now");
-  }
-
-  if (hasHighHeat && hasPersonalSignals) badges.push("High heat");
-  if (hasFreshness) badges.push("Fresh");
-  if (includeStrongSourceSupport) {
-    badges.push("Strong source");
-  }
-
-  const uniqueBadges = getUniqueSignals(badges, 5);
-  const supportText = getRankSupportText({
-    hasFreshness,
-    hasHighHeat,
-    hasStrongSource: includeStrongSourceSupport,
-    heatLabel: hasPersonalSignals ? "high story heat" : "story heat",
-  });
-
-  if (isExploration) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Inserted as an exploration story outside your usual mix, supported by ${supportText}.`
-        : "Inserted as an exploration story outside your usual mix.",
-    };
-  }
-
-  if (isHomeExposureCooldown) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Moved behind fresh angles because this card or URL was recently seen on the home feed, while still supported by ${supportText}.`
-        : "Moved behind fresh angles because this card or URL was recently seen on the home feed.",
-    };
-  }
-
-  if (isExposureCooldown) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Moved behind fresh angles because you recently read a similar topic, source, or entity, while still supported by ${supportText}.`
-        : "Moved behind fresh angles because you recently read a similar topic, source, or entity.",
-    };
-  }
-
-  if (isNegativeFeedback) {
-    const guardrailSupportText = getRankSupportText({
-      hasFreshness,
-      hasHighHeat: false,
-      hasStrongSource: includeStrongSourceSupport,
-      heatLabel: "story heat",
-    });
-
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: guardrailSupportText
-        ? `Dampened by your Less feedback, but still visible because of ${guardrailSupportText}.`
-        : "Dampened by your Less feedback.",
-    };
-  }
-
-  if (item.matchedSignals.includes("positive_feedback")) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Ranked from your reader-memory signals, with ${supportText}.`
-        : "Ranked from your reader-memory signals.",
-    };
-  }
-
-  if (isSemanticFeedback) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Ranked by semantic similarity to stories you read, saved, shared, or source-clicked, with ${supportText}.`
-        : "Ranked by semantic similarity to stories you read, saved, shared, or source-clicked.",
-    };
-  }
-
-  if (isSessionIntent) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Ranked by the topic, source, or search intent active in this session, with ${supportText}.`
-        : "Ranked by the topic, source, or search intent active in this session.",
-    };
-  }
-
-  if (isSourceCorroborated) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Lifted because independent sources are covering the same development, with ${supportText}.`
-        : "Lifted because independent sources are covering the same development.",
-    };
-  }
-
-  if (isCollaborativeFeedback) {
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Lifted by recent saves, shares, and deep reads from similar readers, with ${supportText}.`
-        : "Lifted by recent saves, shares, and deep reads from similar readers.",
-    };
-  }
-
-  const signalLabels = item.matchedSignals
-    .map(
-      (signal) =>
-        signalSummaryLabels[signal as keyof typeof signalSummaryLabels],
-    )
-    .filter(
-      (
-        label,
-      ): label is (typeof signalSummaryLabels)[keyof typeof signalSummaryLabels] =>
-        Boolean(label),
-    );
-
-  if (signalLabels.length > 0) {
-    const signalText = formatReadableList(signalLabels);
-
-    return {
-      badges: uniqueBadges,
-      scoreLabel: `${item.personalizedScore} score`,
-      summary: supportText
-        ? `Ranked for your ${signalText} signals, with ${supportText}.`
-        : `Ranked for your ${signalText} signals.`,
-    };
-  }
-
-  return {
-    badges: uniqueBadges,
-    scoreLabel: `${item.personalizedScore} score`,
-    summary: supportText
-      ? `Ranked by edition-wide ${supportText}.`
-      : "Ranked by edition-wide story momentum.",
-  };
+  return summarizeNewsRecommendation({ item, mode, now });
 };
 
 export const getNewsDeskStatusSummary = (status: NewsDeskStatus) => {

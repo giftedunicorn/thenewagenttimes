@@ -13904,6 +13904,31 @@ describe("getNewsRecommendationReasons", () => {
 });
 
 describe("getNewsStoryRankDetails", () => {
+  it("uses the server recommendation explanation for For You stories when available", () => {
+    const serverExplainedItem = {
+      ...localItem,
+      matchedSignals: ["category"],
+      personalizedScore: 136,
+      recommendation: {
+        badges: ["Server ranked"],
+        scoreLabel: "136 score",
+        summary: "Server-side ranking trace explains this card.",
+      },
+    };
+
+    expect(
+      getNewsStoryRankDetails({
+        item: serverExplainedItem,
+        mode: "for_you",
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual({
+      badges: ["Server ranked"],
+      summary: "Server-side ranking trace explains this card.",
+      scoreLabel: "136 score",
+    });
+  });
+
   it("explains why a personalized story is high in the edition", () => {
     expect(
       getNewsStoryRankDetails({

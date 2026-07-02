@@ -135,4 +135,54 @@ describe("Railway Next.js deployment config", () => {
     expect(tanstackHomeRoute).not.toContain("tracking-[");
     expect(tanstackHomeRoute).toContain('rel="nofollow noopener noreferrer"');
   });
+
+  test("Expo shell does not expose the starter post scaffold", async () => {
+    const expoHomeRoute = await readFile(
+      path.join(repoRoot, "apps/expo/src/app/index.tsx"),
+      "utf8",
+    );
+
+    expect(expoHomeRoute).toContain("The New AI Times");
+    expect(expoHomeRoute).not.toContain("Create T3");
+    expect(expoHomeRoute).not.toContain("trpc.post");
+    expect(expoHomeRoute).not.toContain("/post/[id]");
+  });
+
+  test("Expo shell uses the personalized news recommendation loop", async () => {
+    const expoHomeRoute = await readFile(
+      path.join(repoRoot, "apps/expo/src/app/index.tsx"),
+      "utf8",
+    );
+
+    expect(expoHomeRoute).toContain("readOrCreateNewsVisitorKey");
+    expect(expoHomeRoute).toContain("trpc.news.forYou.queryOptions");
+    expect(expoHomeRoute).toContain("visitorKey");
+    expect(expoHomeRoute).toContain("trpc.news.recordInteraction");
+    expect(expoHomeRoute).not.toContain("trpc.news.feed.queryOptions");
+  });
+
+  test("Expo article route records meaningful reads for recommendations", async () => {
+    const expoArticleRoute = await readFile(
+      path.join(repoRoot, "apps/expo/src/app/news/[id].tsx"),
+      "utf8",
+    );
+
+    expect(expoArticleRoute).toContain("readOrCreateNewsVisitorKey");
+    expect(expoArticleRoute).toContain("trpc.news.recordInteraction");
+    expect(expoArticleRoute).toContain('surface: "article"');
+    expect(expoArticleRoute).toContain('readMilestone: "meaningful_read"');
+    expect(expoArticleRoute).toContain("readPercent: 0.42");
+  });
+
+  test("Expo article route trains source preference from source clicks", async () => {
+    const expoArticleRoute = await readFile(
+      path.join(repoRoot, "apps/expo/src/app/news/[id].tsx"),
+      "utf8",
+    );
+
+    expect(expoArticleRoute).toContain("recordSourceClick");
+    expect(expoArticleRoute).toContain('action: "click_source"');
+    expect(expoArticleRoute).toContain('surface: "article_source"');
+    expect(expoArticleRoute).toContain("Linking.openURL(article.originalUrl)");
+  });
 });

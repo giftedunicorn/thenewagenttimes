@@ -205,15 +205,20 @@ const getNewsSemanticFeedbackStrength = (
 
 export const getNewsCollaborativeSignalScore = ({
   deepReadCount,
+  readerCount,
   saveCount,
   shareCount,
   sourceClickCount,
 }: {
   deepReadCount: number;
+  readerCount: number;
   saveCount: number;
   shareCount: number;
   sourceClickCount: number;
-}) => shareCount * 3 + saveCount * 2 + deepReadCount * 2 + sourceClickCount;
+}) =>
+  readerCount >= 2
+    ? shareCount * 3 + saveCount * 2 + deepReadCount * 2 + sourceClickCount
+    : 0;
 
 const meaningfulNewsArticleReadCondition = (): SQL<unknown> =>
   sql`${NewsReaderInteraction.metadata}->>'surface' = 'article' and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.35`;
@@ -634,6 +639,31 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
 export const getNewsForYouCandidateLimit = (limit: number) =>
   Math.min(limit * 6, 240);
 
+const collaborativeSignalWindowMs = 7 * 24 * 3_600_000;
+
+export const getNewsCollaborativeSignalWindowStart = (now = new Date()) =>
+  new Date(now.getTime() - collaborativeSignalWindowMs);
+
+export const buildNewsCollaborativeSignalCondition = ({
+  candidateNewsItemIds,
+  currentReaderProfileId,
+  since,
+}: {
+  candidateNewsItemIds: readonly string[];
+  currentReaderProfileId: string | null;
+  since: Date;
+}): SQL<unknown> | undefined =>
+  compactConditions([
+    candidateNewsItemIds.length > 0
+      ? inArray(NewsReaderInteraction.newsItemId, candidateNewsItemIds)
+      : sql`false`,
+    eq(NewsItem.status, "published"),
+    sql`${NewsReaderInteraction.occurredAt} >= ${since}`,
+    currentReaderProfileId
+      ? sql`${NewsReaderInteraction.readerProfileId} <> ${currentReaderProfileId}`
+      : undefined,
+  ]);
+
 export const selectUniqueNewsCollectionItems = <TItem extends DedupeNewsItem>(
   items: readonly TItem[],
 ): TItem[] => dedupeNewsItems(items);
@@ -779,6 +809,7 @@ export const newsRouter = {
         NewsSemanticVector,
         "newsItemId" | "occurredAt" | "strength"
       >[] = [];
+      let currentReaderProfileId: string | null = null;
       let viewedNewsItemIds: string[] = [];
       let viewedNewsItems: RecentExposureNewsItem[] = [];
 
@@ -790,6 +821,7 @@ export const newsRouter = {
           .limit(1);
 
         profile = toPreferenceProfile(persistedProfile);
+        currentReaderProfileId = persistedProfile?.id ?? null;
 
         if (persistedProfile) {
           const [hiddenRows, positiveRows, viewedRows] = await Promise.all([
@@ -1016,7 +1048,7 @@ export const newsRouter = {
       let semanticMatches: NewsSemanticSimilarityMatch[] = [];
 
       if (items.length > 0) {
-        const collaborativeSince = new Date(Date.now() - 7 * 24 * 3_600_000);
+        const collaborativeSince = getNewsCollaborativeSignalWindowStart();
         const collaborativeRows = await ctx.db
           .select({
             deepReadCount: sql<number>`count(*) filter (where ${
@@ -1025,6 +1057,7 @@ export const newsRouter = {
               NewsReaderInteraction.metadata
             }->>'surface' = 'article' and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.8)::int`,
             newsItemId: NewsReaderInteraction.newsItemId,
+            readerCount: sql<number>`count(distinct ${NewsReaderInteraction.readerProfileId})::int`,
             saveCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'save')::int`,
             shareCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'share')::int`,
             sourceClickCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'click_source')::int`,
@@ -1035,14 +1068,11 @@ export const newsRouter = {
             eq(NewsReaderInteraction.newsItemId, NewsItem.id),
           )
           .where(
-            compactConditions([
-              inArray(
-                NewsReaderInteraction.newsItemId,
-                items.map((item) => item.id),
-              ),
-              eq(NewsItem.status, "published"),
-              sql`${NewsReaderInteraction.occurredAt} >= ${collaborativeSince}`,
-            ]),
+            buildNewsCollaborativeSignalCondition({
+              candidateNewsItemIds: items.map((item) => item.id),
+              currentReaderProfileId,
+              since: collaborativeSince,
+            }),
           )
           .groupBy(NewsReaderInteraction.newsItemId);
 

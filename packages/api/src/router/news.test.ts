@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { NewsForYouCandidate } from "./news";
 import {
+  buildNewsCollaborativeSignalCondition,
   buildNewsReaderProfileResponse,
   buildNewsTextSearchCondition,
+  getNewsCollaborativeSignalScore,
+  getNewsCollaborativeSignalWindowStart,
   getNewsForYouCandidateLimit,
   getNewsReaderProfileResetIdentity,
   NewsFeedInputSchema,
@@ -568,6 +571,63 @@ describe("getNewsForYouCandidateLimit", () => {
     expect(getNewsForYouCandidateLimit(1)).toBe(6);
     expect(getNewsForYouCandidateLimit(20)).toBe(120);
     expect(getNewsForYouCandidateLimit(50)).toBe(240);
+  });
+});
+
+describe("getNewsCollaborativeSignalScore", () => {
+  it("requires at least two distinct readers before cohort lift is trusted", () => {
+    expect(
+      getNewsCollaborativeSignalScore({
+        deepReadCount: 1,
+        readerCount: 1,
+        saveCount: 2,
+        shareCount: 1,
+        sourceClickCount: 1,
+      }),
+    ).toBe(0);
+
+    expect(
+      getNewsCollaborativeSignalScore({
+        deepReadCount: 1,
+        readerCount: 2,
+        saveCount: 2,
+        shareCount: 1,
+        sourceClickCount: 1,
+      }),
+    ).toBeGreaterThan(0);
+  });
+});
+
+describe("buildNewsCollaborativeSignalCondition", () => {
+  it("derives a deterministic seven-day collaborative signal window", () => {
+    expect(
+      getNewsCollaborativeSignalWindowStart(
+        new Date("2026-07-08T12:30:00.000Z"),
+      ).toISOString(),
+    ).toBe("2026-07-01T12:30:00.000Z");
+  });
+
+  it("excludes the current reader profile from collaborative cohort recall", () => {
+    const condition = buildNewsCollaborativeSignalCondition({
+      candidateNewsItemIds: ["candidate-news-item"],
+      currentReaderProfileId: "current-reader-profile",
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("current-reader-profile");
+    expect(sqlText.toLowerCase()).toContain("reader");
+  });
+
+  it("keeps anonymous cold-start cohort recall broad", () => {
+    const condition = buildNewsCollaborativeSignalCondition({
+      candidateNewsItemIds: ["candidate-news-item"],
+      currentReaderProfileId: null,
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).not.toContain("current-reader-profile");
   });
 });
 

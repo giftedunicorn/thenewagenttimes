@@ -291,16 +291,71 @@ const normalizeNewsDedupeTitle = (title: string) =>
     .trim()
     .replace(/\s+/g, " ");
 
+const newsDedupeUrlTitleStopwords = new Set([
+  "and",
+  "for",
+  "from",
+  "new",
+  "news",
+  "the",
+  "with",
+]);
+
+const normalizeNewsDedupeToken = (token: string) =>
+  token.length > 4 && token.endsWith("s") ? token.slice(0, -1) : token;
+
+const getNewsDedupeTextTokens = (value: string) =>
+  normalizeNewsDedupeTitle(value)
+    .split(" ")
+    .map(normalizeNewsDedupeToken)
+    .filter(
+      (token) => token.length > 2 && !newsDedupeUrlTitleStopwords.has(token),
+    );
+
+const getNewsDedupeUrlPath = (url: string) => {
+  const withoutFragment = url.split("#")[0] ?? url;
+  const withoutQuery = withoutFragment.split("?")[0] ?? withoutFragment;
+
+  return withoutQuery.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+/i, "");
+};
+
+const getNewsDedupeTitleKey = (item: DedupeNewsItem) =>
+  `title:${item.category
+    .trim()
+    .toLowerCase()}:${normalizeNewsDedupeTitle(item.title)}`;
+
+const shouldUseNewsDedupeTitleKey = (item: DedupeNewsItem) => {
+  const urls = [item.canonicalUrl, item.originalUrl].filter(
+    (url): url is string => Boolean(url),
+  );
+
+  if (urls.length === 0) return true;
+
+  const titleTokens = getNewsDedupeTextTokens(item.title);
+  if (titleTokens.length < 2) return false;
+
+  const requiredOverlap = Math.min(
+    3,
+    Math.max(2, Math.ceil(titleTokens.length / 2)),
+  );
+
+  return urls.some((url) => {
+    const urlTokens = new Set(
+      getNewsDedupeTextTokens(getNewsDedupeUrlPath(url)),
+    );
+    const overlap = titleTokens.filter((token) => urlTokens.has(token)).length;
+
+    return overlap >= requiredOverlap;
+  });
+};
+
 const getNewsDedupeKeys = (item: DedupeNewsItem) => {
   const urlKeys = getNewsDedupeUrlKeys(item);
+  const titleKeys = shouldUseNewsDedupeTitleKey(item)
+    ? [getNewsDedupeTitleKey(item)]
+    : [];
 
-  if (urlKeys.length > 0) return Array.from(new Set(urlKeys));
-
-  return [
-    `title:${item.category.trim().toLowerCase()}:${normalizeNewsDedupeTitle(
-      item.title,
-    )}`,
-  ];
+  return Array.from(new Set([...urlKeys, ...titleKeys]));
 };
 
 const compareNewsDedupeStrength = (
@@ -785,6 +840,81 @@ const getPositiveFeedbackMatch = (
   return { strength: matchStrength, timestamp: matchTimestamp };
 };
 
+interface PositiveFeedbackAnchor<TItem extends RecommendableNewsItem> {
+  item: RankedNewsItem<TItem>;
+  rank: number;
+  strength: number;
+  timestamp: number;
+}
+
+const diversifyPositiveFeedbackAnchorGroup = <
+  TItem extends RecommendableNewsItem,
+>(
+  anchors: readonly PositiveFeedbackAnchor<TItem>[],
+) => {
+  const selected: PositiveFeedbackAnchor<TItem>[] = [];
+  const remaining = [...anchors];
+
+  while (remaining.length > 0) {
+    const previousAnchor = selected.at(-1);
+    let nextIndex = 0;
+
+    if (previousAnchor) {
+      const fullAlternateIndex = remaining.findIndex(
+        (anchor) =>
+          anchor.item.sourceSlug !== previousAnchor.item.sourceSlug &&
+          anchor.item.category !== previousAnchor.item.category,
+      );
+      const partialAlternateIndex = remaining.findIndex(
+        (anchor) =>
+          anchor.item.sourceSlug !== previousAnchor.item.sourceSlug ||
+          anchor.item.category !== previousAnchor.item.category,
+      );
+
+      if (fullAlternateIndex !== -1) {
+        nextIndex = fullAlternateIndex;
+      } else if (partialAlternateIndex !== -1) {
+        nextIndex = partialAlternateIndex;
+      }
+    }
+
+    const [nextAnchor] = remaining.splice(nextIndex, 1);
+    if (nextAnchor) selected.push(nextAnchor);
+  }
+
+  return selected;
+};
+
+const diversifyPositiveFeedbackAnchors = <TItem extends RecommendableNewsItem>(
+  anchors: readonly PositiveFeedbackAnchor<TItem>[],
+) => {
+  const diversifiedAnchors: PositiveFeedbackAnchor<TItem>[] = [];
+  let group: PositiveFeedbackAnchor<TItem>[] = [];
+
+  const flushGroup = () => {
+    diversifiedAnchors.push(...diversifyPositiveFeedbackAnchorGroup(group));
+    group = [];
+  };
+
+  for (const anchor of anchors) {
+    const previousAnchor = group.at(-1);
+
+    if (
+      previousAnchor &&
+      (previousAnchor.strength !== anchor.strength ||
+        previousAnchor.timestamp !== anchor.timestamp)
+    ) {
+      flushGroup();
+    }
+
+    group.push(anchor);
+  }
+
+  if (group.length > 0) flushGroup();
+
+  return diversifiedAnchors;
+};
+
 const deepPreferenceSignals = new Set(["category", "entity", "source"]);
 const exposureCooldownHours = 24;
 
@@ -849,12 +979,7 @@ export const selectPositiveFeedbackAnchoredNewsFeed = <
 ): RankedNewsItem<TItem>[] => {
   if (positiveFeedbackItems.length === 0) return [...rankedItems];
 
-  const anchoredItems: {
-    item: RankedNewsItem<TItem>;
-    rank: number;
-    strength: number;
-    timestamp: number;
-  }[] = [];
+  const anchoredItems: PositiveFeedbackAnchor<TItem>[] = [];
   const otherItems: RankedNewsItem<TItem>[] = [];
 
   rankedItems.forEach((item, rank) => {
@@ -874,16 +999,18 @@ export const selectPositiveFeedbackAnchoredNewsFeed = <
 
   if (anchoredItems.length === 0) return [...rankedItems];
 
+  const sortedAnchoredItems = anchoredItems.sort((firstItem, secondItem) =>
+    firstItem.strength === secondItem.strength
+      ? firstItem.timestamp === secondItem.timestamp
+        ? firstItem.rank - secondItem.rank
+        : secondItem.timestamp - firstItem.timestamp
+      : secondItem.strength - firstItem.strength,
+  );
+
   return [
-    ...anchoredItems
-      .sort((firstItem, secondItem) =>
-        firstItem.strength === secondItem.strength
-          ? firstItem.timestamp === secondItem.timestamp
-            ? firstItem.rank - secondItem.rank
-            : secondItem.timestamp - firstItem.timestamp
-          : secondItem.strength - firstItem.strength,
-      )
-      .map(({ item }) => item),
+    ...diversifyPositiveFeedbackAnchors(sortedAnchoredItems).map(
+      ({ item }) => item,
+    ),
     ...otherItems,
   ];
 };

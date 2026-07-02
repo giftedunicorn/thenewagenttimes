@@ -495,6 +495,72 @@ describe("dedupeNewsItems", () => {
       "policy-story",
     ]);
   });
+
+  test("collapses title-equivalent syndicated stories even when URLs differ", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "wire-version",
+        title: "OpenAI releases GPT-5 for agent workflows",
+        canonicalUrl: "https://wire.example/openai-gpt5-agents",
+        originalUrl: "https://wire.example/openai-gpt5-agents?utm=feed",
+        sourceScore: 82,
+        trendScore: 94,
+      },
+      {
+        ...items[0],
+        id: "official-version",
+        title: "OpenAI releases GPT 5 for agent workflows",
+        canonicalUrl: "https://openai.com/news/gpt5-agent-workflows",
+        originalUrl: "https://openai.com/news/gpt5-agent-workflows",
+        sourceScore: 96,
+        trendScore: 88,
+      },
+      {
+        ...items[0],
+        id: "policy-version",
+        category: "policy",
+        title: "OpenAI releases GPT 5 for agent workflows",
+        canonicalUrl: "https://policy.example/openai-gpt5-agents",
+        originalUrl: "https://policy.example/openai-gpt5-agents",
+        sourceScore: 90,
+        trendScore: 80,
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "official-version",
+      "policy-version",
+    ]);
+  });
+
+  test("keeps title-equivalent stories when URL slugs do not identify the title", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "first-follow-up",
+        title: "OpenAI model lead",
+        canonicalUrl: "https://example.com/same-source-follow-up",
+        originalUrl: "https://example.com/same-source-follow-up",
+        sourceScore: 82,
+        trendScore: 84,
+      },
+      {
+        ...items[0],
+        id: "second-analysis",
+        title: "OpenAI model lead",
+        canonicalUrl: "https://example.com/same-entity-analysis",
+        originalUrl: "https://example.com/same-entity-analysis",
+        sourceScore: 88,
+        trendScore: 82,
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "first-follow-up",
+      "second-analysis",
+    ]);
+  });
 });
 
 describe("selectDiverseNewsFeed", () => {
@@ -1131,6 +1197,80 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
     ]);
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
     expect(feed[1]?.matchedSignals).toContain("positive_feedback");
+  });
+
+  test("diversifies same-strength positive feedback anchors before repeating a source and topic", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "openai-agent-follow-up",
+        category: "agent_product",
+        entities: ["Agents"],
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[0],
+        id: "openai-agent-analysis",
+        category: "agent_product",
+        entities: ["Agents"],
+        sourceSlug: "openai-news",
+        personalizedScore: 180,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "venture-funding-follow-up",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 170,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "unrelated-story",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "research-lab",
+        personalizedScore: 160,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(
+      ranked,
+      [
+        {
+          action: "share",
+          category: "agent_product",
+          entities: ["Agents"],
+          occurredAt: "2026-07-01T09:00:00.000Z",
+          sourceSlug: "openai-news",
+        },
+        {
+          action: "share",
+          category: "funding",
+          entities: ["Series A"],
+          occurredAt: "2026-07-01T09:00:00.000Z",
+          sourceSlug: "venturewire",
+        },
+      ],
+      new Date("2026-07-01T10:00:00.000Z"),
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "openai-agent-follow-up",
+      "venture-funding-follow-up",
+      "openai-agent-analysis",
+      "unrelated-story",
+    ]);
+    expect(
+      feed
+        .slice(0, 3)
+        .every((item) => item.matchedSignals.includes("positive_feedback")),
+    ).toBe(true);
   });
 
   test("anchors stories matching saved or shared feedback before unrelated items", () => {

@@ -6113,6 +6113,130 @@ describe("getNewsConsensusBoard", () => {
 });
 
 describe("getNewsPersonalizedReadingQueue", () => {
+  it("places a reader-memory follow-up after the lead when a read anchor overlaps", () => {
+    const queue = getNewsPersonalizedReadingQueue({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [
+        {
+          ...localItem,
+          id: "read-openai-agent",
+          entities: ["OpenAI"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "Read OpenAI agent setup",
+        },
+      ],
+      items: [
+        {
+          ...localItem,
+          id: "openai-lead",
+          entities: ["OpenAI"],
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 170,
+          sourceName: "Model Desk",
+          title: "OpenAI leads the morning model brief",
+          trendScore: 96,
+        },
+        {
+          ...localItem,
+          id: "anthropic-depth",
+          category: "research",
+          entities: ["Anthropic", "Claude", "Safety", "Evals"],
+          matchedSignals: [],
+          personalizedScore: 148,
+          sourceName: "Research Notes",
+          sourceScore: 96,
+          tags: ["research", "safety", "eval", "benchmark"],
+          title: "Anthropic safety analysis is the densest deep dive",
+          trendScore: 88,
+        },
+        {
+          ...localItem,
+          id: "openai-follow-up",
+          entities: ["OpenAI", "Agents"],
+          matchedSignals: ["entity"],
+          personalizedScore: 126,
+          sourceName: "Agent Desk",
+          sourceScore: 82,
+          tags: ["agent"],
+          title: "OpenAI agent workflow gets a deployment follow-up",
+          trendScore: 82,
+        },
+      ],
+      negativeFeedbackItems: [],
+      savedItems: [],
+    });
+
+    expect(queue.slots[1]).toEqual({
+      intent: "Follow Interest",
+      label: "Continue thread",
+      reason: "OpenAI from your reading history anchors this follow-up.",
+      story: {
+        id: "openai-follow-up",
+        personalizedScore: 126,
+        sourceName: "Agent Desk",
+        title: "OpenAI agent workflow gets a deployment follow-up",
+      },
+    });
+  });
+
+  it("keeps stories matching Less feedback out of the reading queue", () => {
+    const queue = getNewsPersonalizedReadingQueue({
+      items: [
+        {
+          ...localItem,
+          matchedSignals: ["category"],
+          personalizedScore: 150,
+          trendScore: 78,
+        },
+        {
+          ...localItem,
+          id: "hidden-funding-follow-up",
+          category: "funding",
+          entities: ["YC", "Series A"],
+          matchedSignals: [],
+          personalizedScore: 148,
+          sourceName: "VentureWire",
+          sourceScore: 98,
+          sourceSlug: "venturewire",
+          tags: ["funding", "venture", "round"],
+          title: "YC funding rumor would otherwise be a deep dive",
+          trendScore: 92,
+        },
+        {
+          ...localItem,
+          id: "safe-agent-follow-up",
+          category: "agent_product",
+          entities: ["LangChain", "Agents"],
+          matchedSignals: [],
+          personalizedScore: 124,
+          sourceName: "Agent Desk",
+          sourceScore: 86,
+          sourceSlug: "agent-desk",
+          tags: ["agent", "workflow"],
+          title: "Agent workflow story stays eligible for the queue",
+          trendScore: 81,
+        },
+      ],
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          id: "hidden-funding",
+          category: "funding",
+          entities: ["YC"],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "Hidden YC funding rumor",
+        },
+      ],
+    });
+
+    expect(queue.slots.map((slot) => slot.story.id)).not.toContain(
+      "hidden-funding-follow-up",
+    );
+  });
+
   it("chooses a counterpoint deep dive when the strongest depth candidate repeats the lead entity", () => {
     expect(
       getNewsPersonalizedReadingQueue({

@@ -13607,14 +13607,38 @@ export const getNewsContinuationRail = ({
 };
 
 export const getNewsPersonalizedReadingQueue = ({
+  formatCategory = (category) => category,
+  historyItems = [],
   items,
+  negativeFeedbackItems = [],
+  savedItems = [],
 }: {
+  formatCategory?: (category: string) => string;
+  historyItems?: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems?: readonly NewsReaderMemoryItem[];
+  savedItems?: readonly NewsReaderMemoryItem[];
 }) => {
   if (items.length === 0) {
     return {
       slots: [],
       summary: "Queue will appear as stories load.",
+    };
+  }
+
+  const negativeMatchers = getRefreshSimulationMatchers(negativeFeedbackItems);
+  const eligibleItems =
+    negativeFeedbackItems.length > 0
+      ? items.filter(
+          (item) =>
+            !hasRefreshSimulationMatch({ item, matchers: negativeMatchers }),
+        )
+      : items;
+
+  if (eligibleItems.length === 0) {
+    return {
+      slots: [],
+      summary: "Queue is waiting for stories outside Less feedback.",
     };
   }
 
@@ -13646,7 +13670,7 @@ export const getNewsPersonalizedReadingQueue = ({
       story: toReadingQueueStory(item),
     });
   };
-  const [leadStory] = items;
+  const [leadStory] = eligibleItems;
   const leadEntityKeys = new Set(
     leadStory
       ? getNewsAlertRoutingSpecificEntities(leadStory).map(
@@ -13662,7 +13686,73 @@ export const getNewsPersonalizedReadingQueue = ({
     reason: "Highest-ranked story in this edition.",
   });
 
-  const rankedDeepDiveCandidates = [...items]
+  const memoryAnchors = [
+    ...savedItems.map((item) => ({
+      item,
+      sourceLabel: "saved stories",
+    })),
+    ...historyItems.map((item) => ({
+      item,
+      sourceLabel: "reading history",
+    })),
+  ];
+  const memoryFollowUp = eligibleItems
+    .filter((item) => !usedIds.has(item.id))
+    .flatMap((item) =>
+      memoryAnchors.map((anchor) => {
+        const sharedEntities = getContinuationSharedEntities({
+          anchor: anchor.item,
+          item,
+        });
+        const sameCategory = item.category === anchor.item.category;
+        const sameSource = item.sourceSlug === anchor.item.sourceSlug;
+        const signalCount =
+          sharedEntities.length * 3 +
+          (sameCategory ? 2 : 0) +
+          (sameSource ? 1 : 0);
+        const signalLabel =
+          sharedEntities[0] ??
+          (sameCategory
+            ? formatCategory(anchor.item.category)
+            : sameSource
+              ? anchor.item.sourceName
+              : "");
+
+        return {
+          item,
+          reason: signalLabel
+            ? `${signalLabel} from your ${anchor.sourceLabel} anchors this follow-up.`
+            : "",
+          signalCount,
+        };
+      }),
+    )
+    .filter((entry) => entry.signalCount > 0)
+    .sort((left, right) => {
+      if (right.signalCount !== left.signalCount) {
+        return right.signalCount - left.signalCount;
+      }
+
+      if (right.item.personalizedScore !== left.item.personalizedScore) {
+        return right.item.personalizedScore - left.item.personalizedScore;
+      }
+
+      return (
+        new Date(right.item.publishedAt).getTime() -
+        new Date(left.item.publishedAt).getTime()
+      );
+    })[0];
+
+  if (memoryFollowUp) {
+    addSlot({
+      intent: "Follow Interest",
+      item: memoryFollowUp.item,
+      label: "Continue thread",
+      reason: memoryFollowUp.reason,
+    });
+  }
+
+  const rankedDeepDiveCandidates = [...eligibleItems]
     .filter((item) => !usedIds.has(item.id))
     .sort((left, right) => {
       const getDepthScore = (item: RankedNewsItem<NewsHomeItem>) =>
@@ -13707,7 +13797,7 @@ export const getNewsPersonalizedReadingQueue = ({
     } and ${deepTagCount} ${deepTagCount === 1 ? "tag" : "tags"}.`,
   });
 
-  const explorationStory = items.find(
+  const explorationStory = eligibleItems.find(
     (item) =>
       !usedIds.has(item.id) && item.matchedSignals.includes("exploration"),
   );
@@ -13722,7 +13812,7 @@ export const getNewsPersonalizedReadingQueue = ({
   } else {
     addSlot({
       intent: "Catch Up",
-      item: items.find((item) => !usedIds.has(item.id)),
+      item: eligibleItems.find((item) => !usedIds.has(item.id)),
       label: "Keep reading",
       reason: "Next ranked story keeps the queue moving.",
     });

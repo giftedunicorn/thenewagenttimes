@@ -43,6 +43,7 @@ import {
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
   getNewsAlertRouting,
+  getNewsAnglePreferenceOptions,
   getNewsBriefingPack,
   getNewsChannelComparison,
   getNewsChannelRail,
@@ -427,42 +428,6 @@ const getUniqueValues = (items: readonly NewsHomeItem[], key: "sourceSlug") =>
 
 const getTopEntities = (items: readonly NewsHomeItem[]) =>
   Array.from(new Set(items.flatMap((item) => item.entities))).slice(0, 10);
-
-const getTopTags = (items: readonly NewsHomeItem[]) => {
-  const entries = new Map<
-    string,
-    { count: number; firstIndex: number; label: string }
-  >();
-
-  items.forEach((item, itemIndex) => {
-    item.tags.forEach((tag) => {
-      const label = tag.trim();
-      const key = label.toLowerCase();
-
-      if (!key || !label) return;
-
-      const existing = entries.get(key);
-
-      if (!existing) {
-        entries.set(key, { count: 1, firstIndex: itemIndex, label });
-        return;
-      }
-
-      existing.count += 1;
-    });
-  });
-
-  return Array.from(entries.values())
-    .sort((left, right) => {
-      if (right.count !== left.count) return right.count - left.count;
-      if (left.firstIndex !== right.firstIndex) {
-        return left.firstIndex - right.firstIndex;
-      }
-      return left.label.localeCompare(right.label);
-    })
-    .map((entry) => entry.label)
-    .slice(0, 10);
-};
 
 export function NewsHome({
   initialItems,
@@ -1155,7 +1120,7 @@ export function NewsHome({
     limit: 8,
   });
   const availableEntities = getTopEntities(items);
-  const availableTags = getTopTags(items);
+  const availableAngleOptions = getNewsAnglePreferenceOptions({ items });
   const readerMemory = getNewsReaderMemory({
     formatCategory: getCategoryLabel,
     historyItems,
@@ -2764,6 +2729,10 @@ export function NewsHome({
                   label="Entities"
                   values={readerSignalSummary.entities}
                 />
+                <SignalChips
+                  label="Angles"
+                  values={readerSignalSummary.angles}
+                />
               </div>
               <div className="mt-4 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15">
                 <h4 className="font-mono text-[11px] tracking-[0.14em] uppercase">
@@ -4067,23 +4036,24 @@ export function NewsHome({
             </PreferenceGroup>
 
             <PreferenceGroup title="Angles">
-              {availableTags.map((tag) => (
+              {availableAngleOptions.map((angle) => (
                 <PreferenceButton
-                  key={tag}
+                  key={angle.signal}
                   active={profile.preferredEntities.some(
-                    (entity) => entity.toLowerCase() === tag.toLowerCase(),
+                    (entity) =>
+                      entity.toLowerCase() === angle.signal.toLowerCase(),
                   )}
                   onClick={() =>
                     commitProfile((current) => ({
                       ...current,
                       preferredEntities: toggleValue(
                         current.preferredEntities,
-                        tag,
+                        angle.signal,
                       ),
                     }))
                   }
                 >
-                  {tag}
+                  {angle.label}
                 </PreferenceButton>
               ))}
             </PreferenceGroup>

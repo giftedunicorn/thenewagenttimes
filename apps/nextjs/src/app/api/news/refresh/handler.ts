@@ -1,3 +1,8 @@
+import type {
+  NewsSourceHealthSummary,
+  NewsSourceRefreshResult,
+} from "@acme/ingestion";
+
 export interface NewsRefreshSummary {
   sourcesSeeded: number;
   sourcesAttempted: number;
@@ -6,7 +11,8 @@ export interface NewsRefreshSummary {
   itemsSeen: number;
   itemsCreated: number;
   itemsUpdated: number;
-  results: readonly unknown[];
+  results: readonly NewsSourceRefreshResult[];
+  sourceHealth: NewsSourceHealthSummary;
 }
 
 interface HandleNewsRefreshRequestInput {

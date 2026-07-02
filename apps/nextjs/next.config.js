@@ -14,6 +14,7 @@ const config = {
     "@acme/api",
     "@acme/auth",
     "@acme/db",
+    "@acme/ingestion",
     "@acme/ui",
     "@acme/validators",
   ],

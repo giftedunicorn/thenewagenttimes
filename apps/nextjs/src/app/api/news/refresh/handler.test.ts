@@ -11,6 +11,12 @@ const refreshResult = {
   itemsCreated: 10,
   itemsUpdated: 8,
   results: [],
+  sourceHealth: {
+    healthySourceSlugs: ["openai-news"],
+    emptySourceSlugs: [],
+    failedSourceSlugs: [],
+    failureMessages: {},
+  },
 };
 
 describe("handleNewsRefreshRequest", () => {
@@ -57,6 +63,26 @@ describe("handleNewsRefreshRequest", () => {
       refresh,
       request: new Request("https://example.com/api/news/refresh", {
         headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      ...refreshResult,
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("accepts the news refresh secret header for scheduled refresh jobs", async () => {
+    const refresh = vi.fn(() => Promise.resolve(refreshResult));
+
+    const response = await handleNewsRefreshRequest({
+      expectedSecret: "correct-secret-value",
+      refresh,
+      request: new Request("https://example.com/api/news/refresh", {
+        headers: { "x-news-refresh-secret": "correct-secret-value" },
         method: "POST",
       }),
     });

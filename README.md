@@ -37,6 +37,7 @@ Useful news commands:
 pnpm run news:seed-sources
 pnpm run news:ingest:rss:active
 pnpm run news:refresh
+pnpm run news:refresh:remote
 pnpm run news:embed:pending
 ```
 
@@ -59,7 +60,70 @@ The Next.js app is built with `output: "standalone"`, and the root start script 
 node apps/nextjs/.next/standalone/apps/nextjs/server.js
 ```
 
-Required production environment variables include the database URL used by `@acme/db` and a real `BETTER_AUTH_SECRET`.
+The build script also syncs `.next/static` and `public` into the standalone
+directory so Railway serves CSS, JavaScript chunks, fonts, and icons from the
+standalone server.
+
+If Railway creates or selects a service rooted at `apps/tanstack-start`, use the
+checked-in `apps/tanstack-start/railway.json`. It delegates that service back to
+the root Next.js build and start commands so the deployed page is The New AI
+Times, not the legacy TanStack Start scaffold.
+The TanStack package's default `build` and `start` scripts also delegate to the
+root Next.js deployment commands as a fallback for Railpack package-script
+detection. Use `build:tanstack` and `start:tanstack` only when explicitly
+testing the legacy shell.
+
+Required production environment variables:
+
+```text
+POSTGRES_URL
+BETTER_AUTH_SECRET
+AUTH_SECRET
+NEWS_REFRESH_SECRET
+```
+
+`NEWS_REFRESH_URL` is optional on Railway when `RAILWAY_PUBLIC_DOMAIN` is
+available. Set `NEWS_REFRESH_URL` explicitly for custom domains, local scripts,
+or non-Railway schedulers.
+
+`NEWS_REFRESH_SECRET` protects `POST /api/news/refresh`. Send it as
+`Authorization: Bearer <secret>` or `x-news-refresh-secret: <secret>` from a
+Railway cron, manual curl, or other scheduler.
+
+`NEWS_REFRESH_URL` is used by `pnpm run news:refresh:remote`. It accepts either
+the deployed app base URL or the full `/api/news/refresh` endpoint. If it is not
+set, the command falls back to `RAILWAY_PUBLIC_DOMAIN` and calls the deployed
+app over HTTPS:
+
+```bash
+NEWS_REFRESH_URL=https://thenewagenttimes.up.railway.app \
+NEWS_REFRESH_SECRET=replace-me \
+pnpm run news:refresh:remote
+```
+
+For a new Railway database, the app can build and start before the news tables
+exist, but the front page will use preview stories until the schema and sources
+are bootstrapped. Run the database push only when you intend to update the
+target database:
+
+```bash
+pnpm run db:push
+pnpm run news:refresh
+```
+
+`news:refresh` seeds the configured AI news sources and ingests active RSS
+feeds. After that, the homepage should switch from preview stories to live
+published news rows.
+
+For a deployed service, a Railway cron can call the app over HTTP instead of
+connecting directly to the database:
+
+```bash
+pnpm run news:refresh:remote
+```
+
+The command reads `NEWS_REFRESH_SECRET` plus either `NEWS_REFRESH_URL` or
+`RAILWAY_PUBLIC_DOMAIN`.
 
 ## Verification
 

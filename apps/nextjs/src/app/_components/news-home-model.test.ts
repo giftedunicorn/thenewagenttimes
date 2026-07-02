@@ -77,6 +77,7 @@ import {
   getNewsSessionIntent,
   getNewsSourceBalance,
   getNewsSourceClusters,
+  getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
@@ -203,10 +204,17 @@ describe("preview news fallback", () => {
       "preview-sources",
       "preview-recommendations",
     ]);
+    expect(new Set(previewItems.map((item) => item.sourceSlug)).size).toBe(3);
+    expect(previewItems.map((item) => item.imageUrl)).toEqual([
+      "https://picsum.photos/seed/new-ai-times-live-desk/1200/820",
+      "https://picsum.photos/seed/new-ai-times-source-registry/1200/820",
+      "https://picsum.photos/seed/new-ai-times-recommendation-engine/1200/820",
+    ]);
 
     const previewArticle = getPreviewNewsArticleData("preview-desk");
 
     expect(previewArticle.article).toMatchObject({
+      imageUrl: "https://picsum.photos/seed/new-ai-times-live-desk/1200/820",
       id: "preview-desk",
       sourceName: "Editor's Desk",
       title: "The live AI desk is ready for its first crawl",
@@ -279,6 +287,36 @@ describe("selectInitialNewsHomeItems", () => {
         limit: 2,
       }).map((item) => item.id),
     ).toEqual(["official-openai-model", "fresh-home-story"]);
+  });
+});
+
+describe("getNewsSourceFilterOptions", () => {
+  it("uses readable source names while preserving source slugs for filtering", () => {
+    expect(
+      getNewsSourceFilterOptions({
+        items: [
+          {
+            ...localItem,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+          },
+          {
+            ...serverItem,
+            sourceName: "OpenAI Blog Mirror",
+            sourceSlug: "openai-news",
+          },
+          {
+            ...olderItem,
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+          },
+        ],
+        limit: 8,
+      }),
+    ).toEqual([
+      { label: "OpenAI News", slug: "openai-news" },
+      { label: "VentureWire", slug: "venturewire" },
+    ]);
   });
 });
 

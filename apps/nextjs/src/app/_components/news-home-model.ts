@@ -96,14 +96,14 @@ const previewNewsArticles: readonly PreviewNewsArticleItem[] = [
     category: "agent_product",
     tags: ["desk", "pipeline", "recommendations"],
     entities: ["The New AI Times"],
-    sourceSlug: "new-ai-times-desk",
+    sourceSlug: "new-ai-times-editors-desk",
     sourceName: "Editor's Desk",
     sourceType: "manual",
     sourceScore: 90,
     trendScore: 64,
     publishedAt: "2026-07-01T08:00:00.000Z",
     canonicalUrl: null,
-    imageUrl: null,
+    imageUrl: "https://picsum.photos/seed/new-ai-times-live-desk/1200/820",
   },
   {
     id: "preview-sources",
@@ -121,14 +121,15 @@ const previewNewsArticles: readonly PreviewNewsArticleItem[] = [
     category: "market_map",
     tags: ["sources", "labs", "launches"],
     entities: ["OpenAI", "Anthropic", "YC"],
-    sourceSlug: "new-ai-times-desk",
+    sourceSlug: "new-ai-times-source-desk",
     sourceName: "Source Desk",
     sourceType: "manual",
     sourceScore: 86,
     trendScore: 58,
     publishedAt: "2026-07-01T07:30:00.000Z",
     canonicalUrl: null,
-    imageUrl: null,
+    imageUrl:
+      "https://picsum.photos/seed/new-ai-times-source-registry/1200/820",
   },
   {
     id: "preview-recommendations",
@@ -146,14 +147,15 @@ const previewNewsArticles: readonly PreviewNewsArticleItem[] = [
     category: "new_concept",
     tags: ["personalization", "ranking", "signals"],
     entities: ["Recommendation Engine"],
-    sourceSlug: "new-ai-times-desk",
+    sourceSlug: "new-ai-times-recommendation-desk",
     sourceName: "Recommendation Desk",
     sourceType: "manual",
     sourceScore: 82,
     trendScore: 61,
     publishedAt: "2026-07-01T07:00:00.000Z",
     canonicalUrl: null,
-    imageUrl: null,
+    imageUrl:
+      "https://picsum.photos/seed/new-ai-times-recommendation-engine/1200/820",
   },
 ] as const;
 
@@ -287,6 +289,32 @@ export const selectInitialNewsHomeItems = ({
   items: readonly NewsHomeItem[];
   limit: number;
 }) => dedupeNewsItems(items).slice(0, limit);
+
+export const getNewsSourceFilterOptions = ({
+  items,
+  limit,
+}: {
+  items: readonly Pick<NewsHomeItem, "sourceName" | "sourceSlug">[];
+  limit: number;
+}) => {
+  const options: { label: string; slug: string }[] = [];
+  const seenSlugs = new Set<string>();
+
+  for (const item of items) {
+    const slug = item.sourceSlug.trim();
+    const label = item.sourceName.trim();
+    const normalizedSlug = slug.toLowerCase();
+
+    if (!slug || !label || seenSlugs.has(normalizedSlug)) continue;
+
+    options.push({ label, slug });
+    seenSlugs.add(normalizedSlug);
+
+    if (options.length >= limit) break;
+  }
+
+  return options;
+};
 
 export const buildNewsHomeFeedInput = <TCategory extends string>({
   category,

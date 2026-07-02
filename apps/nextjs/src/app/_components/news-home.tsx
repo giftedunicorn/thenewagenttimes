@@ -109,6 +109,7 @@ import {
   getNewsSessionIntent,
   getNewsSourceBalance,
   getNewsSourceClusters,
+  getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
@@ -1073,9 +1074,10 @@ export function NewsHome({
     ]),
   );
   const availableSources = getUniqueValues(items, "sourceSlug");
-  const sourceFilterOptions = Array.from(
-    new Set([...fallbackItems, ...items].map((item) => item.sourceSlug)),
-  ).slice(0, 8);
+  const sourceFilterOptions = getNewsSourceFilterOptions({
+    items: [...fallbackItems, ...items],
+    limit: 8,
+  });
   const availableEntities = getTopEntities(items);
   const availableTags = getTopTags(items);
   const readerMemory = getNewsReaderMemory({
@@ -1621,18 +1623,20 @@ export function NewsHome({
               </Button>
               {sourceFilterOptions.map((source) => (
                 <Button
-                  key={source}
+                  key={source.slug}
                   className="rounded-none"
                   size="sm"
                   type="button"
-                  variant={activeSourceSlug === source ? "default" : "outline"}
+                  variant={
+                    activeSourceSlug === source.slug ? "default" : "outline"
+                  }
                   onClick={() =>
                     setActiveSourceSlug((current) =>
-                      current === source ? null : source,
+                      current === source.slug ? null : source.slug,
                     )
                   }
                 >
-                  {source}
+                  {source.label}
                 </Button>
               ))}
             </div>

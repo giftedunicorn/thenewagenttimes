@@ -225,6 +225,79 @@ describe("rankNewsForReader", () => {
     expect(ranked[0]?.id).toBe("funding");
   });
 
+  test("preserves upstream semantic and collaborative recommendation signals during reranking", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "server-lifted-follow-up",
+          matchedSignals: ["semantic_feedback", "collaborative_feedback"],
+          personalizedScore: 140,
+          publishedAt: "2026-07-01T08:00:00.000Z",
+          sourceScore: 70,
+          trendScore: 40,
+        },
+        {
+          ...items[1],
+          id: "raw-trending-story",
+          publishedAt: "2026-07-01T08:30:00.000Z",
+          sourceScore: 90,
+          trendScore: 95,
+        },
+      ],
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+      new Date("2026-07-01T10:00:00.000Z"),
+    );
+
+    expect(ranked[0]?.id).toBe("server-lifted-follow-up");
+    expect(ranked[0]?.personalizedScore).toBeGreaterThanOrEqual(140);
+    expect(ranked[0]?.matchedSignals).toEqual(
+      expect.arrayContaining(["semantic_feedback", "collaborative_feedback"]),
+    );
+  });
+
+  test("preserves upstream demotion guardrails during reranking", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "server-dampened-repeat",
+          matchedSignals: ["negative_feedback", "home_exposure_cooldown"],
+          personalizedScore: 24,
+          sourceScore: 98,
+          trendScore: 100,
+        },
+        {
+          ...items[1],
+          id: "clean-alternative",
+          sourceScore: 75,
+          trendScore: 70,
+        },
+      ],
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+      new Date("2026-07-01T10:00:00.000Z"),
+    );
+
+    expect(ranked[0]?.id).toBe("clean-alternative");
+    expect(ranked[1]?.id).toBe("server-dampened-repeat");
+    expect(ranked[1]?.personalizedScore).toBeLessThanOrEqual(24);
+    expect(ranked[1]?.matchedSignals).toEqual(
+      expect.arrayContaining(["negative_feedback", "home_exposure_cooldown"]),
+    );
+  });
+
   test("dampens stale high-trend stories when freshness is part of the reader model", () => {
     const ranked = rankNewsForReader(
       [

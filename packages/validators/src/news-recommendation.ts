@@ -179,6 +179,61 @@ const getInteractionWeight = (interaction: ReaderInteraction) => {
   return actionWeight * readDepthMultiplier * rankSlotMultiplier;
 };
 
+const upstreamDemotionSignals = new Set([
+  "exposure_cooldown",
+  "home_exposure_cooldown",
+  "negative_feedback",
+]);
+
+const isNewsRankedRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const getUpstreamMatchedSignals = (
+  item: RecommendableNewsItem,
+): readonly string[] => {
+  if (!isNewsRankedRecord(item)) return [];
+
+  const value = item.matchedSignals;
+  if (!Array.isArray(value)) return [];
+
+  return normalizeSignals(
+    value.filter((signal): signal is string => typeof signal === "string"),
+    24,
+  );
+};
+
+const getUpstreamPersonalizedScore = (
+  item: RecommendableNewsItem,
+): number | null => {
+  if (!isNewsRankedRecord(item)) return null;
+
+  const value = item.personalizedScore;
+
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.round(value)
+    : null;
+};
+
+const mergeNewsPersonalizedScores = ({
+  localScore,
+  upstreamScore,
+  upstreamSignals,
+}: {
+  localScore: number;
+  upstreamScore: number | null;
+  upstreamSignals: readonly string[];
+}) => {
+  if (upstreamScore === null) return localScore;
+
+  const hasUpstreamDemotion = upstreamSignals.some((signal) =>
+    upstreamDemotionSignals.has(signal),
+  );
+
+  return hasUpstreamDemotion
+    ? Math.min(localScore, upstreamScore)
+    : Math.max(localScore, upstreamScore);
+};
+
 export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
   items: readonly TItem[],
   preferences: NewsPreferenceProfile,
@@ -197,6 +252,8 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
 
   return items
     .map((item) => {
+      const upstreamMatchedSignals = getUpstreamMatchedSignals(item);
+      const upstreamPersonalizedScore = getUpstreamPersonalizedScore(item);
       const matchedSignals: string[] = [];
       let preferenceBoost = 0;
 
@@ -232,19 +289,27 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
       const stalenessPenalty =
         recencyBias * Math.min(Math.max(ageHours - 48, 0) / 2, 24);
       const sourceTrustPenalty = Math.max(60 - item.sourceScore, 0) * 0.35;
+      const localPersonalizedScore = Math.round(
+        item.trendScore +
+          item.sourceScore / 10 +
+          preferenceBoost +
+          noveltyBoost +
+          recencyBoost -
+          stalenessPenalty -
+          sourceTrustPenalty,
+      );
 
       return {
         ...item,
-        matchedSignals,
-        personalizedScore: Math.round(
-          item.trendScore +
-            item.sourceScore / 10 +
-            preferenceBoost +
-            noveltyBoost +
-            recencyBoost -
-            stalenessPenalty -
-            sourceTrustPenalty,
+        matchedSignals: normalizeSignals(
+          [...upstreamMatchedSignals, ...matchedSignals],
+          24,
         ),
+        personalizedScore: mergeNewsPersonalizedScores({
+          localScore: localPersonalizedScore,
+          upstreamScore: upstreamPersonalizedScore,
+          upstreamSignals: upstreamMatchedSignals,
+        }),
       };
     })
     .sort((left, right) => {

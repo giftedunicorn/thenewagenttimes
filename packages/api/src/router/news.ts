@@ -146,6 +146,11 @@ type NewsRecordInteractionInput = z.infer<
   typeof NewsRecordInteractionInputSchema
 >;
 
+export const NewsRestoreGuardrailInputSchema =
+  NewsReaderProfileInputSchema.extend({
+    newsItemId: z.string().uuid(),
+  });
+
 export const shouldTrainNewsProfileFromInteraction = ({
   action,
   metadata,
@@ -705,6 +710,19 @@ export const buildNewsCollaborativeSignalCondition = ({
       ? sql`${NewsReaderInteraction.readerProfileId} <> ${currentReaderProfileId}`
       : undefined,
   ]);
+
+export const buildNewsGuardrailRestoreCondition = ({
+  newsItemId,
+  readerProfileId,
+}: {
+  newsItemId: string;
+  readerProfileId: string;
+}): SQL<unknown> =>
+  compactConditions([
+    eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+    eq(NewsReaderInteraction.newsItemId, newsItemId),
+    sql`${NewsReaderInteraction.action} = 'hide'`,
+  ]) ?? sql`false`;
 
 export const selectUniqueNewsCollectionItems = <TItem extends DedupeNewsItem>(
   items: readonly TItem[],
@@ -1554,6 +1572,44 @@ export const newsRouter = {
           sourceSlug: item.sourceSlug,
           tags: item.tags,
         },
+        profile: toPreferenceProfile(profile),
+      });
+    }),
+
+  restoreGuardrail: publicProcedure
+    .input(NewsRestoreGuardrailInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A reader identity is required to restore news guardrails.",
+        });
+      }
+
+      const [profile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+
+      if (profile) {
+        await ctx.db
+          .delete(NewsReaderInteraction)
+          .where(
+            buildNewsGuardrailRestoreCondition({
+              newsItemId: input.newsItemId,
+              readerProfileId: profile.id,
+            }),
+          );
+      }
+
+      return buildNewsReaderMutationProfileResponse({
         profile: toPreferenceProfile(profile),
       });
     }),

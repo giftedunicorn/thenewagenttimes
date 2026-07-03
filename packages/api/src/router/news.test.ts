@@ -4,6 +4,7 @@ import type { NewsForYouCandidate } from "./news";
 import {
   attachNewsRecommendationExplanations,
   buildNewsCollaborativeSignalCondition,
+  buildNewsGuardrailRestoreCondition,
   buildNewsReaderMutationProfileResponse,
   buildNewsReaderProfileResponse,
   buildNewsTextSearchCondition,
@@ -17,6 +18,7 @@ import {
   NewsHistoryInputSchema,
   NewsReaderProfileInputSchema,
   NewsRecordInteractionInputSchema,
+  NewsRestoreGuardrailInputSchema,
   newsRouter,
   NewsSavedInputSchema,
   NewsSearchCandidatesInputSchema,
@@ -343,6 +345,24 @@ describe("news router input contracts", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts restoring one persisted Less guardrail", () => {
+    const result = NewsRestoreGuardrailInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects guardrail restore requests without a published story id", () => {
+    const result = NewsRestoreGuardrailInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      newsItemId: "not-a-uuid",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it("accepts explicit reader profile updates from preference controls", () => {
     const result = NewsUpdateProfileInputSchema.safeParse({
       visitorKey: "visitor-test-123",
@@ -379,6 +399,10 @@ describe("news router input contracts", () => {
 
   it("exposes persisted Less feedback as a guardrail memory collection", () => {
     expect(newsRouter).toHaveProperty("guardrails");
+  });
+
+  it("exposes a persisted Less feedback restore endpoint", () => {
+    expect(newsRouter).toHaveProperty("restoreGuardrail");
   });
 });
 
@@ -679,6 +703,22 @@ describe("buildNewsCollaborativeSignalCondition", () => {
     const sqlText = collectSqlDebugText(condition);
 
     expect(sqlText).not.toContain("current-reader-profile");
+  });
+});
+
+describe("buildNewsGuardrailRestoreCondition", () => {
+  it("targets only Less feedback for one reader and one story", () => {
+    const condition = buildNewsGuardrailRestoreCondition({
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      readerProfileId: "reader-profile-123",
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("readerProfileId");
+    expect(sqlText).toContain("newsItemId");
+    expect(sqlText).toContain("action");
+    expect(sqlText).toContain("hide");
+    expect(sqlText).not.toContain("save");
   });
 });
 

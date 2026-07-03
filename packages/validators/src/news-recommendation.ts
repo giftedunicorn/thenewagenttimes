@@ -153,7 +153,7 @@ const getRecommendationAngleLabels = (tags: readonly string[]) => {
     seenKeys.add(key);
   }
 
-  return angleLabels.slice(0, 3);
+  return angleLabels.slice(0, 4);
 };
 
 const getRecommendationAngleSignalLabels = (tags: readonly string[]) =>

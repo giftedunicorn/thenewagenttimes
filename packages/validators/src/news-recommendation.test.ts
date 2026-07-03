@@ -605,6 +605,30 @@ describe("summarizeNewsRecommendation", () => {
     ).toEqual(["Preferred angle: prompt injection"]);
   });
 
+  test("keeps dense agent-product angle matches visible in reason badges", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...items[0],
+          matchedSignals: ["tag"],
+          personalizedScore: 128,
+          tags: [
+            "agent",
+            "browser_agent",
+            "workflow_automation",
+            "enterprise_agent",
+            "computer_use",
+          ],
+        },
+      }),
+    ).toEqual([
+      "Preferred angle: browser agent",
+      "Preferred angle: workflow automation",
+      "Preferred angle: enterprise agent",
+      "Preferred angle: computer use",
+    ]);
+  });
+
   test("explains reader-matched stories with score, badges, and support signals", () => {
     const explanation = summarizeNewsRecommendation({
       item: {

@@ -6,6 +6,7 @@ import {
   filterBlockedNewsItems,
   filterHiddenNewsItems,
   getNewsExplorationInterval,
+  getNewsRecommendationReasons,
   normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectBreakingNewsPriorityFeed,
@@ -212,6 +213,50 @@ describe("rankNewsForReader", () => {
     expect(ranked.map((item) => item.id)).toEqual([
       "matching-tag",
       "newer-without-tag",
+    ]);
+    expect(ranked[0]?.matchedSignals).toContain("tag");
+  });
+
+  test("normalizes followed angle terms before matching story tags", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "matching-angle",
+          category: "security",
+          entities: ["Security Lab"],
+          publishedAt: "2026-07-01T08:00:00.000Z",
+          sourceSlug: "security-lab",
+          sourceScore: 80,
+          tags: ["prompt_injection"],
+          title: "Researchers test prompt injection mitigations",
+          trendScore: 70,
+        },
+        {
+          ...items[0],
+          id: "unmatched-angle",
+          category: "security",
+          entities: ["Security Lab"],
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          sourceSlug: "security-lab",
+          sourceScore: 80,
+          tags: ["jailbreaks"],
+          title: "Researchers publish jailbreak benchmark",
+          trendScore: 70,
+        },
+      ],
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["prompt injection"],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+    );
+
+    expect(ranked.map((item) => item.id)).toEqual([
+      "matching-angle",
+      "unmatched-angle",
     ]);
     expect(ranked[0]?.matchedSignals).toContain("tag");
   });
@@ -547,6 +592,19 @@ describe("selectNewsRecommendationRotationSlots", () => {
 });
 
 describe("summarizeNewsRecommendation", () => {
+  test("names specific angle matches in recommendation reason badges", () => {
+    expect(
+      getNewsRecommendationReasons({
+        item: {
+          ...items[0],
+          matchedSignals: ["tag"],
+          personalizedScore: 128,
+          tags: ["agents", "prompt_injection"],
+        },
+      }),
+    ).toEqual(["Preferred angle: prompt injection"]);
+  });
+
   test("explains reader-matched stories with score, badges, and support signals", () => {
     const explanation = summarizeNewsRecommendation({
       item: {
@@ -571,6 +629,28 @@ describe("summarizeNewsRecommendation", () => {
       scoreLabel: "174 score",
       summary:
         "Ranked for your topic and entity signals, with high story heat, fresh publication timing, and source credibility.",
+    });
+  });
+
+  test("names specific angle matches in reader-facing explanations", () => {
+    const explanation = summarizeNewsRecommendation({
+      item: {
+        ...items[0],
+        matchedSignals: ["tag"],
+        personalizedScore: 132,
+        publishedAt: "2026-07-01T09:30:00.000Z",
+        sourceScore: 84,
+        tags: ["agents", "prompt_injection"],
+        trendScore: 64,
+      },
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(explanation).toEqual({
+      badges: ["Preferred angle: prompt injection", "Fresh", "Strong source"],
+      scoreLabel: "132 score",
+      summary:
+        "Ranked for your prompt injection angle signals, with fresh publication timing and source credibility.",
     });
   });
 
@@ -1987,6 +2067,50 @@ describe("selectSourceCorroboratedNewsFeed", () => {
     expect(feed[0]?.matchedSignals).toContain("source_corroboration");
   });
 
+  test("lifts independent sources covering the same specific angle", () => {
+    const feed = selectSourceCorroboratedNewsFeed([
+      {
+        ...items[0],
+        id: "single-source-high-score",
+        category: "security",
+        entities: ["Security Lab"],
+        matchedSignals: [],
+        personalizedScore: 132,
+        sourceSlug: "single-lab",
+        tags: ["model"],
+      },
+      {
+        ...items[0],
+        id: "prompt-injection-lab-report",
+        category: "security",
+        entities: ["Red Team Lab"],
+        matchedSignals: [],
+        personalizedScore: 124,
+        sourceScore: 90,
+        sourceSlug: "red-team-lab",
+        tags: ["prompt_injection"],
+      },
+      {
+        ...items[1],
+        id: "prompt-injection-policy-report",
+        category: "security",
+        entities: ["Policy Desk"],
+        matchedSignals: [],
+        personalizedScore: 116,
+        sourceScore: 84,
+        sourceSlug: "policy-desk",
+        tags: ["prompt-injection"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "prompt-injection-lab-report",
+      "single-source-high-score",
+      "prompt-injection-policy-report",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("source_corroboration");
+  });
+
   test("does not treat repeated coverage from the same source as corroboration", () => {
     const feed = selectSourceCorroboratedNewsFeed([
       {
@@ -2378,6 +2502,47 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
 
     expect(feed.map((item) => item.id)).toEqual([
       "saved-agent-angle",
+      "unrelated-market-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("positive_feedback");
+  });
+
+  test("normalizes saved angle tag variants before anchoring follow-ups", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "unrelated-market-story",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        tags: ["enterprise"],
+        personalizedScore: 190,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "saved-angle-variant",
+        category: "security",
+        entities: ["Security Lab"],
+        sourceSlug: "security-lab",
+        tags: ["prompt-injection"],
+        personalizedScore: 130,
+        matchedSignals: ["tag"],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(ranked, [
+      {
+        action: "save",
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["prompt_injection"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "saved-angle-variant",
       "unrelated-market-story",
     ]);
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
@@ -2863,6 +3028,46 @@ describe("selectExposureBalancedNewsFeed", () => {
     expect(feed[1]?.matchedSignals).toContain("exposure_cooldown");
   });
 
+  test("normalizes recent exposure angle tag variants before cooling follow-ups", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-angle-variant",
+        category: "security",
+        entities: ["Security Lab"],
+        sourceSlug: "security-lab",
+        tags: ["prompt-injection"],
+        personalizedScore: 190,
+        matchedSignals: ["tag"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        tags: ["enterprise"],
+        personalizedScore: 140,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["prompt_injection"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "same-angle-variant",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("exposure_cooldown");
+  });
+
   test("keeps ranked order when every candidate matches recent exposure", () => {
     const ranked = [
       {
@@ -3053,6 +3258,46 @@ describe("selectNegativeFeedbackAdjustedNewsFeed", () => {
     expect(feed[1]?.matchedSignals).toContain("negative_feedback");
   });
 
+  test("normalizes hidden angle tag variants before suppressing follow-ups", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-angle-variant",
+        category: "security",
+        entities: ["Security Lab"],
+        sourceSlug: "security-lab",
+        tags: ["prompt-injection"],
+        personalizedScore: 180,
+        matchedSignals: ["tag"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        tags: ["enterprise"],
+        personalizedScore: 130,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectNegativeFeedbackAdjustedNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        tags: ["prompt_injection"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "same-angle-variant",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("negative_feedback");
+  });
+
   test("ignores stale negative feedback outside the cooldown window", () => {
     const ranked = [
       {
@@ -3189,7 +3434,7 @@ describe("updateReaderProfileWithInteraction", () => {
     expect(profile).toEqual({
       preferredCategories: ["model_release", "funding"],
       preferredSources: ["openai-news", "venturewire"],
-      preferredEntities: ["OpenAI", "Series A", "startup"],
+      preferredEntities: ["OpenAI", "Series A"],
       noveltyBias: 2,
       recencyBias: 0.3,
     });
@@ -3212,7 +3457,7 @@ describe("updateReaderProfileWithInteraction", () => {
     ).toHaveLength(1);
   });
 
-  test("learns fine-grained tag interests from strong reader actions", () => {
+  test("learns specific angle interests from strong reader actions", () => {
     const profile = updateReaderProfileWithInteraction(
       {
         preferredCategories: [],
@@ -3224,18 +3469,14 @@ describe("updateReaderProfileWithInteraction", () => {
       {
         ...items[0],
         entities: ["OpenAI"],
-        tags: ["agents", "benchmarks"],
+        tags: ["agents", "model", "prompt_injection"],
       },
       {
         action: "save",
       },
     );
 
-    expect(profile.preferredEntities).toEqual([
-      "OpenAI",
-      "agents",
-      "benchmarks",
-    ]);
+    expect(profile.preferredEntities).toEqual(["OpenAI", "prompt injection"]);
   });
 
   test("keeps source clicks focused on source preference", () => {
@@ -3432,7 +3673,7 @@ describe("updateReaderProfileWithInteraction", () => {
       {
         preferredCategories: [" Model_Release ", "funding"],
         preferredSources: [" OpenAI-News ", "venturewire"],
-        preferredEntities: [" openai ", "Agents", "Series A"],
+        preferredEntities: [" openai ", "prompt injection", "Series A"],
         noveltyBias: 1.6,
         recencyBias: 1.4,
       },
@@ -3441,6 +3682,7 @@ describe("updateReaderProfileWithInteraction", () => {
         category: "model_release",
         entities: ["OpenAI", "agents"],
         sourceSlug: "openai-news",
+        tags: ["agents", "prompt_injection"],
       },
       { action: "hide" },
     );

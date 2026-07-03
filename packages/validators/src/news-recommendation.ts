@@ -82,8 +82,21 @@ const signalSummaryLabels = {
   tag: "angle",
 } as const;
 
-type NewsRecommendationReason =
-  (typeof recommendationReasonLabels)[keyof typeof recommendationReasonLabels];
+const genericRecommendationAngleTags = new Set([
+  "agent",
+  "agents",
+  "funding",
+  "model",
+  "models",
+  "open source",
+  "open-source",
+  "open_source",
+  "policy",
+  "research",
+  "security",
+  "startup",
+  "startups",
+]);
 
 const getUniqueSignals = (values: readonly string[], limit: number) => {
   const seenValues = new Set<string>();
@@ -102,6 +115,109 @@ const getUniqueSignals = (values: readonly string[], limit: number) => {
   return signals.slice(0, limit);
 };
 
+const formatRecommendationAngleLabel = (tag: string) =>
+  tag.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+const getRecommendationAngleKey = (tag: string) =>
+  formatRecommendationAngleLabel(tag).toLowerCase();
+
+const isSpecificRecommendationAngleTag = (tag: string) => {
+  const key = getRecommendationAngleKey(tag);
+
+  return Boolean(key) && !genericRecommendationAngleTags.has(key);
+};
+
+const isRecommendationAnglePreferenceSignal = (signal: string) =>
+  signal === signal.toLowerCase() && isSpecificRecommendationAngleTag(signal);
+
+const getRecommendationAnglePreferenceKeys = (signals: readonly string[]) =>
+  new Set(
+    signals
+      .filter(isRecommendationAnglePreferenceSignal)
+      .map(getRecommendationAngleKey),
+  );
+
+const getRecommendationAngleLabels = (tags: readonly string[]) => {
+  const seenKeys = new Set<string>();
+  const angleLabels: string[] = [];
+
+  for (const tag of tags) {
+    if (!isSpecificRecommendationAngleTag(tag)) continue;
+
+    const label = formatRecommendationAngleLabel(tag);
+    const key = label.toLowerCase();
+
+    if (seenKeys.has(key)) continue;
+
+    angleLabels.push(label);
+    seenKeys.add(key);
+  }
+
+  return angleLabels.slice(0, 3);
+};
+
+const getRecommendationAngleSignalLabels = (tags: readonly string[]) =>
+  getRecommendationAngleLabels(tags).map((label) => `${label} angle`);
+
+const getRecommendationAngleReasonLabels = (tags: readonly string[]) =>
+  getRecommendationAngleLabels(tags).map((label) => `Preferred angle: ${label}`);
+
+const hasRecommendationTagPreferenceMatch = ({
+  preferredAngleKeys,
+  preferredEntities,
+  tag,
+}: {
+  preferredAngleKeys: ReadonlySet<string>;
+  preferredEntities: ReadonlySet<string>;
+  tag: string;
+}) =>
+  preferredEntities.has(tag.trim().toLowerCase()) ||
+  (isSpecificRecommendationAngleTag(tag) &&
+    preferredAngleKeys.has(getRecommendationAngleKey(tag)));
+
+const getRecommendationAngleKeys = (tags: readonly string[]) =>
+  new Set(
+    tags.filter(isSpecificRecommendationAngleTag).map(getRecommendationAngleKey),
+  );
+
+const hasRecommendationAngleKeyMatch = ({
+  angleKeys,
+  tag,
+}: {
+  angleKeys: ReadonlySet<string>;
+  tag: string;
+}) =>
+  isSpecificRecommendationAngleTag(tag) &&
+  angleKeys.has(getRecommendationAngleKey(tag));
+
+const isRecommendationReasonKey = (
+  signal: string,
+): signal is keyof typeof recommendationReasonLabels =>
+  signal in recommendationReasonLabels;
+
+const isSignalSummaryKey = (
+  signal: string,
+): signal is keyof typeof signalSummaryLabels => signal in signalSummaryLabels;
+
+const getRecommendationSignalSummaryLabels = ({
+  matchedSignals,
+  tags,
+}: {
+  matchedSignals: readonly string[];
+  tags: readonly string[];
+}) =>
+  matchedSignals.flatMap((signal) => {
+    if (signal === "tag") {
+      const angleLabels = getRecommendationAngleSignalLabels(tags);
+
+      return angleLabels.length > 0 ? angleLabels : [signalSummaryLabels.tag];
+    }
+
+    if (!isSignalSummaryKey(signal)) return [];
+
+    return [signalSummaryLabels[signal]];
+  });
+
 export const getNewsRecommendationReasons = <
   TItem extends RecommendableNewsItem,
 >({
@@ -109,14 +225,19 @@ export const getNewsRecommendationReasons = <
 }: {
   item: RankedNewsItem<TItem>;
 }) => {
-  const reasons = item.matchedSignals
-    .map(
-      (signal) =>
-        recommendationReasonLabels[
-          signal as keyof typeof recommendationReasonLabels
-        ],
-    )
-    .filter((reason): reason is NewsRecommendationReason => Boolean(reason));
+  const reasons = item.matchedSignals.flatMap((signal) => {
+    if (signal === "tag") {
+      const angleReasons = getRecommendationAngleReasonLabels(item.tags);
+
+      return angleReasons.length > 0
+        ? angleReasons
+        : [recommendationReasonLabels.tag];
+    }
+
+    if (!isRecommendationReasonKey(signal)) return [];
+
+    return [recommendationReasonLabels[signal]];
+  });
 
   if (reasons.length > 0) return reasons;
 
@@ -358,17 +479,10 @@ export const summarizeNewsRecommendation = <
     };
   }
 
-  const signalLabels = item.matchedSignals
-    .map(
-      (signal) =>
-        signalSummaryLabels[signal as keyof typeof signalSummaryLabels],
-    )
-    .filter(
-      (
-        label,
-      ): label is (typeof signalSummaryLabels)[keyof typeof signalSummaryLabels] =>
-        Boolean(label),
-    );
+  const signalLabels = getRecommendationSignalSummaryLabels({
+    matchedSignals: item.matchedSignals,
+    tags: item.tags,
+  });
 
   if (signalLabels.length > 0) {
     const signalText = formatReadableList(signalLabels);
@@ -591,6 +705,9 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
   const preferredEntities = normalizeSet(
     normalizedPreferences.preferredEntities,
   );
+  const preferredAngleKeys = getRecommendationAnglePreferenceKeys(
+    normalizedPreferences.preferredEntities,
+  );
   const noveltyBias = normalizedPreferences.noveltyBias;
   const recencyBias = normalizedPreferences.recencyBias;
 
@@ -621,7 +738,13 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
       }
 
       if (
-        item.tags.some((tag) => preferredEntities.has(tag.trim().toLowerCase()))
+        item.tags.some((tag) =>
+          hasRecommendationTagPreferenceMatch({
+            preferredAngleKeys,
+            preferredEntities,
+            tag,
+          }),
+        )
       ) {
         preferenceBoost += 12;
         matchedSignals.push("tag");
@@ -1523,6 +1646,9 @@ const getNewsSignalSets = (
     "category" | "entities" | "sourceSlug"
   > & { tags?: readonly string[] })[],
 ) => ({
+  angleKeys: getRecommendationAngleKeys(
+    items.flatMap((item) => item.tags ?? []),
+  ),
   categories: normalizeSet(items.map((item) => item.category)),
   entities: normalizeSet(items.flatMap((item) => item.entities)),
   sources: normalizeSet(items.map((item) => item.sourceSlug)),
@@ -1538,7 +1664,14 @@ const hasNewsSignalMatch = (
   item.entities.some((entity) =>
     signalSets.entities.has(entity.toLowerCase()),
   ) ||
-  item.tags.some((tag) => signalSets.tags.has(tag.trim().toLowerCase()));
+  item.tags.some(
+    (tag) =>
+      signalSets.tags.has(tag.trim().toLowerCase()) ||
+      hasRecommendationAngleKeyMatch({
+        angleKeys: signalSets.angleKeys,
+        tag,
+      }),
+  );
 
 const positiveFeedbackActionStrength = {
   click_source: 1,
@@ -1600,13 +1733,20 @@ const getPositiveFeedbackMatch = (
               feedbackEntity.toLowerCase() === entity.toLowerCase(),
           ),
         ));
+    const feedbackAngleKeys = getRecommendationAngleKeys(
+      feedbackItem.tags ?? [],
+    );
     const matchesTag =
       canMatchTopicOrEntity &&
       item.tags.some((tag) =>
         (feedbackItem.tags ?? []).some(
           (feedbackTag) =>
             feedbackTag.trim().toLowerCase() === tag.trim().toLowerCase(),
-        ),
+        ) ||
+        hasRecommendationAngleKeyMatch({
+          angleKeys: feedbackAngleKeys,
+          tag,
+        }),
       );
 
     if (matchesSource || matchesTopicOrEntity || matchesTag) {
@@ -2422,11 +2562,15 @@ const getSourceCorroborationKeys = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
 ) => {
   const category = item.category.trim().toLowerCase();
-
-  return item.entities
+  const entityKeys = item.entities
     .map((entity) => entity.trim().toLowerCase())
     .filter(Boolean)
-    .map((entity) => `${category}:${entity}`);
+    .map((entity) => `${category}:entity:${entity}`);
+  const angleKeys = item.tags
+    .filter(isSpecificRecommendationAngleTag)
+    .map((tag) => `${category}:angle:${getRecommendationAngleKey(tag)}`);
+
+  return [...entityKeys, ...angleKeys];
 };
 
 const hasSourceCorroborationBlockedSignal = <
@@ -2666,6 +2810,9 @@ export const selectNegativeFeedbackAdjustedNewsFeed = <
   const feedbackTags = normalizeSet(
     activeNegativeFeedbackItems.flatMap((item) => item.tags ?? []),
   );
+  const feedbackAngleKeys = getRecommendationAngleKeys(
+    activeNegativeFeedbackItems.flatMap((item) => item.tags ?? []),
+  );
   const openItems: RankedNewsItem<TItem>[] = [];
   const suppressedItems: RankedNewsItem<TItem>[] = [];
 
@@ -2676,7 +2823,14 @@ export const selectNegativeFeedbackAdjustedNewsFeed = <
       item.entities.some((entity) =>
         feedbackEntities.has(entity.toLowerCase()),
       ) ||
-      item.tags.some((tag) => feedbackTags.has(tag.trim().toLowerCase()));
+      item.tags.some(
+        (tag) =>
+          feedbackTags.has(tag.trim().toLowerCase()) ||
+          hasRecommendationAngleKeyMatch({
+            angleKeys: feedbackAngleKeys,
+            tag,
+          }),
+      );
 
     if (hasNegativeSignal) {
       suppressedItems.push(addMatchedSignal(item, "negative_feedback"));
@@ -2763,7 +2917,11 @@ export const updateReaderProfileWithInteraction = <
   if (interaction.action === "hide") {
     const hiddenCategory = item.category.trim().toLowerCase();
     const hiddenSource = item.sourceSlug.trim().toLowerCase();
-    const hiddenEntities = normalizeSet([...item.entities, ...item.tags]);
+    const hiddenEntities = normalizeSet([
+      ...item.entities,
+      ...item.tags,
+      ...getRecommendationAngleLabels(item.tags),
+    ]);
 
     return {
       ...normalizedProfile,
@@ -2788,6 +2946,7 @@ export const updateReaderProfileWithInteraction = <
     !shouldOnlyLearnSource &&
     (interaction.action !== "view" ||
       Math.min(Math.max(interaction.readPercent ?? 0.35, 0), 1) >= 0.75);
+  const learnedAngleSignals = getRecommendationAngleLabels(item.tags);
 
   return {
     preferredCategories: uniqueAppend(
@@ -2802,7 +2961,7 @@ export const updateReaderProfileWithInteraction = <
     ),
     preferredEntities: uniqueAppend(
       normalizedProfile.preferredEntities,
-      shouldLearnEntities ? [...item.entities, ...item.tags] : [],
+      shouldLearnEntities ? [...item.entities, ...learnedAngleSignals] : [],
       entityLimit,
     ),
     noveltyBias: clampBias(normalizedProfile.noveltyBias + actionWeight),

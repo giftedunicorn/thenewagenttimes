@@ -36,13 +36,17 @@ import {
   getNewsExplorationInterval,
   normalizeNewsPreferenceProfile,
   rankNewsForReader,
+  selectAngleQuotaBalancedNewsFeed,
   selectBreakingNewsPriorityFeed,
+  selectCategoryQuotaBalancedNewsFeed,
   selectCollaborativeSignalNewsFeed,
+  selectEntityQuotaBalancedNewsFeed,
   selectDaypartBalancedNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
   selectExposureBalancedNewsFeed,
   selectFatigueBalancedNewsFeed,
+  selectFreshnessQuotaBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
   selectNewsRecommendationRotationFeed,
   selectPositiveFeedbackAnchoredNewsFeed,
@@ -678,12 +682,34 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
     viewedNewsItemIds,
     viewedNewsItems,
   );
+  const freshnessQuotaRows = selectFreshnessQuotaBalancedNewsFeed(
+    readerFreshRows,
+    {
+      limit: readerFreshRows.length,
+      now,
+    },
+  );
   const rotatedRows = selectNewsRecommendationRotationFeed({
-    items: readerFreshRows,
-    limit: readerFreshRows.length,
+    items: freshnessQuotaRows,
+    limit: freshnessQuotaRows.length,
   });
 
-  return selectSourceQuotaBalancedNewsFeed(rotatedRows, {
+  const sourceQuotaRows = selectSourceQuotaBalancedNewsFeed(rotatedRows, {
+    limit: rotatedRows.length,
+  });
+
+  const entityQuotaRows = selectEntityQuotaBalancedNewsFeed(sourceQuotaRows, {
+    limit: sourceQuotaRows.length,
+  });
+
+  const categoryQuotaRows = selectCategoryQuotaBalancedNewsFeed(
+    entityQuotaRows,
+    {
+      limit: entityQuotaRows.length,
+    },
+  );
+
+  return selectAngleQuotaBalancedNewsFeed(categoryQuotaRows, {
     limit,
   });
 };

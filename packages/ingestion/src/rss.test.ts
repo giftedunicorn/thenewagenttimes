@@ -31,6 +31,49 @@ const atomFixture = `<?xml version="1.0"?>
   </entry>
 </feed>`;
 
+const rssMediaFixture = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>AI Media Feed</title>
+    <item>
+      <title>AI agent launch includes a media preview</title>
+      <link>https://example.com/agent-media</link>
+      <description>A launch story ships with a rich media image.</description>
+      <pubDate>Sat, 27 Jun 2026 10:00:00 GMT</pubDate>
+      <media:content url="https://example.com/agent-media.jpg" medium="image" />
+    </item>
+  </channel>
+</rss>`;
+
+const atomMediaFixture = `<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>AI Atom Media Feed</title>
+  <entry>
+    <title>Frontier model story includes an enclosure image</title>
+    <id>tag:example.com,2026:model-image</id>
+    <link rel="alternate" href="https://example.com/model-image" />
+    <link rel="enclosure" type="image/jpeg" href="https://example.com/model-image.jpg" />
+    <summary>A model launch story includes an Atom enclosure image.</summary>
+    <updated>2026-06-27T11:00:00.000Z</updated>
+  </entry>
+</feed>`;
+
+const rssInlineImageFixture = `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <title>AI Inline Image Feed</title>
+    <item>
+      <title>Agent workflow story embeds its lead image</title>
+      <link>https://example.com/agent-inline-image</link>
+      <description><![CDATA[
+        <p>A launch story includes an image inside the summary.</p>
+        <img alt="Agent dashboard" src="https://example.com/agent-inline.jpg?width=1200&amp;height=700" />
+      ]]></description>
+      <pubDate>Sat, 27 Jun 2026 12:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`;
+
 describe("parseFeedXml", () => {
   it("parses common RSS item fields", () => {
     const [item] = parseFeedXml(rssFixture);
@@ -57,5 +100,29 @@ describe("parseFeedXml", () => {
       publishedAt: new Date("2026-06-27T09:00:00.000Z"),
       authorName: "YC Reporter",
     });
+  });
+
+  it("uses RSS media image fields when feeds omit image enclosures", () => {
+    const [item] = parseFeedXml(rssMediaFixture);
+
+    expect(item?.imageUrl).toBe("https://example.com/agent-media.jpg");
+  });
+
+  it("uses Atom image enclosures for article visuals", () => {
+    const [item] = parseFeedXml(atomMediaFixture);
+
+    expect(item).toMatchObject({
+      title: "Frontier model story includes an enclosure image",
+      url: "https://example.com/model-image",
+      imageUrl: "https://example.com/model-image.jpg",
+    });
+  });
+
+  it("uses the first inline HTML image when feeds omit media fields", () => {
+    const [item] = parseFeedXml(rssInlineImageFixture);
+
+    expect(item?.imageUrl).toBe(
+      "https://example.com/agent-inline.jpg?width=1200&height=700",
+    );
   });
 });

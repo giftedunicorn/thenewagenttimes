@@ -64,6 +64,63 @@ const imageFromEnclosure = (value: unknown): string | undefined => {
   return undefined;
 };
 
+const imageFromMediaValue = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value.map(imageFromMediaValue).find(Boolean);
+  }
+  if (value && typeof value === "object") {
+    const media = value as { medium?: unknown; type?: unknown; url?: unknown };
+    const medium = textValue(media.medium);
+    const type = textValue(media.type);
+    const url = textValue(media.url);
+
+    if (
+      url &&
+      (medium === "image" || type?.startsWith("image/") || !medium)
+    ) {
+      return url;
+    }
+  }
+  return undefined;
+};
+
+const imageFromMediaFields = (record: Record<string, unknown>) =>
+  imageFromMediaValue(record["media:thumbnail"]) ??
+  imageFromMediaValue(record["media:content"]);
+
+const imageFromAtomLinks = (value: unknown): string | undefined => {
+  if (Array.isArray(value)) {
+    return value.map(imageFromAtomLinks).find(Boolean);
+  }
+  if (value && typeof value === "object") {
+    const link = value as { href?: unknown; rel?: unknown; type?: unknown };
+    const rel = textValue(link.rel);
+    const type = textValue(link.type);
+
+    if (rel === "enclosure" && type?.startsWith("image/")) {
+      return textValue(link.href);
+    }
+  }
+  return undefined;
+};
+
+const decodeHtmlAttribute = (value: string) =>
+  value
+    .replaceAll("&amp;", "&")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&#39;", "'")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">");
+
+const imageFromHtml = (html: string | undefined): string | undefined => {
+  if (!html) return undefined;
+
+  const imageMatch = /<img\b[^>]*\bsrc\s*=\s*(["'])(.*?)\1/i.exec(html);
+  const imageUrl = imageMatch?.[2]?.trim();
+
+  return imageUrl ? decodeHtmlAttribute(imageUrl) : undefined;
+};
+
 const authorName = (value: unknown): string | undefined => {
   const raw = textValue(value);
   if (raw?.includes("(") && raw.includes(")")) {
@@ -84,29 +141,43 @@ export const parseFeedXml = (xml: string): RawFeedItem[] => {
 
   const rssItems = asArray(parsed.rss?.channel?.item).map((item) => {
     const record = item as Record<string, unknown>;
+    const summary = textValue(record.description);
+    const bodyText = textValue(record["content:encoded"]);
+
     return {
       title: textValue(record.title) ?? "",
       url: textValue(record.link) ?? "",
       id: textValue(record.guid),
-      summary: textValue(record.description),
-      bodyText: textValue(record["content:encoded"]),
+      summary,
+      bodyText,
       publishedAt: parseDate(record.pubDate),
       authorName: authorName(record.author),
-      imageUrl: imageFromEnclosure(record.enclosure),
+      imageUrl:
+        imageFromEnclosure(record.enclosure) ??
+        imageFromMediaFields(record) ??
+        imageFromHtml(summary) ??
+        imageFromHtml(bodyText),
     };
   });
 
   const atomItems = asArray(parsed.feed?.entry).map((entry) => {
     const record = entry as Record<string, unknown>;
+    const summary = textValue(record.summary) ?? textValue(record.content);
+    const bodyText = textValue(record.content);
+
     return {
       title: textValue(record.title) ?? "",
       url: atomLink(record.link) ?? "",
       id: textValue(record.id),
-      summary: textValue(record.summary) ?? textValue(record.content),
-      bodyText: textValue(record.content),
+      summary,
+      bodyText,
       publishedAt: parseDate(record.published) ?? parseDate(record.updated),
       authorName: authorName(record.author),
-      imageUrl: undefined,
+      imageUrl:
+        imageFromAtomLinks(record.link) ??
+        imageFromMediaFields(record) ??
+        imageFromHtml(summary) ??
+        imageFromHtml(bodyText),
     };
   });
 

@@ -37,6 +37,7 @@ import type {
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
+  applyNewsStoryQuickTuneAction,
   buildNewsHomeFeedInput,
   buildNewsHomeInteractionMetadata,
   buildNewsHomeReaderInteraction,
@@ -106,6 +107,7 @@ import {
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
   getNewsRecommendationAudit,
+  getNewsRecommendationNudge,
   getNewsRecommendationRotationQueue,
   getNewsRecommendationTrace,
   getNewsRefreshSimulation,
@@ -119,6 +121,8 @@ import {
   getNewsSourceTrustLedger,
   getNewsStoryProofStrip,
   getNewsStoryQuickTuneActions,
+  getNewsStoryQuickTuneTrainingUpdate,
+  getNewsStoryQuickTuneUndoTrainingUpdate,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
@@ -130,6 +134,7 @@ import {
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
+  revertNewsStoryQuickTuneAction,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectNegativeFeedbackAdjustedNewsHomeItems,
@@ -152,6 +157,21 @@ type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
 type NewsStoryQuickTuneAction = ReturnType<
   typeof getNewsStoryQuickTuneActions
 >["actions"][number];
+type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
+  guardrailReviewAction?: {
+    actionLabel: string;
+    query: string;
+    resetFilters: boolean;
+    targetFeedMode: NewsFeedMode;
+  };
+  impactStories?: {
+    id: string;
+    reason: string;
+    sourceName: string;
+    title: string;
+  }[];
+  undoAction?: NewsStoryQuickTuneAction;
+};
 type PositiveNewsHomeFeedbackItem = NewsHomeItem & {
   action: Extract<ReaderInteractionAction, "click_source" | "save" | "share">;
   occurredAt: string;
@@ -467,9 +487,8 @@ export function NewsHome({
   const [searchQuery, setSearchQuery] = useState("");
   const [reviewHiddenAngleQuery, setReviewHiddenAngleQuery] = useState("");
   const [feedMode, setFeedMode] = useState<NewsFeedMode>("for_you");
-  const [trainingUpdate, setTrainingUpdate] = useState<ReturnType<
-    typeof getNewsFeedbackTrainingUpdate
-  > | null>(null);
+  const [trainingUpdate, setTrainingUpdate] =
+    useState<NewsTrainingUpdate | null>(null);
   const [activeCategory, setActiveCategory] = useState<NewsCategoryKey | null>(
     null,
   );
@@ -834,29 +853,56 @@ export function NewsHome({
   };
 
   const applyStoryQuickTuneAction = (action: NewsStoryQuickTuneAction) => {
-    commitProfile((current) => {
-      if (action.kind === "category") {
-        return {
-          ...current,
-          preferredCategories: addValue(
-            current.preferredCategories,
-            action.signal,
-          ),
-        };
-      }
-
-      if (action.kind === "source") {
-        return {
-          ...current,
-          preferredSources: addValue(current.preferredSources, action.signal),
-        };
-      }
-
-      return {
-        ...current,
-        preferredEntities: addValue(current.preferredEntities, action.signal),
-      };
+    const beforeProfile = profile;
+    const afterProfile = applyNewsStoryQuickTuneAction({
+      action,
+      profile: beforeProfile,
     });
+
+    commitProfile(() => afterProfile);
+    setTrainingUpdate(
+      getNewsStoryQuickTuneTrainingUpdate({
+        action,
+        afterProfile,
+        beforeProfile,
+        formatCategory: getCategoryLabel,
+        impactItems: rankedItems,
+        impactLimit: 2,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
+      }),
+    );
+  };
+
+  const undoStoryQuickTuneAction = (action: NewsStoryQuickTuneAction) => {
+    const beforeProfile = profile;
+    const afterProfile = revertNewsStoryQuickTuneAction({
+      action,
+      profile: beforeProfile,
+    });
+
+    commitProfile(() => afterProfile);
+    setTrainingUpdate(
+      getNewsStoryQuickTuneUndoTrainingUpdate({
+        action,
+        afterProfile,
+        beforeProfile,
+        formatCategory: getCategoryLabel,
+      }),
+    );
+  };
+
+  const reviewTrainingGuardrailConflict = (
+    action: NonNullable<NewsTrainingUpdate["guardrailReviewAction"]>,
+  ) => {
+    if (action.resetFilters) {
+      setActiveCategory(null);
+      setActiveSourceSlug(null);
+    }
+
+    setFeedMode(action.targetFeedMode);
+    setReviewHiddenAngleQuery(action.query);
+    setSearchDraft(action.query);
+    setSearchQuery(action.query);
   };
 
   const applyExploreSearch = (event: FormEvent<HTMLFormElement>) => {
@@ -2089,7 +2135,9 @@ export function NewsHome({
                     className="mt-5"
                     item={leadStory}
                     mode={feedMode}
+                    profile={profile}
                     rankedAt={rankDetailsAt}
+                    onTune={applyStoryQuickTuneAction}
                   />
                   <StoryProofStrip className="mt-4" item={leadStory} />
                   <StoryQuickTune
@@ -5942,6 +5990,40 @@ export function NewsHome({
                     ? trainingUpdate.summary
                     : "Save, share, open sources, or press Less to train the next edition."}
                 </p>
+                {trainingUpdate?.undoAction ? (
+                  <Button
+                    className="mt-3 h-8 rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const undoAction = trainingUpdate.undoAction;
+
+                      if (!undoAction) return;
+
+                      undoStoryQuickTuneAction(undoAction);
+                    }}
+                  >
+                    Undo tune
+                  </Button>
+                ) : null}
+                {trainingUpdate?.guardrailReviewAction ? (
+                  <Button
+                    className="mt-2 h-8 rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const reviewAction = trainingUpdate.guardrailReviewAction;
+
+                      if (!reviewAction) return;
+
+                      reviewTrainingGuardrailConflict(reviewAction);
+                    }}
+                  >
+                    {trainingUpdate.guardrailReviewAction.actionLabel}
+                  </Button>
+                ) : null}
               </div>
               <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
                 {trainingUpdate?.label ?? "Waiting"}
@@ -5975,6 +6057,22 @@ export function NewsHome({
                     </div>
                   ))}
                 </div>
+                {trainingUpdate.impactStories &&
+                trainingUpdate.impactStories.length > 0 ? (
+                  <div className="mt-4 grid gap-3">
+                    {trainingUpdate.impactStories.map((story) => (
+                      <div
+                        key={story.id}
+                        className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="font-semibold">{story.title}</div>
+                        <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {story.sourceName} / {story.reason}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 <div className="mt-4 grid gap-3">
                   {trainingUpdate.notices.map((notice) => (
                     <div
@@ -7208,17 +7306,26 @@ function RecommendationReasons({
   item,
   className,
   mode,
+  onTune,
+  profile,
   rankedAt,
 }: {
   item: RankedNewsHomeItem;
   className?: string;
   mode: NewsFeedMode;
+  onTune: (action: NewsStoryQuickTuneAction) => void;
+  profile: NewsPreferenceProfile;
   rankedAt: Date;
 }) {
   const rankDetails = getNewsStoryRankDetails({
     item,
     mode,
     now: rankedAt,
+  });
+  const recommendationNudge = getNewsRecommendationNudge({
+    formatCategory: getCategoryLabel,
+    item,
+    profile,
   });
 
   return (
@@ -7237,6 +7344,25 @@ function RecommendationReasons({
       <p className="max-w-2xl text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
         {rankDetails.summary}
       </p>
+      {recommendationNudge ? (
+        <div className="grid gap-2 border-l border-[#8a241c]/45 pl-3 text-xs sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center dark:border-[#ff8b7e]/50">
+          <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+            <span className="font-semibold text-[#161616] dark:text-[#f4f1ea]">
+              {recommendationNudge.label}:
+            </span>{" "}
+            {recommendationNudge.detail}
+          </p>
+          <Button
+            className="h-8 rounded-none px-2 text-xs whitespace-nowrap"
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => onTune(recommendationNudge.action)}
+          >
+            {recommendationNudge.action.actionLabel}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -7474,7 +7600,13 @@ function StoryCard({
       <p className="line-clamp-4 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
         {item.summary}
       </p>
-      <RecommendationReasons item={item} mode={mode} rankedAt={rankedAt} />
+      <RecommendationReasons
+        item={item}
+        mode={mode}
+        profile={profile}
+        rankedAt={rankedAt}
+        onTune={onTune}
+      />
       <StoryProofStrip item={item} />
       <StoryQuickTune item={item} profile={profile} onTune={onTune} />
       <StoryAction
@@ -7524,7 +7656,9 @@ function StoryRow({
           className="mt-3"
           item={item}
           mode={mode}
+          profile={profile}
           rankedAt={rankedAt}
+          onTune={onTune}
         />
         <StoryProofStrip className="mt-3" item={item} />
         <StoryQuickTune

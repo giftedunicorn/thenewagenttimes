@@ -130,6 +130,7 @@ import {
   selectRelatedNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
+  selectSourceQuotaBalancedNewsHomeItems,
   selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
@@ -6959,6 +6960,29 @@ describe("getNewsLiveWire", () => {
       updates: [],
     });
   });
+
+  it("does not label source quota guardrails as For You updates", () => {
+    expect(
+      getNewsLiveWire({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "source-quota-wire",
+            category: "agent_product",
+            matchedSignals: ["source_quota"],
+            personalizedScore: 118,
+            sourceName: "Anthropic News",
+            sourceSlug: "anthropic-news",
+            title: "Anthropic enters to balance the source mix",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).updates[0]?.signal,
+    ).toBe("Newswire");
+  });
 });
 
 describe("getNewsHotBoard", () => {
@@ -7118,6 +7142,44 @@ describe("getNewsHotBoard", () => {
         { label: "Explore", value: "0" },
       ],
       summary: "Hot board will appear after stories are ranked.",
+    });
+  });
+
+  it("does not treat source quota guardrails as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "source-quota-story",
+            category: "agent_product",
+            matchedSignals: ["source_quota"],
+            personalizedScore: 120,
+            sourceName: "Anthropic News",
+            sourceScore: 80,
+            sourceSlug: "anthropic-news",
+            title: "Anthropic balances the source mix",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toEqual({
+      categoryLabel: "Agents",
+      heatScore: 116,
+      id: "source-quota-story",
+      label: "Newswire Hot",
+      rank: "01",
+      reason: "Newswire momentum keeps this story on the board.",
+      scoreBreakdown: [
+        { label: "Trend", value: "84" },
+        { label: "Reader", value: "120" },
+        { label: "Trust", value: "80" },
+      ],
+      sourceName: "Anthropic News",
+      title: "Anthropic balances the source mix",
     });
   });
 });
@@ -10334,6 +10396,44 @@ describe("getNewsEditionMix", () => {
       totalCount: 0,
     });
   });
+
+  it("does not count source quota guardrails as personalized stories", () => {
+    expect(
+      getNewsEditionMix({
+        items: [
+          {
+            ...localItem,
+            id: "quota-balanced-story",
+            matchedSignals: ["source_quota"],
+            personalizedScore: 118,
+          },
+        ],
+      }),
+    ).toEqual({
+      segments: [
+        {
+          count: 0,
+          detail: "Matched reader signals",
+          label: "Personalized",
+          percentage: 0,
+        },
+        {
+          count: 0,
+          detail: "Outside your usual mix",
+          label: "Exploration",
+          percentage: 0,
+        },
+        {
+          count: 1,
+          detail: "Ranked by heat and freshness",
+          label: "Trending",
+          percentage: 100,
+        },
+      ],
+      summary: "0 of 1 stories match your reader profile.",
+      totalCount: 1,
+    });
+  });
 });
 
 describe("shouldTrainNewsHomeProfileFromAction", () => {
@@ -10856,6 +10956,59 @@ describe("getNewsRecommendationAudit", () => {
         "2 stories: 0 personalized, 0 exploratory, and 2 trend-led across 1 source and 1 entity.",
     });
   });
+
+  it("keeps source quota guardrails out of personalized audit counts", () => {
+    expect(
+      getNewsRecommendationAudit({
+        items: [
+          {
+            ...localItem,
+            entities: ["Anthropic"],
+            id: "source-quota-audit",
+            matchedSignals: ["source_quota"],
+            personalizedScore: 118,
+            sourceName: "Anthropic News",
+            sourceSlug: "anthropic-news",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: ["openai-news"],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Narrow Profile",
+      metrics: [
+        { label: "Personalized", value: "0%" },
+        { label: "Exploration", value: "0%" },
+        { label: "Source spread", value: "1 source" },
+        { label: "Entity spread", value: "1 entity" },
+        { label: "Reader signals", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "No exploration stories are currently in this slice, so the feed is leaning on known reader signals.",
+          label: "Exploration gap",
+        },
+        {
+          detail:
+            "One source dominates this edition; add sources or ingest more stories to broaden coverage.",
+          label: "Source concentration",
+        },
+        {
+          detail:
+            "No entity owns more than half of this edition, keeping the recommendation mix broad.",
+          label: "Entity diversity",
+        },
+      ],
+      summary:
+        "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
+    });
+  });
 });
 
 describe("getNewsRecommendationTrace", () => {
@@ -10980,6 +11133,57 @@ describe("getNewsRecommendationTrace", () => {
       label: "Guardrail",
       scoreLabel: "1 signal",
       title: "Hidden jailbreak story",
+    });
+  });
+
+  it("explains source quota guardrails in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : "Agents",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "lead-openai",
+          category: "model_release",
+          matchedSignals: ["source"],
+          personalizedScore: 172,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI leads the model edition",
+        },
+        {
+          ...serverItem,
+          id: "anthropic-quota",
+          category: "agent_product",
+          matchedSignals: ["source_quota"],
+          personalizedScore: 118,
+          sourceName: "Anthropic News",
+          sourceSlug: "anthropic-news",
+          title: "Anthropic balances the source mix",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: ["openai-news"],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Guardrails",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail:
+        "Anthropic News is inserted to keep one source from flooding the edition.",
+      label: "Source diversity",
+      scoreLabel: "1 story",
+      title: "Anthropic balances the source mix",
     });
   });
 
@@ -17132,6 +17336,62 @@ describe("selectFeedFatigueBalancedNewsHomeItems", () => {
         ],
       }).map((item) => item.id),
     ).toEqual(["first-source-story", "second-source-story"]);
+  });
+});
+
+describe("selectSourceQuotaBalancedNewsHomeItems", () => {
+  it("defers a third same-source home story when alternate sources are available", () => {
+    expect(
+      selectSourceQuotaBalancedNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            id: "openai-model-lead",
+            matchedSignals: ["source"],
+            personalizedScore: 210,
+            sourceSlug: "openai-news",
+          },
+          {
+            ...localItem,
+            id: "openai-agent-follow",
+            category: "agent_product",
+            matchedSignals: ["source"],
+            personalizedScore: 205,
+            sourceSlug: "openai-news",
+          },
+          {
+            ...localItem,
+            id: "openai-research-follow",
+            category: "research",
+            matchedSignals: ["source"],
+            personalizedScore: 200,
+            sourceSlug: "openai-news",
+          },
+          {
+            ...serverItem,
+            id: "anthropic-model-angle",
+            matchedSignals: ["category"],
+            personalizedScore: 150,
+            sourceSlug: "anthropic-news",
+          },
+          {
+            ...olderItem,
+            id: "venture-agent-angle",
+            category: "agent_product",
+            matchedSignals: [],
+            personalizedScore: 140,
+            sourceSlug: "venturewire",
+          },
+        ],
+        limit: 5,
+      }).map((item) => item.id),
+    ).toEqual([
+      "openai-model-lead",
+      "openai-agent-follow",
+      "anthropic-model-angle",
+      "venture-agent-angle",
+      "openai-research-follow",
+    ]);
   });
 });
 

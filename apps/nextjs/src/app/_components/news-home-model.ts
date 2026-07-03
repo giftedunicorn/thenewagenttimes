@@ -22,6 +22,7 @@ import {
   selectReaderFreshNewsFeed,
   selectSessionIntentNewsFeed,
   selectSourceCorroboratedNewsFeed,
+  selectSourceQuotaBalancedNewsFeed,
   summarizeNewsRecommendation,
 } from "@acme/validators";
 
@@ -7270,12 +7271,32 @@ export const getNewsInterestGraph = ({
 
 type NewsLiveWireSignal = "Breaking" | "Explore" | "For You" | "Newswire";
 
+const nonReaderRecommendationSignals = new Set([
+  "daypart",
+  "exploration",
+  "source_corroboration",
+  "source_quota",
+]);
+
+const getReaderRecommendationSignalCount = (
+  item: RankedNewsItem<NewsHomeItem> | undefined,
+) =>
+  item
+    ? item.matchedSignals.filter(
+        (signal) => !nonReaderRecommendationSignals.has(signal),
+      ).length
+    : 0;
+
+const hasReaderRecommendationSignal = (
+  item: RankedNewsItem<NewsHomeItem>,
+) => getReaderRecommendationSignalCount(item) > 0;
+
 const getNewsLiveWireSignal = (
   item: RankedNewsItem<NewsHomeItem>,
 ): NewsLiveWireSignal => {
   if (item.trendScore >= 90) return "Breaking";
   if (item.matchedSignals.includes("exploration")) return "Explore";
-  if (item.matchedSignals.length > 0) return "For You";
+  if (hasReaderRecommendationSignal(item)) return "For You";
 
   return "Newswire";
 };
@@ -7349,9 +7370,7 @@ export const getNewsLiveWire = ({
     return right.personalizedScore - left.personalizedScore;
   })[0];
   const personalizedCount = items.filter(
-    (item) =>
-      item.matchedSignals.length > 0 &&
-      !item.matchedSignals.includes("exploration"),
+    (item) => hasReaderRecommendationSignal(item),
   ).length;
   const explorationCount = items.filter((item) =>
     item.matchedSignals.includes("exploration"),
@@ -7405,7 +7424,7 @@ const getNewsHotBoardLabel = (
   item: RankedNewsItem<NewsHomeItem>,
 ): NewsHotBoardLabel => {
   if (item.matchedSignals.includes("exploration")) return "Explore Hot";
-  if (item.matchedSignals.length > 0) return "For You Hot";
+  if (hasReaderRecommendationSignal(item)) return "For You Hot";
   if (item.trendScore >= 90) return "Market Hot";
 
   return "Newswire Hot";
@@ -7428,11 +7447,7 @@ const getNewsHotBoardReason = (label: NewsHotBoardLabel) => {
 };
 
 const getNewsHotBoardScore = (item: RankedNewsItem<NewsHomeItem>) => {
-  const readerSignalLift =
-    item.matchedSignals.length > 0 &&
-    !item.matchedSignals.includes("exploration")
-      ? 8
-      : 0;
+  const readerSignalLift = hasReaderRecommendationSignal(item) ? 8 : 0;
   const explorationLift = item.matchedSignals.includes("exploration") ? 5 : 0;
 
   return (
@@ -8179,7 +8194,7 @@ export const getNewsEditionMix = ({
   for (const item of items) {
     if (item.matchedSignals.includes("exploration")) {
       counts.exploration += 1;
-    } else if (item.matchedSignals.length > 0) {
+    } else if (hasReaderRecommendationSignal(item)) {
       counts.personalized += 1;
     } else {
       counts.trending += 1;
@@ -9116,20 +9131,8 @@ const getRecommendationTraceGuardSignals = ({
   return signals;
 };
 
-const nonReaderRecommendationTraceSignals = new Set([
-  "daypart",
-  "exploration",
-  "source_corroboration",
-]);
-
-const getRecommendationTraceReaderSignalCount = (
-  item: RankedNewsItem<NewsHomeItem> | undefined,
-) =>
-  item
-    ? item.matchedSignals.filter(
-        (signal) => !nonReaderRecommendationTraceSignals.has(signal),
-      ).length
-    : 0;
+const getRecommendationTraceReaderSignalCount =
+  getReaderRecommendationSignalCount;
 
 export const getNewsRecommendationTrace = ({
   formatCategory,
@@ -9157,6 +9160,9 @@ export const getNewsRecommendationTrace = ({
   );
   const editionTimedItems = items.filter((item) =>
     item.matchedSignals.includes("daypart"),
+  );
+  const sourceQuotaItems = items.filter((item) =>
+    item.matchedSignals.includes("source_quota"),
   );
 
   if (!leadItem) {
@@ -9260,6 +9266,18 @@ export const getNewsRecommendationTrace = ({
     });
   }
 
+  const [sourceQuotaItem] = sourceQuotaItems;
+  if (sourceQuotaItem) {
+    steps.push({
+      detail: `${sourceQuotaItem.sourceName} is inserted to keep one source from flooding the edition.`,
+      label: "Source diversity",
+      scoreLabel: `${sourceQuotaItems.length} ${
+        sourceQuotaItems.length === 1 ? "story" : "stories"
+      }`,
+      title: sourceQuotaItem.title,
+    });
+  }
+
   const [negativeFeedbackItem] = negativeFeedbackItems;
   if (negativeFeedbackItem) {
     steps.push({
@@ -9287,7 +9305,10 @@ export const getNewsRecommendationTrace = ({
       { label: "Verified", value: String(verifiedCoverageItems.length) },
       { label: "Timed", value: String(editionTimedItems.length) },
       { label: "Exploration", value: String(explorationItems.length) },
-      { label: "Guardrails", value: String(negativeFeedbackItems.length) },
+      {
+        label: "Guardrails",
+        value: String(negativeFeedbackItems.length + sourceQuotaItems.length),
+      },
     ],
     steps: visibleSteps,
     summary: `Trace explains ${visibleSteps.length} ranking ${
@@ -17751,6 +17772,14 @@ export const selectFeedFatigueBalancedNewsHomeItems = ({
 }: {
   items: readonly RankedNewsItem<NewsHomeItem>[];
 }) => selectFatigueBalancedNewsFeed(items);
+
+export const selectSourceQuotaBalancedNewsHomeItems = ({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => selectSourceQuotaBalancedNewsFeed(items, { limit });
 
 export const selectSourceCorroboratedNewsHomeItems = ({
   items,

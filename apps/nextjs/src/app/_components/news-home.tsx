@@ -162,6 +162,7 @@ import {
   selectReaderFreshNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
+  selectSourceQuotaBalancedNewsHomeItems,
   selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
@@ -1584,10 +1585,14 @@ export function NewsHome({
       historyItems,
       items: discoverySlotItems,
     });
-
-    return selectNewsRecommendationRotationFeed({
+    const rotatedItems = selectNewsRecommendationRotationFeed({
       items: readerFreshItems,
       limit: readerFreshItems.length,
+    });
+
+    return selectSourceQuotaBalancedNewsHomeItems({
+      items: rotatedItems,
+      limit: rotatedItems.length,
     });
   }, [
     activeCategory,

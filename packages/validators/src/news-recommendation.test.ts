@@ -964,6 +964,38 @@ describe("dedupeNewsItems", () => {
     ]);
   });
 
+  test("collapses scheme and www variants of the same source URL", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "http-www-openai",
+        canonicalUrl: "http://www.openai.com/news/agent-model?utm=feed",
+        originalUrl: "http://www.openai.com/news/agent-model#comments",
+        sourceScore: 74,
+        trendScore: 88,
+      },
+      {
+        ...items[0],
+        id: "https-openai",
+        canonicalUrl: "https://openai.com/news/agent-model",
+        originalUrl: "https://openai.com/news/agent-model",
+        sourceScore: 96,
+        trendScore: 70,
+      },
+      {
+        ...items[1],
+        id: "funding",
+        canonicalUrl: "https://venture.example/funding",
+        originalUrl: "https://venture.example/funding",
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "https-openai",
+      "funding",
+    ]);
+  });
+
   test("collapses title-equivalent stories inside the same category", () => {
     const deduped = dedupeNewsItems([
       {

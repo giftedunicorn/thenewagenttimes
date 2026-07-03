@@ -1062,14 +1062,32 @@ const getNewsDedupeUrlKeys = (item: NewsUrlReference) =>
 const normalizeNewsDedupeUrl = (url: string | null | undefined) => {
   if (!url) return null;
 
-  const normalizedUrl = url
-    .trim()
-    .split("#")[0]
-    ?.split("?")[0]
-    ?.replace(/\/$/, "")
-    .toLowerCase();
+  const trimmedUrl = url.trim();
 
-  return normalizedUrl && normalizedUrl.length > 0 ? normalizedUrl : null;
+  if (!trimmedUrl) return null;
+
+  const [withoutFragment = ""] = trimmedUrl.split("#");
+  const [withoutQuery = ""] = withoutFragment.split("?");
+  const withoutTrailingSlash = withoutQuery.replace(/\/$/, "");
+  const withoutScheme = withoutTrailingSlash.replace(
+    /^[a-z][a-z0-9+.-]*:\/\//i,
+    "",
+  );
+  const [host = "", ...pathParts] = withoutScheme.split("/");
+  const normalizedHost = host.toLowerCase().replace(/^www\./, "");
+  const normalizedPath = pathParts.join("/").replace(/\/$/, "").toLowerCase();
+  const normalizedUrl = [normalizedHost, normalizedPath]
+    .filter(Boolean)
+    .join("/");
+
+  return normalizedUrl.length > 0 ? normalizedUrl : null;
+};
+
+const normalizeNewsDedupeUrlPath = (url: string) => {
+  const [withoutFragment = url] = url.split("#");
+  const [withoutQuery = withoutFragment] = withoutFragment.split("?");
+
+  return withoutQuery.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+/i, "");
 };
 
 const normalizeNewsDedupeTitle = (title: string) =>
@@ -1102,10 +1120,7 @@ const getNewsDedupeTextTokens = (value: string) =>
     );
 
 const getNewsDedupeUrlPath = (url: string) => {
-  const withoutFragment = url.split("#")[0] ?? url;
-  const withoutQuery = withoutFragment.split("?")[0] ?? withoutFragment;
-
-  return withoutQuery.replace(/^[a-z][a-z0-9+.-]*:\/\/[^/]+/i, "");
+  return normalizeNewsDedupeUrlPath(url);
 };
 
 const getNewsDedupeTitleKey = (item: DedupeNewsItem) =>

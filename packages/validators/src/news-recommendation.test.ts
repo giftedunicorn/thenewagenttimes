@@ -24,6 +24,7 @@ import {
   selectSemanticSimilarityNewsFeed,
   selectSessionIntentNewsFeed,
   selectSourceCorroboratedNewsFeed,
+  selectSourceQuotaBalancedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   summarizeNewsRecommendation,
   updateReaderProfileWithInteraction,
@@ -695,6 +696,27 @@ describe("summarizeNewsRecommendation", () => {
       scoreLabel: "118 score",
       summary:
         "Inserted as an exploration story outside your usual mix, supported by high story heat.",
+    });
+  });
+
+  test("explains source quota guardrails as source diversity rather than reader preference", () => {
+    const explanation = summarizeNewsRecommendation({
+      item: {
+        ...items[1],
+        matchedSignals: ["source_quota"],
+        personalizedScore: 116,
+        publishedAt: "2026-07-01T09:30:00.000Z",
+        sourceScore: 86,
+        trendScore: 72,
+      },
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(explanation).toEqual({
+      badges: ["Source diversity guardrail", "High heat", "Fresh", "Strong source"],
+      scoreLabel: "116 score",
+      summary:
+        "Inserted to keep one source from flooding the edition, supported by high story heat, fresh publication timing, and source credibility.",
     });
   });
 
@@ -2778,6 +2800,134 @@ describe("selectFatigueBalancedNewsFeed", () => {
     expect(
       selectFatigueBalancedNewsFeed(ranked).map((item) => item.id),
     ).toEqual(["first-source-story", "second-source-story"]);
+  });
+});
+
+describe("selectSourceQuotaBalancedNewsFeed", () => {
+  test("keeps one source from flooding the visible recommendation page when alternates exist", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "openai-model-lead",
+        sourceSlug: "openai-news",
+        personalizedScore: 210,
+        matchedSignals: ["category", "source"],
+      },
+      {
+        ...items[0],
+        id: "openai-agent-follow",
+        category: "agent_product",
+        sourceSlug: "openai-news",
+        personalizedScore: 205,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[0],
+        id: "openai-policy-follow",
+        category: "policy",
+        sourceSlug: "openai-news",
+        personalizedScore: 200,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[0],
+        id: "anthropic-model-angle",
+        sourceSlug: "anthropic-news",
+        personalizedScore: 150,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "venture-market-angle",
+        sourceSlug: "venturewire",
+        personalizedScore: 145,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "openai-research-follow",
+        category: "research",
+        sourceSlug: "openai-news",
+        personalizedScore: 140,
+        matchedSignals: ["source"],
+      },
+    ];
+
+    expect(
+      selectSourceQuotaBalancedNewsFeed(ranked, {
+        limit: 5,
+        maxPerSource: 2,
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "openai-model-lead",
+        signals: ["category", "source"],
+      },
+      {
+        id: "openai-agent-follow",
+        signals: ["source"],
+      },
+      {
+        id: "anthropic-model-angle",
+        signals: ["category", "source_quota"],
+      },
+      {
+        id: "venture-market-angle",
+        signals: ["source_quota"],
+      },
+      {
+        id: "openai-policy-follow",
+        signals: ["source"],
+      },
+    ]);
+  });
+
+  test("preserves protected breaking alerts even when their source is saturated", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "breaking-openai-agent",
+        sourceSlug: "openai-news",
+        personalizedScore: 210,
+        matchedSignals: ["breaking_news"],
+      },
+      {
+        ...items[0],
+        id: "breaking-openai-model",
+        sourceSlug: "openai-news",
+        personalizedScore: 205,
+        matchedSignals: ["breaking_news"],
+      },
+      {
+        ...items[0],
+        id: "breaking-openai-research",
+        sourceSlug: "openai-news",
+        personalizedScore: 200,
+        matchedSignals: ["breaking_news"],
+      },
+      {
+        ...items[1],
+        id: "venture-alternate",
+        sourceSlug: "venturewire",
+        personalizedScore: 190,
+        matchedSignals: [],
+      },
+    ];
+
+    expect(
+      selectSourceQuotaBalancedNewsFeed(ranked, {
+        limit: 4,
+        maxPerSource: 2,
+      }).map((item) => item.id),
+    ).toEqual([
+      "breaking-openai-agent",
+      "breaking-openai-model",
+      "breaking-openai-research",
+      "venture-alternate",
+    ]);
   });
 });
 

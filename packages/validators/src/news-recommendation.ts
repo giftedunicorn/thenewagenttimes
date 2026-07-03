@@ -71,6 +71,7 @@ const recommendationReasonLabels = {
   session_intent: "Current session intent",
   source: "Trusted source",
   source_corroboration: "Corroborated by multiple sources",
+  source_quota: "Source diversity guardrail",
   entity: "Followed entity",
   tag: "Preferred angle",
 } as const;
@@ -306,6 +307,7 @@ export const summarizeNewsRecommendation = <
   const isSourceCorroborated = item.matchedSignals.includes(
     "source_corroboration",
   );
+  const isSourceQuota = item.matchedSignals.includes("source_quota");
   const hasHighHeat = item.trendScore >= 70;
   const hasFreshness = isRecentlyPublished(item.publishedAt, now);
   const hasStrongSource = item.sourceScore >= 80;
@@ -361,6 +363,8 @@ export const summarizeNewsRecommendation = <
     badges.push("Outside your usual mix");
   } else if (isNegativeFeedback) {
     badges.push("Dampened by Less feedback");
+  } else if (isSourceQuota) {
+    badges.push("Source diversity guardrail");
   } else if (hasPersonalSignals) {
     badges.push(...getNewsRecommendationReasons({ item }));
   } else {
@@ -426,6 +430,16 @@ export const summarizeNewsRecommendation = <
       summary: guardrailSupportText
         ? `Dampened by your Less feedback, but still visible because of ${guardrailSupportText}.`
         : "Dampened by your Less feedback.",
+    };
+  }
+
+  if (isSourceQuota) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Inserted to keep one source from flooding the edition, supported by ${supportText}.`
+        : "Inserted to keep one source from flooding the edition.",
     };
   }
 
@@ -1536,6 +1550,66 @@ export const selectFatigueBalancedNewsFeed = <
 
     const [nextItem] = remaining.splice(nextIndex, 1);
     if (nextItem) selected.push(nextItem);
+  }
+
+  return selected;
+};
+
+const sourceQuotaProtectedSignals = new Set(["breaking_news"]);
+
+const getSourceQuotaKey = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) => item.sourceSlug.trim().toLowerCase();
+
+const hasSourceQuotaProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) => sourceQuotaProtectedSignals.has(signal));
+
+export const selectSourceQuotaBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  {
+    limit,
+    maxPerSource = 2,
+  }: {
+    limit: number;
+    maxPerSource?: number;
+  },
+): RankedNewsItem<TItem>[] => {
+  const feedLimit = Math.max(0, Math.trunc(limit));
+  if (feedLimit === 0) return [];
+
+  const sourceLimit = Math.max(1, Math.trunc(maxPerSource));
+  const remaining = [...rankedItems];
+  const selected: RankedNewsItem<TItem>[] = [];
+  const selectedSourceCounts = new Map<string, number>();
+
+  while (selected.length < feedLimit && remaining.length > 0) {
+    const quotaSafeIndex = remaining.findIndex((item) => {
+      if (hasSourceQuotaProtectedSignal(item)) return true;
+
+      const sourceKey = getSourceQuotaKey(item);
+
+      return (selectedSourceCounts.get(sourceKey) ?? 0) < sourceLimit;
+    });
+    const nextIndex = quotaSafeIndex === -1 ? 0 : quotaSafeIndex;
+    const [nextItem] = remaining.splice(nextIndex, 1);
+
+    if (!nextItem) continue;
+
+    const sourceKey = getSourceQuotaKey(nextItem);
+
+    selectedSourceCounts.set(
+      sourceKey,
+      (selectedSourceCounts.get(sourceKey) ?? 0) + 1,
+    );
+    selected.push(
+      quotaSafeIndex > 0 && !hasSourceQuotaProtectedSignal(nextItem)
+        ? addMatchedSignal(nextItem, "source_quota")
+        : nextItem,
+    );
   }
 
   return selected;

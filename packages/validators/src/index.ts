@@ -24,6 +24,7 @@ export {
   selectSemanticSimilarityNewsFeed,
   selectSessionIntentNewsFeed,
   selectSourceCorroboratedNewsFeed,
+  selectSourceQuotaBalancedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   shouldTrainReaderProfileFromInteraction,
   summarizeNewsRecommendation,

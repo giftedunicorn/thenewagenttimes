@@ -15765,7 +15765,7 @@ export const selectNewsHomeExposureRecords = ({
   );
 
   return filterHiddenNewsItems(
-    items,
+    items.map((item, homeRankSlot) => ({ ...item, homeRankSlot })),
     recordedItems.map((item) => item.id),
   )
     .filter((item) =>
@@ -15780,6 +15780,11 @@ export const selectNewsHomeExposureRecords = ({
         exposure: true,
         exposureSlot,
         feedMode,
+        matchedSignals: getUniqueNewsHomeInteractionSignals(
+          item.matchedSignals,
+        ),
+        personalizedScore: item.personalizedScore,
+        rankSlot: toNewsHomeRankSlot(item.homeRankSlot),
         surface: "home",
       },
       newsItemId: item.id,

@@ -15030,6 +15030,9 @@ describe("selectNewsHomeExposureRecords", () => {
           exposure: true,
           exposureSlot: 0,
           feedMode: "for_you",
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+          rankSlot: 0,
           surface: "home",
         },
         newsItemId: "server-story",
@@ -15041,6 +15044,9 @@ describe("selectNewsHomeExposureRecords", () => {
           exposure: true,
           exposureSlot: 1,
           feedMode: "for_you",
+          matchedSignals: ["entity"],
+          personalizedScore: 130,
+          rankSlot: 1,
           surface: "home",
         },
         newsItemId: "local-story",
@@ -15112,6 +15118,45 @@ describe("selectNewsHomeExposureRecords", () => {
         visitorKey: "visitor-test-123",
       }).map((record) => record.newsItemId),
     ).toEqual(["local-story"]);
+  });
+
+  it("keeps the original home rank slot after skipping recorded exposures", () => {
+    expect(
+      selectNewsHomeExposureRecords({
+        feedMode: "for_you",
+        isPreview: false,
+        items: [
+          {
+            ...serverItem,
+            matchedSignals: ["category"],
+            personalizedScore: 140,
+          },
+          {
+            ...localItem,
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+          },
+        ],
+        limit: 2,
+        recordedItems: [{ id: "server-story" }],
+        visitorKey: "visitor-test-123",
+      }),
+    ).toEqual([
+      {
+        action: "view",
+        metadata: {
+          exposure: true,
+          exposureSlot: 0,
+          feedMode: "for_you",
+          matchedSignals: ["entity"],
+          personalizedScore: 130,
+          rankSlot: 1,
+          surface: "home",
+        },
+        newsItemId: "local-story",
+        visitorKey: "visitor-test-123",
+      },
+    ]);
   });
 });
 

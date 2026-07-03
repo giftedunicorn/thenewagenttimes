@@ -152,7 +152,11 @@ import {
   mergeNewsTrainingUpdateHistory,
   revertNewsStoryQuickTuneAction,
   selectActiveNewsGuardrailItems,
+  selectAngleQuotaBalancedNewsHomeItems,
+  selectCategoryQuotaBalancedNewsHomeItems,
+  selectEntityQuotaBalancedNewsHomeItems,
   selectFeedFatigueBalancedNewsHomeItems,
+  selectFreshnessQuotaBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectNegativeFeedbackAdjustedNewsHomeItems,
   selectNewsFeedModeItems,
@@ -1585,14 +1589,34 @@ export function NewsHome({
       historyItems,
       items: discoverySlotItems,
     });
-    const rotatedItems = selectNewsRecommendationRotationFeed({
+    const freshnessQuotaItems = selectFreshnessQuotaBalancedNewsHomeItems({
       items: readerFreshItems,
       limit: readerFreshItems.length,
+      now: new Date(generatedAt),
+    });
+    const rotatedItems = selectNewsRecommendationRotationFeed({
+      items: freshnessQuotaItems,
+      limit: freshnessQuotaItems.length,
     });
 
-    return selectSourceQuotaBalancedNewsHomeItems({
+    const sourceQuotaBalancedItems = selectSourceQuotaBalancedNewsHomeItems({
       items: rotatedItems,
       limit: rotatedItems.length,
+    });
+
+    const entityQuotaBalancedItems = selectEntityQuotaBalancedNewsHomeItems({
+      items: sourceQuotaBalancedItems,
+      limit: sourceQuotaBalancedItems.length,
+    });
+
+    const categoryQuotaBalancedItems = selectCategoryQuotaBalancedNewsHomeItems({
+      items: entityQuotaBalancedItems,
+      limit: entityQuotaBalancedItems.length,
+    });
+
+    return selectAngleQuotaBalancedNewsHomeItems({
+      items: categoryQuotaBalancedItems,
+      limit: categoryQuotaBalancedItems.length,
     });
   }, [
     activeCategory,

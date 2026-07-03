@@ -16,7 +16,11 @@ import {
   filterHiddenNewsItems,
   getNewsRecommendationReasons as getSharedNewsRecommendationReasons,
   normalizeNewsPreferenceProfile,
+  selectAngleQuotaBalancedNewsFeed,
+  selectCategoryQuotaBalancedNewsFeed,
+  selectEntityQuotaBalancedNewsFeed,
   selectFatigueBalancedNewsFeed,
+  selectFreshnessQuotaBalancedNewsFeed,
   selectNegativeFeedbackAdjustedNewsFeed,
   selectNewsRecommendationRotationSlots,
   selectReaderFreshNewsFeed,
@@ -7272,8 +7276,12 @@ export const getNewsInterestGraph = ({
 type NewsLiveWireSignal = "Breaking" | "Explore" | "For You" | "Newswire";
 
 const nonReaderRecommendationSignals = new Set([
+  "angle_quota",
+  "category_quota",
   "daypart",
+  "entity_quota",
   "exploration",
+  "freshness_quota",
   "source_corroboration",
   "source_quota",
 ]);
@@ -9155,11 +9163,23 @@ export const getNewsRecommendationTrace = ({
   const explorationItems = items.filter((item) =>
     item.matchedSignals.includes("exploration"),
   );
+  const freshnessQuotaItems = items.filter((item) =>
+    item.matchedSignals.includes("freshness_quota"),
+  );
   const verifiedCoverageItems = items.filter((item) =>
     item.matchedSignals.includes("source_corroboration"),
   );
   const editionTimedItems = items.filter((item) =>
     item.matchedSignals.includes("daypart"),
+  );
+  const angleQuotaItems = items.filter((item) =>
+    item.matchedSignals.includes("angle_quota"),
+  );
+  const categoryQuotaItems = items.filter((item) =>
+    item.matchedSignals.includes("category_quota"),
+  );
+  const entityQuotaItems = items.filter((item) =>
+    item.matchedSignals.includes("entity_quota"),
   );
   const sourceQuotaItems = items.filter((item) =>
     item.matchedSignals.includes("source_quota"),
@@ -9278,6 +9298,60 @@ export const getNewsRecommendationTrace = ({
     });
   }
 
+  const [entityQuotaItem] = entityQuotaItems;
+  if (entityQuotaItem) {
+    steps.push({
+      detail: `${formatRecommendationTraceList(
+        entityQuotaItem.entities.slice(0, 3),
+      )} is inserted to keep one entity from flooding the edition.`,
+      label: "Entity diversity",
+      scoreLabel: `${entityQuotaItems.length} ${
+        entityQuotaItems.length === 1 ? "story" : "stories"
+      }`,
+      title: entityQuotaItem.title,
+    });
+  }
+
+  const [categoryQuotaItem] = categoryQuotaItems;
+  if (categoryQuotaItem) {
+    steps.push({
+      detail: `${formatCategory(
+        categoryQuotaItem.category,
+      )} is inserted to keep one topic from flooding the edition.`,
+      label: "Topic diversity",
+      scoreLabel: `${categoryQuotaItems.length} ${
+        categoryQuotaItems.length === 1 ? "story" : "stories"
+      }`,
+      title: categoryQuotaItem.title,
+    });
+  }
+
+  const [angleQuotaItem] = angleQuotaItems;
+  if (angleQuotaItem) {
+    steps.push({
+      detail: `${formatRecommendationTraceList(
+        angleQuotaItem.tags.slice(0, 3).map(formatNewsAngleQuery),
+      )} is inserted to keep one angle from flooding the edition.`,
+      label: "Angle diversity",
+      scoreLabel: `${angleQuotaItems.length} ${
+        angleQuotaItems.length === 1 ? "story" : "stories"
+      }`,
+      title: angleQuotaItem.title,
+    });
+  }
+
+  const [freshnessQuotaItem] = freshnessQuotaItems;
+  if (freshnessQuotaItem) {
+    steps.push({
+      detail: `${freshnessQuotaItem.sourceName} is inserted to keep older stories from flooding the edition.`,
+      label: "Freshness",
+      scoreLabel: `${freshnessQuotaItems.length} ${
+        freshnessQuotaItems.length === 1 ? "story" : "stories"
+      }`,
+      title: freshnessQuotaItem.title,
+    });
+  }
+
   const [negativeFeedbackItem] = negativeFeedbackItems;
   if (negativeFeedbackItem) {
     steps.push({
@@ -9307,7 +9381,14 @@ export const getNewsRecommendationTrace = ({
       { label: "Exploration", value: String(explorationItems.length) },
       {
         label: "Guardrails",
-        value: String(negativeFeedbackItems.length + sourceQuotaItems.length),
+        value: String(
+          negativeFeedbackItems.length +
+            sourceQuotaItems.length +
+            entityQuotaItems.length +
+            categoryQuotaItems.length +
+            angleQuotaItems.length +
+            freshnessQuotaItems.length,
+        ),
       },
     ],
     steps: visibleSteps,
@@ -17772,6 +17853,40 @@ export const selectFeedFatigueBalancedNewsHomeItems = ({
 }: {
   items: readonly RankedNewsItem<NewsHomeItem>[];
 }) => selectFatigueBalancedNewsFeed(items);
+
+export const selectFreshnessQuotaBalancedNewsHomeItems = ({
+  items,
+  limit,
+  now,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  now?: Date;
+}) => selectFreshnessQuotaBalancedNewsFeed(items, { limit, now });
+
+export const selectAngleQuotaBalancedNewsHomeItems = ({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => selectAngleQuotaBalancedNewsFeed(items, { limit });
+
+export const selectCategoryQuotaBalancedNewsHomeItems = ({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => selectCategoryQuotaBalancedNewsFeed(items, { limit });
+
+export const selectEntityQuotaBalancedNewsHomeItems = ({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => selectEntityQuotaBalancedNewsFeed(items, { limit });
 
 export const selectSourceQuotaBalancedNewsHomeItems = ({
   items,

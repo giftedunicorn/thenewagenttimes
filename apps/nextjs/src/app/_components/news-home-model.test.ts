@@ -118,7 +118,11 @@ import {
   mergeNewsReaderMemoryItems,
   revertNewsStoryQuickTuneAction,
   selectActiveNewsGuardrailItems,
+  selectAngleQuotaBalancedNewsHomeItems,
+  selectCategoryQuotaBalancedNewsHomeItems,
+  selectEntityQuotaBalancedNewsHomeItems,
   selectFeedFatigueBalancedNewsHomeItems,
+  selectFreshnessQuotaBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectInitialNewsHomeItems,
   selectNegativeFeedbackAdjustedNewsHomeItems,
@@ -6983,6 +6987,99 @@ describe("getNewsLiveWire", () => {
       }).updates[0]?.signal,
     ).toBe("Newswire");
   });
+
+  it("does not label entity quota guardrails as For You updates", () => {
+    expect(
+      getNewsLiveWire({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "entity-quota-wire",
+            category: "agent_product",
+            matchedSignals: ["entity_quota"],
+            personalizedScore: 116,
+            sourceName: "Anthropic News",
+            sourceSlug: "anthropic-news",
+            title: "Anthropic enters to balance the entity mix",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).updates[0]?.signal,
+    ).toBe("Newswire");
+  });
+
+  it("does not label category quota guardrails as For You updates", () => {
+    expect(
+      getNewsLiveWire({
+        formatCategory: (category) =>
+          category === "research" ? "Research" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "category-quota-wire",
+            category: "research",
+            matchedSignals: ["category_quota"],
+            personalizedScore: 114,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            title: "Research enters to balance the topic mix",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).updates[0]?.signal,
+    ).toBe("Newswire");
+  });
+
+  it("does not label angle quota guardrails as For You updates", () => {
+    expect(
+      getNewsLiveWire({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "angle-quota-wire",
+            category: "security",
+            matchedSignals: ["angle_quota"],
+            personalizedScore: 112,
+            sourceName: "Security Wire",
+            sourceSlug: "security-wire",
+            tags: ["prompt_injection"],
+            title: "Prompt injection enters to balance the angle mix",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).updates[0]?.signal,
+    ).toBe("Newswire");
+  });
+
+  it("does not label freshness quota guardrails as For You updates", () => {
+    expect(
+      getNewsLiveWire({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "freshness-quota-wire",
+            category: "security",
+            matchedSignals: ["freshness_quota"],
+            personalizedScore: 110,
+            sourceName: "Security Wire",
+            sourceSlug: "security-wire",
+            title: "Fresh security angle enters the briefing",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).updates[0]?.signal,
+    ).toBe("Newswire");
+  });
 });
 
 describe("getNewsHotBoard", () => {
@@ -7180,6 +7277,159 @@ describe("getNewsHotBoard", () => {
       ],
       sourceName: "Anthropic News",
       title: "Anthropic balances the source mix",
+    });
+  });
+
+  it("does not treat entity quota guardrails as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "entity-quota-story",
+            category: "agent_product",
+            matchedSignals: ["entity_quota"],
+            personalizedScore: 118,
+            sourceName: "Anthropic News",
+            sourceScore: 82,
+            sourceSlug: "anthropic-news",
+            title: "Anthropic balances the entity mix",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toEqual({
+      categoryLabel: "Agents",
+      heatScore: 116,
+      id: "entity-quota-story",
+      label: "Newswire Hot",
+      rank: "01",
+      reason: "Newswire momentum keeps this story on the board.",
+      scoreBreakdown: [
+        { label: "Trend", value: "84" },
+        { label: "Reader", value: "118" },
+        { label: "Trust", value: "82" },
+      ],
+      sourceName: "Anthropic News",
+      title: "Anthropic balances the entity mix",
+    });
+  });
+
+  it("does not treat category quota guardrails as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "research" ? "Research" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "category-quota-story",
+            category: "research",
+            matchedSignals: ["category_quota"],
+            personalizedScore: 116,
+            sourceName: "Research Wire",
+            sourceScore: 82,
+            sourceSlug: "research-wire",
+            title: "Research balances the topic mix",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toEqual({
+      categoryLabel: "Research",
+      heatScore: 115,
+      id: "category-quota-story",
+      label: "Newswire Hot",
+      rank: "01",
+      reason: "Newswire momentum keeps this story on the board.",
+      scoreBreakdown: [
+        { label: "Trend", value: "84" },
+        { label: "Reader", value: "116" },
+        { label: "Trust", value: "82" },
+      ],
+      sourceName: "Research Wire",
+      title: "Research balances the topic mix",
+    });
+  });
+
+  it("does not treat angle quota guardrails as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "angle-quota-story",
+            category: "security",
+            matchedSignals: ["angle_quota"],
+            personalizedScore: 114,
+            sourceName: "Security Wire",
+            sourceScore: 82,
+            sourceSlug: "security-wire",
+            tags: ["prompt_injection"],
+            title: "Prompt injection balances the angle mix",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toEqual({
+      categoryLabel: "Security",
+      heatScore: 115,
+      id: "angle-quota-story",
+      label: "Newswire Hot",
+      rank: "01",
+      reason: "Newswire momentum keeps this story on the board.",
+      scoreBreakdown: [
+        { label: "Trend", value: "84" },
+        { label: "Reader", value: "114" },
+        { label: "Trust", value: "82" },
+      ],
+      sourceName: "Security Wire",
+      title: "Prompt injection balances the angle mix",
+    });
+  });
+
+  it("does not treat freshness quota guardrails as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "freshness-quota-story",
+            category: "security",
+            matchedSignals: ["freshness_quota"],
+            personalizedScore: 112,
+            sourceName: "Security Wire",
+            sourceScore: 82,
+            sourceSlug: "security-wire",
+            title: "Fresh security angle enters the briefing",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toEqual({
+      categoryLabel: "Security",
+      heatScore: 114,
+      id: "freshness-quota-story",
+      label: "Newswire Hot",
+      rank: "01",
+      reason: "Newswire momentum keeps this story on the board.",
+      scoreBreakdown: [
+        { label: "Trend", value: "84" },
+        { label: "Reader", value: "112" },
+        { label: "Trust", value: "82" },
+      ],
+      sourceName: "Security Wire",
+      title: "Fresh security angle enters the briefing",
     });
   });
 });
@@ -10434,6 +10684,158 @@ describe("getNewsEditionMix", () => {
       totalCount: 1,
     });
   });
+
+  it("does not count entity quota guardrails as personalized stories", () => {
+    expect(
+      getNewsEditionMix({
+        items: [
+          {
+            ...localItem,
+            id: "entity-quota-balanced-story",
+            matchedSignals: ["entity_quota"],
+            personalizedScore: 116,
+          },
+        ],
+      }),
+    ).toEqual({
+      segments: [
+        {
+          count: 0,
+          detail: "Matched reader signals",
+          label: "Personalized",
+          percentage: 0,
+        },
+        {
+          count: 0,
+          detail: "Outside your usual mix",
+          label: "Exploration",
+          percentage: 0,
+        },
+        {
+          count: 1,
+          detail: "Ranked by heat and freshness",
+          label: "Trending",
+          percentage: 100,
+        },
+      ],
+      summary: "0 of 1 stories match your reader profile.",
+      totalCount: 1,
+    });
+  });
+
+  it("does not count category quota guardrails as personalized stories", () => {
+    expect(
+      getNewsEditionMix({
+        items: [
+          {
+            ...localItem,
+            id: "category-quota-balanced-story",
+            matchedSignals: ["category_quota"],
+            personalizedScore: 114,
+          },
+        ],
+      }),
+    ).toEqual({
+      segments: [
+        {
+          count: 0,
+          detail: "Matched reader signals",
+          label: "Personalized",
+          percentage: 0,
+        },
+        {
+          count: 0,
+          detail: "Outside your usual mix",
+          label: "Exploration",
+          percentage: 0,
+        },
+        {
+          count: 1,
+          detail: "Ranked by heat and freshness",
+          label: "Trending",
+          percentage: 100,
+        },
+      ],
+      summary: "0 of 1 stories match your reader profile.",
+      totalCount: 1,
+    });
+  });
+
+  it("does not count angle quota guardrails as personalized stories", () => {
+    expect(
+      getNewsEditionMix({
+        items: [
+          {
+            ...localItem,
+            id: "angle-quota-balanced-story",
+            matchedSignals: ["angle_quota"],
+            personalizedScore: 112,
+          },
+        ],
+      }),
+    ).toEqual({
+      segments: [
+        {
+          count: 0,
+          detail: "Matched reader signals",
+          label: "Personalized",
+          percentage: 0,
+        },
+        {
+          count: 0,
+          detail: "Outside your usual mix",
+          label: "Exploration",
+          percentage: 0,
+        },
+        {
+          count: 1,
+          detail: "Ranked by heat and freshness",
+          label: "Trending",
+          percentage: 100,
+        },
+      ],
+      summary: "0 of 1 stories match your reader profile.",
+      totalCount: 1,
+    });
+  });
+
+  it("does not count freshness quota guardrails as personalized stories", () => {
+    expect(
+      getNewsEditionMix({
+        items: [
+          {
+            ...localItem,
+            id: "freshness-quota-balanced-story",
+            matchedSignals: ["freshness_quota"],
+            personalizedScore: 110,
+          },
+        ],
+      }),
+    ).toEqual({
+      segments: [
+        {
+          count: 0,
+          detail: "Matched reader signals",
+          label: "Personalized",
+          percentage: 0,
+        },
+        {
+          count: 0,
+          detail: "Outside your usual mix",
+          label: "Exploration",
+          percentage: 0,
+        },
+        {
+          count: 1,
+          detail: "Ranked by heat and freshness",
+          label: "Trending",
+          percentage: 100,
+        },
+      ],
+      summary: "0 of 1 stories match your reader profile.",
+      totalCount: 1,
+    });
+  });
 });
 
 describe("shouldTrainNewsHomeProfileFromAction", () => {
@@ -11009,6 +11411,222 @@ describe("getNewsRecommendationAudit", () => {
         "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
     });
   });
+
+  it("keeps entity quota guardrails out of personalized audit counts", () => {
+    expect(
+      getNewsRecommendationAudit({
+        items: [
+          {
+            ...localItem,
+            entities: ["Anthropic"],
+            id: "entity-quota-audit",
+            matchedSignals: ["entity_quota"],
+            personalizedScore: 116,
+            sourceName: "Anthropic News",
+            sourceSlug: "anthropic-news",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Narrow Profile",
+      metrics: [
+        { label: "Personalized", value: "0%" },
+        { label: "Exploration", value: "0%" },
+        { label: "Source spread", value: "1 source" },
+        { label: "Entity spread", value: "1 entity" },
+        { label: "Reader signals", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "No exploration stories are currently in this slice, so the feed is leaning on known reader signals.",
+          label: "Exploration gap",
+        },
+        {
+          detail:
+            "One source dominates this edition; add sources or ingest more stories to broaden coverage.",
+          label: "Source concentration",
+        },
+        {
+          detail:
+            "No entity owns more than half of this edition, keeping the recommendation mix broad.",
+          label: "Entity diversity",
+        },
+      ],
+      summary:
+        "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
+    });
+  });
+
+  it("keeps category quota guardrails out of personalized audit counts", () => {
+    expect(
+      getNewsRecommendationAudit({
+        items: [
+          {
+            ...localItem,
+            category: "research",
+            entities: ["Anthropic"],
+            id: "category-quota-audit",
+            matchedSignals: ["category_quota"],
+            personalizedScore: 114,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+          },
+        ],
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Narrow Profile",
+      metrics: [
+        { label: "Personalized", value: "0%" },
+        { label: "Exploration", value: "0%" },
+        { label: "Source spread", value: "1 source" },
+        { label: "Entity spread", value: "1 entity" },
+        { label: "Reader signals", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "No exploration stories are currently in this slice, so the feed is leaning on known reader signals.",
+          label: "Exploration gap",
+        },
+        {
+          detail:
+            "One source dominates this edition; add sources or ingest more stories to broaden coverage.",
+          label: "Source concentration",
+        },
+        {
+          detail:
+            "No entity owns more than half of this edition, keeping the recommendation mix broad.",
+          label: "Entity diversity",
+        },
+      ],
+      summary:
+        "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
+    });
+  });
+
+  it("keeps angle quota guardrails out of personalized audit counts", () => {
+    expect(
+      getNewsRecommendationAudit({
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Security"],
+            id: "angle-quota-audit",
+            matchedSignals: ["angle_quota"],
+            personalizedScore: 112,
+            sourceName: "Security Wire",
+            sourceSlug: "security-wire",
+            tags: ["prompt_injection"],
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: ["frontier_model"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Narrow Profile",
+      metrics: [
+        { label: "Personalized", value: "0%" },
+        { label: "Exploration", value: "0%" },
+        { label: "Source spread", value: "1 source" },
+        { label: "Entity spread", value: "1 entity" },
+        { label: "Reader signals", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "No exploration stories are currently in this slice, so the feed is leaning on known reader signals.",
+          label: "Exploration gap",
+        },
+        {
+          detail:
+            "One source dominates this edition; add sources or ingest more stories to broaden coverage.",
+          label: "Source concentration",
+        },
+        {
+          detail:
+            "No entity owns more than half of this edition, keeping the recommendation mix broad.",
+          label: "Entity diversity",
+        },
+      ],
+      summary:
+        "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
+    });
+  });
+
+  it("keeps freshness quota guardrails out of personalized audit counts", () => {
+    expect(
+      getNewsRecommendationAudit({
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Security"],
+            id: "freshness-quota-audit",
+            matchedSignals: ["freshness_quota"],
+            personalizedScore: 110,
+            sourceName: "Security Wire",
+            sourceSlug: "security-wire",
+          },
+        ],
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Narrow Profile",
+      metrics: [
+        { label: "Personalized", value: "0%" },
+        { label: "Exploration", value: "0%" },
+        { label: "Source spread", value: "1 source" },
+        { label: "Entity spread", value: "1 entity" },
+        { label: "Reader signals", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "No exploration stories are currently in this slice, so the feed is leaning on known reader signals.",
+          label: "Exploration gap",
+        },
+        {
+          detail:
+            "One source dominates this edition; add sources or ingest more stories to broaden coverage.",
+          label: "Source concentration",
+        },
+        {
+          detail:
+            "No entity owns more than half of this edition, keeping the recommendation mix broad.",
+          label: "Entity diversity",
+        },
+      ],
+      summary:
+        "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
+    });
+  });
 });
 
 describe("getNewsRecommendationTrace", () => {
@@ -11184,6 +11802,215 @@ describe("getNewsRecommendationTrace", () => {
       label: "Source diversity",
       scoreLabel: "1 story",
       title: "Anthropic balances the source mix",
+    });
+  });
+
+  it("explains entity quota guardrails in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : "Agents",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          entities: ["OpenAI"],
+          id: "lead-openai",
+          category: "model_release",
+          matchedSignals: ["entity"],
+          personalizedScore: 172,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI leads the model edition",
+        },
+        {
+          ...serverItem,
+          entities: ["Anthropic"],
+          id: "anthropic-entity-quota",
+          category: "agent_product",
+          matchedSignals: ["entity_quota"],
+          personalizedScore: 116,
+          sourceName: "Anthropic News",
+          sourceSlug: "anthropic-news",
+          title: "Anthropic balances the entity mix",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Guardrails",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail:
+        "Anthropic is inserted to keep one entity from flooding the edition.",
+      label: "Entity diversity",
+      scoreLabel: "1 story",
+      title: "Anthropic balances the entity mix",
+    });
+  });
+
+  it("explains category quota guardrails in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : "Research",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "lead-model",
+          category: "model_release",
+          matchedSignals: ["category"],
+          personalizedScore: 172,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Models lead the edition",
+        },
+        {
+          ...serverItem,
+          id: "research-topic-quota",
+          category: "research",
+          matchedSignals: ["category_quota"],
+          personalizedScore: 114,
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          title: "Research balances the topic mix",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Guardrails",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail: "Research is inserted to keep one topic from flooding the edition.",
+      label: "Topic diversity",
+      scoreLabel: "1 story",
+      title: "Research balances the topic mix",
+    });
+  });
+
+  it("explains angle quota guardrails in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : "Security",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "frontier-model-lead",
+          category: "model_release",
+          matchedSignals: ["tag"],
+          personalizedScore: 172,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          tags: ["frontier_model"],
+          title: "Frontier models lead the edition",
+        },
+        {
+          ...serverItem,
+          id: "prompt-injection-angle-quota",
+          category: "security",
+          matchedSignals: ["angle_quota"],
+          personalizedScore: 112,
+          sourceName: "Security Wire",
+          sourceSlug: "security-wire",
+          tags: ["prompt_injection"],
+          title: "Prompt injection balances the angle mix",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["frontier_model"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Guardrails",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail:
+        "prompt injection is inserted to keep one angle from flooding the edition.",
+      label: "Angle diversity",
+      scoreLabel: "1 story",
+      title: "Prompt injection balances the angle mix",
+    });
+  });
+
+  it("explains freshness quota guardrails in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : "Security",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "older-model-lead",
+          category: "model_release",
+          matchedSignals: ["category"],
+          personalizedScore: 172,
+          publishedAt: "2026-06-28T08:00:00.000Z",
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Older model story leads the preference stack",
+        },
+        {
+          ...serverItem,
+          id: "fresh-security-quota",
+          category: "security",
+          matchedSignals: ["freshness_quota"],
+          personalizedScore: 110,
+          publishedAt: "2026-07-01T08:00:00.000Z",
+          sourceName: "Security Wire",
+          sourceSlug: "security-wire",
+          title: "Fresh security angle enters the briefing",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Guardrails",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail:
+        "Security Wire is inserted to keep older stories from flooding the edition.",
+      label: "Freshness",
+      scoreLabel: "1 story",
+      title: "Fresh security angle enters the briefing",
     });
   });
 
@@ -17391,6 +18218,354 @@ describe("selectSourceQuotaBalancedNewsHomeItems", () => {
       "anthropic-model-angle",
       "venture-agent-angle",
       "openai-research-follow",
+    ]);
+  });
+});
+
+describe("selectEntityQuotaBalancedNewsHomeItems", () => {
+  it("defers a fourth same-entity home story when alternate entities are available", () => {
+    expect(
+      selectEntityQuotaBalancedNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            id: "openai-model-lead",
+            matchedSignals: ["entity"],
+            personalizedScore: 210,
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["OpenAI", "Agents"],
+            id: "openai-agent-follow",
+            matchedSignals: ["entity"],
+            personalizedScore: 205,
+          },
+          {
+            ...localItem,
+            category: "policy",
+            entities: ["OpenAI", "Policy"],
+            id: "openai-policy-follow",
+            matchedSignals: ["entity"],
+            personalizedScore: 200,
+          },
+          {
+            ...localItem,
+            category: "research",
+            entities: ["OpenAI", "Benchmarks"],
+            id: "openai-research-follow",
+            matchedSignals: ["entity"],
+            personalizedScore: 195,
+          },
+          {
+            ...serverItem,
+            entities: ["Anthropic"],
+            id: "anthropic-model-angle",
+            matchedSignals: ["category"],
+            personalizedScore: 150,
+          },
+          {
+            ...olderItem,
+            category: "open_source",
+            entities: ["Mistral"],
+            id: "mistral-open-source-angle",
+            matchedSignals: [],
+            personalizedScore: 140,
+          },
+        ],
+        limit: 6,
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "openai-model-lead",
+        signals: ["entity"],
+      },
+      {
+        id: "openai-agent-follow",
+        signals: ["entity"],
+      },
+      {
+        id: "openai-policy-follow",
+        signals: ["entity"],
+      },
+      {
+        id: "anthropic-model-angle",
+        signals: ["category", "entity_quota"],
+      },
+      {
+        id: "mistral-open-source-angle",
+        signals: ["entity_quota"],
+      },
+      {
+        id: "openai-research-follow",
+        signals: ["entity"],
+      },
+    ]);
+  });
+});
+
+describe("selectCategoryQuotaBalancedNewsHomeItems", () => {
+  it("defers a fourth same-topic home story when alternate topics are available", () => {
+    expect(
+      selectCategoryQuotaBalancedNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            id: "model-lead",
+            matchedSignals: ["category"],
+            personalizedScore: 210,
+          },
+          {
+            ...localItem,
+            category: "model_release",
+            id: "model-follow",
+            matchedSignals: ["category"],
+            personalizedScore: 205,
+            sourceSlug: "anthropic-news",
+          },
+          {
+            ...localItem,
+            category: "model_release",
+            id: "model-analysis",
+            matchedSignals: ["category"],
+            personalizedScore: 200,
+            sourceSlug: "model-desk",
+          },
+          {
+            ...localItem,
+            category: "model_release",
+            id: "model-deep-dive",
+            matchedSignals: ["category"],
+            personalizedScore: 195,
+            sourceSlug: "research-wire",
+          },
+          {
+            ...serverItem,
+            category: "agent_product",
+            id: "agent-product-angle",
+            matchedSignals: [],
+            personalizedScore: 150,
+          },
+          {
+            ...olderItem,
+            category: "funding",
+            id: "funding-market-angle",
+            matchedSignals: [],
+            personalizedScore: 140,
+          },
+        ],
+        limit: 6,
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "model-lead",
+        signals: ["category"],
+      },
+      {
+        id: "model-follow",
+        signals: ["category"],
+      },
+      {
+        id: "model-analysis",
+        signals: ["category"],
+      },
+      {
+        id: "agent-product-angle",
+        signals: ["category_quota"],
+      },
+      {
+        id: "funding-market-angle",
+        signals: ["category_quota"],
+      },
+      {
+        id: "model-deep-dive",
+        signals: ["category"],
+      },
+    ]);
+  });
+});
+
+describe("selectAngleQuotaBalancedNewsHomeItems", () => {
+  it("defers a fourth same-angle home story when alternate angles are available", () => {
+    expect(
+      selectAngleQuotaBalancedNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            id: "frontier-model-lead",
+            matchedSignals: ["tag"],
+            personalizedScore: 210,
+            tags: ["frontier_model"],
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Anthropic"],
+            id: "frontier-model-agent",
+            matchedSignals: ["tag"],
+            personalizedScore: 205,
+            sourceSlug: "anthropic-news",
+            tags: ["frontier_model"],
+          },
+          {
+            ...localItem,
+            category: "research",
+            entities: ["Google"],
+            id: "frontier-model-research",
+            matchedSignals: ["tag"],
+            personalizedScore: 200,
+            sourceSlug: "google-ai-blog",
+            tags: ["frontier_model"],
+          },
+          {
+            ...localItem,
+            category: "policy",
+            entities: ["Meta"],
+            id: "frontier-model-policy",
+            matchedSignals: ["tag"],
+            personalizedScore: 195,
+            sourceSlug: "meta-ai-blog",
+            tags: ["frontier_model"],
+          },
+          {
+            ...serverItem,
+            category: "agent_product",
+            id: "workflow-automation-angle",
+            matchedSignals: [],
+            personalizedScore: 150,
+            tags: ["workflow_automation"],
+          },
+          {
+            ...olderItem,
+            category: "security",
+            id: "prompt-injection-angle",
+            matchedSignals: [],
+            personalizedScore: 140,
+            tags: ["prompt_injection"],
+          },
+        ],
+        limit: 6,
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "frontier-model-lead",
+        signals: ["tag"],
+      },
+      {
+        id: "frontier-model-agent",
+        signals: ["tag"],
+      },
+      {
+        id: "frontier-model-research",
+        signals: ["tag"],
+      },
+      {
+        id: "workflow-automation-angle",
+        signals: ["angle_quota"],
+      },
+      {
+        id: "prompt-injection-angle",
+        signals: ["angle_quota"],
+      },
+      {
+        id: "frontier-model-policy",
+        signals: ["tag"],
+      },
+    ]);
+  });
+});
+
+describe("selectFreshnessQuotaBalancedNewsHomeItems", () => {
+  it("defers a fourth stale home story when fresh stories are available", () => {
+    expect(
+      selectFreshnessQuotaBalancedNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            id: "older-model-lead",
+            matchedSignals: ["category"],
+            personalizedScore: 210,
+            publishedAt: "2026-06-28T08:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "older-model-follow",
+            matchedSignals: ["entity"],
+            personalizedScore: 205,
+            publishedAt: "2026-06-28T09:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "older-model-analysis",
+            matchedSignals: ["source"],
+            personalizedScore: 200,
+            publishedAt: "2026-06-28T10:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "older-model-deep-dive",
+            matchedSignals: ["tag"],
+            personalizedScore: 195,
+            publishedAt: "2026-06-28T11:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            id: "fresh-security-angle",
+            matchedSignals: [],
+            personalizedScore: 150,
+            publishedAt: "2026-07-01T08:00:00.000Z",
+          },
+          {
+            ...olderItem,
+            id: "fresh-funding-angle",
+            matchedSignals: [],
+            personalizedScore: 140,
+            publishedAt: "2026-07-01T07:00:00.000Z",
+          },
+        ],
+        limit: 6,
+        now: new Date("2026-07-01T12:00:00.000Z"),
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "older-model-lead",
+        signals: ["category"],
+      },
+      {
+        id: "older-model-follow",
+        signals: ["entity"],
+      },
+      {
+        id: "older-model-analysis",
+        signals: ["source"],
+      },
+      {
+        id: "fresh-security-angle",
+        signals: ["freshness_quota"],
+      },
+      {
+        id: "fresh-funding-angle",
+        signals: ["freshness_quota"],
+      },
+      {
+        id: "older-model-deep-dive",
+        signals: ["tag"],
+      },
     ]);
   });
 });

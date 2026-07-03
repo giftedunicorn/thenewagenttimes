@@ -36,6 +36,7 @@ import {
   getNewsFeedbackTrainingUpdate,
   getNewsFeedFatigueReport,
   getNewsFeedGovernor,
+  getNewsFeedGovernorControlTrainingAction,
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
@@ -54,9 +55,15 @@ import {
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
   getNewsPreferenceControlPanel,
+  getNewsPreferenceBiasCycleAction,
   getNewsPreferenceBiasTrainingUpdate,
+  getNewsPreferenceBiasResetTrainingUpdate,
+  getNewsPreferenceBiasResetUndoTrainingUpdate,
   getNewsPreferenceBiasUndoTrainingUpdate,
   getNewsPreferencePresets,
+  getNewsPreferenceProfileToggleAction,
+  getNewsPreferenceProfileTrainingUpdate,
+  getNewsPreferenceProfileUndoTrainingUpdate,
   getNewsPreferenceStarter,
   getNewsPreferenceTuningPlan,
   getNewsPreferenceTuningTrainingUpdate,
@@ -104,6 +111,7 @@ import {
   getPreviewNewsArticleData,
   getPreviewNewsHomeItems,
   isNewsHomePreviewEdition,
+  mergeNewsTrainingUpdateHistory,
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
@@ -3471,6 +3479,66 @@ describe("getNewsServerProfileAuditDisplay", () => {
   });
 });
 
+describe("mergeNewsTrainingUpdateHistory", () => {
+  it("keeps the newest training update first and removes duplicate events", () => {
+    expect(
+      mergeNewsTrainingUpdateHistory({
+        currentUpdates: [
+          {
+            label: "Bias Tuned",
+            summary: "Raise Fresh tuned freshness bias to 2/2.",
+          },
+          {
+            label: "Preference Starter",
+            summary:
+              "Follow angle added prompt injection to For You preferences.",
+          },
+        ],
+        limit: 4,
+        nextUpdate: {
+          label: "Bias Tuned",
+          summary: "Raise Fresh tuned freshness bias to 2/2.",
+        },
+      }),
+    ).toEqual([
+      {
+        label: "Bias Tuned",
+        summary: "Raise Fresh tuned freshness bias to 2/2.",
+      },
+      {
+        label: "Preference Starter",
+        summary: "Follow angle added prompt injection to For You preferences.",
+      },
+    ]);
+  });
+
+  it("bounds the local training update history", () => {
+    expect(
+      mergeNewsTrainingUpdateHistory({
+        currentUpdates: [
+          { label: "A", summary: "First training event." },
+          { label: "B", summary: "Second training event." },
+          { label: "C", summary: "Third training event." },
+        ],
+        limit: 2,
+        nextUpdate: {
+          label: "D",
+          summary: "Newest training event.",
+        },
+      }),
+    ).toEqual([
+      {
+        label: "D",
+        summary: "Newest training event.",
+      },
+      {
+        label: "A",
+        summary: "First training event.",
+      },
+    ]);
+  });
+});
+
 describe("getNewsFeedbackTrainingUpdate", () => {
   it("summarizes positive feedback as newly learned reader signals", () => {
     expect(
@@ -3985,6 +4053,274 @@ describe("getNewsPreferenceStarter", () => {
   });
 });
 
+describe("getNewsPreferenceProfileTrainingUpdate", () => {
+  it("builds add and remove actions for manual preference toggles", () => {
+    expect(
+      getNewsPreferenceProfileToggleAction({
+        active: false,
+        kind: "source",
+        label: "Agent Desk",
+        signal: "agent-desk",
+      }),
+    ).toEqual({
+      actionLabel: "Follow source",
+      effect: "add",
+      label: "Agent Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Agent Desk",
+          signal: "agent-desk",
+        },
+      ],
+      source: "control",
+    });
+
+    expect(
+      getNewsPreferenceProfileToggleAction({
+        active: true,
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt_injection",
+      }),
+    ).toEqual({
+      actionLabel: "Remove angle",
+      effect: "remove",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("summarizes preset profile changes and keeps undo state", () => {
+    const action = {
+      actionLabel: "Apply preset",
+      label: "Builder Watch",
+      signals: [
+        {
+          kind: "category" as const,
+          label: "Agents",
+          signal: "agent_product",
+        },
+        {
+          kind: "source" as const,
+          label: "Agent Desk",
+          signal: "agent-desk",
+        },
+        {
+          kind: "entity" as const,
+          label: "Agents",
+          signal: "Agents",
+        },
+        {
+          kind: "entity" as const,
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "preset" as const,
+    };
+    const beforeProfile = {
+      preferredCategories: ["model_release"],
+      preferredSources: [],
+      preferredEntities: ["OpenAI"],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    expect(
+      getNewsPreferenceProfileTrainingUpdate({
+        action,
+        afterProfile: {
+          preferredCategories: ["model_release", "agent_product"],
+          preferredSources: ["agent-desk"],
+          preferredEntities: ["OpenAI", "Agents"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        beforeProfile,
+      }),
+    ).toEqual({
+      label: "Preference Preset",
+      metrics: [
+        { label: "Added", value: "3" },
+        { label: "Topics", value: "1" },
+        { label: "Sources", value: "1" },
+        { label: "Entities", value: "1" },
+        { label: "Angles", value: "0" },
+      ],
+      notices: [
+        {
+          detail:
+            "Manual preference changes update the For You profile before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [
+        { label: "Topic", value: "Agents" },
+        { label: "Source", value: "Agent Desk" },
+        { label: "Entity", value: "Agents" },
+      ],
+      summary: "Applied Builder Watch and added 3 For You signals.",
+      undoAction: {
+        action,
+        beforeProfile,
+      },
+    });
+  });
+
+  it("summarizes starter profile changes and undone changes", () => {
+    const action = {
+      actionLabel: "Follow angle",
+      label: "Follow angle",
+      signals: [
+        {
+          kind: "tag" as const,
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "starter" as const,
+    };
+    const beforeProfile = {
+      preferredCategories: [],
+      preferredSources: [],
+      preferredEntities: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+    const afterProfile = {
+      preferredCategories: [],
+      preferredSources: [],
+      preferredEntities: ["prompt_injection"],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    expect(
+      getNewsPreferenceProfileTrainingUpdate({
+        action,
+        afterProfile,
+        beforeProfile,
+      }),
+    ).toMatchObject({
+      label: "Preference Starter",
+      metrics: [
+        { label: "Added", value: "1" },
+        { label: "Topics", value: "0" },
+        { label: "Sources", value: "0" },
+        { label: "Entities", value: "0" },
+        { label: "Angles", value: "1" },
+      ],
+      signals: [{ label: "Angle", value: "prompt injection" }],
+      summary:
+        "Follow angle added prompt injection to For You preferences.",
+    });
+
+    expect(
+      getNewsPreferenceProfileUndoTrainingUpdate({
+        action,
+        afterProfile: beforeProfile,
+        beforeProfile: afterProfile,
+      }),
+    ).toEqual({
+      label: "Preference Undo",
+      metrics: [
+        { label: "Signals", value: "0" },
+        { label: "Topics", value: "0" },
+        { label: "Sources", value: "0" },
+        { label: "Entities", value: "0" },
+      ],
+      notices: [
+        {
+          detail:
+            "The manual preference change was removed before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Restored", value: "Follow angle" }],
+      summary: "Undo Follow angle restored the previous For You profile.",
+    });
+  });
+
+  it("summarizes manual preference removals with undo state", () => {
+    const action = {
+      actionLabel: "Remove topic",
+      effect: "remove" as const,
+      label: "Models",
+      signals: [
+        {
+          kind: "category" as const,
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control" as const,
+    };
+    const beforeProfile = {
+      preferredCategories: ["model_release", "agent_product"],
+      preferredSources: ["openai-news"],
+      preferredEntities: ["OpenAI"],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+    const afterProfile = {
+      preferredCategories: ["agent_product"],
+      preferredSources: ["openai-news"],
+      preferredEntities: ["OpenAI"],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    expect(
+      getNewsPreferenceProfileTrainingUpdate({
+        action,
+        afterProfile,
+        beforeProfile,
+      }),
+    ).toEqual({
+      label: "Preference Removed",
+      metrics: [
+        { label: "Removed", value: "1" },
+        { label: "Topics", value: "1" },
+        { label: "Sources", value: "0" },
+        { label: "Entities", value: "0" },
+        { label: "Angles", value: "0" },
+      ],
+      notices: [
+        {
+          detail:
+            "Manual preference changes update the For You profile before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Topic", value: "Models" }],
+      summary: "Remove topic removed Models from For You preferences.",
+      undoAction: {
+        action,
+        beforeProfile,
+      },
+    });
+
+    expect(
+      getNewsPreferenceProfileUndoTrainingUpdate({
+        action,
+        afterProfile: beforeProfile,
+        beforeProfile: afterProfile,
+      }),
+    ).toMatchObject({
+      label: "Preference Undo",
+      summary: "Undo Remove topic restored the previous For You profile.",
+    });
+  });
+});
+
 describe("getNewsPreferenceControlPanel", () => {
   it("turns the active reader profile into manual tuning controls", () => {
     expect(
@@ -4371,6 +4707,62 @@ describe("getNewsStoryQuickTuneActions", () => {
 });
 
 describe("getNewsPreferenceBiasTrainingUpdate", () => {
+  it("builds quick-cycle bias actions while preserving the button cycle", () => {
+    expect(
+      getNewsPreferenceBiasCycleAction({
+        key: "recencyBias",
+        label: "Fresh",
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      afterProfile: {
+        preferredCategories: ["model_release"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 2,
+      },
+    });
+
+    expect(
+      getNewsPreferenceBiasCycleAction({
+        key: "noveltyBias",
+        label: "Novel",
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 2,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      action: {
+        direction: "lower",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      afterProfile: {
+        preferredCategories: [],
+        preferredEntities: [],
+        preferredSources: [],
+        noveltyBias: 0,
+        recencyBias: 1,
+      },
+    });
+  });
+
   it("summarizes manual bias control changes for the training loop", () => {
     expect(
       getNewsPreferenceBiasTrainingUpdate({
@@ -4466,6 +4858,132 @@ describe("getNewsPreferenceBiasTrainingUpdate", () => {
       ],
       signals: [{ label: "Fresh", value: "1/2" }],
       summary: "Undo bias restored Fresh to 1/2.",
+    });
+  });
+
+  it("summarizes reset balance controls from feed governance", () => {
+    const beforeProfile = {
+      preferredCategories: ["model_release"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: [],
+      noveltyBias: 1.8,
+      recencyBias: 0.5,
+    };
+    const afterProfile = {
+      ...beforeProfile,
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    expect(
+      getNewsPreferenceBiasResetTrainingUpdate({
+        afterProfile,
+        beforeProfile,
+        label: "Set neutral",
+      }),
+    ).toEqual({
+      label: "Bias Reset",
+      metrics: [
+        { label: "Fresh", value: "1/2" },
+        { label: "Novel", value: "1/2" },
+        { label: "Bias shift", value: "-0.3" },
+      ],
+      notices: [
+        {
+          detail:
+            "Feed governance reset freshness and novelty to a neutral For You mix.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Balance", value: "Neutral" }],
+      summary: "Set neutral reset For You bias to a neutral mix.",
+      undoAction: {
+        beforeProfile,
+        label: "Set neutral",
+      },
+    });
+
+    expect(
+      getNewsPreferenceBiasResetUndoTrainingUpdate({
+        afterProfile: beforeProfile,
+        beforeProfile: afterProfile,
+        label: "Set neutral",
+      }),
+    ).toEqual({
+      label: "Bias Undo",
+      metrics: [
+        { label: "Fresh", value: "0.5/2" },
+        { label: "Novel", value: "1.8/2" },
+        { label: "Bias shift", value: "+0.3" },
+      ],
+      notices: [
+        {
+          detail:
+            "The feed governance bias reset was removed before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Balance", value: "Set neutral" }],
+      summary: "Undo Set neutral restored the previous For You bias.",
+    });
+  });
+});
+
+describe("getNewsFeedGovernorControlTrainingAction", () => {
+  it("maps feed governor controls onto profile and bias training actions", () => {
+    expect(
+      getNewsFeedGovernorControlTrainingAction({
+        action: "follow_source",
+        buttonLabel: "Follow source",
+        label: "Source spread",
+        reason: "Agent Desk adds another source outside Local Source.",
+        signal: "agent-desk",
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow source",
+        effect: "add",
+        label: "Source spread",
+        signals: [
+          {
+            kind: "source",
+            label: "Source spread",
+            signal: "agent-desk",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+
+    expect(
+      getNewsFeedGovernorControlTrainingAction({
+        action: "increase_novelty",
+        buttonLabel: "Open explore",
+        label: "Add exploration",
+        reason:
+          "No exploration stories are present, so raise novelty to test broader AI coverage.",
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    });
+
+    expect(
+      getNewsFeedGovernorControlTrainingAction({
+        action: "reset_balance",
+        buttonLabel: "Set neutral",
+        label: "Rebalance bias",
+        reason:
+          "Freshness is leading the feed; reset freshness and novelty to a neutral mix.",
+      }),
+    ).toEqual({
+      kind: "bias_reset",
+      label: "Set neutral",
     });
   });
 });

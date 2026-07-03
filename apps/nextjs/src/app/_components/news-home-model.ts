@@ -3697,6 +3697,32 @@ export const getNewsServerProfileAuditDisplay = (
   };
 };
 
+export const mergeNewsTrainingUpdateHistory = <
+  TrainingUpdate extends { label: string; summary: string },
+>({
+  currentUpdates,
+  limit,
+  nextUpdate,
+}: {
+  currentUpdates: readonly TrainingUpdate[];
+  limit: number;
+  nextUpdate: TrainingUpdate;
+}) => {
+  const seenKeys = new Set<string>();
+  const nextUpdates: TrainingUpdate[] = [];
+
+  [nextUpdate, ...currentUpdates].forEach((update) => {
+    const key = `${update.label}:${update.summary}`;
+
+    if (seenKeys.has(key)) return;
+
+    seenKeys.add(key);
+    nextUpdates.push(update);
+  });
+
+  return nextUpdates.slice(0, Math.max(0, limit));
+};
+
 interface NewsFeedbackSignalDelta {
   added: string[];
   removed: string[];
@@ -3968,6 +3994,61 @@ export const getNewsReaderMemoryResetPersistence = ({
 
 type NewsPreferenceStarterKind = "category" | "entity" | "source" | "tag";
 
+export type NewsPreferenceProfileTrainingSignalKind =
+  NewsPreferenceStarterKind;
+
+export interface NewsPreferenceProfileTrainingSignal {
+  kind: NewsPreferenceProfileTrainingSignalKind;
+  label: string;
+  signal: string;
+}
+
+export interface NewsPreferenceProfileTrainingAction {
+  actionLabel: string;
+  effect?: "add" | "remove";
+  label: string;
+  signals: readonly NewsPreferenceProfileTrainingSignal[];
+  source: "control" | "preset" | "starter";
+}
+
+const getPreferenceTrainingActionTarget = (
+  kind: NewsPreferenceProfileTrainingSignalKind,
+) => {
+  if (kind === "category") return "topic";
+  if (kind === "source") return "source";
+  if (kind === "tag") return "angle";
+
+  return "entity";
+};
+
+export const getNewsPreferenceProfileToggleAction = ({
+  active,
+  kind,
+  label,
+  signal,
+}: {
+  active: boolean;
+  kind: NewsPreferenceProfileTrainingSignalKind;
+  label: string;
+  signal: string;
+}): NewsPreferenceProfileTrainingAction => {
+  const target = getPreferenceTrainingActionTarget(kind);
+
+  return {
+    actionLabel: `${active ? "Remove" : "Follow"} ${target}`,
+    effect: active ? "remove" : "add",
+    label,
+    signals: [
+      {
+        kind,
+        label,
+        signal,
+      },
+    ],
+    source: "control",
+  };
+};
+
 interface NewsPreferenceStarterSuggestion {
   actionLabel: string;
   kind: NewsPreferenceStarterKind;
@@ -4015,6 +4096,214 @@ const hasPreferenceSignal = (values: readonly string[], value: string) => {
     (signal) => normalizePreferenceSignal(signal) === normalizedValue,
   );
 };
+
+const isPreferenceTrainingSignalActive = (
+  profile: NewsPreferenceProfile,
+  signal: NewsPreferenceProfileTrainingSignal,
+) => {
+  if (signal.kind === "category") {
+    return hasPreferenceSignal(profile.preferredCategories, signal.signal);
+  }
+
+  if (signal.kind === "source") {
+    return hasPreferenceSignal(profile.preferredSources, signal.signal);
+  }
+
+  return hasPreferenceSignal(profile.preferredEntities, signal.signal);
+};
+
+const getPreferenceTrainingChangedSignals = ({
+  action,
+  afterProfile,
+  beforeProfile,
+}: {
+  action: NewsPreferenceProfileTrainingAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+}) => {
+  const normalizedBeforeProfile = normalizeNewsPreferenceProfile(beforeProfile);
+  const normalizedAfterProfile = normalizeNewsPreferenceProfile(afterProfile);
+  const effect = action.effect ?? "add";
+  const seenSignals = new Set<string>();
+  const changedSignals: NewsPreferenceProfileTrainingSignal[] = [];
+
+  action.signals.forEach((signal) => {
+    const signalKey = `${signal.kind}:${normalizePreferenceSignal(
+      signal.signal,
+    )}`;
+    const wasActive = isPreferenceTrainingSignalActive(
+      normalizedBeforeProfile,
+      signal,
+    );
+    const isActive = isPreferenceTrainingSignalActive(
+      normalizedAfterProfile,
+      signal,
+    );
+
+    if (
+      seenSignals.has(signalKey) ||
+      (effect === "add" && (wasActive || !isActive)) ||
+      (effect === "remove" && (!wasActive || isActive))
+    ) {
+      return;
+    }
+
+    seenSignals.add(signalKey);
+    changedSignals.push(signal);
+  });
+
+  return changedSignals;
+};
+
+const countPreferenceTrainingSignals = (
+  signals: readonly NewsPreferenceProfileTrainingSignal[],
+  kind: NewsPreferenceProfileTrainingSignalKind,
+) => signals.filter((signal) => signal.kind === kind).length;
+
+const getPreferenceTrainingSignalLabel = (
+  kind: NewsPreferenceProfileTrainingSignalKind,
+) => {
+  if (kind === "category") return "Topic";
+  if (kind === "source") return "Source";
+  if (kind === "tag") return "Angle";
+
+  return "Entity";
+};
+
+const getPreferenceProfileSignalCount = (profile: NewsPreferenceProfile) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return (
+    normalizedProfile.preferredCategories.length +
+    normalizedProfile.preferredSources.length +
+    normalizedProfile.preferredEntities.length
+  );
+};
+
+const getPreferenceProfileMetrics = (profile: NewsPreferenceProfile) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return [
+    { label: "Signals", value: String(getPreferenceProfileSignalCount(profile)) },
+    {
+      label: "Topics",
+      value: String(normalizedProfile.preferredCategories.length),
+    },
+    {
+      label: "Sources",
+      value: String(normalizedProfile.preferredSources.length),
+    },
+    {
+      label: "Entities",
+      value: String(normalizedProfile.preferredEntities.length),
+    },
+  ];
+};
+
+export const getNewsPreferenceProfileTrainingUpdate = ({
+  action,
+  afterProfile,
+  beforeProfile,
+}: {
+  action: NewsPreferenceProfileTrainingAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+}) => {
+  const changedSignals = getPreferenceTrainingChangedSignals({
+    action,
+    afterProfile,
+    beforeProfile,
+  });
+  const changedSignalCount = changedSignals.length;
+  const firstChangedSignal = changedSignals[0];
+  const effect = action.effect ?? "add";
+  const sourceLabel =
+    effect === "remove"
+      ? "Preference Removed"
+      : action.source === "preset"
+        ? "Preference Preset"
+        : action.source === "starter"
+          ? "Preference Starter"
+          : "Preference Updated";
+  let summary = "";
+
+  if (effect === "remove") {
+    summary = firstChangedSignal
+      ? `${action.actionLabel} removed ${firstChangedSignal.label} from For You preferences.`
+      : `${action.actionLabel} did not remove any active For You signals.`;
+  } else if (action.source === "preset") {
+    summary = `Applied ${action.label} and added ${changedSignalCount} For You ${
+      changedSignalCount === 1 ? "signal" : "signals"
+    }.`;
+  } else {
+    summary = firstChangedSignal
+      ? `${action.actionLabel} added ${firstChangedSignal.label} to For You preferences.`
+      : `${action.actionLabel} was already covered by the For You profile.`;
+  }
+
+  return {
+    label: sourceLabel,
+    metrics: [
+      {
+        label: effect === "remove" ? "Removed" : "Added",
+        value: String(changedSignalCount),
+      },
+      {
+        label: "Topics",
+        value: String(countPreferenceTrainingSignals(changedSignals, "category")),
+      },
+      {
+        label: "Sources",
+        value: String(countPreferenceTrainingSignals(changedSignals, "source")),
+      },
+      {
+        label: "Entities",
+        value: String(countPreferenceTrainingSignals(changedSignals, "entity")),
+      },
+      {
+        label: "Angles",
+        value: String(countPreferenceTrainingSignals(changedSignals, "tag")),
+      },
+    ],
+    notices: [
+      {
+        detail:
+          "Manual preference changes update the For You profile before the next ranking pass.",
+        label: "Reader control",
+      },
+    ],
+    signals: changedSignals.map((signal) => ({
+      label: getPreferenceTrainingSignalLabel(signal.kind),
+      value: signal.label,
+    })),
+    summary,
+    undoAction: {
+      action,
+      beforeProfile,
+    },
+  };
+};
+
+export const getNewsPreferenceProfileUndoTrainingUpdate = ({
+  action,
+  afterProfile,
+}: {
+  action: NewsPreferenceProfileTrainingAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile?: NewsPreferenceProfile;
+}) => ({
+  label: "Preference Undo",
+  metrics: getPreferenceProfileMetrics(afterProfile),
+  notices: [
+    {
+      detail:
+        "The manual preference change was removed before the next ranking pass.",
+      label: "Reader control",
+    },
+  ],
+  signals: [{ label: "Restored", value: action.actionLabel }],
+  summary: `Undo ${action.actionLabel} restored the previous For You profile.`,
+});
 
 const formatStarterStoryCount = (count: number) =>
   `${count} ${count === 1 ? "story" : "stories"}`;
@@ -4422,6 +4711,39 @@ export interface NewsPreferenceBiasAction {
   label: string;
 }
 
+const getNextPreferenceBiasCycleValue = (value: number) =>
+  value >= 2 ? 0 : Math.min(Math.round((value + 1) * 10) / 10, 2);
+
+export const getNewsPreferenceBiasCycleAction = ({
+  key,
+  label,
+  profile,
+}: {
+  key: NewsPreferenceBiasKey;
+  label: string;
+  profile: NewsPreferenceProfile;
+}) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const beforeValue =
+    key === "recencyBias"
+      ? normalizedProfile.recencyBias
+      : normalizedProfile.noveltyBias;
+  const nextValue = getNextPreferenceBiasCycleValue(beforeValue);
+  const afterProfile =
+    key === "recencyBias"
+      ? { ...normalizedProfile, recencyBias: nextValue }
+      : { ...normalizedProfile, noveltyBias: nextValue };
+
+  return {
+    action: {
+      direction: nextValue >= beforeValue ? "raise" : "lower",
+      key,
+      label,
+    } satisfies NewsPreferenceBiasAction,
+    afterProfile,
+  };
+};
+
 const getPreferenceBiasValue = (
   profile: NewsPreferenceProfile,
   key: NewsPreferenceBiasKey,
@@ -4505,6 +4827,66 @@ export const getNewsPreferenceBiasUndoTrainingUpdate = ({
     summary: `Undo bias restored ${action.label} to ${signalValue}.`,
   };
 };
+
+export const getNewsPreferenceBiasResetTrainingUpdate = ({
+  afterProfile,
+  beforeProfile,
+  label,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+  label: string;
+}) => ({
+  label: "Bias Reset",
+  metrics: [
+    ...getPreferenceBiasMetrics(afterProfile),
+    {
+      label: "Bias shift",
+      value: formatFeedbackBiasShift(beforeProfile, afterProfile),
+    },
+  ],
+  notices: [
+    {
+      detail:
+        "Feed governance reset freshness and novelty to a neutral For You mix.",
+      label: "Reader control",
+    },
+  ],
+  signals: [{ label: "Balance", value: "Neutral" }],
+  summary: `${label} reset For You bias to a neutral mix.`,
+  undoAction: {
+    beforeProfile,
+    label,
+  },
+});
+
+export const getNewsPreferenceBiasResetUndoTrainingUpdate = ({
+  afterProfile,
+  beforeProfile,
+  label,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+  label: string;
+}) => ({
+  label: "Bias Undo",
+  metrics: [
+    ...getPreferenceBiasMetrics(afterProfile),
+    {
+      label: "Bias shift",
+      value: formatFeedbackBiasShift(beforeProfile, afterProfile),
+    },
+  ],
+  notices: [
+    {
+      detail:
+        "The feed governance bias reset was removed before the next ranking pass.",
+      label: "Reader control",
+    },
+  ],
+  signals: [{ label: "Balance", value: label }],
+  summary: `Undo ${label} restored the previous For You bias.`,
+});
 
 export type NewsStoryQuickTuneActionKind =
   | "category"
@@ -10828,6 +11210,89 @@ interface NewsFeedGovernorControl {
   reason: string;
   signal?: string;
 }
+
+export type NewsFeedGovernorControlTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    }
+  | {
+      kind: "bias_reset";
+      label: string;
+    };
+
+export const getNewsFeedGovernorControlTrainingAction = (
+  control: NewsFeedGovernorControl,
+): NewsFeedGovernorControlTrainingAction | null => {
+  if (control.action === "increase_novelty") {
+    return {
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    };
+  }
+
+  if (control.action === "increase_recency") {
+    return {
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    };
+  }
+
+  if (control.action === "reset_balance") {
+    return {
+      kind: "bias_reset",
+      label: control.buttonLabel,
+    };
+  }
+
+  if (!control.signal) return null;
+
+  if (control.action === "follow_source") {
+    return {
+      action: getNewsPreferenceProfileToggleAction({
+        active: false,
+        kind: "source",
+        label: control.label,
+        signal: control.signal,
+      }),
+      kind: "profile",
+    };
+  }
+
+  if (control.action === "follow_topic") {
+    return {
+      action: getNewsPreferenceProfileToggleAction({
+        active: false,
+        kind: "category",
+        label: control.label,
+        signal: control.signal,
+      }),
+      kind: "profile",
+    };
+  }
+
+  return {
+    action: getNewsPreferenceProfileToggleAction({
+      active: false,
+      kind: control.buttonLabel === "Follow angle" ? "tag" : "entity",
+      label: control.label,
+      signal: control.signal,
+    }),
+    kind: "profile",
+  };
+};
 
 interface NewsFeedGovernorEntry {
   count: number;

@@ -40,6 +40,7 @@ import {
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHomeStoryActionPanel,
@@ -53,9 +54,13 @@ import {
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
   getNewsPreferenceControlPanel,
+  getNewsPreferenceBiasTrainingUpdate,
+  getNewsPreferenceBiasUndoTrainingUpdate,
   getNewsPreferencePresets,
   getNewsPreferenceStarter,
   getNewsPreferenceTuningPlan,
+  getNewsPreferenceTuningTrainingUpdate,
+  getNewsPreferenceTuningUndoTrainingUpdate,
   getNewsProductionReadinessChecklist,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
@@ -103,6 +108,7 @@ import {
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   revertNewsStoryQuickTuneAction,
+  selectActiveNewsGuardrailItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectInitialNewsHomeItems,
@@ -1692,6 +1698,69 @@ describe("selectStoredNewsReaderMemoryItems", () => {
         title: "Source registry covers labs",
       },
     ]);
+  });
+});
+
+describe("selectActiveNewsGuardrailItems", () => {
+  it("removes restored Less guardrails from active reader memory", () => {
+    expect(
+      selectActiveNewsGuardrailItems({
+        guardrailItems: [
+          {
+            ...localItem,
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "restored-story",
+          },
+          {
+            ...serverItem,
+            hiddenAt: "2026-07-01T10:30:00.000Z",
+            id: "still-hidden-story",
+          },
+        ],
+        restoredItemIds: ["restored-story"],
+      }).map((item) => item.id),
+    ).toEqual(["still-hidden-story"]);
+  });
+});
+
+describe("getNewsGuardrailRestoreTrainingUpdate", () => {
+  it("summarizes restored Less feedback for the training loop panel", () => {
+    expect(
+      getNewsGuardrailRestoreTrainingUpdate({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: {
+          ...localItem,
+          category: "security",
+          hiddenAt: "2026-07-01T11:00:00.000Z",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection defense story",
+        },
+      }),
+    ).toEqual({
+      label: "Less Restored",
+      metrics: [
+        { label: "Guardrails", value: "-1" },
+        { label: "Topic", value: "Security" },
+        { label: "Source", value: "Security Desk" },
+      ],
+      notices: [
+        {
+          detail:
+            "This story can appear again, and its topic, source, and entities stop acting as a Less guardrail on this device.",
+          label: "Reader control",
+        },
+      ],
+      signals: [
+        { label: "Topic", value: "Security" },
+        { label: "Source", value: "Security Desk" },
+        { label: "Angle", value: "prompt injection" },
+      ],
+      summary:
+        "Restored Prompt injection defense story from Less feedback.",
+    });
   });
 });
 
@@ -4301,6 +4370,106 @@ describe("getNewsStoryQuickTuneActions", () => {
   });
 });
 
+describe("getNewsPreferenceBiasTrainingUpdate", () => {
+  it("summarizes manual bias control changes for the training loop", () => {
+    expect(
+      getNewsPreferenceBiasTrainingUpdate({
+        action: {
+          direction: "raise",
+          key: "recencyBias",
+          label: "Fresh",
+        },
+        afterProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1.2,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Bias Tuned",
+      metrics: [
+        { label: "Fresh", value: "1.2/2" },
+        { label: "Novel", value: "1/2" },
+        { label: "Bias shift", value: "+0.2" },
+      ],
+      notices: [
+        {
+          detail:
+            "Manual bias tuning updates the For You ranker before the next pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Fresh", value: "1.2/2" }],
+      summary: "Raise Fresh tuned freshness bias to 1.2/2.",
+      undoAction: {
+        action: {
+          direction: "raise",
+          key: "recencyBias",
+          label: "Fresh",
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      },
+    });
+  });
+
+  it("summarizes undone manual bias control changes", () => {
+    expect(
+      getNewsPreferenceBiasUndoTrainingUpdate({
+        action: {
+          direction: "raise",
+          key: "recencyBias",
+          label: "Fresh",
+        },
+        afterProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1.2,
+        },
+      }),
+    ).toEqual({
+      label: "Bias Undo",
+      metrics: [
+        { label: "Fresh", value: "1/2" },
+        { label: "Novel", value: "1/2" },
+        { label: "Bias shift", value: "-0.2" },
+      ],
+      notices: [
+        {
+          detail:
+            "The manual bias change was removed before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Fresh", value: "1/2" }],
+      summary: "Undo bias restored Fresh to 1/2.",
+    });
+  });
+});
+
 describe("applyNewsStoryQuickTuneAction", () => {
   it("adds story quick tune actions to the correct profile bucket", () => {
     const beforeProfile = {
@@ -5329,6 +5498,210 @@ describe("getNewsPreferenceTuningPlan", () => {
       ],
       summary:
         "2 tuning suggestions from 3 active signals, 0 behavior signals, and 2 guardrails.",
+    });
+  });
+
+  it("previews current ranked stories affected by tuning suggestions", () => {
+    const plan = getNewsPreferenceTuningPlan({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      impactLimit: 2,
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "agent-workflow",
+          matchedSignals: ["exploration"],
+          personalizedScore: 122,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent workflow gains memory",
+        },
+        {
+          ...serverItem,
+          category: "agent_product",
+          entities: ["Anthropic"],
+          id: "agent-benchmark",
+          matchedSignals: [],
+          personalizedScore: 111,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent benchmark expands",
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "saved-agent-workflow",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Saved agent workflow",
+        },
+      ],
+    });
+
+    expect(plan.suggestions[0]).toMatchObject({
+      action: "add",
+      impactStories: [
+        {
+          id: "agent-workflow",
+          reason: "Would lift topic Agents.",
+          sourceName: "Agent Desk",
+          title: "Agent workflow gains memory",
+        },
+        {
+          id: "agent-benchmark",
+          reason: "Would lift topic Agents.",
+          sourceName: "Agent Desk",
+          title: "Agent benchmark expands",
+        },
+      ],
+      kind: "category",
+      signal: "agent_product",
+    });
+  });
+});
+
+describe("getNewsPreferenceTuningTrainingUpdate", () => {
+  it("summarizes applied preference tuning suggestions for the training loop", () => {
+    const impactStories = [
+      {
+        id: "agent-workflow",
+        reason: "Would lift topic Agents.",
+        sourceName: "Agent Desk",
+        title: "Agent workflow gains memory",
+      },
+    ];
+
+    expect(
+      getNewsPreferenceTuningTrainingUpdate({
+        afterProfile: {
+          preferredCategories: ["model_release", "agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        suggestion: {
+          action: "add",
+          actionLabel: "Add topic",
+          detail: "1 saved/read signal points to Agents.",
+          evidence: ["Saved agent workflow"],
+          impactStories,
+          kind: "category",
+          label: "Add Agents",
+          signal: "agent_product",
+        },
+      }),
+    ).toEqual({
+      impactStories,
+      label: "Preference Tuned",
+      metrics: [
+        { label: "Added topics", value: "1" },
+        { label: "Added sources", value: "0" },
+        { label: "Added entities", value: "0" },
+        { label: "Added angles", value: "0" },
+        { label: "Impact", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "Preference tuning updates the For You profile before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Topic", value: "Agents" }],
+      summary: "Add topic tuned Agents in the For You profile.",
+      undoAction: {
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        suggestion: {
+          action: "add",
+          actionLabel: "Add topic",
+          detail: "1 saved/read signal points to Agents.",
+          evidence: ["Saved agent workflow"],
+          impactStories,
+          kind: "category",
+          label: "Add Agents",
+          signal: "agent_product",
+        },
+      },
+    });
+  });
+
+  it("summarizes undone preference tuning for the training loop", () => {
+    expect(
+      getNewsPreferenceTuningUndoTrainingUpdate({
+        afterProfile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release", "agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        suggestion: {
+          action: "add",
+          actionLabel: "Add topic",
+          detail: "1 saved/read signal points to Agents.",
+          evidence: ["Saved agent workflow"],
+          kind: "category",
+          label: "Add Agents",
+          signal: "agent_product",
+        },
+      }),
+    ).toEqual({
+      label: "Preference Undo",
+      metrics: [
+        { label: "Removed topics", value: "1" },
+        { label: "Removed sources", value: "0" },
+        { label: "Removed entities", value: "0" },
+        { label: "Removed angles", value: "0" },
+      ],
+      notices: [
+        {
+          detail:
+            "The preference tuning change was removed before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Topic", value: "Agents" }],
+      summary: "Undo tuning removed Agents from the For You profile.",
     });
   });
 });

@@ -33,6 +33,7 @@ import type {
   NewsFeedMode,
   NewsHomeItem,
   NewsHomeStatus,
+  NewsPreferenceBiasAction,
   NewsReaderMemoryItem,
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
@@ -74,6 +75,7 @@ import {
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHomeStoryActionPanel,
@@ -87,9 +89,13 @@ import {
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
   getNewsPreferenceControlPanel,
+  getNewsPreferenceBiasTrainingUpdate,
+  getNewsPreferenceBiasUndoTrainingUpdate,
   getNewsPreferencePresets,
   getNewsPreferenceStarter,
   getNewsPreferenceTuningPlan,
+  getNewsPreferenceTuningTrainingUpdate,
+  getNewsPreferenceTuningUndoTrainingUpdate,
   getNewsProductionReadinessChecklist,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
@@ -135,6 +141,7 @@ import {
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   revertNewsStoryQuickTuneAction,
+  selectActiveNewsGuardrailItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectNegativeFeedbackAdjustedNewsHomeItems,
@@ -157,6 +164,9 @@ type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
 type NewsStoryQuickTuneAction = ReturnType<
   typeof getNewsStoryQuickTuneActions
 >["actions"][number];
+type NewsPreferenceTuningSuggestion = ReturnType<
+  typeof getNewsPreferenceTuningPlan
+>["suggestions"][number];
 type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
   guardrailReviewAction?: {
     actionLabel: string;
@@ -170,6 +180,14 @@ type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
     sourceName: string;
     title: string;
   }[];
+  preferenceUndoAction?: {
+    beforeProfile: NewsPreferenceProfile;
+    suggestion: NewsPreferenceTuningSuggestion;
+  };
+  biasUndoAction?: {
+    action: NewsPreferenceBiasAction;
+    beforeProfile: NewsPreferenceProfile;
+  };
   undoAction?: NewsStoryQuickTuneAction;
 };
 type PositiveNewsHomeFeedbackItem = NewsHomeItem & {
@@ -237,6 +255,7 @@ const profileStorageKey = "new-ai-times-profile";
 const savedStorageKey = "new-ai-times-saved";
 const historyStorageKey = "new-ai-times-history";
 const guardrailStorageKey = "new-ai-times-guardrails";
+const restoredGuardrailStorageKey = "new-ai-times-restored-guardrails";
 const visitorStorageKey = "new-ai-times-visitor-key";
 const previewItems = getPreviewNewsHomeItems();
 
@@ -307,6 +326,33 @@ const writeStoredMemoryItems = (
   window.localStorage.setItem(storageKey, JSON.stringify(items));
 };
 
+const readStoredItemIds = (storageKey: string) => {
+  if (typeof window === "undefined") return [];
+
+  const stored = window.localStorage.getItem(storageKey);
+  if (!stored) return [];
+
+  try {
+    const parsed = JSON.parse(stored) as unknown;
+
+    return Array.isArray(parsed)
+      ? parsed.filter(
+          (itemId): itemId is string =>
+            typeof itemId === "string" && itemId.trim().length > 0,
+        )
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredItemIds = (
+  storageKey: string,
+  itemIds: readonly string[],
+) => {
+  window.localStorage.setItem(storageKey, JSON.stringify(itemIds));
+};
+
 const clearStoredMemoryItems = (storageKey: string) => {
   window.localStorage.removeItem(storageKey);
 };
@@ -353,9 +399,13 @@ const readStoredSavedItems = () => readStoredMemoryItems(savedStorageKey);
 const readStoredGuardrailItems = () =>
   readStoredMemoryItems(guardrailStorageKey);
 
+const readStoredRestoredGuardrailItemIds = () =>
+  readStoredItemIds(restoredGuardrailStorageKey);
+
 const clearReaderMemoryStorage = () => {
   clearStoredMemoryItems(guardrailStorageKey);
   clearStoredMemoryItems(historyStorageKey);
+  clearStoredMemoryItems(restoredGuardrailStorageKey);
   clearStoredMemoryItems(savedStorageKey);
 };
 
@@ -480,6 +530,9 @@ export function NewsHome({
   const [localGuardrailItems, setLocalGuardrailItems] = useState<
     NewsReaderMemoryItem[]
   >([]);
+  const [restoredGuardrailItemIds, setRestoredGuardrailItemIds] = useState<
+    string[]
+  >([]);
   const [loadedItems, setLoadedItems] = useState<NewsHomeItem[]>([]);
   const [hasMoreItems, setHasMoreItems] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -580,6 +633,7 @@ export function NewsHome({
         setLocalSavedItems([]);
         setNegativeFeedbackItems([]);
         setPositiveFeedbackItems([]);
+        setRestoredGuardrailItemIds([]);
         writeStoredProfile(nextProfile);
         clearReaderMemoryStorage();
         const invalidations = getNewsHomeReaderMemoryResetCacheScopes().map(
@@ -632,26 +686,54 @@ export function NewsHome({
   const recordHomeExposure = useMutation(
     trpc.news.recordInteraction.mutationOptions(),
   );
+  const restoreGuardrail = useMutation(
+    trpc.news.restoreGuardrail.mutationOptions({
+      onSuccess: async () => {
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
+        ]);
+      },
+    }),
+  );
   const serverRecommendedItems = forYouQuery.data;
-  const serverGuardrailItems = useMemo(
+  const rawServerGuardrailItems = useMemo(
     () => guardrailsQuery.data ?? [],
     [guardrailsQuery.data],
+  );
+  const serverGuardrailItems = useMemo(
+    () =>
+      selectActiveNewsGuardrailItems({
+        guardrailItems: rawServerGuardrailItems,
+        restoredItemIds: restoredGuardrailItemIds,
+      }),
+    [rawServerGuardrailItems, restoredGuardrailItemIds],
+  );
+  const activeLocalGuardrailItems = useMemo(
+    () =>
+      selectActiveNewsGuardrailItems({
+        guardrailItems: localGuardrailItems,
+        restoredItemIds: restoredGuardrailItemIds,
+      }),
+    [localGuardrailItems, restoredGuardrailItemIds],
   );
   const hiddenNewsHomeItems = useMemo(
     () =>
       mergeNewsHomeItems({
-        currentItems: negativeFeedbackItems,
+        currentItems: negativeFeedbackItems.filter(
+          (item) => !restoredGuardrailItemIds.includes(item.id),
+        ),
         nextItems: serverGuardrailItems,
       }),
-    [negativeFeedbackItems, serverGuardrailItems],
+    [negativeFeedbackItems, restoredGuardrailItemIds, serverGuardrailItems],
   );
   const guardrailItems = useMemo(
     () =>
       mergeNewsReaderMemoryItems({
-        localItems: localGuardrailItems,
+        localItems: activeLocalGuardrailItems,
         serverItems: serverGuardrailItems,
       }),
-    [localGuardrailItems, serverGuardrailItems],
+    [activeLocalGuardrailItems, serverGuardrailItems],
   );
   const effectiveHiddenItemIds = useMemo(
     () =>
@@ -689,12 +771,22 @@ export function NewsHome({
 
   useEffect(() => {
     const storedGuardrails = readStoredGuardrailItems();
+    const storedRestoredGuardrailItemIds =
+      readStoredRestoredGuardrailItemIds();
+    const storedRestoredGuardrailIds = new Set(
+      storedRestoredGuardrailItemIds,
+    );
 
     setProfile(readStoredProfile());
     setLocalHistoryItems(readStoredHistoryItems());
     setLocalSavedItems(readStoredSavedItems());
     setLocalGuardrailItems(storedGuardrails);
-    setHiddenItemIds(storedGuardrails.map((item) => item.id));
+    setRestoredGuardrailItemIds(storedRestoredGuardrailItemIds);
+    setHiddenItemIds(
+      storedGuardrails
+        .filter((item) => !storedRestoredGuardrailIds.has(item.id))
+        .map((item) => item.id),
+    );
     setVisitorKey(readOrCreateVisitorKey());
     setReaderLocalHour(new Date().getHours());
     setReaderStateHydrated(true);
@@ -788,6 +880,14 @@ export function NewsHome({
     const occurredAt = new Date().toISOString();
 
     if (action === "hide") {
+      setRestoredGuardrailItemIds((current) => {
+        if (!current.includes(item.id)) return current;
+
+        const nextIds = current.filter((itemId) => itemId !== item.id);
+
+        writeStoredItemIds(restoredGuardrailStorageKey, nextIds);
+        return nextIds;
+      });
       setHiddenItemIds((current) =>
         current.includes(item.id) ? current : [...current, item.id],
       );
@@ -852,6 +952,44 @@ export function NewsHome({
     }
   };
 
+  const restoreGuardrailItem = (item: NewsReaderMemoryItem) => {
+    setRestoredGuardrailItemIds((current) => {
+      const nextIds = current.includes(item.id)
+        ? current
+        : [...current, item.id];
+
+      writeStoredItemIds(restoredGuardrailStorageKey, nextIds);
+      return nextIds;
+    });
+    setHiddenItemIds((current) =>
+      current.filter((itemId) => itemId !== item.id),
+    );
+    setLocalGuardrailItems((current) => {
+      const nextItems = current.filter(
+        (guardrailItem) => guardrailItem.id !== item.id,
+      );
+
+      writeStoredMemoryItems(guardrailStorageKey, nextItems);
+      return nextItems;
+    });
+    setNegativeFeedbackItems((current) =>
+      current.filter((feedbackItem) => feedbackItem.id !== item.id),
+    );
+    setTrainingUpdate(
+      getNewsGuardrailRestoreTrainingUpdate({
+        formatCategory: getCategoryLabel,
+        item,
+      }),
+    );
+
+    if (visitorKey && canPersistProfile && !isPreview) {
+      restoreGuardrail.mutate({
+        visitorKey,
+        newsItemId: item.id,
+      });
+    }
+  };
+
   const applyStoryQuickTuneAction = (action: NewsStoryQuickTuneAction) => {
     const beforeProfile = profile;
     const afterProfile = applyNewsStoryQuickTuneAction({
@@ -887,6 +1025,132 @@ export function NewsHome({
         afterProfile,
         beforeProfile,
         formatCategory: getCategoryLabel,
+      }),
+    );
+  };
+
+  const applyPreferenceTuningSuggestion = (
+    suggestion: NewsPreferenceTuningSuggestion,
+  ) => {
+    const beforeProfile = profile;
+    const afterProfile = (() => {
+      if (suggestion.action === "explore") {
+        return {
+          ...beforeProfile,
+          noveltyBias: increaseProfileBias(beforeProfile.noveltyBias),
+        };
+      }
+
+      if (suggestion.kind === "category") {
+        return {
+          ...beforeProfile,
+          preferredCategories:
+            suggestion.action === "reduce"
+              ? removeValue(beforeProfile.preferredCategories, suggestion.signal)
+              : addValue(beforeProfile.preferredCategories, suggestion.signal),
+        };
+      }
+
+      if (suggestion.kind === "source") {
+        return {
+          ...beforeProfile,
+          preferredSources:
+            suggestion.action === "reduce"
+              ? removeValue(beforeProfile.preferredSources, suggestion.signal)
+              : addValue(beforeProfile.preferredSources, suggestion.signal),
+        };
+      }
+
+      if (suggestion.kind === "entity" || suggestion.kind === "tag") {
+        return {
+          ...beforeProfile,
+          preferredEntities:
+            suggestion.action === "reduce"
+              ? removeValue(beforeProfile.preferredEntities, suggestion.signal)
+              : addValue(beforeProfile.preferredEntities, suggestion.signal),
+        };
+      }
+
+      return beforeProfile;
+    })();
+
+    commitProfile(() => afterProfile);
+    const trainingUpdate = getNewsPreferenceTuningTrainingUpdate({
+      afterProfile,
+      beforeProfile,
+      formatCategory: getCategoryLabel,
+      suggestion,
+    });
+    const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
+
+    setTrainingUpdate({
+      ...visibleTrainingUpdate,
+      ...(undoAction ? { preferenceUndoAction: undoAction } : {}),
+    });
+  };
+
+  const undoPreferenceTuningSuggestion = ({
+    beforeProfile,
+    suggestion,
+  }: NonNullable<NewsTrainingUpdate["preferenceUndoAction"]>) => {
+    const currentProfile = profile;
+
+    commitProfile(() => beforeProfile);
+    setTrainingUpdate(
+      getNewsPreferenceTuningUndoTrainingUpdate({
+        afterProfile: beforeProfile,
+        beforeProfile: currentProfile,
+        formatCategory: getCategoryLabel,
+        suggestion,
+      }),
+    );
+  };
+
+  const applyPreferenceBiasAction = (action: NewsPreferenceBiasAction) => {
+    const beforeProfile = profile;
+    const afterProfile =
+      action.key === "recencyBias"
+        ? {
+            ...beforeProfile,
+            recencyBias:
+              action.direction === "raise"
+                ? increaseProfileBias(beforeProfile.recencyBias)
+                : decreaseProfileBias(beforeProfile.recencyBias),
+          }
+        : {
+            ...beforeProfile,
+            noveltyBias:
+              action.direction === "raise"
+                ? increaseProfileBias(beforeProfile.noveltyBias)
+                : decreaseProfileBias(beforeProfile.noveltyBias),
+          };
+
+    commitProfile(() => afterProfile);
+    const trainingUpdate = getNewsPreferenceBiasTrainingUpdate({
+      action,
+      afterProfile,
+      beforeProfile,
+    });
+    const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
+
+    setTrainingUpdate({
+      ...visibleTrainingUpdate,
+      biasUndoAction: undoAction,
+    });
+  };
+
+  const undoPreferenceBiasAction = ({
+    action,
+    beforeProfile,
+  }: NonNullable<NewsTrainingUpdate["biasUndoAction"]>) => {
+    const currentProfile = profile;
+
+    commitProfile(() => beforeProfile);
+    setTrainingUpdate(
+      getNewsPreferenceBiasUndoTrainingUpdate({
+        action,
+        afterProfile: beforeProfile,
+        beforeProfile: currentProfile,
       }),
     );
   };
@@ -930,6 +1194,7 @@ export function NewsHome({
     setLocalSavedItems([]);
     setNegativeFeedbackItems([]);
     setPositiveFeedbackItems([]);
+    setRestoredGuardrailItemIds([]);
     setReviewHiddenAngleQuery("");
     clearReaderMemoryStorage();
     setTrainingUpdate(
@@ -1216,6 +1481,9 @@ export function NewsHome({
     guardrailItems,
     positiveItems: [...savedItems, ...historyItems],
   });
+  const guardrailItemsById = new Map(
+    guardrailItems.map((item) => [item.id, item]),
+  );
   const readerJourneyMap = getNewsReaderJourneyMap({
     formatCategory: getCategoryLabel,
     historyItems,
@@ -1479,6 +1747,7 @@ export function NewsHome({
   const preferenceTuningPlan = getNewsPreferenceTuningPlan({
     formatCategory: getCategoryLabel,
     historyItems,
+    impactLimit: 2,
     items: rankedItems,
     limit: 4,
     negativeFeedbackItems,
@@ -3342,21 +3611,11 @@ export function NewsHome({
                         type="button"
                         variant="outline"
                         onClick={() =>
-                          commitProfile((current) =>
-                            control.key === "recencyBias"
-                              ? {
-                                  ...current,
-                                  recencyBias: decreaseProfileBias(
-                                    current.recencyBias,
-                                  ),
-                                }
-                              : {
-                                  ...current,
-                                  noveltyBias: decreaseProfileBias(
-                                    current.noveltyBias,
-                                  ),
-                                },
-                          )
+                          applyPreferenceBiasAction({
+                            direction: "lower",
+                            key: control.key,
+                            label: control.label,
+                          })
                         }
                       >
                         Lower
@@ -3366,21 +3625,11 @@ export function NewsHome({
                         type="button"
                         variant="outline"
                         onClick={() =>
-                          commitProfile((current) =>
-                            control.key === "recencyBias"
-                              ? {
-                                  ...current,
-                                  recencyBias: increaseProfileBias(
-                                    current.recencyBias,
-                                  ),
-                                }
-                              : {
-                                  ...current,
-                                  noveltyBias: increaseProfileBias(
-                                    current.noveltyBias,
-                                  ),
-                                },
-                          )
+                          applyPreferenceBiasAction({
+                            direction: "raise",
+                            key: control.key,
+                            label: control.label,
+                          })
                         }
                       >
                         Raise
@@ -3714,6 +3963,25 @@ export function NewsHome({
                             Evidence: {suggestion.evidence.join(" / ")}
                           </div>
                         ) : null}
+                        {"impactStories" in suggestion &&
+                        suggestion.impactStories.length > 0 ? (
+                          <div className="mt-3 grid gap-2">
+                            {suggestion.impactStories.map((story) => (
+                              <Link
+                                key={`${suggestion.action}-${suggestion.kind}-${suggestion.signal}-${story.id}`}
+                                className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                <span className="truncate font-semibold">
+                                  {story.title}
+                                </span>
+                                <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                  {story.sourceName} / {story.reason}
+                                </span>
+                              </Link>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                       <Button
                         className="h-8 rounded-none px-2 text-xs whitespace-nowrap"
@@ -3721,69 +3989,7 @@ export function NewsHome({
                         type="button"
                         variant="outline"
                         onClick={() =>
-                          commitProfile((current) => {
-                            if (suggestion.action === "explore") {
-                              return {
-                                ...current,
-                                noveltyBias: increaseProfileBias(
-                                  current.noveltyBias,
-                                ),
-                              };
-                            }
-
-                            if (suggestion.kind === "category") {
-                              return {
-                                ...current,
-                                preferredCategories:
-                                  suggestion.action === "reduce"
-                                    ? removeValue(
-                                        current.preferredCategories,
-                                        suggestion.signal,
-                                      )
-                                    : addValue(
-                                        current.preferredCategories,
-                                        suggestion.signal,
-                                      ),
-                              };
-                            }
-
-                            if (suggestion.kind === "source") {
-                              return {
-                                ...current,
-                                preferredSources:
-                                  suggestion.action === "reduce"
-                                    ? removeValue(
-                                        current.preferredSources,
-                                        suggestion.signal,
-                                      )
-                                    : addValue(
-                                        current.preferredSources,
-                                        suggestion.signal,
-                                      ),
-                              };
-                            }
-
-                            if (
-                              suggestion.kind === "entity" ||
-                              suggestion.kind === "tag"
-                            ) {
-                              return {
-                                ...current,
-                                preferredEntities:
-                                  suggestion.action === "reduce"
-                                    ? removeValue(
-                                        current.preferredEntities,
-                                        suggestion.signal,
-                                      )
-                                    : addValue(
-                                        current.preferredEntities,
-                                        suggestion.signal,
-                                      ),
-                              };
-                            }
-
-                            return current;
-                          })
+                          applyPreferenceTuningSuggestion(suggestion)
                         }
                       >
                         {suggestion.actionLabel}
@@ -6007,6 +6213,40 @@ export function NewsHome({
                     Undo tune
                   </Button>
                 ) : null}
+                {trainingUpdate?.preferenceUndoAction ? (
+                  <Button
+                    className="mt-3 h-8 rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const undoAction = trainingUpdate.preferenceUndoAction;
+
+                      if (!undoAction) return;
+
+                      undoPreferenceTuningSuggestion(undoAction);
+                    }}
+                  >
+                    Undo tuning
+                  </Button>
+                ) : null}
+                {trainingUpdate?.biasUndoAction ? (
+                  <Button
+                    className="mt-3 h-8 rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const undoAction = trainingUpdate.biasUndoAction;
+
+                      if (!undoAction) return;
+
+                      undoPreferenceBiasAction(undoAction);
+                    }}
+                  >
+                    Undo bias
+                  </Button>
+                ) : null}
                 {trainingUpdate?.guardrailReviewAction ? (
                   <Button
                     className="mt-2 h-8 rounded-none px-2 text-xs"
@@ -7079,27 +7319,48 @@ export function NewsHome({
             <div className="mt-4 grid gap-3">
               {guardrailShelf.items.length > 0 ? (
                 guardrailShelf.items.map((item) => (
-                  <Link
+                  <div
                     key={item.id}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
+                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
                   >
-                    <span className="leading-5 font-semibold">
-                      {item.title}
-                    </span>
-                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {[
-                        item.sourceName,
-                        item.categoryLabel,
-                        item.angleLabel,
-                        `Less ${
-                          item.hiddenAt ? formatTime(item.hiddenAt) : "recently"
-                        }`,
-                      ]
-                        .filter(Boolean)
-                        .join(" / ")}
-                    </span>
-                  </Link>
+                    <Link
+                      className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                      href={`/news/${item.id}`}
+                    >
+                      <span className="leading-5 font-semibold">
+                        {item.title}
+                      </span>
+                      <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                        {[
+                          item.sourceName,
+                          item.categoryLabel,
+                          item.angleLabel,
+                          `Less ${
+                            item.hiddenAt
+                              ? formatTime(item.hiddenAt)
+                              : "recently"
+                          }`,
+                        ]
+                          .filter(Boolean)
+                          .join(" / ")}
+                      </span>
+                    </Link>
+                    <Button
+                      className="h-8 rounded-none px-2 text-xs whitespace-nowrap"
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        const guardrailItem = guardrailItemsById.get(item.id);
+
+                        if (!guardrailItem) return;
+
+                        restoreGuardrailItem(guardrailItem);
+                      }}
+                    >
+                      Restore
+                    </Button>
+                  </div>
                 ))
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">

@@ -1227,6 +1227,18 @@ export const mergeNewsReaderMemoryItems = ({
     .slice(0, limit);
 };
 
+export const selectActiveNewsGuardrailItems = <Item extends { id: string }>({
+  guardrailItems,
+  restoredItemIds,
+}: {
+  guardrailItems: readonly Item[];
+  restoredItemIds: readonly string[];
+}) => {
+  const restoredIds = new Set(restoredItemIds);
+
+  return guardrailItems.filter((item) => !restoredIds.has(item.id));
+};
+
 const isStoredNewsReaderMemoryRecord = (
   value: unknown,
 ): value is Record<string, unknown> =>
@@ -1522,6 +1534,39 @@ const getNewsGuardrailReviewPriorityLabel = ({
     : positiveCount === hiddenCount
       ? "Balanced conflict"
       : "Watch conflict";
+
+export const getNewsGuardrailRestoreTrainingUpdate = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: NewsReaderMemoryItem;
+}) => {
+  const categoryLabel = formatCategory(item.category);
+  const angleLabel = getNewsGuardrailShelfAngleLabels(item)[0];
+
+  return {
+    label: "Less Restored",
+    metrics: [
+      { label: "Guardrails", value: "-1" },
+      { label: "Topic", value: categoryLabel },
+      { label: "Source", value: item.sourceName },
+    ],
+    notices: [
+      {
+        detail:
+          "This story can appear again, and its topic, source, and entities stop acting as a Less guardrail on this device.",
+        label: "Reader control",
+      },
+    ],
+    signals: [
+      { label: "Topic", value: categoryLabel },
+      { label: "Source", value: item.sourceName },
+      ...(angleLabel ? [{ label: "Angle", value: angleLabel }] : []),
+    ],
+    summary: `Restored ${item.title} from Less feedback.`,
+  };
+};
 
 export const getNewsGuardrailShelf = ({
   formatCategory,
@@ -4297,7 +4342,12 @@ export const getNewsPreferenceControlPanel = ({
         label: "Novel",
         value: formatPreferenceControlBias(normalizedProfile.noveltyBias),
       },
-    ],
+    ] satisfies {
+      detail: string;
+      key: NewsPreferenceBiasKey;
+      label: string;
+      value: string;
+    }[],
     groups: [
       {
         emptyLabel: "No topics followed",
@@ -4361,6 +4411,98 @@ export const getNewsPreferenceControlPanel = ({
             activeSignalCount === 1 ? "signal" : "signals"
           } with ${biasMode} ranking bias.`
         : "Manual controls are ready. Follow topics, sources, or entities to steer For You.",
+  };
+};
+
+export type NewsPreferenceBiasKey = "noveltyBias" | "recencyBias";
+
+export interface NewsPreferenceBiasAction {
+  direction: "lower" | "raise";
+  key: NewsPreferenceBiasKey;
+  label: string;
+}
+
+const getPreferenceBiasValue = (
+  profile: NewsPreferenceProfile,
+  key: NewsPreferenceBiasKey,
+) =>
+  key === "recencyBias"
+    ? formatPreferenceControlBias(profile.recencyBias)
+    : formatPreferenceControlBias(profile.noveltyBias);
+
+const getPreferenceBiasMetrics = (profile: NewsPreferenceProfile) => [
+  { label: "Fresh", value: formatPreferenceControlBias(profile.recencyBias) },
+  { label: "Novel", value: formatPreferenceControlBias(profile.noveltyBias) },
+];
+
+export const getNewsPreferenceBiasTrainingUpdate = ({
+  action,
+  afterProfile,
+  beforeProfile,
+}: {
+  action: NewsPreferenceBiasAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+}) => {
+  const signalValue = getPreferenceBiasValue(afterProfile, action.key);
+  const actionLabel = action.direction === "raise" ? "Raise" : "Lower";
+
+  return {
+    label: "Bias Tuned",
+    metrics: [
+      ...getPreferenceBiasMetrics(afterProfile),
+      {
+        label: "Bias shift",
+        value: formatFeedbackBiasShift(beforeProfile, afterProfile),
+      },
+    ],
+    notices: [
+      {
+        detail:
+          "Manual bias tuning updates the For You ranker before the next pass.",
+        label: "Reader control",
+      },
+    ],
+    signals: [{ label: action.label, value: signalValue }],
+    summary: `${actionLabel} ${action.label} tuned ${
+      action.key === "recencyBias" ? "freshness" : "novelty"
+    } bias to ${signalValue}.`,
+    undoAction: {
+      action,
+      beforeProfile,
+    },
+  };
+};
+
+export const getNewsPreferenceBiasUndoTrainingUpdate = ({
+  action,
+  afterProfile,
+  beforeProfile,
+}: {
+  action: NewsPreferenceBiasAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+}) => {
+  const signalValue = getPreferenceBiasValue(afterProfile, action.key);
+
+  return {
+    label: "Bias Undo",
+    metrics: [
+      ...getPreferenceBiasMetrics(afterProfile),
+      {
+        label: "Bias shift",
+        value: formatFeedbackBiasShift(beforeProfile, afterProfile),
+      },
+    ],
+    notices: [
+      {
+        detail:
+          "The manual bias change was removed before the next ranking pass.",
+        label: "Reader control",
+      },
+    ],
+    signals: [{ label: action.label, value: signalValue }],
+    summary: `Undo bias restored ${action.label} to ${signalValue}.`,
   };
 };
 
@@ -5354,6 +5496,104 @@ const createPreferenceTuningSuggestion = ({
   signal,
 });
 
+const toPreferenceTuningImpactStory = ({
+  item,
+  reason,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  reason: string;
+}) => ({
+  id: item.id,
+  reason,
+  sourceName: item.sourceName,
+  title: item.title,
+});
+
+const getPreferenceTuningImpactReason = ({
+  formatCategory,
+  item,
+  suggestion,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  suggestion: ReturnType<typeof createPreferenceTuningSuggestion>;
+}) => {
+  if (suggestion.action !== "add" && suggestion.action !== "reduce") {
+    return null;
+  }
+
+  const direction = suggestion.action === "add" ? "lift" : "dampen";
+
+  if (
+    suggestion.kind === "category" &&
+    normalizePreferenceSignal(item.category) ===
+      normalizePreferenceSignal(suggestion.signal)
+  ) {
+    return `Would ${direction} topic ${formatCategory(suggestion.signal)}.`;
+  }
+
+  if (
+    suggestion.kind === "source" &&
+    normalizePreferenceSignal(item.sourceSlug) ===
+      normalizePreferenceSignal(suggestion.signal)
+  ) {
+    return `Would ${direction} source ${item.sourceName}.`;
+  }
+
+  if (
+    suggestion.kind === "entity" &&
+    item.entities.some(
+      (entity) =>
+        normalizePreferenceSignal(entity) ===
+        normalizePreferenceSignal(suggestion.signal),
+    )
+  ) {
+    return `Would ${direction} entity ${suggestion.signal}.`;
+  }
+
+  if (
+    suggestion.kind === "tag" &&
+    item.tags.some(
+      (tag) =>
+        isSpecificNewsAngleTag(tag) &&
+        getNewsAngleSignalKey(tag) ===
+          getNewsAngleSignalKey(suggestion.signal),
+    )
+  ) {
+    return `Would ${direction} angle ${formatNewsAngleQuery(
+      suggestion.signal,
+    )}.`;
+  }
+
+  return null;
+};
+
+const getPreferenceTuningImpactStories = ({
+  formatCategory,
+  impactLimit,
+  items,
+  suggestion,
+}: {
+  formatCategory: (category: string) => string;
+  impactLimit: number;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  suggestion: ReturnType<typeof createPreferenceTuningSuggestion>;
+}) => {
+  if (impactLimit <= 0) return [];
+
+  return items
+    .flatMap((item) => {
+      const reason = getPreferenceTuningImpactReason({
+        formatCategory,
+        item,
+        suggestion,
+      });
+
+      return reason ? [toPreferenceTuningImpactStory({ item, reason })] : [];
+    })
+    .slice(0, impactLimit);
+};
+
 const getPreferenceTuningSupportedCategory = ({
   formatCategory,
   items,
@@ -5448,6 +5688,7 @@ const getPreferenceTuningBehaviorStores = ({
 export const getNewsPreferenceTuningPlan = ({
   formatCategory,
   historyItems,
+  impactLimit = 0,
   items,
   limit,
   negativeFeedbackItems,
@@ -5456,6 +5697,7 @@ export const getNewsPreferenceTuningPlan = ({
 }: {
   formatCategory: (category: string) => string;
   historyItems: readonly NewsReaderMemoryItem[];
+  impactLimit?: number;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
@@ -5645,7 +5887,20 @@ export const getNewsPreferenceTuningPlan = ({
     );
   }
 
-  const visibleSuggestions = suggestions.slice(0, Math.max(0, limit));
+  const visibleSuggestions = suggestions
+    .slice(0, Math.max(0, limit))
+    .map((suggestion) => {
+      const impactStories = getPreferenceTuningImpactStories({
+        formatCategory,
+        impactLimit,
+        items,
+        suggestion,
+      });
+
+      return impactStories.length > 0
+        ? { ...suggestion, impactStories }
+        : suggestion;
+    });
   const metrics = [
     { label: "Active signals", value: String(activeSignalCount) },
     { label: "Behavior", value: String(behaviorCount) },
@@ -5679,6 +5934,245 @@ export const getNewsPreferenceTuningPlan = ({
             guardrailCount === 1 ? "guardrail" : "guardrails"
           }.`
         : "Current profile signals are stable against the latest behavior.",
+  };
+};
+
+const getPreferenceTuningSignalLabel = (kind: NewsPreferenceTuningKind) => {
+  if (kind === "category") return "Topic";
+  if (kind === "source") return "Source";
+  if (kind === "entity") return "Entity";
+  if (kind === "tag") return "Angle";
+  return "Bias";
+};
+
+const getPreferenceTuningSignalValue = ({
+  formatCategory,
+  suggestion,
+}: {
+  formatCategory: (category: string) => string;
+  suggestion: ReturnType<typeof createPreferenceTuningSuggestion>;
+}) => {
+  if (suggestion.kind === "category") return formatCategory(suggestion.signal);
+  if (suggestion.kind === "tag") return formatNewsAngleQuery(suggestion.signal);
+  if (suggestion.kind === "bias") return suggestion.label;
+
+  return suggestion.label.replace(/^(Add|Reduce|Keep)\s+/u, "");
+};
+
+export const getNewsPreferenceTuningTrainingUpdate = ({
+  afterProfile,
+  beforeProfile,
+  formatCategory,
+  suggestion,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+  formatCategory: (category: string) => string;
+  suggestion: ReturnType<typeof createPreferenceTuningSuggestion> & {
+    impactStories?: ReturnType<typeof toPreferenceTuningImpactStory>[];
+  };
+}) => {
+  const categoryDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredCategories,
+    before: beforeProfile.preferredCategories,
+  });
+  const sourceDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredSources,
+    before: beforeProfile.preferredSources,
+  });
+  const entityDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredEntities,
+    before: beforeProfile.preferredEntities,
+  });
+  const addedAngles = entityDelta.added.filter(isNewsReaderAngleSignal);
+  const addedNamedEntities = entityDelta.added.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
+  const removedAngles = entityDelta.removed.filter(isNewsReaderAngleSignal);
+  const removedNamedEntities = entityDelta.removed.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
+  const signalValue = getPreferenceTuningSignalValue({
+    formatCategory,
+    suggestion,
+  });
+  const impactStories = suggestion.impactStories ?? [];
+  const metrics =
+    suggestion.action === "reduce"
+      ? [
+          {
+            label: "Removed topics",
+            value: String(categoryDelta.removed.length),
+          },
+          {
+            label: "Removed sources",
+            value: String(sourceDelta.removed.length),
+          },
+          {
+            label: "Removed entities",
+            value: String(removedNamedEntities.length),
+          },
+          {
+            label: "Removed angles",
+            value: String(removedAngles.length),
+          },
+        ]
+      : suggestion.action === "explore"
+        ? [
+            {
+              label: "Bias shift",
+              value: formatFeedbackBiasShift(beforeProfile, afterProfile),
+            },
+          ]
+        : [
+            {
+              label: "Added topics",
+              value: String(categoryDelta.added.length),
+            },
+            {
+              label: "Added sources",
+              value: String(sourceDelta.added.length),
+            },
+            {
+              label: "Added entities",
+              value: String(addedNamedEntities.length),
+            },
+            {
+              label: "Added angles",
+              value: String(addedAngles.length),
+            },
+          ];
+
+  return {
+    label:
+      suggestion.action === "keep" ? "Preference Stable" : "Preference Tuned",
+    metrics: [
+      ...metrics,
+      ...(impactStories.length > 0
+        ? [{ label: "Impact", value: String(impactStories.length) }]
+        : []),
+    ],
+    notices: [
+      {
+        detail:
+          suggestion.action === "keep"
+            ? "Preference tuning kept the current For You profile unchanged."
+            : "Preference tuning updates the For You profile before the next ranking pass.",
+        label: "Reader control",
+      },
+    ],
+    signals: [
+      {
+        label: getPreferenceTuningSignalLabel(suggestion.kind),
+        value: signalValue,
+      },
+    ],
+    summary:
+      suggestion.action === "keep"
+        ? `${suggestion.actionLabel} kept ${signalValue} in the For You profile.`
+        : `${suggestion.actionLabel} tuned ${signalValue} in the For You profile.`,
+    ...(impactStories.length > 0 ? { impactStories } : {}),
+    ...(suggestion.action !== "keep"
+      ? { undoAction: { beforeProfile, suggestion } }
+      : {}),
+  };
+};
+
+export const getNewsPreferenceTuningUndoTrainingUpdate = ({
+  afterProfile,
+  beforeProfile,
+  formatCategory,
+  suggestion,
+}: {
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+  formatCategory: (category: string) => string;
+  suggestion: ReturnType<typeof createPreferenceTuningSuggestion>;
+}) => {
+  const categoryDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredCategories,
+    before: beforeProfile.preferredCategories,
+  });
+  const sourceDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredSources,
+    before: beforeProfile.preferredSources,
+  });
+  const entityDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredEntities,
+    before: beforeProfile.preferredEntities,
+  });
+  const removedAngles = entityDelta.removed.filter(isNewsReaderAngleSignal);
+  const removedNamedEntities = entityDelta.removed.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
+  const signalValue = getPreferenceTuningSignalValue({
+    formatCategory,
+    suggestion,
+  });
+
+  return {
+    label: "Preference Undo",
+    metrics:
+      suggestion.action === "reduce"
+        ? [
+            {
+              label: "Added topics",
+              value: String(categoryDelta.added.length),
+            },
+            {
+              label: "Added sources",
+              value: String(sourceDelta.added.length),
+            },
+            {
+              label: "Added entities",
+              value: String(
+                entityDelta.added.filter(
+                  (signal) => !isNewsReaderAngleSignal(signal),
+                ).length,
+              ),
+            },
+            {
+              label: "Added angles",
+              value: String(
+                entityDelta.added.filter(isNewsReaderAngleSignal).length,
+              ),
+            },
+          ]
+        : [
+            {
+              label: "Removed topics",
+              value: String(categoryDelta.removed.length),
+            },
+            {
+              label: "Removed sources",
+              value: String(sourceDelta.removed.length),
+            },
+            {
+              label: "Removed entities",
+              value: String(removedNamedEntities.length),
+            },
+            {
+              label: "Removed angles",
+              value: String(removedAngles.length),
+            },
+          ],
+    notices: [
+      {
+        detail:
+          "The preference tuning change was removed before the next ranking pass.",
+        label: "Reader control",
+      },
+    ],
+    signals: [
+      {
+        label: getPreferenceTuningSignalLabel(suggestion.kind),
+        value: signalValue,
+      },
+    ],
+    summary:
+      suggestion.action === "reduce"
+        ? `Undo tuning restored ${signalValue} in the For You profile.`
+        : `Undo tuning removed ${signalValue} from the For You profile.`,
   };
 };
 

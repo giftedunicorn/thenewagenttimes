@@ -5,7 +5,10 @@ import { Stack, useGlobalSearchParams } from "expo-router";
 import { useMutation, useQuery } from "@tanstack/react-query";
 
 import { trpc } from "~/utils/api";
-import { readOrCreateNewsVisitorKey } from "~/utils/news-reader";
+import {
+  getExpoNewsArticleSourceUrl,
+  readOrCreateNewsVisitorKey,
+} from "~/utils/news-reader";
 
 const formatCategory = (category: string) =>
   category
@@ -74,6 +77,10 @@ export default function NewsArticle() {
   const recordSourceClick = () => {
     if (!article) return;
 
+    const sourceUrl = getExpoNewsArticleSourceUrl(article);
+
+    if (!sourceUrl) return;
+
     if (visitorKey) {
       recordInteraction.mutate({
         action: "click_source",
@@ -85,7 +92,7 @@ export default function NewsArticle() {
       });
     }
 
-    void Linking.openURL(article.originalUrl);
+    void Linking.openURL(sourceUrl);
   };
 
   return (

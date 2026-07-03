@@ -13,3 +13,18 @@ export const readOrCreateNewsVisitorKey = async () => {
   await SecureStore.setItemAsync(newsVisitorKey, next);
   return next;
 };
+
+export const getExpoNewsArticleSourceUrl = (article: {
+  canonicalUrl?: string | null;
+  originalUrl?: string | null;
+}) => {
+  const canonicalUrl = article.canonicalUrl?.trim();
+
+  if (canonicalUrl) return canonicalUrl;
+
+  const originalUrl = article.originalUrl?.trim();
+
+  if (originalUrl) return originalUrl;
+
+  return null;
+};

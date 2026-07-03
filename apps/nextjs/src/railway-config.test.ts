@@ -191,9 +191,11 @@ describe("Railway Next.js deployment config", () => {
     );
 
     expect(expoArticleRoute).toContain("recordSourceClick");
+    expect(expoArticleRoute).toContain("getExpoNewsArticleSourceUrl");
+    expect(expoArticleRoute).toContain("const sourceUrl =");
     expect(expoArticleRoute).toContain('action: "click_source"');
     expect(expoArticleRoute).toContain('surface: "article_source"');
-    expect(expoArticleRoute).toContain("Linking.openURL(article.originalUrl)");
+    expect(expoArticleRoute).toContain("Linking.openURL(sourceUrl)");
   });
 
   test("Next.js home renders coverage-thread verification status", async () => {

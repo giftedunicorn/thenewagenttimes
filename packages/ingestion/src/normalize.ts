@@ -107,6 +107,13 @@ const policyTokens = [
   "white house",
 ] as const;
 
+const policyAngleTags = [
+  { tag: "ai_act", tokens: ["ai act"] },
+  { tag: "executive_order", tokens: ["executive order"] },
+  { tag: "export_controls", tokens: ["export control", "export controls"] },
+  { tag: "copyright", tokens: ["copyright"] },
+] as const;
+
 const securityTokens = [
   "attack",
   "cybersecurity",
@@ -118,6 +125,12 @@ const securityTokens = [
   "vulnerability",
 ] as const;
 
+const securityAngleTags = [
+  { tag: "jailbreak", tokens: ["jailbreak"] },
+  { tag: "vulnerability", tokens: ["vulnerability"] },
+  { tag: "exploit", tokens: ["exploit"] },
+] as const;
+
 const openSourceTokens = [
   "apache license",
   "github",
@@ -125,6 +138,13 @@ const openSourceTokens = [
   "open source",
   "open-source",
   "oss",
+] as const;
+
+const openSourceAngleTags = [
+  { tag: "open_weights", tokens: ["model weights", "open weights", "weights"] },
+  { tag: "apache_license", tokens: ["apache license"] },
+  { tag: "mit_license", tokens: ["mit license"] },
+  { tag: "github_repo", tokens: ["github", "repository", "repo"] },
 ] as const;
 
 const codingAgentTokens = [
@@ -138,6 +158,16 @@ const codingAgentTokens = [
   "repo automation",
   "repository automation",
   "windsurf",
+] as const;
+
+const agentProductAngleTags = [
+  { tag: "browser_agent", tokens: ["browser agent", "browser agents"] },
+  {
+    tag: "workflow_automation",
+    tokens: ["workflow", "workflows", "workflow automation"],
+  },
+  { tag: "enterprise_agent", tokens: ["enterprise"] },
+  { tag: "computer_use", tokens: ["computer use", "computer-use"] },
 ] as const;
 
 const developerToolTokens = [
@@ -164,9 +194,43 @@ const toolUseTokens = [
 const localInferenceTokens = [
   "local inference",
   "local-inference",
+  "local llm",
+  "local llms",
+  "local model",
+  "local models",
   "on-device",
   "on device",
 ] as const;
+
+const modelReleaseAngleTags = [
+  { tag: "reasoning", tokens: ["reasoning"] },
+  { tag: "api_release", tokens: ["api"] },
+  { tag: "multimodal", tokens: ["audio", "multimodal", "vision"] },
+  { tag: "pricing", tokens: ["price", "pricing", "token price"] },
+] as const;
+
+const fundingRoundTokens = [
+  "funding",
+  "raise",
+  "raises",
+  "raised",
+  "seed",
+  "series a",
+  "series b",
+  "series c",
+] as const;
+
+const fundingRoundTagTokens = [...fundingRoundTokens, "round"] as const;
+
+const seedRoundTokens = ["pre-seed", "seed"] as const;
+
+const fundingStageTags = [
+  { tag: "series_a_round", tokens: ["series a"] },
+  { tag: "series_b_round", tokens: ["series b"] },
+  { tag: "series_c_round", tokens: ["series c"] },
+] as const;
+
+const valuationTokens = ["valuation", "valued at"] as const;
 
 const marketMapTokens = [
   "gpu cloud",
@@ -288,16 +352,7 @@ export const inferNewsCategory = (input: {
   if (hasAnyToken(text, hotTakeTokens)) {
     return "hot_take";
   }
-  if (
-    hasAnyToken(text, [
-      "funding",
-      "raises",
-      "seed",
-      "series a",
-      "series b",
-      "valuation",
-    ])
-  ) {
+  if (hasAnyToken(text, [...fundingRoundTokens, ...valuationTokens])) {
     return "funding";
   }
   if (hasAnyToken(text, ["elon musk", "xai", "grok", "tesla ai"])) {
@@ -406,6 +461,39 @@ const tagsFor = (input: {
   if (hasAnyToken(text, modelEvaluationTokens)) tags.add("evals");
   if (hasAnyToken(text, toolUseTokens)) tags.add("tool_use");
   if (hasAnyToken(text, localInferenceTokens)) tags.add("local_inference");
+  if (input.category === "policy") {
+    policyAngleTags.forEach(({ tag, tokens }) => {
+      if (hasAnyToken(text, tokens)) tags.add(tag);
+    });
+  }
+  if (input.category === "security") {
+    securityAngleTags.forEach(({ tag, tokens }) => {
+      if (hasAnyToken(text, tokens)) tags.add(tag);
+    });
+  }
+  if (input.category === "open_source") {
+    openSourceAngleTags.forEach(({ tag, tokens }) => {
+      if (hasAnyToken(text, tokens)) tags.add(tag);
+    });
+  }
+  if (input.category === "model_release") {
+    modelReleaseAngleTags.forEach(({ tag, tokens }) => {
+      if (hasAnyToken(text, tokens)) tags.add(tag);
+    });
+  }
+  if (input.category === "agent_product") {
+    agentProductAngleTags.forEach(({ tag, tokens }) => {
+      if (hasAnyToken(text, tokens)) tags.add(tag);
+    });
+  }
+  if (input.category === "funding") {
+    if (hasAnyToken(text, fundingRoundTagTokens)) tags.add("funding_round");
+    if (hasAnyToken(text, seedRoundTokens)) tags.add("seed_round");
+    fundingStageTags.forEach(({ tag, tokens }) => {
+      if (hasAnyToken(text, tokens)) tags.add(tag);
+    });
+    if (hasAnyToken(text, valuationTokens)) tags.add("valuation");
+  }
   if (hasAnyToken(text, ["gpu cloud", "gpu clouds"])) tags.add("gpu_cloud");
   if (
     hasAnyToken(text, [

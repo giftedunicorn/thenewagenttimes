@@ -100,6 +100,14 @@ describe("inferNewsCategory", () => {
     ).toBe("other");
   });
 
+  it("does not classify benchmark rounds as startup funding", () => {
+    expect(
+      inferNewsCategory({
+        text: "A new benchmark round evaluates reasoning agents and model reliability.",
+      }),
+    ).toBe("research");
+  });
+
   it("does not classify ordinary big-tech product news as AI news", () => {
     expect(
       inferNewsCategory({
@@ -316,6 +324,177 @@ describe("normalizeFeedItem", () => {
         "local_inference",
         "tool_use",
         "evals",
+      ]),
+    );
+  });
+
+  it("extracts funding round recommendation angles from AI startup coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "techcrunch-ai",
+      item: {
+        title: "AI agent startup raises $40M seed funding",
+        url: "https://example.com/ai-agent-seed-round",
+        summary:
+          "The company is building workflow automation agents and reached a new valuation.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("funding");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "funding",
+        "funding_round",
+        "seed_round",
+        "valuation",
+      ]),
+    );
+  });
+
+  it("extracts series-stage recommendation angles from AI startup funding", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "venturebeat-ai",
+      item: {
+        title: "AI infrastructure startup raises Series A funding",
+        url: "https://example.com/ai-infra-series-a",
+        summary:
+          "The company builds inference automation for enterprise agents.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("funding");
+    expect(result.tags).toEqual(
+      expect.arrayContaining(["funding_round", "series_a_round"]),
+    );
+  });
+
+  it("extracts policy recommendation angles from AI regulation coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "policy-ai",
+      item: {
+        title: "White House AI executive order follows EU AI Act debate",
+        url: "https://example.com/ai-policy-angles",
+        summary:
+          "Lawmakers weigh export controls and copyright rules for frontier models.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("policy");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "policy",
+        "ai_act",
+        "executive_order",
+        "export_controls",
+        "copyright",
+      ]),
+    );
+  });
+
+  it("extracts security recommendation angles from AI safety coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "security-ai",
+      item: {
+        title: "Researchers disclose an AI agent jailbreak exploit",
+        url: "https://example.com/ai-agent-security",
+        summary:
+          "The vulnerability uses prompt injection against tool-using agents after red team review.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("security");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "security",
+        "prompt_injection",
+        "red_team",
+        "jailbreak",
+        "vulnerability",
+        "exploit",
+      ]),
+    );
+  });
+
+  it("extracts open-source recommendation angles from model release coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "github-trending-ai",
+      item: {
+        title: "Open source AI model weights ship under an Apache license",
+        url: "https://example.com/open-weights-repo",
+        summary:
+          "The GitHub repository includes inference examples for local LLM deployment.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("open_source");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "open_source",
+        "model",
+        "open_weights",
+        "apache_license",
+        "github_repo",
+        "local_inference",
+      ]),
+    );
+  });
+
+  it("extracts model-release recommendation angles from launch coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "openai-news",
+      item: {
+        title: "OpenAI releases a reasoning model API with multimodal pricing",
+        url: "https://example.com/reasoning-model-api",
+        summary:
+          "The launch includes new vision, audio, and token price changes for developers.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("model_release");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "model",
+        "reasoning",
+        "api_release",
+        "multimodal",
+        "pricing",
+      ]),
+    );
+  });
+
+  it("extracts agent-product recommendation angles from workflow coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "agent-product-ai",
+      item: {
+        title:
+          "Enterprise browser agent ships workflow automation and computer use",
+        url: "https://example.com/enterprise-browser-agent",
+        summary:
+          "The product handles back-office workflows for teams through agentic browser actions.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("agent_product");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "agent",
+        "browser_agent",
+        "workflow_automation",
+        "enterprise_agent",
+        "computer_use",
       ]),
     );
   });

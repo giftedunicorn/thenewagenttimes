@@ -1721,8 +1721,10 @@ describe("getNewsGuardrailShelf", () => {
         limit: 1,
       }),
     ).toEqual({
+      calibrationPrompts: [],
       items: [
         {
+          angleLabel: "rumor",
           categoryLabel: "Hot Takes",
           hiddenAt: "2026-07-01T11:00:00.000Z",
           id: "hidden-hot-take",
@@ -1735,10 +1737,233 @@ describe("getNewsGuardrailShelf", () => {
         { label: "Guardrails", value: "2" },
         { label: "Top topic", value: "Hot Takes" },
         { label: "Top source", value: "Rumor Feed" },
+        { label: "Top angle", value: "rumor" },
       ],
       summary:
-        "Less feedback is damping 2 recent stories, led by Hot Takes from Rumor Feed.",
+        "Less feedback is damping 2 recent stories, led by Hot Takes from Rumor Feed with rumor angle guardrails.",
     });
+  });
+
+  it("surfaces the top hidden story angle in the guardrail shelf", () => {
+    expect(
+      getNewsGuardrailShelf({
+        formatCategory: () => "Security",
+        guardrailItems: [
+          {
+            ...localItem,
+            category: "security",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-prompt-injection",
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["prompt_injection", "agents"],
+            title: "Hidden prompt injection story",
+          },
+          {
+            ...olderItem,
+            category: "security",
+            hiddenAt: "2026-07-01T10:00:00.000Z",
+            id: "hidden-prompt-injection-followup",
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["prompt-injection"],
+            title: "Hidden prompt injection follow-up",
+          },
+        ],
+      }).metrics,
+    ).toContainEqual({ label: "Top angle", value: "prompt injection" });
+  });
+
+  it("keeps the guardrail summary natural when hidden stories only have generic tags", () => {
+    expect(
+      getNewsGuardrailShelf({
+        formatCategory: () => "Agents",
+        guardrailItems: [
+          {
+            ...localItem,
+            category: "agent_product",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-agent-roundup",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            tags: ["agents", "funding"],
+            title: "Hidden agent roundup",
+          },
+        ],
+      }).summary,
+    ).toBe(
+      "Less feedback is damping 1 recent story, led by Agents from Agent Desk.",
+    );
+  });
+
+  it("flags hidden angles that also appear in saved and read behavior", () => {
+    const shelf = getNewsGuardrailShelf({
+      formatCategory: () => "Security",
+      guardrailItems: [
+        {
+          ...localItem,
+          category: "security",
+          hiddenAt: "2026-07-01T11:00:00.000Z",
+          id: "hidden-prompt-injection",
+          sourceName: "Security Lab",
+          sourceSlug: "security-lab",
+          tags: ["prompt-injection"],
+          title: "Hidden prompt injection story",
+        },
+      ],
+      positiveItems: [
+        {
+          ...olderItem,
+          savedAt: "2026-07-01T12:00:00.000Z",
+          tags: ["prompt_injection"],
+        },
+        {
+          ...localItem,
+          viewedAt: "2026-07-01T12:30:00.000Z",
+          tags: ["prompt-injection"],
+        },
+      ],
+    });
+
+    expect(shelf.calibrationPrompts).toEqual([
+      {
+        actionLabel: "Search angle",
+        actionQuery: "prompt injection",
+        detail:
+          "prompt injection has 1 Less guardrail and 2 saved/read signals.",
+        includeHiddenItems: true,
+        label: "Review angle",
+        priorityLabel: "High conflict",
+        resetFilters: true,
+        targetFeedMode: "for_you",
+      },
+    ]);
+    expect(shelf.metrics).toContainEqual({ label: "Review", value: "1" });
+    expect(shelf.summary).toBe(
+      "Less feedback is damping 1 recent story, led by Security from Security Lab with prompt injection angle guardrails. 1 angle needs review against saved/read behavior.",
+    );
+  });
+
+  it("prioritizes guardrail review prompts by saved and read conflict strength", () => {
+    expect(
+      getNewsGuardrailShelf({
+        formatCategory: () => "Security",
+        guardrailItems: [
+          {
+            ...localItem,
+            category: "security",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-jailbreak",
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["jailbreak"],
+            title: "Hidden jailbreak story",
+          },
+          {
+            ...olderItem,
+            category: "security",
+            hiddenAt: "2026-07-01T10:00:00.000Z",
+            id: "hidden-jailbreak-followup",
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["jailbreak"],
+            title: "Hidden jailbreak follow-up",
+          },
+          {
+            ...localItem,
+            category: "security",
+            hiddenAt: "2026-07-01T09:00:00.000Z",
+            id: "hidden-prompt-injection",
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["prompt_injection"],
+            title: "Hidden prompt injection story",
+          },
+        ],
+        positiveItems: [
+          {
+            ...localItem,
+            savedAt: "2026-07-01T12:00:00.000Z",
+            tags: ["prompt-injection"],
+          },
+          {
+            ...olderItem,
+            viewedAt: "2026-07-01T12:30:00.000Z",
+            tags: ["prompt_injection"],
+          },
+          {
+            ...localItem,
+            viewedAt: "2026-07-01T13:00:00.000Z",
+            tags: ["jailbreak"],
+          },
+        ],
+      }).calibrationPrompts.map((prompt) => prompt.detail),
+    ).toEqual([
+      "prompt injection has 1 Less guardrail and 2 saved/read signals.",
+      "jailbreak has 2 Less guardrails and 1 saved/read signal.",
+    ]);
+  });
+
+  it("counts every reviewable guardrail angle even when prompts are capped", () => {
+    const shelf = getNewsGuardrailShelf({
+      formatCategory: () => "Security",
+      guardrailItems: [
+        {
+          ...localItem,
+          category: "security",
+          hiddenAt: "2026-07-01T11:00:00.000Z",
+          id: "hidden-prompt-injection",
+          sourceName: "Security Lab",
+          sourceSlug: "security-lab",
+          tags: ["prompt_injection"],
+          title: "Hidden prompt injection story",
+        },
+        {
+          ...olderItem,
+          category: "security",
+          hiddenAt: "2026-07-01T10:00:00.000Z",
+          id: "hidden-jailbreak",
+          sourceName: "Security Lab",
+          sourceSlug: "security-lab",
+          tags: ["jailbreak"],
+          title: "Hidden jailbreak story",
+        },
+        {
+          ...localItem,
+          category: "security",
+          hiddenAt: "2026-07-01T09:00:00.000Z",
+          id: "hidden-data-leak",
+          sourceName: "Security Lab",
+          sourceSlug: "security-lab",
+          tags: ["data-leak"],
+          title: "Hidden data leak story",
+        },
+      ],
+      positiveItems: [
+        {
+          ...localItem,
+          savedAt: "2026-07-01T12:00:00.000Z",
+          tags: ["prompt-injection"],
+        },
+        {
+          ...olderItem,
+          viewedAt: "2026-07-01T12:30:00.000Z",
+          tags: ["jailbreak"],
+        },
+        {
+          ...localItem,
+          viewedAt: "2026-07-01T13:00:00.000Z",
+          tags: ["data_leak"],
+        },
+      ],
+    });
+
+    expect(shelf.calibrationPrompts).toHaveLength(2);
+    expect(shelf.calibrationPromptLabel).toBe("2 of 3 shown");
+    expect(shelf.metrics).toContainEqual({ label: "Review", value: "3" });
+    expect(shelf.summary).toContain(
+      "3 angles need review against saved/read behavior.",
+    );
   });
 
   it("keeps the guardrail shelf explicit before Less feedback exists", () => {
@@ -1748,12 +1973,14 @@ describe("getNewsGuardrailShelf", () => {
         guardrailItems: [],
       }),
     ).toEqual({
+      calibrationPrompts: [],
       items: [],
       label: "0 active",
       metrics: [
         { label: "Guardrails", value: "0" },
         { label: "Top topic", value: "None" },
         { label: "Top source", value: "None" },
+        { label: "Top angle", value: "None" },
       ],
       summary:
         "Press Less on stories to hide them and dampen similar topics, sources, and entities.",
@@ -15675,6 +15902,25 @@ describe("selectVisibleNewsHomeItems", () => {
         hiddenItemIds: [],
       }).map((item) => item.id),
     ).toEqual(["local-story", "server-story"]);
+  });
+
+  it("includes hidden stories as review candidates when requested", () => {
+    expect(
+      selectVisibleNewsHomeItems({
+        hiddenItemIds: ["hidden-openai-model"],
+        hiddenItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/hidden-openai-model",
+            id: "hidden-openai-model",
+            originalUrl: "https://example.com/hidden-openai-model",
+            title: "Hidden OpenAI model review",
+          },
+        ],
+        includeHiddenItems: true,
+        items: [serverItem],
+      }).map((item) => item.id),
+    ).toEqual(["server-story", "hidden-openai-model"]);
   });
 });
 

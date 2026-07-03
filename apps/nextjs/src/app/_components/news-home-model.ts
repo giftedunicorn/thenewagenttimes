@@ -1476,14 +1476,63 @@ const getTopGuardrailShelfSignal = (
   );
 };
 
+const getNewsGuardrailShelfAngleLabels = (item: NewsReaderMemoryItem) =>
+  getUniqueSignals(item.tags ?? [], 24)
+    .filter(isSpecificNewsAngleTag)
+    .map(formatNewsAngleQuery);
+
+const countNewsGuardrailShelfAngles = (
+  items: readonly NewsReaderMemoryItem[],
+) => {
+  const countsByValue = new Map<
+    string,
+    {
+      count: number;
+      firstIndex: number;
+      value: string;
+    }
+  >();
+
+  items.flatMap(getNewsGuardrailShelfAngleLabels).forEach((value, index) => {
+    const normalizedValue = value.toLowerCase();
+    const existing = countsByValue.get(normalizedValue);
+
+    countsByValue.set(normalizedValue, {
+      count: (existing?.count ?? 0) + 1,
+      firstIndex: existing?.firstIndex ?? index,
+      value: existing?.value ?? value,
+    });
+  });
+
+  return Array.from(countsByValue.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.firstIndex - right.firstIndex;
+  });
+};
+
+const getNewsGuardrailReviewPriorityLabel = ({
+  hiddenCount,
+  positiveCount,
+}: {
+  hiddenCount: number;
+  positiveCount: number;
+}) =>
+  positiveCount > hiddenCount
+    ? "High conflict"
+    : positiveCount === hiddenCount
+      ? "Balanced conflict"
+      : "Watch conflict";
+
 export const getNewsGuardrailShelf = ({
   formatCategory,
   guardrailItems,
   limit = 3,
+  positiveItems = [],
 }: {
   formatCategory: (category: string) => string;
   guardrailItems: readonly NewsReaderMemoryItem[];
   limit?: number;
+  positiveItems?: readonly NewsReaderMemoryItem[];
 }) => {
   const sortedItems = [...guardrailItems].sort((left, right) => {
     const timestampDelta =
@@ -1499,17 +1548,104 @@ export const getNewsGuardrailShelf = ({
   const topSource = getTopGuardrailShelfSignal(
     sortedItems.map((item) => item.sourceName),
   );
+  const topAngle = getTopGuardrailShelfSignal(
+    sortedItems.flatMap(getNewsGuardrailShelfAngleLabels),
+  );
   const topTopicLabel = topTopic ? formatCategory(topTopic.value) : "None";
   const topSourceLabel = topSource?.value ?? "None";
+  const topAngleLabel = topAngle?.value ?? "None";
+  const summaryLead = `Less feedback is damping ${sortedItems.length} recent ${
+    sortedItems.length === 1 ? "story" : "stories"
+  }, led by ${topTopicLabel} from ${topSourceLabel}`;
+  const positiveAngleCounts = new Map(
+    countNewsGuardrailShelfAngles(positiveItems).map((angle) => [
+      angle.value.toLowerCase(),
+      angle,
+    ]),
+  );
+  const calibrationPromptCandidates = countNewsGuardrailShelfAngles(sortedItems)
+    .flatMap((hiddenAngle) => {
+      const positiveAngle = positiveAngleCounts.get(
+        hiddenAngle.value.toLowerCase(),
+      );
+
+      if (!positiveAngle) return [];
+
+      return [
+        {
+          actionLabel: "Search angle",
+          actionQuery: hiddenAngle.value,
+          detail: `${hiddenAngle.value} has ${hiddenAngle.count} Less ${
+            hiddenAngle.count === 1 ? "guardrail" : "guardrails"
+          } and ${positiveAngle.count} saved/read ${
+            positiveAngle.count === 1 ? "signal" : "signals"
+          }.`,
+          hiddenCount: hiddenAngle.count,
+          includeHiddenItems: true,
+          label: "Review angle",
+          positiveCount: positiveAngle.count,
+          priorityLabel: getNewsGuardrailReviewPriorityLabel({
+            hiddenCount: hiddenAngle.count,
+            positiveCount: positiveAngle.count,
+          }),
+          resetFilters: true,
+          targetFeedMode: "for_you" as const,
+        },
+      ];
+    })
+    .sort((left, right) => {
+      if (right.positiveCount !== left.positiveCount) {
+        return right.positiveCount - left.positiveCount;
+      }
+
+      return right.hiddenCount - left.hiddenCount;
+    });
+  const reviewableAngleCount = calibrationPromptCandidates.length;
+  const calibrationPrompts = calibrationPromptCandidates
+    .slice(0, 2)
+    .map(
+      ({
+        actionLabel,
+        actionQuery,
+        detail,
+        includeHiddenItems,
+        label,
+        priorityLabel,
+        resetFilters,
+        targetFeedMode,
+      }) => ({
+        actionLabel,
+        actionQuery,
+        detail,
+        includeHiddenItems,
+        label,
+        priorityLabel,
+        resetFilters,
+        targetFeedMode,
+      }),
+    );
+  const calibrationPromptLabel =
+    reviewableAngleCount > calibrationPrompts.length
+      ? `${calibrationPrompts.length} of ${reviewableAngleCount} shown`
+      : undefined;
+  const reviewSummary =
+    reviewableAngleCount > 0
+      ? ` ${reviewableAngleCount} ${
+          reviewableAngleCount === 1 ? "angle needs" : "angles need"
+        } review against saved/read behavior.`
+      : "";
 
   if (sortedItems.length === 0) {
     return {
+      calibrationPromptLabel: undefined,
+      calibrationPrompts: [],
       items: [],
       label: "0 active",
       metrics: [
         { label: "Guardrails", value: "0" },
         { label: "Top topic", value: "None" },
         { label: "Top source", value: "None" },
+        { label: "Top angle", value: "None" },
       ],
       summary:
         "Press Less on stories to hide them and dampen similar topics, sources, and entities.",
@@ -1517,22 +1653,33 @@ export const getNewsGuardrailShelf = ({
   }
 
   return {
-    items: sortedItems.slice(0, limit).map((item) => ({
-      categoryLabel: formatCategory(item.category),
-      hiddenAt: item.hiddenAt ?? item.occurredAt,
-      id: item.id,
-      sourceName: item.sourceName,
-      title: item.title,
-    })),
+    calibrationPromptLabel,
+    calibrationPrompts,
+    items: sortedItems.slice(0, limit).map((item) => {
+      const angleLabel = getNewsGuardrailShelfAngleLabels(item)[0];
+
+      return {
+        ...(angleLabel ? { angleLabel } : {}),
+        categoryLabel: formatCategory(item.category),
+        hiddenAt: item.hiddenAt ?? item.occurredAt,
+        id: item.id,
+        sourceName: item.sourceName,
+        title: item.title,
+      };
+    }),
     label: `${sortedItems.length} active`,
     metrics: [
       { label: "Guardrails", value: String(sortedItems.length) },
+      ...(reviewableAngleCount > 0
+        ? [{ label: "Review", value: String(reviewableAngleCount) }]
+        : []),
       { label: "Top topic", value: topTopicLabel },
       { label: "Top source", value: topSourceLabel },
+      { label: "Top angle", value: topAngleLabel },
     ],
-    summary: `Less feedback is damping ${sortedItems.length} recent ${
-      sortedItems.length === 1 ? "story" : "stories"
-    }, led by ${topTopicLabel} from ${topSourceLabel}.`,
+    summary: topAngle
+      ? `${summaryLead} with ${topAngleLabel} angle guardrails.${reviewSummary}`
+      : `${summaryLead}.${reviewSummary}`,
   };
 };
 
@@ -16065,11 +16212,15 @@ export const selectVisibleNewsHomeItems = ({
   items,
   hiddenItemIds,
   hiddenItems = [],
+  includeHiddenItems = false,
 }: {
   items: readonly NewsHomeItem[];
   hiddenItemIds: readonly string[];
   hiddenItems?: readonly NewsHomeItem[];
+  includeHiddenItems?: boolean;
 }) => {
+  if (includeHiddenItems) return dedupeNewsItems([...items, ...hiddenItems]);
+
   if (hiddenItemIds.length === 0 && hiddenItems.length === 0) return [...items];
 
   return filterBlockedNewsItems(items, hiddenItemIds, hiddenItems);

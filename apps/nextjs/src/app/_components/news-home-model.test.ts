@@ -15676,6 +15676,42 @@ describe("selectRelatedNewsHomeItems", () => {
       "topic-only-hot-story",
     ]);
   });
+
+  it("normalizes related angle tag variants before broad topic-only stories", () => {
+    expect(
+      selectRelatedNewsHomeItems({
+        article: {
+          ...localItem,
+          category: "security",
+          entities: ["Security Lab"],
+          tags: ["prompt_injection"],
+        },
+        limit: 2,
+        relatedItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/topic-only-security",
+            category: "security",
+            entities: ["Policy Desk"],
+            id: "topic-only-security",
+            originalUrl: "https://example.com/topic-only-security",
+            tags: ["governance"],
+            trendScore: 99,
+          },
+          {
+            ...olderItem,
+            canonicalUrl: "https://example.com/prompt-injection-follow-up",
+            category: "research",
+            entities: ["Red Team Lab"],
+            id: "prompt-injection-follow-up",
+            originalUrl: "https://example.com/prompt-injection-follow-up",
+            tags: ["prompt-injection"],
+            trendScore: 70,
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["prompt-injection-follow-up", "topic-only-security"]);
+  });
 });
 
 describe("getNextNewsHomeCursor", () => {
@@ -15793,9 +15829,10 @@ describe("getNewsRecommendationReasons", () => {
           ...localItem,
           matchedSignals: ["tag"],
           personalizedScore: 128,
+          tags: ["model", "prompt_injection"],
         },
       }),
-    ).toEqual(["Preferred angle"]);
+    ).toEqual(["Preferred angle: prompt injection"]);
   });
 
   it("explains positive feedback from deep reads, saves, shares, or source clicks", () => {
@@ -15976,14 +16013,15 @@ describe("getNewsStoryRankDetails", () => {
           ...localItem,
           matchedSignals: ["tag"],
           personalizedScore: 118,
+          tags: ["model", "prompt_injection"],
           trendScore: 64,
         },
         now: new Date("2026-07-01T10:00:00.000Z"),
       }),
     ).toEqual({
-      badges: ["Preferred angle", "Fresh", "Strong source"],
+      badges: ["Preferred angle: prompt injection", "Fresh", "Strong source"],
       summary:
-        "Ranked for your angle signals, with fresh publication timing and source credibility.",
+        "Ranked for your prompt injection angle signals, with fresh publication timing and source credibility.",
       scoreLabel: "118 score",
     });
   });

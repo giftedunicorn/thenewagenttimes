@@ -17,25 +17,39 @@ import { getNewsServerProfileAuditDisplay } from "../../_components/news-home-mo
 
 const normalizeValue = (value: string) => value.trim().toLowerCase();
 
-const getNormalizedSet = (values: readonly string[]) =>
-  new Set(values.map(normalizeValue).filter(Boolean));
+const formatSharedValue = (value: string) => value.trim();
+
+const formatTagValue = (value: string) =>
+  value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
+
+const normalizeTagValue = (value: string) =>
+  normalizeValue(formatTagValue(value));
+
+const isSpecificTagValue = (value: string) => /\s/.test(formatTagValue(value));
+
+const getNormalizedSet = (
+  values: readonly string[],
+  normalize: (value: string) => string = normalizeValue,
+) => new Set(values.map(normalize).filter(Boolean));
 
 const getSharedValues = (
   baseValues: readonly string[],
   candidateValues: readonly string[],
+  normalize: (value: string) => string = normalizeValue,
+  formatValue: (value: string) => string = formatSharedValue,
 ) => {
-  const candidateSet = getNormalizedSet(candidateValues);
+  const candidateSet = getNormalizedSet(candidateValues, normalize);
   const sharedValues: string[] = [];
   const seenValues = new Set<string>();
 
   for (const value of baseValues) {
-    const normalizedValue = normalizeValue(value);
+    const normalizedValue = normalize(value);
 
     if (!normalizedValue) continue;
     if (!candidateSet.has(normalizedValue)) continue;
     if (seenValues.has(normalizedValue)) continue;
 
-    sharedValues.push(value.trim());
+    sharedValues.push(formatValue(value));
     seenValues.add(normalizedValue);
   }
 
@@ -537,6 +551,9 @@ const getRecommendationReason = ({
   const [entity] = sharedEntities;
   if (entity) return `${entity} thread`;
 
+  const specificTag = sharedTags.find(isSpecificTagValue);
+  if (specificTag) return `${specificTag} thread`;
+
   if (sameCategory) return "Same topic";
   if (sameSource) return "Same source";
 
@@ -570,7 +587,12 @@ export const getNewsArticleReadingPath = ({
   const recommendations = relatedItems
     .map((item) => {
       const sharedEntities = getSharedValues(article.entities, item.entities);
-      const sharedTags = getSharedValues(article.tags, item.tags);
+      const sharedTags = getSharedValues(
+        article.tags,
+        item.tags,
+        normalizeTagValue,
+        formatTagValue,
+      );
       const sameCategory = item.category === article.category;
       const sameSource = item.sourceSlug === article.sourceSlug;
       const signalCount =
@@ -786,7 +808,12 @@ export const getNewsArticleNextReads = ({
   const sortedReads = relatedItems
     .map((item) => {
       const sharedEntities = getSharedValues(article.entities, item.entities);
-      const sharedTags = getSharedValues(article.tags, item.tags);
+      const sharedTags = getSharedValues(
+        article.tags,
+        item.tags,
+        normalizeTagValue,
+        formatTagValue,
+      );
       const sameCategory = item.category === article.category;
       const sameSource = item.sourceSlug === article.sourceSlug;
       const overlapSignalCount =

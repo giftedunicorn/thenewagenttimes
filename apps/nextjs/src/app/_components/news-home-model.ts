@@ -16153,13 +16153,12 @@ export const mergeNewsHomeItems = ({
 const countSharedRelatedSignals = (
   articleSignals: readonly string[],
   itemSignals: readonly string[],
+  normalizeSignal = normalizePreferenceSignal,
 ) => {
-  const articleSignalSet = new Set(
-    articleSignals.map(normalizePreferenceSignal),
-  );
+  const articleSignalSet = new Set(articleSignals.map(normalizeSignal));
 
   return itemSignals.filter((signal) =>
-    articleSignalSet.has(normalizePreferenceSignal(signal)),
+    articleSignalSet.has(normalizeSignal(signal)),
   ).length;
 };
 
@@ -16171,7 +16170,8 @@ const getRelatedNewsScore = ({
   item: NewsHomeItem;
 }) =>
   countSharedRelatedSignals(article.entities, item.entities) * 44 +
-  countSharedRelatedSignals(article.tags, item.tags) * 36 +
+  countSharedRelatedSignals(article.tags, item.tags, getNewsAngleSignalKey) *
+    36 +
   (normalizePreferenceSignal(article.category) ===
   normalizePreferenceSignal(item.category)
     ? 14

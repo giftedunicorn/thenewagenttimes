@@ -596,6 +596,61 @@ describe("getNewsArticleReadingPath", () => {
     });
   });
 
+  it("normalizes angle tag variants in the article reading path", () => {
+    expect(
+      getNewsArticleReadingPath({
+        article: {
+          ...article,
+          category: "security",
+          sourceSlug: "security-lab",
+          tags: ["prompt_injection"],
+        },
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        limit: 2,
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "topic-only-security",
+            title: "Security teams expand AI evals",
+            category: "security",
+            tags: ["evals"],
+            entities: ["Policy Desk"],
+            personalizedScore: 130,
+            sourceName: "Policy Desk",
+            sourceSlug: "policy-desk",
+          },
+          {
+            ...relatedItem,
+            id: "prompt-injection-follow-up",
+            title: "Red teams publish prompt injection mitigations",
+            category: "research",
+            tags: ["prompt-injection"],
+            entities: ["Red Team Lab"],
+            personalizedScore: 108,
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+          },
+        ],
+      }).recommendations,
+    ).toEqual([
+      {
+        id: "prompt-injection-follow-up",
+        reason: "prompt injection thread",
+        signalCount: 2,
+        scoreLabel: "2 signals / 108 score",
+        title: "Red teams publish prompt injection mitigations",
+      },
+      {
+        id: "topic-only-security",
+        reason: "Same topic",
+        signalCount: 1,
+        scoreLabel: "1 signal / 130 score",
+        title: "Security teams expand AI evals",
+      },
+    ]);
+  });
+
   it("keeps the article context useful when no related stories are available", () => {
     expect(
       getNewsArticleReadingPath({
@@ -1081,7 +1136,7 @@ describe("getNewsArticleDeepReadTrainingState", () => {
         label: "Positive Signal",
         metrics: [
           { label: "Action", value: "Deep read" },
-          { label: "Signal delta", value: "+5" },
+          { label: "Signal delta", value: "+3" },
           { label: "Bias shift", value: "+0.4" },
           { label: "Topic", value: "Models" },
         ],
@@ -1096,7 +1151,7 @@ describe("getNewsArticleDeepReadTrainingState", () => {
           },
           {
             detail:
-              "OpenAI, Agents, model, agent were added to related coverage memory.",
+              "OpenAI, Agents were added to related coverage memory.",
             label: "Signals learned",
           },
         ],
@@ -1106,7 +1161,7 @@ describe("getNewsArticleDeepReadTrainingState", () => {
       profile: {
         preferredCategories: ["model_release"],
         preferredSources: [],
-        preferredEntities: ["OpenAI", "Agents", "model", "agent"],
+        preferredEntities: ["OpenAI", "Agents"],
         noveltyBias: 1.198,
         recencyBias: 1.198,
       },
@@ -1176,18 +1231,17 @@ describe("getNewsArticleLearningImpact", () => {
         {
           action: "save",
           biasLabel: "+0.6 bias",
-          detail:
-            "Save would add OpenAI News, model, agent to the reader profile.",
+          detail: "Save would add OpenAI News as a source preference.",
           label: "Save",
-          signalLabel: "+3 signals",
+          signalLabel: "+1 signal",
         },
         {
           action: "share",
           biasLabel: "+0.9 bias",
           detail:
-            "Share would add OpenAI News, model, agent and push freshness and novelty harder.",
+            "Share would add OpenAI News and push freshness and novelty harder.",
           label: "Share",
-          signalLabel: "+3 signals",
+          signalLabel: "+1 signal",
         },
         {
           action: "hide",
@@ -1201,7 +1255,7 @@ describe("getNewsArticleLearningImpact", () => {
       label: "Learning Active",
       metrics: [
         { label: "Article memory", value: "3" },
-        { label: "Save adds", value: "+3" },
+        { label: "Save adds", value: "+1" },
         { label: "Less removes", value: "-3" },
         { label: "Next candidates", value: "2" },
       ],
@@ -1253,17 +1307,17 @@ describe("getNewsArticleLearningImpact", () => {
           action: "save",
           biasLabel: "+0.6 bias",
           detail:
-            "Save would add Models, OpenAI News, OpenAI, Agents, model, agent to the reader profile.",
+            "Save would add Models, OpenAI News, OpenAI, Agents to the reader profile.",
           label: "Save",
-          signalLabel: "+6 signals",
+          signalLabel: "+4 signals",
         },
         {
           action: "share",
           biasLabel: "+0.9 bias",
           detail:
-            "Share would add Models, OpenAI News, OpenAI, Agents, model, agent and push freshness and novelty harder.",
+            "Share would add Models, OpenAI News, OpenAI, Agents and push freshness and novelty harder.",
           label: "Share",
-          signalLabel: "+6 signals",
+          signalLabel: "+4 signals",
         },
         {
           action: "hide",
@@ -1276,7 +1330,7 @@ describe("getNewsArticleLearningImpact", () => {
       label: "Learning Ready",
       metrics: [
         { label: "Article memory", value: "0" },
-        { label: "Save adds", value: "+6" },
+        { label: "Save adds", value: "+4" },
         { label: "Less removes", value: "0" },
         { label: "Next candidates", value: "0" },
       ],

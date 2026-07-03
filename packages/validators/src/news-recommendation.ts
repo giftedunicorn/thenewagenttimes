@@ -57,13 +57,17 @@ export interface NewsRecommendationExplanation {
 
 const recommendationReasonLabels = {
   breaking_news: "Breaking high-trust story",
+  angle_quota: "Angle diversity guardrail",
   category: "Preferred topic",
   collaborative_feedback: "Popular with similar readers",
+  category_quota: "Topic diversity guardrail",
   daypart: "Timed for this edition",
   deep_preference: "Deep preference match",
   discovery_slot: "Discovery slot",
+  entity_quota: "Entity diversity guardrail",
   exposure_cooldown: "Fresh angle after reading",
   exploration: "Outside your usual mix",
+  freshness_quota: "Freshness guardrail",
   home_exposure_cooldown: "Recently seen on home",
   negative_feedback: "Dampened by Less feedback",
   positive_feedback: "Deep read, save, share, or source-click signal",
@@ -295,6 +299,7 @@ export const summarizeNewsRecommendation = <
   const badges: string[] = [];
   const isExposureCooldown = item.matchedSignals.includes("exposure_cooldown");
   const isExploration = item.matchedSignals.includes("exploration");
+  const isFreshnessQuota = item.matchedSignals.includes("freshness_quota");
   const isHomeExposureCooldown = item.matchedSignals.includes(
     "home_exposure_cooldown",
   );
@@ -304,9 +309,12 @@ export const summarizeNewsRecommendation = <
   const isCollaborativeFeedback = item.matchedSignals.includes(
     "collaborative_feedback",
   );
+  const isAngleQuota = item.matchedSignals.includes("angle_quota");
+  const isCategoryQuota = item.matchedSignals.includes("category_quota");
   const isSourceCorroborated = item.matchedSignals.includes(
     "source_corroboration",
   );
+  const isEntityQuota = item.matchedSignals.includes("entity_quota");
   const isSourceQuota = item.matchedSignals.includes("source_quota");
   const hasHighHeat = item.trendScore >= 70;
   const hasFreshness = isRecentlyPublished(item.publishedAt, now);
@@ -363,6 +371,14 @@ export const summarizeNewsRecommendation = <
     badges.push("Outside your usual mix");
   } else if (isNegativeFeedback) {
     badges.push("Dampened by Less feedback");
+  } else if (isFreshnessQuota) {
+    badges.push("Freshness guardrail");
+  } else if (isAngleQuota) {
+    badges.push("Angle diversity guardrail");
+  } else if (isCategoryQuota) {
+    badges.push("Topic diversity guardrail");
+  } else if (isEntityQuota) {
+    badges.push("Entity diversity guardrail");
   } else if (isSourceQuota) {
     badges.push("Source diversity guardrail");
   } else if (hasPersonalSignals) {
@@ -440,6 +456,46 @@ export const summarizeNewsRecommendation = <
       summary: supportText
         ? `Inserted to keep one source from flooding the edition, supported by ${supportText}.`
         : "Inserted to keep one source from flooding the edition.",
+    };
+  }
+
+  if (isEntityQuota) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Inserted to keep one entity from flooding the edition, supported by ${supportText}.`
+        : "Inserted to keep one entity from flooding the edition.",
+    };
+  }
+
+  if (isCategoryQuota) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Inserted to keep one topic from flooding the edition, supported by ${supportText}.`
+        : "Inserted to keep one topic from flooding the edition.",
+    };
+  }
+
+  if (isAngleQuota) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Inserted to keep one angle from flooding the edition, supported by ${supportText}.`
+        : "Inserted to keep one angle from flooding the edition.",
+    };
+  }
+
+  if (isFreshnessQuota) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Inserted to keep older stories from flooding the edition, supported by ${supportText}.`
+        : "Inserted to keep older stories from flooding the edition.",
     };
   }
 
@@ -837,6 +893,7 @@ const newsRecommendationRotationProtectedSignals = new Set([
   "deep_preference",
   "discovery_slot",
   "exposure_cooldown",
+  "freshness_quota",
   "home_exposure_cooldown",
   "negative_feedback",
   "positive_feedback",
@@ -1608,6 +1665,267 @@ export const selectSourceQuotaBalancedNewsFeed = <
     selected.push(
       quotaSafeIndex > 0 && !hasSourceQuotaProtectedSignal(nextItem)
         ? addMatchedSignal(nextItem, "source_quota")
+        : nextItem,
+    );
+  }
+
+  return selected;
+};
+
+const entityQuotaProtectedSignals = new Set(["breaking_news"]);
+
+const getEntityQuotaKeys = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.entities
+    .map((entity) => entity.trim().toLowerCase())
+    .filter(Boolean);
+
+const hasEntityQuotaProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) => entityQuotaProtectedSignals.has(signal));
+
+export const selectEntityQuotaBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  {
+    limit,
+    maxPerEntity = 3,
+  }: {
+    limit: number;
+    maxPerEntity?: number;
+  },
+): RankedNewsItem<TItem>[] => {
+  const feedLimit = Math.max(0, Math.trunc(limit));
+  if (feedLimit === 0) return [];
+
+  const entityLimit = Math.max(1, Math.trunc(maxPerEntity));
+  const remaining = [...rankedItems];
+  const selected: RankedNewsItem<TItem>[] = [];
+  const selectedEntityCounts = new Map<string, number>();
+
+  while (selected.length < feedLimit && remaining.length > 0) {
+    const quotaSafeIndex = remaining.findIndex((item) => {
+      if (hasEntityQuotaProtectedSignal(item)) return true;
+
+      const entityKeys = getEntityQuotaKeys(item);
+      if (entityKeys.length === 0) return true;
+
+      return entityKeys.every(
+        (entityKey) => (selectedEntityCounts.get(entityKey) ?? 0) < entityLimit,
+      );
+    });
+    const nextIndex = quotaSafeIndex === -1 ? 0 : quotaSafeIndex;
+    const [nextItem] = remaining.splice(nextIndex, 1);
+
+    if (!nextItem) continue;
+
+    for (const entityKey of getEntityQuotaKeys(nextItem)) {
+      selectedEntityCounts.set(
+        entityKey,
+        (selectedEntityCounts.get(entityKey) ?? 0) + 1,
+      );
+    }
+    selected.push(
+      quotaSafeIndex > 0 && !hasEntityQuotaProtectedSignal(nextItem)
+        ? addMatchedSignal(nextItem, "entity_quota")
+        : nextItem,
+    );
+  }
+
+  return selected;
+};
+
+const categoryQuotaProtectedSignals = new Set(["breaking_news"]);
+
+const getCategoryQuotaKey = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) => item.category.trim().toLowerCase();
+
+const hasCategoryQuotaProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    categoryQuotaProtectedSignals.has(signal),
+  );
+
+export const selectCategoryQuotaBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  {
+    limit,
+    maxPerCategory = 3,
+  }: {
+    limit: number;
+    maxPerCategory?: number;
+  },
+): RankedNewsItem<TItem>[] => {
+  const feedLimit = Math.max(0, Math.trunc(limit));
+  if (feedLimit === 0) return [];
+
+  const categoryLimit = Math.max(1, Math.trunc(maxPerCategory));
+  const remaining = [...rankedItems];
+  const selected: RankedNewsItem<TItem>[] = [];
+  const selectedCategoryCounts = new Map<string, number>();
+
+  while (selected.length < feedLimit && remaining.length > 0) {
+    const quotaSafeIndex = remaining.findIndex((item) => {
+      if (hasCategoryQuotaProtectedSignal(item)) return true;
+
+      const categoryKey = getCategoryQuotaKey(item);
+
+      return (selectedCategoryCounts.get(categoryKey) ?? 0) < categoryLimit;
+    });
+    const nextIndex = quotaSafeIndex === -1 ? 0 : quotaSafeIndex;
+    const [nextItem] = remaining.splice(nextIndex, 1);
+
+    if (!nextItem) continue;
+
+    const categoryKey = getCategoryQuotaKey(nextItem);
+
+    selectedCategoryCounts.set(
+      categoryKey,
+      (selectedCategoryCounts.get(categoryKey) ?? 0) + 1,
+    );
+    selected.push(
+      quotaSafeIndex > 0 && !hasCategoryQuotaProtectedSignal(nextItem)
+        ? addMatchedSignal(nextItem, "category_quota")
+        : nextItem,
+    );
+  }
+
+  return selected;
+};
+
+const angleQuotaProtectedSignals = new Set(["breaking_news"]);
+
+const getAngleQuotaKeys = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.tags
+    .filter(isSpecificRecommendationAngleTag)
+    .map(getRecommendationAngleKey)
+    .filter(Boolean);
+
+const hasAngleQuotaProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) => angleQuotaProtectedSignals.has(signal));
+
+export const selectAngleQuotaBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  {
+    limit,
+    maxPerAngle = 3,
+  }: {
+    limit: number;
+    maxPerAngle?: number;
+  },
+): RankedNewsItem<TItem>[] => {
+  const feedLimit = Math.max(0, Math.trunc(limit));
+  if (feedLimit === 0) return [];
+
+  const angleLimit = Math.max(1, Math.trunc(maxPerAngle));
+  const remaining = [...rankedItems];
+  const selected: RankedNewsItem<TItem>[] = [];
+  const selectedAngleCounts = new Map<string, number>();
+
+  while (selected.length < feedLimit && remaining.length > 0) {
+    const quotaSafeIndex = remaining.findIndex((item) => {
+      if (hasAngleQuotaProtectedSignal(item)) return true;
+
+      const angleKeys = getAngleQuotaKeys(item);
+      if (angleKeys.length === 0) return true;
+
+      return angleKeys.every(
+        (angleKey) => (selectedAngleCounts.get(angleKey) ?? 0) < angleLimit,
+      );
+    });
+    const nextIndex = quotaSafeIndex === -1 ? 0 : quotaSafeIndex;
+    const [nextItem] = remaining.splice(nextIndex, 1);
+
+    if (!nextItem) continue;
+
+    for (const angleKey of getAngleQuotaKeys(nextItem)) {
+      selectedAngleCounts.set(
+        angleKey,
+        (selectedAngleCounts.get(angleKey) ?? 0) + 1,
+      );
+    }
+    selected.push(
+      quotaSafeIndex > 0 && !hasAngleQuotaProtectedSignal(nextItem)
+        ? addMatchedSignal(nextItem, "angle_quota")
+        : nextItem,
+    );
+  }
+
+  return selected;
+};
+
+const freshnessQuotaProtectedSignals = new Set(["breaking_news"]);
+
+const hasFreshnessQuotaProtectedSignal = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+) =>
+  item.matchedSignals.some((signal) =>
+    freshnessQuotaProtectedSignals.has(signal),
+  );
+
+const isFreshnessQuotaFresh = <TItem extends RecommendableNewsItem>(
+  item: RankedNewsItem<TItem>,
+  now: Date,
+  freshnessWindowHours: number,
+) => hoursSince(item.publishedAt, now) <= freshnessWindowHours;
+
+export const selectFreshnessQuotaBalancedNewsFeed = <
+  TItem extends RecommendableNewsItem,
+>(
+  rankedItems: readonly RankedNewsItem<TItem>[],
+  {
+    freshnessWindowHours = 24,
+    limit,
+    maxStaleItems = 3,
+    now = new Date(),
+  }: {
+    freshnessWindowHours?: number;
+    limit: number;
+    maxStaleItems?: number;
+    now?: Date;
+  },
+): RankedNewsItem<TItem>[] => {
+  const feedLimit = Math.max(0, Math.trunc(limit));
+  if (feedLimit === 0) return [];
+
+  const staleLimit = Math.max(0, Math.trunc(maxStaleItems));
+  const freshnessWindow = Math.max(0, freshnessWindowHours);
+  const remaining = [...rankedItems];
+  const selected: RankedNewsItem<TItem>[] = [];
+  let selectedStaleCount = 0;
+
+  while (selected.length < feedLimit && remaining.length > 0) {
+    const quotaSafeIndex = remaining.findIndex((item) => {
+      if (hasFreshnessQuotaProtectedSignal(item)) return true;
+      if (isFreshnessQuotaFresh(item, now, freshnessWindow)) return true;
+
+      return selectedStaleCount < staleLimit;
+    });
+    const nextIndex = quotaSafeIndex === -1 ? 0 : quotaSafeIndex;
+    const [nextItem] = remaining.splice(nextIndex, 1);
+
+    if (!nextItem) continue;
+
+    const isFresh = isFreshnessQuotaFresh(nextItem, now, freshnessWindow);
+    if (!isFresh && !hasFreshnessQuotaProtectedSignal(nextItem)) {
+      selectedStaleCount += 1;
+    }
+    selected.push(
+      quotaSafeIndex > 0 && !hasFreshnessQuotaProtectedSignal(nextItem)
+        ? addMatchedSignal(nextItem, "freshness_quota")
         : nextItem,
     );
   }

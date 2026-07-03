@@ -453,6 +453,15 @@ export const shouldApplyNewsArticleServerProfileFromInteraction = ({
   return shouldTrainNewsArticleProfileFromReadPercent(metadata.readPercent);
 };
 
+export const getNewsArticleInteractionMetadata = (
+  action: ReaderInteractionAction,
+) => {
+  if (action === "click_source") return { surface: "article_source" };
+  if (action === "view") return { surface: "article" };
+
+  return { surface: "article_feedback" };
+};
+
 export const shouldApplyNewsArticleLocalProfileFromMilestone = ({
   shouldTrainProfile,
 }: {

@@ -970,6 +970,7 @@ export function NewsHome({
         newsItemId: item.id,
         action,
         metadata: buildNewsHomeInteractionMetadata({
+          action,
           feedMode,
           item,
           rankSlot,

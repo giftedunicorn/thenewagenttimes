@@ -34,6 +34,7 @@ import {
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
   getNewsArticleHeroVisual,
+  getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
   getNewsArticleLocalHistoryItem,
   getNewsArticleLocalMemoryItemForAction,
@@ -588,7 +589,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
         visitorKey,
         newsItemId: article.id,
         action,
-        metadata: { surface: "article" },
+        metadata: getNewsArticleInteractionMetadata(action),
       });
     }
   };

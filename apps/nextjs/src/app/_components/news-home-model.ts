@@ -74,6 +74,7 @@ export interface NewsServerProfileAudit {
   topFeedModes: readonly NewsServerProfileAuditSignal[];
   topMatchedSignals: readonly NewsServerProfileAuditSignal[];
   topSources: readonly NewsServerProfileAuditSignal[];
+  topSurfaces?: readonly NewsServerProfileAuditSignal[];
   topTags?: readonly NewsServerProfileAuditSignal[];
   trainedSignalCount: number;
 }
@@ -684,7 +685,7 @@ export interface NewsHomeInteractionMetadata {
   matchedSignals: string[];
   personalizedScore: number;
   rankSlot: number;
-  surface: "home";
+  surface: "home_feedback" | "home_read" | "home_source";
 }
 
 const toNewsHomeRankSlot = (rankSlot: number) => {
@@ -712,10 +713,12 @@ const getUniqueNewsHomeInteractionSignals = (
 };
 
 export const buildNewsHomeInteractionMetadata = ({
+  action,
   feedMode,
   item,
   rankSlot,
 }: {
+  action: ReaderInteractionAction;
   feedMode: NewsFeedMode;
   item: RankedNewsItem<NewsHomeItem>;
   rankSlot: number;
@@ -724,7 +727,12 @@ export const buildNewsHomeInteractionMetadata = ({
   matchedSignals: getUniqueNewsHomeInteractionSignals(item.matchedSignals),
   personalizedScore: item.personalizedScore,
   rankSlot: toNewsHomeRankSlot(rankSlot),
-  surface: "home",
+  surface:
+    action === "view"
+      ? "home_read"
+      : action === "click_source"
+        ? "home_source"
+        : "home_feedback",
 });
 
 export const buildNewsHomeReaderInteraction = ({
@@ -3711,6 +3719,7 @@ export const getNewsServerProfileAuditDisplay = (
     ...audit.topCategories.slice(0, 2),
     ...audit.topSources.slice(0, 1),
     ...(audit.topTags ?? []).slice(0, 1),
+    ...(audit.topSurfaces ?? []).slice(0, 1),
     ...audit.topMatchedSignals.slice(0, 1),
   ].map((signal) => `${signal.key} ${signal.count}`);
   const metrics = [
@@ -17536,7 +17545,7 @@ export interface NewsHomeExposureRecord {
     exposure: true;
     exposureSlot: number;
     feedMode: NewsFeedMode;
-    surface: "home";
+    surface: "home_exposure";
   };
   newsItemId: string;
   visitorKey: string;
@@ -17613,7 +17622,7 @@ export const selectNewsHomeExposureRecords = ({
         ),
         personalizedScore: item.personalizedScore,
         rankSlot: toNewsHomeRankSlot(item.homeRankSlot),
-        surface: "home",
+        surface: "home_exposure",
       },
       newsItemId: item.id,
       visitorKey,

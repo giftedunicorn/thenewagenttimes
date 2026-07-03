@@ -5,6 +5,7 @@ import {
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
   getNewsArticleHeroVisual,
+  getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
   getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
@@ -402,6 +403,24 @@ describe("getNewsArticleHeroVisual", () => {
 });
 
 describe("shouldApplyNewsArticleServerProfileFromInteraction", () => {
+  it("separates article source clicks from article feedback metadata", () => {
+    expect(getNewsArticleInteractionMetadata("click_source")).toEqual({
+      surface: "article_source",
+    });
+    expect(getNewsArticleInteractionMetadata("save")).toEqual({
+      surface: "article_feedback",
+    });
+    expect(getNewsArticleInteractionMetadata("share")).toEqual({
+      surface: "article_feedback",
+    });
+    expect(getNewsArticleInteractionMetadata("hide")).toEqual({
+      surface: "article_feedback",
+    });
+    expect(getNewsArticleInteractionMetadata("view")).toEqual({
+      surface: "article",
+    });
+  });
+
   it("applies local profile updates once an article read starts training", () => {
     expect(
       shouldApplyNewsArticleLocalProfileFromMilestone({
@@ -1151,8 +1170,7 @@ describe("getNewsArticleDeepReadTrainingState", () => {
             label: "Source learned",
           },
           {
-            detail:
-              "OpenAI, Agents were added to related coverage memory.",
+            detail: "OpenAI, Agents were added to related coverage memory.",
             label: "Signals learned",
           },
         ],

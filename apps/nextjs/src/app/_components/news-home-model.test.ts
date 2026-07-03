@@ -492,6 +492,7 @@ describe("buildNewsHomeInteractionMetadata", () => {
   it("keeps home ranking context with reader feedback", () => {
     expect(
       buildNewsHomeInteractionMetadata({
+        action: "save",
         feedMode: "for_you",
         item: {
           ...localItem,
@@ -505,8 +506,41 @@ describe("buildNewsHomeInteractionMetadata", () => {
       matchedSignals: ["category", "semantic_feedback"],
       personalizedScore: 147,
       rankSlot: 2,
-      surface: "home",
+      surface: "home_feedback",
     });
+  });
+
+  it("separates home read, source click, feedback, and exposure surfaces", () => {
+    const rankedItem = {
+      ...localItem,
+      matchedSignals: ["category"],
+      personalizedScore: 147,
+    };
+
+    expect(
+      buildNewsHomeInteractionMetadata({
+        action: "view",
+        feedMode: "for_you",
+        item: rankedItem,
+        rankSlot: 0,
+      }).surface,
+    ).toBe("home_read");
+    expect(
+      buildNewsHomeInteractionMetadata({
+        action: "click_source",
+        feedMode: "for_you",
+        item: rankedItem,
+        rankSlot: 0,
+      }).surface,
+    ).toBe("home_source");
+    expect(
+      buildNewsHomeInteractionMetadata({
+        action: "hide",
+        feedMode: "for_you",
+        item: rankedItem,
+        rankSlot: 0,
+      }).surface,
+    ).toBe("home_feedback");
   });
 });
 
@@ -3472,6 +3506,10 @@ describe("getNewsServerProfileAuditDisplay", () => {
           { count: 1, key: "semantic_feedback" },
         ],
         topSources: [{ count: 2, key: "openai-news" }],
+        topSurfaces: [
+          { count: 2, key: "home" },
+          { count: 1, key: "article_source" },
+        ],
         topTags: [
           { count: 2, key: "agents" },
           { count: 1, key: "browser" },
@@ -3484,6 +3522,7 @@ describe("getNewsServerProfileAuditDisplay", () => {
         "model_release 1",
         "openai-news 2",
         "agents 2",
+        "home 2",
         "category 2",
       ],
       label: "Server Learned",
@@ -17700,7 +17739,7 @@ describe("selectNewsHomeExposureRecords", () => {
           matchedSignals: ["category"],
           personalizedScore: 140,
           rankSlot: 0,
-          surface: "home",
+          surface: "home_exposure",
         },
         newsItemId: "server-story",
         visitorKey: "visitor-test-123",
@@ -17714,7 +17753,7 @@ describe("selectNewsHomeExposureRecords", () => {
           matchedSignals: ["entity"],
           personalizedScore: 130,
           rankSlot: 1,
-          surface: "home",
+          surface: "home_exposure",
         },
         newsItemId: "local-story",
         visitorKey: "visitor-test-123",
@@ -17818,7 +17857,7 @@ describe("selectNewsHomeExposureRecords", () => {
           matchedSignals: ["entity"],
           personalizedScore: 130,
           rankSlot: 1,
-          surface: "home",
+          surface: "home_exposure",
         },
         newsItemId: "local-story",
         visitorKey: "visitor-test-123",

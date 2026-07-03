@@ -465,6 +465,7 @@ export function NewsHome({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [searchDraft, setSearchDraft] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [reviewHiddenAngleQuery, setReviewHiddenAngleQuery] = useState("");
   const [feedMode, setFeedMode] = useState<NewsFeedMode>("for_you");
   const [trainingUpdate, setTrainingUpdate] = useState<ReturnType<
     typeof getNewsFeedbackTrainingUpdate
@@ -481,6 +482,13 @@ export function NewsHome({
   const hasExploreFilters = Boolean(
     activeCategory ?? activeSourceSlug ?? searchQuery.trim(),
   );
+  const normalizedReviewHiddenAngleQuery = reviewHiddenAngleQuery
+    .trim()
+    .toLowerCase();
+  const isReviewingHiddenAngle = Boolean(normalizedReviewHiddenAngleQuery) &&
+    !activeCategory &&
+    !activeSourceSlug &&
+    searchQuery.trim().toLowerCase() === normalizedReviewHiddenAngleQuery;
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -610,6 +618,14 @@ export function NewsHome({
     () => guardrailsQuery.data ?? [],
     [guardrailsQuery.data],
   );
+  const hiddenNewsHomeItems = useMemo(
+    () =>
+      mergeNewsHomeItems({
+        currentItems: negativeFeedbackItems,
+        nextItems: serverGuardrailItems,
+      }),
+    [negativeFeedbackItems, serverGuardrailItems],
+  );
   const guardrailItems = useMemo(
     () =>
       mergeNewsReaderMemoryItems({
@@ -632,7 +648,8 @@ export function NewsHome({
   });
   const items = selectVisibleNewsHomeItems({
     hiddenItemIds: effectiveHiddenItemIds,
-    hiddenItems: negativeFeedbackItems,
+    hiddenItems: hiddenNewsHomeItems,
+    includeHiddenItems: isReviewingHiddenAngle,
     items: mergeNewsHomeItems({
       currentItems: baseItems,
       nextItems: loadedItems,
@@ -686,7 +703,25 @@ export function NewsHome({
   useEffect(() => {
     setLoadedItems([]);
     setHasMoreItems(true);
-  }, [activeCategory, activeSourceSlug, searchQuery]);
+  }, [activeCategory, activeSourceSlug, reviewHiddenAngleQuery, searchQuery]);
+
+  useEffect(() => {
+    if (!reviewHiddenAngleQuery) return;
+
+    if (
+      activeCategory ||
+      activeSourceSlug ||
+      searchQuery.trim().toLowerCase() !== normalizedReviewHiddenAngleQuery
+    ) {
+      setReviewHiddenAngleQuery("");
+    }
+  }, [
+    activeCategory,
+    activeSourceSlug,
+    normalizedReviewHiddenAngleQuery,
+    reviewHiddenAngleQuery,
+    searchQuery,
+  ]);
 
   const commitProfile = (
     createNextProfile: (
@@ -826,12 +861,14 @@ export function NewsHome({
 
   const applyExploreSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setReviewHiddenAngleQuery("");
     setSearchQuery(searchDraft.trim());
   };
 
   const clearExploreFilters = () => {
     setActiveCategory(null);
     setActiveSourceSlug(null);
+    setReviewHiddenAngleQuery("");
     setSearchDraft("");
     setSearchQuery("");
   };
@@ -847,6 +884,7 @@ export function NewsHome({
     setLocalSavedItems([]);
     setNegativeFeedbackItems([]);
     setPositiveFeedbackItems([]);
+    setReviewHiddenAngleQuery("");
     clearReaderMemoryStorage();
     setTrainingUpdate(
       getNewsReaderMemoryResetTrainingUpdate({
@@ -1130,6 +1168,7 @@ export function NewsHome({
   const guardrailShelf = getNewsGuardrailShelf({
     formatCategory: getCategoryLabel,
     guardrailItems,
+    positiveItems: [...savedItems, ...historyItems],
   });
   const readerJourneyMap = getNewsReaderJourneyMap({
     formatCategory: getCategoryLabel,
@@ -1607,6 +1646,7 @@ export function NewsHome({
                       searchQuery === trend.query ? "default" : "outline"
                     }
                     onClick={() => {
+                      setReviewHiddenAngleQuery("");
                       setSearchDraft(trend.query);
                       setSearchQuery(trend.query);
                     }}
@@ -6892,6 +6932,52 @@ export function NewsHome({
                 </div>
               ))}
             </dl>
+            {guardrailShelf.calibrationPrompts.length > 0 ? (
+              <div className="mt-4 grid gap-2 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15">
+                {guardrailShelf.calibrationPromptLabel ? (
+                  <p className="font-mono text-[11px] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                    {guardrailShelf.calibrationPromptLabel}
+                  </p>
+                ) : null}
+                {guardrailShelf.calibrationPrompts.map((prompt) => (
+                  <div
+                    key={`${prompt.label}-${prompt.detail}`}
+                    className="grid gap-2 text-sm leading-6 text-[#5b5750] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center dark:text-[#bbb4aa]"
+                  >
+                    <p>
+                      <span className="font-semibold text-[#161616] dark:text-[#f4f1ea]">
+                        {prompt.label}:
+                      </span>{" "}
+                      <span className="font-mono text-[11px] uppercase">
+                        {prompt.priorityLabel}
+                      </span>{" "}
+                      {prompt.detail}
+                    </p>
+                    <Button
+                      className="h-8 rounded-none"
+                      size="sm"
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        if (prompt.resetFilters) {
+                          setActiveCategory(null);
+                          setActiveSourceSlug(null);
+                        }
+
+                        setFeedMode(prompt.targetFeedMode);
+                        setReviewHiddenAngleQuery(
+                          prompt.includeHiddenItems ? prompt.actionQuery : "",
+                        );
+                        setSearchDraft(prompt.actionQuery);
+                        setSearchQuery(prompt.actionQuery);
+                      }}
+                    >
+                      {prompt.actionLabel}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="mt-4 grid gap-3">
               {guardrailShelf.items.length > 0 ? (
                 guardrailShelf.items.map((item) => (
@@ -6904,8 +6990,16 @@ export function NewsHome({
                       {item.title}
                     </span>
                     <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / {item.categoryLabel} / Less{" "}
-                      {item.hiddenAt ? formatTime(item.hiddenAt) : "recently"}
+                      {[
+                        item.sourceName,
+                        item.categoryLabel,
+                        item.angleLabel,
+                        `Less ${
+                          item.hiddenAt ? formatTime(item.hiddenAt) : "recently"
+                        }`,
+                      ]
+                        .filter(Boolean)
+                        .join(" / ")}
                     </span>
                   </Link>
                 ))

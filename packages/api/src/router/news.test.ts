@@ -109,9 +109,9 @@ describe("news router input contracts", () => {
   });
 
   it("normalizes readable angle tags before public feed filtering", () => {
-    expect(
-      NewsFeedInputSchema.parse({ tag: " prompt injection " }).tag,
-    ).toBe("prompt_injection");
+    expect(NewsFeedInputSchema.parse({ tag: " prompt injection " }).tag).toBe(
+      "prompt_injection",
+    );
     expect(NewsFeedInputSchema.parse({ tag: "funding-round" }).tag).toBe(
       "funding_round",
     );
@@ -870,6 +870,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
         { key: "openai-news", count: 2 },
         { key: "anthropic-news", count: 1 },
       ],
+      topSurfaces: [{ key: "article", count: 1 }],
       topTags: [
         { key: "agents", count: 2 },
         { key: "browser", count: 1 },
@@ -952,6 +953,89 @@ describe("summarizeNewsReaderProfileSignals", () => {
       ],
       trainedSignalCount: 3,
     });
+  });
+
+  it("summarizes reader signal surfaces across home, article, and source actions", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: { surface: "home" },
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "click_source",
+            category: "research",
+            entities: ["Benchmarks"],
+            tags: ["evals"],
+            metadata: { surface: "article_source" },
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "research-lab",
+          },
+          {
+            action: "hide",
+            category: "hot_take",
+            entities: ["Rumor"],
+            tags: ["rumor"],
+            metadata: { surface: "article_feedback" },
+            occurredAt: "2026-07-01T07:00:00.000Z",
+            sourceSlug: "hot-takes",
+          },
+        ],
+        profile: {
+          noveltyBias: 1,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1,
+        },
+      }),
+    ).toMatchObject({
+      topSurfaces: [
+        { key: "home", count: 1 },
+        { key: "article_source", count: 1 },
+        { key: "article_feedback", count: 1 },
+      ],
+    });
+  });
+
+  it("keeps rank slot audit for specific home interaction surfaces", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: { rankSlot: 1, surface: "home_feedback" },
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "click_source",
+            category: "research",
+            entities: ["Benchmarks"],
+            tags: ["evals"],
+            metadata: { rankSlot: 3, surface: "home_source" },
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "research-lab",
+          },
+        ],
+        profile: {
+          noveltyBias: 1,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1,
+        },
+      }).averageHomeRankSlot,
+    ).toBe(2);
   });
 
   it("separates ignored exposure signals and negative feedback from training", () => {
@@ -1039,6 +1123,7 @@ describe("buildNewsReaderProfileResponse", () => {
         topFeedModes: [],
         topMatchedSignals: [],
         topSources: [],
+        topSurfaces: [],
         topTags: [],
         trainedSignalCount: 0,
       },
@@ -3176,7 +3261,9 @@ describe("selectNewsForYouItems", () => {
       "cohere-enterprise-angle",
     ]);
     expect(
-      feed.slice(3).every((item) => item.matchedSignals.includes("entity_quota")),
+      feed
+        .slice(3)
+        .every((item) => item.matchedSignals.includes("entity_quota")),
     ).toBe(true);
   });
 
@@ -3294,7 +3381,9 @@ describe("selectNewsForYouItems", () => {
       "funding-market-angle",
     ]);
     expect(
-      feed.slice(3).every((item) => item.matchedSignals.includes("category_quota")),
+      feed
+        .slice(3)
+        .every((item) => item.matchedSignals.includes("category_quota")),
     ).toBe(true);
   });
 
@@ -3412,7 +3501,9 @@ describe("selectNewsForYouItems", () => {
       "prompt-injection-angle",
     ]);
     expect(
-      feed.slice(3).every((item) => item.matchedSignals.includes("angle_quota")),
+      feed
+        .slice(3)
+        .every((item) => item.matchedSignals.includes("angle_quota")),
     ).toBe(true);
   });
 
@@ -3553,7 +3644,9 @@ describe("selectNewsForYouItems", () => {
       "fresh-funding-angle",
     ]);
     expect(
-      feed.slice(3).every((item) => item.matchedSignals.includes("freshness_quota")),
+      feed
+        .slice(3)
+        .every((item) => item.matchedSignals.includes("freshness_quota")),
     ).toBe(true);
   });
 });

@@ -40,10 +40,10 @@ import {
   selectBreakingNewsPriorityFeed,
   selectCategoryQuotaBalancedNewsFeed,
   selectCollaborativeSignalNewsFeed,
-  selectEntityQuotaBalancedNewsFeed,
   selectDaypartBalancedNewsFeed,
   selectDiscoverySlotNewsFeed,
   selectDiverseNewsFeed,
+  selectEntityQuotaBalancedNewsFeed,
   selectExposureBalancedNewsFeed,
   selectFatigueBalancedNewsFeed,
   selectFreshnessQuotaBalancedNewsFeed,
@@ -67,7 +67,10 @@ const optionalTrimmedString = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional();
 
 const normalizeNewsTagValue = (tag: string) =>
-  tag.toLowerCase().replace(/[\s-]+/g, "_").replace(/_+/g, "_");
+  tag
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_");
 
 const optionalNewsTagFilter = z
   .string()
@@ -324,7 +327,7 @@ const toTopSignalCounts = (
 const getInteractionMetadataRankSlot = (
   metadata: NewsRecordInteractionInput["metadata"] | undefined,
 ) =>
-  metadata?.surface?.trim().toLowerCase() === "home" &&
+  metadata?.surface?.trim().toLowerCase().startsWith("home") &&
   typeof metadata.rankSlot === "number"
     ? metadata.rankSlot
     : null;
@@ -385,6 +388,7 @@ export const summarizeNewsReaderProfileSignals = ({
   const feedModeCounts = createSignalCounter();
   const matchedSignalCounts = createSignalCounter();
   const sourceCounts = createSignalCounter();
+  const surfaceCounts = createSignalCounter();
   const tagCounts = createSignalCounter();
   const homeRankSlots: number[] = [];
   let ignoredSignalCount = 0;
@@ -394,6 +398,10 @@ export const summarizeNewsReaderProfileSignals = ({
   interactions.forEach((interaction, index) => {
     if (interaction.metadata?.feedMode) {
       addSignalCount(feedModeCounts, interaction.metadata.feedMode, index);
+    }
+
+    if (interaction.metadata?.surface) {
+      addSignalCount(surfaceCounts, interaction.metadata.surface, index);
     }
 
     interaction.metadata?.matchedSignals?.forEach((signal) =>
@@ -440,6 +448,7 @@ export const summarizeNewsReaderProfileSignals = ({
     topFeedModes: toTopSignalCounts(feedModeCounts),
     topMatchedSignals: toTopSignalCounts(matchedSignalCounts),
     topSources: toTopSignalCounts(sourceCounts),
+    topSurfaces: toTopSignalCounts(surfaceCounts),
     topTags: toTopSignalCounts(tagCounts),
     trainedSignalCount: positiveSignalCount,
   };
@@ -1635,8 +1644,7 @@ export const newsRouter = {
       if (!identity) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message:
-            "A reader identity is required to restore news guardrails.",
+          message: "A reader identity is required to restore news guardrails.",
         });
       }
 
@@ -1647,14 +1655,12 @@ export const newsRouter = {
         .limit(1);
 
       if (profile) {
-        await ctx.db
-          .delete(NewsReaderInteraction)
-          .where(
-            buildNewsGuardrailRestoreCondition({
-              newsItemId: input.newsItemId,
-              readerProfileId: profile.id,
-            }),
-          );
+        await ctx.db.delete(NewsReaderInteraction).where(
+          buildNewsGuardrailRestoreCondition({
+            newsItemId: input.newsItemId,
+            readerProfileId: profile.id,
+          }),
+        );
       }
 
       return buildNewsReaderMutationProfileResponse({

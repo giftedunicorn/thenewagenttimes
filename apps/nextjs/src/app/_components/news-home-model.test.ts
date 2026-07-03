@@ -20,6 +20,7 @@ import {
   getNewsConsensusBoard,
   getNewsContinuationRail,
   getNewsCoverageThreads,
+  getNewsDeskRunYieldLabel,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
   getNewsDistributionQueue,
@@ -54,12 +55,12 @@ import {
   getNewsPersonalizationMix,
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
-  getNewsPreferenceControlPanel,
   getNewsPreferenceBiasCycleAction,
-  getNewsPreferenceBiasTrainingUpdate,
   getNewsPreferenceBiasResetTrainingUpdate,
   getNewsPreferenceBiasResetUndoTrainingUpdate,
+  getNewsPreferenceBiasTrainingUpdate,
   getNewsPreferenceBiasUndoTrainingUpdate,
+  getNewsPreferenceControlPanel,
   getNewsPreferencePresets,
   getNewsPreferenceProfileToggleAction,
   getNewsPreferenceProfileTrainingUpdate,
@@ -112,10 +113,10 @@ import {
   getPreviewNewsArticleData,
   getPreviewNewsHomeItems,
   isNewsHomePreviewEdition,
-  mergeNewsTrainingUpdateHistory,
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
+  mergeNewsTrainingUpdateHistory,
   revertNewsStoryQuickTuneAction,
   selectActiveNewsGuardrailItems,
   selectAngleQuotaBalancedNewsHomeItems,
@@ -1799,8 +1800,7 @@ describe("getNewsGuardrailRestoreTrainingUpdate", () => {
         { label: "Source", value: "Security Desk" },
         { label: "Angle", value: "prompt injection" },
       ],
-      summary:
-        "Restored Prompt injection defense story from Less feedback.",
+      summary: "Restored Prompt injection defense story from Less feedback.",
     });
   });
 });
@@ -3110,7 +3110,8 @@ describe("getNewsProfileSignalLedger", () => {
       entries: [
         {
           count: 0,
-          detail: "No explicit topics, sources, entities, or angles are active.",
+          detail:
+            "No explicit topics, sources, entities, or angles are active.",
           effect: "No direct boost yet",
           label: "Explicit profile",
           signals: [],
@@ -4252,8 +4253,7 @@ describe("getNewsPreferenceProfileTrainingUpdate", () => {
         { label: "Angles", value: "1" },
       ],
       signals: [{ label: "Angle", value: "prompt injection" }],
-      summary:
-        "Follow angle added prompt injection to For You preferences.",
+      summary: "Follow angle added prompt injection to For You preferences.",
     });
 
     expect(
@@ -6705,12 +6705,12 @@ describe("getNewsInterestGraph", () => {
         key: "topics",
         label: "Topics",
         nodes: [
-            {
-              activeSignal: true,
-              label: "Security",
-              score: 85,
-              storyCount: 2,
-            },
+          {
+            activeSignal: true,
+            label: "Security",
+            score: 85,
+            storyCount: 2,
+          },
         ],
       },
       {
@@ -11747,7 +11747,8 @@ describe("getNewsRecommendationTrace", () => {
       title: "Prompt injection defense playbook",
     });
     expect(trace.steps).toContainEqual({
-      detail: "Less feedback guards Safety, Anthropic, Safety Lab, and jailbreaks.",
+      detail:
+        "Less feedback guards Safety, Anthropic, Safety Lab, and jailbreaks.",
       label: "Guardrail",
       scoreLabel: "1 signal",
       title: "Hidden jailbreak story",
@@ -11901,7 +11902,8 @@ describe("getNewsRecommendationTrace", () => {
       value: "1",
     });
     expect(trace.steps).toContainEqual({
-      detail: "Research is inserted to keep one topic from flooding the edition.",
+      detail:
+        "Research is inserted to keep one topic from flooding the edition.",
       label: "Topic diversity",
       scoreLabel: "1 story",
       title: "Research balances the topic mix",
@@ -13864,7 +13866,8 @@ describe("getNewsRefreshSimulation", () => {
           id: "refresh-jailbreak",
           key: "dampen-refresh-jailbreak",
           label: "Dampen Safety",
-          reason: "Hidden feedback overlaps this topic, source, entity, or angle.",
+          reason:
+            "Hidden feedback overlaps this topic, source, entity, or angle.",
           sourceName: "Safety Lab",
           statusLabel: "Dampen",
           title: "Jailbreak story to reduce",
@@ -19704,6 +19707,47 @@ describe("getNewsDeskStatusSummary", () => {
       detail:
         "A readable AI preview edition is serving while the production news tables are unavailable.",
     });
+  });
+});
+
+describe("getNewsDeskRunYieldLabel", () => {
+  it("includes skipped diagnostics when a refresh filters feed noise", () => {
+    expect(
+      getNewsDeskRunYieldLabel({
+        sourceName: "TechCrunch AI",
+        status: "succeeded",
+        runType: "rss",
+        startedAt: "2026-07-01T10:00:00.000Z",
+        finishedAt: "2026-07-01T10:01:00.000Z",
+        itemsSeen: 12,
+        itemsCreated: 4,
+        itemsUpdated: 2,
+        itemsSkipped: 6,
+        skippedByReason: {
+          duplicate: 1,
+          future: 1,
+          irrelevant: 3,
+          stale: 1,
+        },
+        errorMessage: null,
+      }),
+    ).toBe("4 new, 2 updated, 6 skipped");
+  });
+
+  it("keeps the existing yield label when no stories were skipped", () => {
+    expect(
+      getNewsDeskRunYieldLabel({
+        sourceName: "OpenAI",
+        status: "succeeded",
+        runType: "rss",
+        startedAt: "2026-07-01T10:00:00.000Z",
+        finishedAt: "2026-07-01T10:01:00.000Z",
+        itemsSeen: 12,
+        itemsCreated: 4,
+        itemsUpdated: 8,
+        errorMessage: null,
+      }),
+    ).toBe("4 new, 8 updated");
   });
 });
 

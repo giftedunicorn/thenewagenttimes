@@ -1,4 +1,5 @@
 import type {
+  NewsIngestionSkippedByReason,
   NewsSourceHealthSummary,
   NewsSourceRefreshResult,
 } from "@acme/ingestion";
@@ -11,6 +12,8 @@ export interface NewsRefreshSummary {
   itemsSeen: number;
   itemsCreated: number;
   itemsUpdated: number;
+  itemsSkipped: number;
+  skippedByReason: NewsIngestionSkippedByReason;
   results: readonly NewsSourceRefreshResult[];
   sourceHealth: NewsSourceHealthSummary;
 }

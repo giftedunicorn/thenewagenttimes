@@ -10,6 +10,13 @@ const refreshResult = {
   itemsSeen: 18,
   itemsCreated: 10,
   itemsUpdated: 8,
+  itemsSkipped: 3,
+  skippedByReason: {
+    duplicate: 1,
+    future: 0,
+    irrelevant: 2,
+    stale: 0,
+  },
   results: [],
   sourceHealth: {
     healthySourceSlugs: ["openai-news"],

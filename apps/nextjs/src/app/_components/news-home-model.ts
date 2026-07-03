@@ -512,6 +512,13 @@ export interface NewsDeskRun {
   itemsSeen: number;
   itemsCreated: number;
   itemsUpdated: number;
+  itemsSkipped?: number;
+  skippedByReason?: {
+    duplicate: number;
+    future: number;
+    irrelevant: number;
+    stale: number;
+  };
   errorMessage: string | null;
 }
 
@@ -558,6 +565,21 @@ export const buildNewsDeskStatus = ({
     latestPublishedAt,
     latestRun,
   };
+};
+
+const newsDeskNumberFormatter = new Intl.NumberFormat("en");
+
+export const getNewsDeskRunYieldLabel = (run: NewsDeskStatus["latestRun"]) => {
+  if (!run) return "No items yet";
+
+  const baseLabel = `${newsDeskNumberFormatter.format(
+    run.itemsCreated,
+  )} new, ${newsDeskNumberFormatter.format(run.itemsUpdated)} updated`;
+  const skippedCount = run.itemsSkipped ?? 0;
+
+  return skippedCount > 0
+    ? `${baseLabel}, ${newsDeskNumberFormatter.format(skippedCount)} skipped`
+    : baseLabel;
 };
 
 export const selectNewsHomeItems = ({
@@ -786,10 +808,7 @@ const isSpecificNewsAngleTag = (tag: string) => {
 const isNewsReaderAngleSignal = (signal: string) =>
   signal === signal.toLowerCase() && isSpecificNewsAngleTag(signal);
 
-const hasNewsReaderAngleSignal = (
-  values: readonly string[],
-  tag: string,
-) => {
+const hasNewsReaderAngleSignal = (values: readonly string[], tag: string) => {
   if (!isSpecificNewsAngleTag(tag)) return false;
 
   const normalizedTag = getNewsAngleSignalKey(tag);
@@ -3229,9 +3248,8 @@ const formatProfileLedgerExplicitDetail = ({
     return "No explicit topics, sources, entities, or angles are active.";
   }
 
-  const signalVerb = topicCount + sourceCount + entityCount + angleCount === 1
-    ? "is"
-    : "are";
+  const signalVerb =
+    topicCount + sourceCount + entityCount + angleCount === 1 ? "is" : "are";
 
   if (parts.length === 1) {
     return `${parts[0]} ${signalVerb} active.`;
@@ -4013,8 +4031,7 @@ export const getNewsReaderMemoryResetPersistence = ({
 
 type NewsPreferenceStarterKind = "category" | "entity" | "source" | "tag";
 
-export type NewsPreferenceProfileTrainingSignalKind =
-  NewsPreferenceStarterKind;
+export type NewsPreferenceProfileTrainingSignalKind = NewsPreferenceStarterKind;
 
 export interface NewsPreferenceProfileTrainingSignal {
   kind: NewsPreferenceProfileTrainingSignalKind;
@@ -4203,7 +4220,10 @@ const getPreferenceProfileMetrics = (profile: NewsPreferenceProfile) => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
 
   return [
-    { label: "Signals", value: String(getPreferenceProfileSignalCount(profile)) },
+    {
+      label: "Signals",
+      value: String(getPreferenceProfileSignalCount(profile)),
+    },
     {
       label: "Topics",
       value: String(normalizedProfile.preferredCategories.length),
@@ -4269,7 +4289,9 @@ export const getNewsPreferenceProfileTrainingUpdate = ({
       },
       {
         label: "Topics",
-        value: String(countPreferenceTrainingSignals(changedSignals, "category")),
+        value: String(
+          countPreferenceTrainingSignals(changedSignals, "category"),
+        ),
       },
       {
         label: "Sources",
@@ -5957,8 +5979,7 @@ const getPreferenceTuningImpactReason = ({
     item.tags.some(
       (tag) =>
         isSpecificNewsAngleTag(tag) &&
-        getNewsAngleSignalKey(tag) ===
-          getNewsAngleSignalKey(suggestion.signal),
+        getNewsAngleSignalKey(tag) === getNewsAngleSignalKey(suggestion.signal),
     )
   ) {
     return `Would ${direction} angle ${formatNewsAngleQuery(
@@ -7295,9 +7316,8 @@ const getReaderRecommendationSignalCount = (
       ).length
     : 0;
 
-const hasReaderRecommendationSignal = (
-  item: RankedNewsItem<NewsHomeItem>,
-) => getReaderRecommendationSignalCount(item) > 0;
+const hasReaderRecommendationSignal = (item: RankedNewsItem<NewsHomeItem>) =>
+  getReaderRecommendationSignalCount(item) > 0;
 
 const getNewsLiveWireSignal = (
   item: RankedNewsItem<NewsHomeItem>,
@@ -7377,8 +7397,8 @@ export const getNewsLiveWire = ({
 
     return right.personalizedScore - left.personalizedScore;
   })[0];
-  const personalizedCount = items.filter(
-    (item) => hasReaderRecommendationSignal(item),
+  const personalizedCount = items.filter((item) =>
+    hasReaderRecommendationSignal(item),
   ).length;
   const explorationCount = items.filter((item) =>
     item.matchedSignals.includes("exploration"),
@@ -12072,7 +12092,10 @@ export const getNewsFilterBubbleReport = ({
     angles.length === 1 ? "angle" : "angles"
   }`;
   const label =
-    profileShare >= 0.7 || topSourceShare >= 0.7 || hasEntityLock || hasAngleLock
+    profileShare >= 0.7 ||
+    topSourceShare >= 0.7 ||
+    hasEntityLock ||
+    hasAngleLock
       ? "Bubble Risk"
       : explorationShare < 0.25 || profileShare >= 0.5
         ? "Watch"
@@ -12114,17 +12137,17 @@ export const getNewsFilterBubbleReport = ({
             }, and ${sourceSpreadLabel} with ${
               topAngle.label
             } dominating the angle mix.`
-        : label === "Bubble Risk"
-          ? `Filter bubble risk is high: ${profileMatchCount} profile-matched ${
-              profileMatchCount === 1 ? "story" : "stories"
-            } and ${explorationCount} exploration ${
-              explorationCount === 1 ? "story" : "stories"
-            } across ${sourceSpreadLabel}.`
-          : `${profileMatchCount} profile-matched ${
-              profileMatchCount === 1 ? "story" : "stories"
-            }, ${explorationCount} exploration ${
-              explorationCount === 1 ? "story" : "stories"
-            }, and ${sourceSpreadLabel} in this edition slice.`,
+          : label === "Bubble Risk"
+            ? `Filter bubble risk is high: ${profileMatchCount} profile-matched ${
+                profileMatchCount === 1 ? "story" : "stories"
+              } and ${explorationCount} exploration ${
+                explorationCount === 1 ? "story" : "stories"
+              } across ${sourceSpreadLabel}.`
+            : `${profileMatchCount} profile-matched ${
+                profileMatchCount === 1 ? "story" : "stories"
+              }, ${explorationCount} exploration ${
+                explorationCount === 1 ? "story" : "stories"
+              }, and ${sourceSpreadLabel} in this edition slice.`,
   };
 };
 
@@ -12200,9 +12223,7 @@ const getNegativeFeedbackMatchers = (
   ),
   tags: new Set(
     negativeFeedbackItems.flatMap((item) =>
-      item.tags
-        .filter(isSpecificNewsAngleTag)
-        .map(normalizePreferenceSignal),
+      item.tags.filter(isSpecificNewsAngleTag).map(normalizePreferenceSignal),
     ),
   ),
 });

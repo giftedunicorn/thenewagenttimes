@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildRelatedNewsCondition,
+  getNewsRunSkipDiagnosticsFromMetadata,
   shouldReadNewsArticleFromDatabase,
 } from "./news";
 
@@ -55,5 +56,41 @@ describe("shouldReadNewsArticleFromDatabase", () => {
     expect(
       shouldReadNewsArticleFromDatabase("7c8c33ef-4f20-4f78-93ea-9400c4023902"),
     ).toBe(true);
+  });
+});
+
+describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
+  it("extracts persisted skipped feed diagnostics from run metadata", () => {
+    expect(
+      getNewsRunSkipDiagnosticsFromMetadata({
+        itemsSkipped: 5,
+        skippedByReason: {
+          duplicate: 1,
+          future: 1,
+          irrelevant: 2,
+          stale: 1,
+        },
+      }),
+    ).toEqual({
+      itemsSkipped: 5,
+      skippedByReason: {
+        duplicate: 1,
+        future: 1,
+        irrelevant: 2,
+        stale: 1,
+      },
+    });
+  });
+
+  it("falls back to zero diagnostics for older ingestion runs", () => {
+    expect(getNewsRunSkipDiagnosticsFromMetadata({})).toEqual({
+      itemsSkipped: 0,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        stale: 0,
+      },
+    });
   });
 });

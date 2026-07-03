@@ -113,6 +113,50 @@ const getUnavailableNewsDeskStatus = () =>
     unavailable: true,
   });
 
+const newsRunSkipReasons = [
+  "duplicate",
+  "future",
+  "irrelevant",
+  "stale",
+] as const;
+
+type NewsRunSkipReason = (typeof newsRunSkipReasons)[number];
+
+const zeroNewsRunSkippedByReason = () =>
+  Object.fromEntries(newsRunSkipReasons.map((reason) => [reason, 0])) as Record<
+    NewsRunSkipReason,
+    number
+  >;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const getMetadataNumber = (metadata: Record<string, unknown>, key: string) =>
+  typeof metadata[key] === "number" ? metadata[key] : 0;
+
+export const getNewsRunSkipDiagnosticsFromMetadata = (metadata: unknown) => {
+  if (!isRecord(metadata)) {
+    return {
+      itemsSkipped: 0,
+      skippedByReason: zeroNewsRunSkippedByReason(),
+    };
+  }
+
+  const skippedByReasonMetadata = isRecord(metadata.skippedByReason)
+    ? metadata.skippedByReason
+    : {};
+
+  return {
+    itemsSkipped: getMetadataNumber(metadata, "itemsSkipped"),
+    skippedByReason: {
+      duplicate: getMetadataNumber(skippedByReasonMetadata, "duplicate"),
+      future: getMetadataNumber(skippedByReasonMetadata, "future"),
+      irrelevant: getMetadataNumber(skippedByReasonMetadata, "irrelevant"),
+      stale: getMetadataNumber(skippedByReasonMetadata, "stale"),
+    },
+  };
+};
+
 export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
   const [sourceCounts, itemCounts, latestRuns] = await Promise.all([
     db
@@ -138,6 +182,7 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
         itemsSeen: IngestionRun.itemsSeen,
         itemsCreated: IngestionRun.itemsCreated,
         itemsUpdated: IngestionRun.itemsUpdated,
+        metadata: IngestionRun.metadata,
         errorMessage: IngestionRun.errorMessage,
       })
       .from(IngestionRun)
@@ -155,11 +200,15 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
     publishedStories: itemCount?.publishedStories ?? 0,
     latestPublishedAt: itemCount?.latestPublishedAt?.toISOString() ?? null,
     latestRun: latestRun
-      ? {
-          ...latestRun,
-          startedAt: latestRun.startedAt.toISOString(),
-          finishedAt: latestRun.finishedAt?.toISOString() ?? null,
-        }
+      ? (() => {
+          const { metadata, ...run } = latestRun;
+          return {
+            ...run,
+            ...getNewsRunSkipDiagnosticsFromMetadata(metadata),
+            startedAt: run.startedAt.toISOString(),
+            finishedAt: run.finishedAt?.toISOString() ?? null,
+          };
+        })()
       : null,
   });
 };

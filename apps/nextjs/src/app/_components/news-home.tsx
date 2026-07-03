@@ -56,6 +56,7 @@ import {
   getNewsConsensusBoard,
   getNewsContinuationRail,
   getNewsCoverageThreads,
+  getNewsDeskRunYieldLabel,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
   getNewsDistributionQueue,
@@ -90,12 +91,12 @@ import {
   getNewsPersonalizationMix,
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
-  getNewsPreferenceControlPanel,
-  getNewsPreferenceBiasTrainingUpdate,
   getNewsPreferenceBiasCycleAction,
   getNewsPreferenceBiasResetTrainingUpdate,
   getNewsPreferenceBiasResetUndoTrainingUpdate,
+  getNewsPreferenceBiasTrainingUpdate,
   getNewsPreferenceBiasUndoTrainingUpdate,
+  getNewsPreferenceControlPanel,
   getNewsPreferencePresets,
   getNewsPreferenceProfileToggleAction,
   getNewsPreferenceProfileTrainingUpdate,
@@ -370,10 +371,7 @@ const readStoredItemIds = (storageKey: string) => {
   }
 };
 
-const writeStoredItemIds = (
-  storageKey: string,
-  itemIds: readonly string[],
-) => {
+const writeStoredItemIds = (storageKey: string, itemIds: readonly string[]) => {
   window.localStorage.setItem(storageKey, JSON.stringify(itemIds));
 };
 
@@ -489,9 +487,7 @@ const formatLastRun = (run: NewsDeskStatus["latestRun"]) => {
 };
 
 const formatRunYield = (run: NewsDeskStatus["latestRun"]) => {
-  if (!run) return "No items yet";
-
-  return `${formatCount(run.itemsCreated)} new, ${formatCount(run.itemsUpdated)} updated`;
+  return getNewsDeskRunYieldLabel(run);
 };
 
 const addValue = (values: readonly string[], value: string) =>
@@ -576,20 +572,24 @@ export function NewsHome({
   const normalizedReviewHiddenAngleQuery = reviewHiddenAngleQuery
     .trim()
     .toLowerCase();
-  const isReviewingHiddenAngle = Boolean(normalizedReviewHiddenAngleQuery) &&
+  const isReviewingHiddenAngle =
+    Boolean(normalizedReviewHiddenAngleQuery) &&
     !activeCategory &&
     !activeSourceSlug &&
     searchQuery.trim().toLowerCase() === normalizedReviewHiddenAngleQuery;
-  const publishTrainingUpdate = useCallback((nextUpdate: NewsTrainingUpdate) => {
-    setTrainingUpdate(nextUpdate);
-    setTrainingUpdateHistory((currentUpdates) =>
-      mergeNewsTrainingUpdateHistory({
-        currentUpdates,
-        limit: 5,
-        nextUpdate,
-      }),
-    );
-  }, []);
+  const publishTrainingUpdate = useCallback(
+    (nextUpdate: NewsTrainingUpdate) => {
+      setTrainingUpdate(nextUpdate);
+      setTrainingUpdateHistory((currentUpdates) =>
+        mergeNewsTrainingUpdateHistory({
+          currentUpdates,
+          limit: 5,
+          nextUpdate,
+        }),
+      );
+    },
+    [],
+  );
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -800,11 +800,8 @@ export function NewsHome({
 
   useEffect(() => {
     const storedGuardrails = readStoredGuardrailItems();
-    const storedRestoredGuardrailItemIds =
-      readStoredRestoredGuardrailItemIds();
-    const storedRestoredGuardrailIds = new Set(
-      storedRestoredGuardrailItemIds,
-    );
+    const storedRestoredGuardrailItemIds = readStoredRestoredGuardrailItemIds();
+    const storedRestoredGuardrailIds = new Set(storedRestoredGuardrailItemIds);
 
     setProfile(readStoredProfile());
     setLocalHistoryItems(readStoredHistoryItems());
@@ -1075,7 +1072,10 @@ export function NewsHome({
           ...beforeProfile,
           preferredCategories:
             suggestion.action === "reduce"
-              ? removeValue(beforeProfile.preferredCategories, suggestion.signal)
+              ? removeValue(
+                  beforeProfile.preferredCategories,
+                  suggestion.signal,
+                )
               : addValue(beforeProfile.preferredCategories, suggestion.signal),
         };
       }
@@ -1609,10 +1609,12 @@ export function NewsHome({
       limit: sourceQuotaBalancedItems.length,
     });
 
-    const categoryQuotaBalancedItems = selectCategoryQuotaBalancedNewsHomeItems({
-      items: entityQuotaBalancedItems,
-      limit: entityQuotaBalancedItems.length,
-    });
+    const categoryQuotaBalancedItems = selectCategoryQuotaBalancedNewsHomeItems(
+      {
+        items: entityQuotaBalancedItems,
+        limit: entityQuotaBalancedItems.length,
+      },
+    );
 
     return selectAngleQuotaBalancedNewsHomeItems({
       items: categoryQuotaBalancedItems,

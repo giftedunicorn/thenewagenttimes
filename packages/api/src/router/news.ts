@@ -50,6 +50,7 @@ import {
   selectSemanticSimilarityNewsFeed,
   selectSessionIntentNewsFeed,
   selectSourceCorroboratedNewsFeed,
+  selectSourceQuotaBalancedNewsFeed,
   selectSourceTrustBalancedNewsFeed,
   shouldTrainReaderProfileFromInteraction,
   summarizeNewsRecommendation,
@@ -677,9 +678,12 @@ export const selectNewsForYouItems = <TItem extends NewsForYouCandidate>({
     viewedNewsItemIds,
     viewedNewsItems,
   );
-
-  return selectNewsRecommendationRotationFeed({
+  const rotatedRows = selectNewsRecommendationRotationFeed({
     items: readerFreshRows,
+    limit: readerFreshRows.length,
+  });
+
+  return selectSourceQuotaBalancedNewsFeed(rotatedRows, {
     limit,
   });
 };

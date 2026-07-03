@@ -2932,6 +2932,108 @@ describe("selectNewsForYouItems", () => {
     ]);
     expect(feed[0]?.matchedSignals).toContain("source_corroboration");
   });
+
+  it("caps repeated sources in the final server-side For You page while alternates exist", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: [],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "openai-model-lead",
+          canonicalUrl: "https://example.com/openai-model-lead",
+          originalUrl: "https://example.com/openai-model-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          sourceScore: 92,
+          tags: ["frontier-model"],
+          trendScore: 92,
+        },
+        {
+          ...baseNewsItem,
+          id: "openai-agent-follow",
+          canonicalUrl: "https://example.com/openai-agent-follow",
+          originalUrl: "https://example.com/openai-agent-follow",
+          category: "agent_product",
+          entities: ["OpenAI", "Agents"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          sourceScore: 91,
+          tags: ["workflow_automation"],
+          trendScore: 90,
+        },
+        {
+          ...baseNewsItem,
+          id: "openai-research-follow",
+          canonicalUrl: "https://example.com/openai-research-follow",
+          originalUrl: "https://example.com/openai-research-follow",
+          category: "research",
+          entities: ["OpenAI", "Benchmarks"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          sourceScore: 90,
+          tags: ["evals"],
+          trendScore: 88,
+        },
+        {
+          ...baseNewsItem,
+          id: "anthropic-model-angle",
+          canonicalUrl: "https://example.com/anthropic-model-angle",
+          originalUrl: "https://example.com/anthropic-model-angle",
+          category: "model_release",
+          entities: ["Anthropic"],
+          sourceName: "Anthropic News",
+          sourceSlug: "anthropic-news",
+          sourceScore: 88,
+          tags: ["frontier-model"],
+          trendScore: 72,
+        },
+        {
+          ...baseNewsItem,
+          id: "venture-agent-angle",
+          canonicalUrl: "https://example.com/venture-agent-angle",
+          originalUrl: "https://example.com/venture-agent-angle",
+          category: "agent_product",
+          entities: ["Agents"],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          sourceScore: 82,
+          tags: ["workflow_automation"],
+          trendScore: 68,
+        },
+      ],
+      limit: 5,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-01T12:00:00.000Z"),
+      positiveFeedbackItems: [
+        {
+          action: "save",
+          category: "model_release",
+          entities: ["OpenAI"],
+          occurredAt: "2026-07-01T11:00:00.000Z",
+          sourceSlug: "openai-news",
+          tags: ["frontier-model"],
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "openai-model-lead",
+      "openai-agent-follow",
+      "anthropic-model-angle",
+      "venture-agent-angle",
+      "openai-research-follow",
+    ]);
+  });
 });
 
 describe("selectUniqueNewsCollectionItems", () => {

@@ -61,6 +61,17 @@ import { publicProcedure } from "../trpc";
 const optionalTrimmedString = (maxLength: number) =>
   z.string().trim().min(1).max(maxLength).optional();
 
+const normalizeNewsTagValue = (tag: string) =>
+  tag.toLowerCase().replace(/[\s-]+/g, "_").replace(/_+/g, "_");
+
+const optionalNewsTagFilter = z
+  .string()
+  .trim()
+  .min(1)
+  .max(80)
+  .transform(normalizeNewsTagValue)
+  .optional();
+
 const optionalVisitorKey = z.string().trim().min(8).max(160).optional();
 
 const defaultNewsPreferenceProfile: NewsPreferenceProfile = {
@@ -73,7 +84,7 @@ const defaultNewsPreferenceProfile: NewsPreferenceProfile = {
 
 export const NewsFeedInputSchema = z.object({
   category: NewsCategorySchema.optional(),
-  tag: optionalTrimmedString(80),
+  tag: optionalNewsTagFilter,
   sourceSlug: optionalTrimmedString(160),
   q: optionalTrimmedString(256),
   limit: z.number().int().min(1).max(50).default(20),
@@ -494,6 +505,12 @@ export const buildNewsTextSearchCondition = (
   if (!query) return undefined;
 
   const pattern = `%${query}%`;
+  const normalizedTagQuery = normalizeNewsTagValue(query);
+  const normalizedTagPattern = `%${normalizedTagQuery}%`;
+  const normalizedTagCondition =
+    normalizedTagQuery === query.toLowerCase()
+      ? undefined
+      : sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${normalizedTagPattern})`;
 
   return or(
     ilike(NewsItem.title, pattern),
@@ -502,6 +519,7 @@ export const buildNewsTextSearchCondition = (
     ilike(NewsSource.slug, pattern),
     sql`exists (select 1 from unnest(${NewsItem.entities}) as entity where entity ilike ${pattern})`,
     sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${pattern})`,
+    normalizedTagCondition,
   );
 };
 

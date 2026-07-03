@@ -108,6 +108,15 @@ describe("news router input contracts", () => {
     expect(result.success).toBe(true);
   });
 
+  it("normalizes readable angle tags before public feed filtering", () => {
+    expect(
+      NewsFeedInputSchema.parse({ tag: " prompt injection " }).tag,
+    ).toBe("prompt_injection");
+    expect(NewsFeedInputSchema.parse({ tag: "funding-round" }).tag).toBe(
+      "funding_round",
+    );
+  });
+
   it("requires a non-empty search query after trimming", () => {
     const result = NewsSearchCandidatesInputSchema.safeParse({ q: "   " });
 
@@ -741,6 +750,13 @@ describe("selectNewsSearchCandidateItems", () => {
     const condition = buildNewsTextSearchCondition("agents");
 
     expect(collectSqlDebugText(condition)).toContain("tags");
+  });
+
+  it("matches readable angle search queries against normalized story tags", () => {
+    const condition = buildNewsTextSearchCondition("computer use");
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("computer_use");
   });
 
   it("matches search queries against source names and slugs", () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { NewsHomeItem } from "./news-home-model";
 import {
+  applyNewsStoryQuickTuneAction,
   buildNewsDeskStatus,
   buildNewsHomeFeedInput,
   buildNewsHomeInteractionMetadata,
@@ -72,6 +73,7 @@ import {
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
   getNewsRecommendationAudit,
+  getNewsRecommendationNudge,
   getNewsRecommendationReasons,
   getNewsRecommendationRotationQueue,
   getNewsRecommendationTrace,
@@ -86,6 +88,8 @@ import {
   getNewsSourceTrustLedger,
   getNewsStoryProofStrip,
   getNewsStoryQuickTuneActions,
+  getNewsStoryQuickTuneTrainingUpdate,
+  getNewsStoryQuickTuneUndoTrainingUpdate,
   getNewsStoryRankDetails,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
@@ -98,6 +102,7 @@ import {
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
+  revertNewsStoryQuickTuneAction,
   selectFeedFatigueBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectInitialNewsHomeItems,
@@ -4293,6 +4298,488 @@ describe("getNewsStoryQuickTuneActions", () => {
       summary:
         "Add topic, source, entity, or angle signals from this story to retrain For You.",
     });
+  });
+});
+
+describe("applyNewsStoryQuickTuneAction", () => {
+  it("adds story quick tune actions to the correct profile bucket", () => {
+    const beforeProfile = {
+      preferredCategories: ["model_release"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    expect(
+      applyNewsStoryQuickTuneAction({
+        action: {
+          actionLabel: "Follow angle",
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+        profile: beforeProfile,
+      }),
+    ).toEqual({
+      preferredCategories: ["model_release"],
+      preferredEntities: ["OpenAI", "prompt_injection"],
+      preferredSources: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    });
+  });
+});
+
+describe("revertNewsStoryQuickTuneAction", () => {
+  it("removes story quick tune actions from the correct profile bucket", () => {
+    expect(
+      revertNewsStoryQuickTuneAction({
+        action: {
+          actionLabel: "Follow angle",
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI", "prompt_injection"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      preferredCategories: ["model_release"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    });
+  });
+});
+
+describe("getNewsStoryQuickTuneTrainingUpdate", () => {
+  it("summarizes manual story tuning for the training loop panel", () => {
+    expect(
+      getNewsStoryQuickTuneTrainingUpdate({
+        action: {
+          actionLabel: "Follow angle",
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+        afterProfile: {
+          preferredCategories: ["security"],
+          preferredEntities: ["OpenAI", "prompt_injection"],
+          preferredSources: ["security-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        beforeProfile: {
+          preferredCategories: ["security"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["security-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+      }),
+    ).toEqual({
+      label: "Manual Tune",
+      metrics: [
+        { label: "Added topics", value: "0" },
+        { label: "Added sources", value: "0" },
+        { label: "Added entities", value: "0" },
+        { label: "Added angles", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "Manual tuning updates the For You profile before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Angle", value: "prompt injection" }],
+      summary: "Follow angle added prompt injection to the For You profile.",
+      undoAction: {
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt_injection",
+      },
+    });
+  });
+
+  it("previews current ranked stories affected by manual tuning", () => {
+    const update = getNewsStoryQuickTuneTrainingUpdate({
+      action: {
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt_injection",
+      },
+      afterProfile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["OpenAI", "prompt_injection"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      beforeProfile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      impactItems: [
+        {
+          ...localItem,
+          category: "security",
+          id: "prompt-defense",
+          matchedSignals: ["tag"],
+          personalizedScore: 144,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection defense playbook",
+        },
+        {
+          ...serverItem,
+          category: "security",
+          id: "prompt-benchmark",
+          matchedSignals: ["tag"],
+          personalizedScore: 132,
+          sourceName: "Eval Lab",
+          sourceSlug: "eval-lab",
+          tags: ["prompt-injection"],
+          title: "Prompt injection benchmark ships",
+        },
+        {
+          ...olderItem,
+          category: "funding",
+          id: "funding-round",
+          matchedSignals: [],
+          personalizedScore: 94,
+          tags: ["funding"],
+          title: "Funding round closes",
+        },
+      ],
+      impactLimit: 2,
+    });
+
+    expect(update.impactStories).toEqual([
+      {
+        id: "prompt-defense",
+        reason: "Matches tuned angle prompt injection.",
+        sourceName: "Security Desk",
+        title: "Prompt injection defense playbook",
+      },
+      {
+        id: "prompt-benchmark",
+        reason: "Matches tuned angle prompt injection.",
+        sourceName: "Eval Lab",
+        title: "Prompt injection benchmark ships",
+      },
+    ]);
+    expect(update.metrics).toContainEqual({
+      label: "Impact",
+      value: "2",
+    });
+  });
+
+  it("keeps Less-dampened stories out of manual tuning impact previews", () => {
+    const update = getNewsStoryQuickTuneTrainingUpdate({
+      action: {
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt_injection",
+      },
+      afterProfile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["OpenAI", "prompt_injection"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      beforeProfile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      impactItems: [
+        {
+          ...localItem,
+          category: "security",
+          id: "hidden-prompt-defense",
+          matchedSignals: ["negative_feedback", "tag"],
+          personalizedScore: 61,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Hidden prompt defense",
+        },
+        {
+          ...serverItem,
+          category: "security",
+          id: "visible-prompt-defense",
+          matchedSignals: ["tag"],
+          personalizedScore: 132,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Visible prompt defense",
+        },
+      ],
+    });
+
+    expect(update.impactStories).toEqual([
+      {
+        id: "visible-prompt-defense",
+        reason: "Matches tuned angle prompt injection.",
+        sourceName: "Security Desk",
+        title: "Visible prompt defense",
+      },
+    ]);
+    expect(update.metrics).toContainEqual({
+      label: "Impact",
+      value: "1",
+    });
+  });
+
+  it("warns when manual tuning overlaps Less guardrails", () => {
+    const update = getNewsStoryQuickTuneTrainingUpdate({
+      action: {
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt_injection",
+      },
+      afterProfile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["OpenAI", "prompt_injection"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      beforeProfile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          category: "security",
+          id: "hidden-prompt-defense",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Hidden prompt defense",
+        },
+        {
+          ...serverItem,
+          category: "security",
+          id: "hidden-prompt-followup",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt-injection"],
+          title: "Hidden prompt follow-up",
+        },
+      ],
+    });
+
+    expect(update.metrics).toContainEqual({
+      label: "Guardrails",
+      value: "2",
+    });
+    expect(update.notices).toContainEqual({
+      detail:
+        "2 Less guardrails also match prompt injection. Review hidden stories before trusting this signal.",
+      label: "Guardrail conflict",
+    });
+    expect(update.guardrailReviewAction).toEqual({
+      actionLabel: "Review Less",
+      query: "prompt injection",
+      resetFilters: true,
+      targetFeedMode: "for_you",
+    });
+  });
+});
+
+describe("getNewsStoryQuickTuneUndoTrainingUpdate", () => {
+  it("summarizes reverted manual story tuning for the training loop panel", () => {
+    expect(
+      getNewsStoryQuickTuneUndoTrainingUpdate({
+        action: {
+          actionLabel: "Follow angle",
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+        afterProfile: {
+          preferredCategories: ["security"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["security-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        beforeProfile: {
+          preferredCategories: ["security"],
+          preferredEntities: ["OpenAI", "prompt_injection"],
+          preferredSources: ["security-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+      }),
+    ).toEqual({
+      label: "Manual Tune Undone",
+      metrics: [
+        { label: "Removed topics", value: "0" },
+        { label: "Removed sources", value: "0" },
+        { label: "Removed entities", value: "0" },
+        { label: "Removed angles", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "The manual tuning signal was removed before the next ranking pass.",
+          label: "Reader control",
+        },
+      ],
+      signals: [{ label: "Angle", value: "prompt injection" }],
+      summary: "Undo tune removed prompt injection from the For You profile.",
+    });
+  });
+});
+
+describe("getNewsRecommendationNudge", () => {
+  it("turns a tag-based recommendation reason into an angle follow action", () => {
+    expect(
+      getNewsRecommendationNudge({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: {
+          ...localItem,
+          category: "security",
+          matchedSignals: ["tag"],
+          personalizedScore: 118,
+          tags: ["agents", "prompt_injection"],
+        },
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt_injection",
+      },
+      detail:
+        "The ranking trace used this angle. Follow it to make similar stories more frequent.",
+      label: "Tune this reason",
+    });
+  });
+
+  it("uses an exploration story to offer the tested topic as a preference", () => {
+    expect(
+      getNewsRecommendationNudge({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          matchedSignals: ["exploration"],
+          personalizedScore: 104,
+        },
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow topic",
+        kind: "category",
+        label: "Agents",
+        signal: "agent_product",
+      },
+      detail:
+        "This story is testing an adjacent topic. Follow Agents if it belongs in your mix.",
+      label: "Tune this reason",
+    });
+  });
+
+  it("stays quiet when the recommendation reason is already covered", () => {
+    expect(
+      getNewsRecommendationNudge({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: {
+          ...localItem,
+          category: "security",
+          entities: ["OpenAI"],
+          matchedSignals: ["category", "entity", "tag"],
+          personalizedScore: 128,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+        profile: {
+          preferredCategories: ["security"],
+          preferredEntities: ["OpenAI", "prompt_injection"],
+          preferredSources: ["security-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("does not suggest following signals on stories dampened by Less feedback", () => {
+    expect(
+      getNewsRecommendationNudge({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: {
+          ...localItem,
+          category: "security",
+          matchedSignals: ["negative_feedback", "tag"],
+          personalizedScore: 72,
+          tags: ["prompt_injection"],
+        },
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toBeNull();
   });
 });
 

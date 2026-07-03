@@ -4364,7 +4364,18 @@ export const getNewsPreferenceControlPanel = ({
   };
 };
 
-type NewsStoryQuickTuneActionKind = "category" | "entity" | "source" | "tag";
+export type NewsStoryQuickTuneActionKind =
+  | "category"
+  | "entity"
+  | "source"
+  | "tag";
+
+export interface NewsStoryQuickTuneAction {
+  actionLabel: string;
+  kind: NewsStoryQuickTuneActionKind;
+  label: string;
+  signal: string;
+}
 
 const createNewsStoryQuickTuneAction = ({
   actionLabel,
@@ -4376,7 +4387,7 @@ const createNewsStoryQuickTuneAction = ({
   kind: NewsStoryQuickTuneActionKind;
   label: string;
   signal: string;
-}) => ({
+}): NewsStoryQuickTuneAction => ({
   actionLabel,
   kind,
   label,
@@ -4461,6 +4472,569 @@ export const getNewsStoryQuickTuneActions = ({
       actions.length > 0
         ? "Add topic, source, entity, or angle signals from this story to retrain For You."
         : "This story's main signals are already in your profile.",
+  };
+};
+
+const addPreferenceSignal = (values: readonly string[], value: string) =>
+  hasPreferenceSignal(values, value) ? [...values] : [...values, value];
+
+const removePreferenceSignal = (values: readonly string[], value: string) => {
+  const normalizedValue = normalizePreferenceSignal(value);
+
+  return values.filter(
+    (signal) => normalizePreferenceSignal(signal) !== normalizedValue,
+  );
+};
+
+export const applyNewsStoryQuickTuneAction = ({
+  action,
+  profile,
+}: {
+  action: NewsStoryQuickTuneAction;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfile => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  if (action.kind === "category") {
+    return {
+      ...normalizedProfile,
+      preferredCategories: addPreferenceSignal(
+        normalizedProfile.preferredCategories,
+        action.signal,
+      ),
+    };
+  }
+
+  if (action.kind === "source") {
+    return {
+      ...normalizedProfile,
+      preferredSources: addPreferenceSignal(
+        normalizedProfile.preferredSources,
+        action.signal,
+      ),
+    };
+  }
+
+  return {
+    ...normalizedProfile,
+    preferredEntities: addPreferenceSignal(
+      normalizedProfile.preferredEntities,
+      action.signal,
+    ),
+  };
+};
+
+export const revertNewsStoryQuickTuneAction = ({
+  action,
+  profile,
+}: {
+  action: NewsStoryQuickTuneAction;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfile => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  if (action.kind === "category") {
+    return {
+      ...normalizedProfile,
+      preferredCategories: removePreferenceSignal(
+        normalizedProfile.preferredCategories,
+        action.signal,
+      ),
+    };
+  }
+
+  if (action.kind === "source") {
+    return {
+      ...normalizedProfile,
+      preferredSources: removePreferenceSignal(
+        normalizedProfile.preferredSources,
+        action.signal,
+      ),
+    };
+  }
+
+  return {
+    ...normalizedProfile,
+    preferredEntities: removePreferenceSignal(
+      normalizedProfile.preferredEntities,
+      action.signal,
+    ),
+  };
+};
+
+const getQuickTuneSignalLabel = (kind: NewsStoryQuickTuneActionKind) => {
+  if (kind === "category") return "Topic";
+  if (kind === "source") return "Source";
+  if (kind === "tag") return "Angle";
+  return "Entity";
+};
+
+const getQuickTuneImpactReason = ({
+  action,
+  formatCategory,
+  item,
+}: {
+  action: NewsStoryQuickTuneAction;
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+}) => {
+  if (item.matchedSignals.includes("negative_feedback")) return null;
+
+  if (
+    action.kind === "category" &&
+    normalizePreferenceSignal(item.category) ===
+      normalizePreferenceSignal(action.signal)
+  ) {
+    return `Matches tuned topic ${formatCategory(action.signal)}.`;
+  }
+
+  if (
+    action.kind === "source" &&
+    normalizePreferenceSignal(item.sourceSlug) ===
+      normalizePreferenceSignal(action.signal)
+  ) {
+    return `Matches tuned source ${item.sourceName}.`;
+  }
+
+  if (
+    action.kind === "entity" &&
+    item.entities.some(
+      (entity) =>
+        normalizePreferenceSignal(entity) ===
+        normalizePreferenceSignal(action.signal),
+    )
+  ) {
+    return `Mentions tuned entity ${action.label}.`;
+  }
+
+  if (
+    action.kind === "tag" &&
+    item.tags.some(
+      (tag) =>
+        isSpecificNewsAngleTag(tag) &&
+        getNewsAngleSignalKey(tag) === getNewsAngleSignalKey(action.signal),
+    )
+  ) {
+    return `Matches tuned angle ${formatNewsAngleQuery(action.signal)}.`;
+  }
+
+  return null;
+};
+
+const getNewsStoryQuickTuneImpactStories = ({
+  action,
+  formatCategory,
+  impactItems,
+  impactLimit,
+}: {
+  action: NewsStoryQuickTuneAction;
+  formatCategory: (category: string) => string;
+  impactItems: readonly RankedNewsItem<NewsHomeItem>[];
+  impactLimit: number;
+}) =>
+  impactItems
+    .flatMap((item) => {
+      const reason = getQuickTuneImpactReason({
+        action,
+        formatCategory,
+        item,
+      });
+
+      if (!reason) return [];
+
+      return [
+        {
+          id: item.id,
+          reason,
+          sourceName: item.sourceName,
+          title: item.title,
+        },
+      ];
+    })
+    .slice(0, Math.max(0, impactLimit));
+
+const matchesQuickTuneGuardrail = ({
+  action,
+  item,
+}: {
+  action: NewsStoryQuickTuneAction;
+  item: NewsReaderMemoryItem;
+}) => {
+  if (action.kind === "category") {
+    return (
+      normalizePreferenceSignal(item.category) ===
+      normalizePreferenceSignal(action.signal)
+    );
+  }
+
+  if (action.kind === "source") {
+    return (
+      normalizePreferenceSignal(item.sourceSlug) ===
+      normalizePreferenceSignal(action.signal)
+    );
+  }
+
+  if (action.kind === "entity") {
+    return item.entities.some(
+      (entity) =>
+        normalizePreferenceSignal(entity) ===
+        normalizePreferenceSignal(action.signal),
+    );
+  }
+
+  return (item.tags ?? []).some(
+    (tag) =>
+      isSpecificNewsAngleTag(tag) &&
+      getNewsAngleSignalKey(tag) === getNewsAngleSignalKey(action.signal),
+  );
+};
+
+export const getNewsStoryQuickTuneTrainingUpdate = ({
+  action,
+  afterProfile,
+  beforeProfile,
+  formatCategory,
+  impactItems = [],
+  impactLimit = 2,
+  negativeFeedbackItems = [],
+}: {
+  action: NewsStoryQuickTuneAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+  formatCategory: (category: string) => string;
+  impactItems?: readonly RankedNewsItem<NewsHomeItem>[];
+  impactLimit?: number;
+  negativeFeedbackItems?: readonly NewsReaderMemoryItem[];
+}) => {
+  const categoryDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredCategories,
+    before: beforeProfile.preferredCategories,
+  });
+  const sourceDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredSources,
+    before: beforeProfile.preferredSources,
+  });
+  const entityDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredEntities,
+    before: beforeProfile.preferredEntities,
+  });
+  const addedAngles = entityDelta.added.filter(isNewsReaderAngleSignal);
+  const addedNamedEntities = entityDelta.added.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
+  const addedCount =
+    categoryDelta.added.length +
+    sourceDelta.added.length +
+    addedNamedEntities.length +
+    addedAngles.length;
+  const signalValue =
+    action.kind === "category"
+      ? formatCategory(action.signal)
+      : action.kind === "tag"
+        ? formatNewsAngleQuery(action.signal)
+        : action.label;
+  const impactStories = getNewsStoryQuickTuneImpactStories({
+    action,
+    formatCategory,
+    impactItems,
+    impactLimit,
+  });
+  const guardrailConflictCount = negativeFeedbackItems.filter((item) =>
+    matchesQuickTuneGuardrail({ action, item }),
+  ).length;
+
+  return {
+    label: addedCount > 0 ? "Manual Tune" : "Already Tuned",
+    metrics: [
+      { label: "Added topics", value: String(categoryDelta.added.length) },
+      { label: "Added sources", value: String(sourceDelta.added.length) },
+      { label: "Added entities", value: String(addedNamedEntities.length) },
+      { label: "Added angles", value: String(addedAngles.length) },
+      ...(impactStories.length > 0
+        ? [{ label: "Impact", value: String(impactStories.length) }]
+        : []),
+      ...(guardrailConflictCount > 0
+        ? [{ label: "Guardrails", value: String(guardrailConflictCount) }]
+        : []),
+    ],
+    notices: [
+      {
+        detail:
+          addedCount > 0
+            ? "Manual tuning updates the For You profile before the next ranking pass."
+            : "The For You profile already contains this manual tuning signal.",
+        label: "Reader control",
+      },
+      ...(guardrailConflictCount > 0
+        ? [
+            {
+              detail: `${guardrailConflictCount} Less ${
+                guardrailConflictCount === 1 ? "guardrail" : "guardrails"
+              } also match ${signalValue}. Review hidden stories before trusting this signal.`,
+              label: "Guardrail conflict",
+            },
+          ]
+        : []),
+    ],
+    signals: [
+      {
+        label: getQuickTuneSignalLabel(action.kind),
+        value: signalValue,
+      },
+    ],
+    summary:
+      addedCount > 0
+        ? `${action.actionLabel} added ${signalValue} to the For You profile.`
+        : `${action.actionLabel} left ${signalValue} unchanged in the For You profile.`,
+    ...(guardrailConflictCount > 0
+      ? {
+          guardrailReviewAction: {
+            actionLabel: "Review Less",
+            query: signalValue,
+            resetFilters: true,
+            targetFeedMode: "for_you" as const,
+          },
+        }
+      : {}),
+    ...(impactStories.length > 0 ? { impactStories } : {}),
+    ...(addedCount > 0 ? { undoAction: action } : {}),
+  };
+};
+
+export const getNewsStoryQuickTuneUndoTrainingUpdate = ({
+  action,
+  afterProfile,
+  beforeProfile,
+  formatCategory,
+}: {
+  action: NewsStoryQuickTuneAction;
+  afterProfile: NewsPreferenceProfile;
+  beforeProfile: NewsPreferenceProfile;
+  formatCategory: (category: string) => string;
+}) => {
+  const categoryDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredCategories,
+    before: beforeProfile.preferredCategories,
+  });
+  const sourceDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredSources,
+    before: beforeProfile.preferredSources,
+  });
+  const entityDelta = getFeedbackSignalDelta({
+    after: afterProfile.preferredEntities,
+    before: beforeProfile.preferredEntities,
+  });
+  const removedAngles = entityDelta.removed.filter(isNewsReaderAngleSignal);
+  const removedNamedEntities = entityDelta.removed.filter(
+    (signal) => !isNewsReaderAngleSignal(signal),
+  );
+  const signalValue =
+    action.kind === "category"
+      ? formatCategory(action.signal)
+      : action.kind === "tag"
+        ? formatNewsAngleQuery(action.signal)
+        : action.label;
+
+  return {
+    label: "Manual Tune Undone",
+    metrics: [
+      { label: "Removed topics", value: String(categoryDelta.removed.length) },
+      { label: "Removed sources", value: String(sourceDelta.removed.length) },
+      { label: "Removed entities", value: String(removedNamedEntities.length) },
+      { label: "Removed angles", value: String(removedAngles.length) },
+    ],
+    notices: [
+      {
+        detail:
+          "The manual tuning signal was removed before the next ranking pass.",
+        label: "Reader control",
+      },
+    ],
+    signals: [
+      {
+        label: getQuickTuneSignalLabel(action.kind),
+        value: signalValue,
+      },
+    ],
+    summary: `Undo tune removed ${signalValue} from the For You profile.`,
+  };
+};
+
+const getNewsRecommendationNudgeCategoryAction = ({
+  formatCategory,
+  item,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+}) =>
+  hasPreferenceSignal(profile.preferredCategories, item.category)
+    ? null
+    : createNewsStoryQuickTuneAction({
+        actionLabel: "Follow topic",
+        kind: "category",
+        label: formatCategory(item.category),
+        signal: item.category,
+      });
+
+const getNewsRecommendationNudgeSourceAction = ({
+  item,
+  profile,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+}) =>
+  hasPreferenceSignal(profile.preferredSources, item.sourceSlug)
+    ? null
+    : createNewsStoryQuickTuneAction({
+        actionLabel: "Follow source",
+        kind: "source",
+        label: item.sourceName,
+        signal: item.sourceSlug,
+      });
+
+const getNewsRecommendationNudgeEntityAction = ({
+  item,
+  profile,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+}) => {
+  const entity = item.entities.find(
+    (currentEntity) =>
+      !hasPreferenceSignal(profile.preferredEntities, currentEntity),
+  );
+
+  return entity
+    ? createNewsStoryQuickTuneAction({
+        actionLabel: "Follow entity",
+        kind: "entity",
+        label: entity,
+        signal: entity,
+      })
+    : null;
+};
+
+const getNewsRecommendationNudgeTagAction = ({
+  item,
+  profile,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+}) => {
+  const tag = item.tags.find(
+    (currentTag) =>
+      isSpecificNewsAngleTag(currentTag) &&
+      !hasNewsReaderAngleSignal(profile.preferredEntities, currentTag),
+  );
+
+  return tag
+    ? createNewsStoryQuickTuneAction({
+        actionLabel: "Follow angle",
+        kind: "tag",
+        label: formatNewsAngleQuery(tag),
+        signal: tag,
+      })
+    : null;
+};
+
+const getNewsRecommendationNudgeDetail = ({
+  action,
+  reason,
+}: {
+  action: NewsStoryQuickTuneAction;
+  reason: NewsRecommendationNudgeReason;
+}) => {
+  if (reason === "tag") {
+    return "The ranking trace used this angle. Follow it to make similar stories more frequent.";
+  }
+
+  if (reason === "exploration") {
+    return `This story is testing an adjacent topic. Follow ${action.label} if it belongs in your mix.`;
+  }
+
+  if (reason === "source") {
+    return `The ranking trace used this source. Follow ${action.label} to lift its future coverage.`;
+  }
+
+  if (reason === "entity") {
+    return `The ranking trace used this entity. Follow ${action.label} to keep related coverage close.`;
+  }
+
+  return `The ranking trace used this topic. Follow ${action.label} to make it a stronger For You signal.`;
+};
+
+type NewsRecommendationNudgeReason =
+  | "category"
+  | "entity"
+  | "exploration"
+  | "source"
+  | "tag";
+
+const newsRecommendationNudgeReasonPriority = [
+  "tag",
+  "exploration",
+  "category",
+  "source",
+  "entity",
+] as const satisfies readonly NewsRecommendationNudgeReason[];
+
+export const getNewsRecommendationNudge = ({
+  formatCategory,
+  item,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+}) => {
+  if (item.matchedSignals.includes("negative_feedback")) return null;
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const actionByReason: Record<
+    NewsRecommendationNudgeReason,
+    NewsStoryQuickTuneAction | null
+  > = {
+    category: getNewsRecommendationNudgeCategoryAction({
+      formatCategory,
+      item,
+      profile: normalizedProfile,
+    }),
+    entity: getNewsRecommendationNudgeEntityAction({
+      item,
+      profile: normalizedProfile,
+    }),
+    exploration: getNewsRecommendationNudgeCategoryAction({
+      formatCategory,
+      item,
+      profile: normalizedProfile,
+    }),
+    source: getNewsRecommendationNudgeSourceAction({
+      item,
+      profile: normalizedProfile,
+    }),
+    tag: getNewsRecommendationNudgeTagAction({
+      item,
+      profile: normalizedProfile,
+    }),
+  };
+  const reason = newsRecommendationNudgeReasonPriority.find(
+    (currentReason) =>
+      item.matchedSignals.includes(currentReason) &&
+      actionByReason[currentReason],
+  );
+
+  if (!reason) return null;
+
+  const action = actionByReason[reason];
+
+  if (!action) return null;
+
+  return {
+    action,
+    detail: getNewsRecommendationNudgeDetail({ action, reason }),
+    label: "Tune this reason",
   };
 };
 

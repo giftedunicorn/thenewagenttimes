@@ -37,9 +37,17 @@ const knownEntities = [
   "SpaceX",
   "Cloudflare",
   "Claude",
+  "Cohere",
   "Gemini",
   "Mistral",
   "Perplexity",
+  "Cursor",
+  "Windsurf",
+  "Devin",
+  "Cognition",
+  "GitHub Copilot",
+  "Vercel",
+  "ElevenLabs",
 ] as const;
 
 const bigTechTokens = [
@@ -119,6 +127,47 @@ const openSourceTokens = [
   "oss",
 ] as const;
 
+const codingAgentTokens = [
+  "code review",
+  "coding",
+  "coding agent",
+  "copilot",
+  "cursor",
+  "devin",
+  "github copilot",
+  "repo automation",
+  "repository automation",
+  "windsurf",
+] as const;
+
+const developerToolTokens = [
+  ...codingAgentTokens,
+  "developer tool",
+  "developer tools",
+  "ide",
+] as const;
+
+const modelEvaluationTokens = [
+  "evaluate",
+  "evaluation",
+  "eval",
+  "evals",
+] as const;
+
+const toolUseTokens = [
+  "function calling",
+  "tool calling",
+  "tool use",
+  "tool-use",
+] as const;
+
+const localInferenceTokens = [
+  "local inference",
+  "local-inference",
+  "on-device",
+  "on device",
+] as const;
+
 const marketMapTokens = [
   "gpu cloud",
   "gpu clouds",
@@ -129,9 +178,42 @@ const marketMapTokens = [
   "vendor map",
 ] as const;
 
+const namedHtmlEntities: Partial<Record<string, string>> = {
+  amp: "&",
+  apos: "'",
+  gt: ">",
+  lt: "<",
+  nbsp: " ",
+  quot: '"',
+} as const;
+
+const decodeHtmlEntity = (entity: string) => {
+  if (entity.startsWith("#x") || entity.startsWith("#X")) {
+    const codePoint = Number.parseInt(entity.slice(2), 16);
+
+    return Number.isFinite(codePoint)
+      ? String.fromCodePoint(codePoint)
+      : `&${entity};`;
+  }
+
+  if (entity.startsWith("#")) {
+    const codePoint = Number.parseInt(entity.slice(1), 10);
+
+    return Number.isFinite(codePoint)
+      ? String.fromCodePoint(codePoint)
+      : `&${entity};`;
+  }
+
+  return namedHtmlEntities[entity] ?? `&${entity};`;
+};
+
+const decodeHtmlEntities = (text: string) =>
+  text.replace(/&([a-zA-Z]+|#[0-9]+|#x[0-9a-fA-F]+);/g, (_match, entity) =>
+    decodeHtmlEntity(String(entity)),
+  );
+
 const normalizeText = (text: string) =>
-  text
-    .replace(/<[^>]*>/g, " ")
+  decodeHtmlEntities(text.replace(/<[^>]*>/g, " "))
     .replace(/\s+/g, " ")
     .trim();
 
@@ -230,6 +312,9 @@ export const inferNewsCategory = (input: {
   if (hasAnyToken(text, securityTokens) && hasAiContext(text)) {
     return "security";
   }
+  if (hasAnyToken(text, codingAgentTokens) && hasAiContext(text)) {
+    return "agent_product";
+  }
   if (hasAnyToken(text, openSourceTokens) && hasAiContext(text)) {
     return "open_source";
   }
@@ -311,6 +396,16 @@ const tagsFor = (input: {
   }
   if (hasToken(text, "prompt injection")) tags.add("prompt_injection");
   if (hasToken(text, "red team")) tags.add("red_team");
+  if (hasAnyToken(text, codingAgentTokens)) tags.add("coding_agent");
+  if (
+    hasAnyToken(text, developerToolTokens) ||
+    sourceSlug.includes("developer-tools")
+  ) {
+    tags.add("developer_tool");
+  }
+  if (hasAnyToken(text, modelEvaluationTokens)) tags.add("evals");
+  if (hasAnyToken(text, toolUseTokens)) tags.add("tool_use");
+  if (hasAnyToken(text, localInferenceTokens)) tags.add("local_inference");
   if (hasAnyToken(text, ["gpu cloud", "gpu clouds"])) tags.add("gpu_cloud");
   if (
     hasAnyToken(text, [

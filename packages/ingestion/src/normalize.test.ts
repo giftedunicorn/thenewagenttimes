@@ -143,6 +143,23 @@ describe("extractEntities", () => {
       "Perplexity",
     ]);
   });
+
+  it("extracts AI coding and application-layer entities", () => {
+    expect(
+      extractEntities(
+        "Cursor, Windsurf, Devin, Cognition, GitHub Copilot, Vercel, Cohere, and ElevenLabs lead the agent tooling cycle.",
+      ),
+    ).toEqual([
+      "Cohere",
+      "Cursor",
+      "Windsurf",
+      "Devin",
+      "Cognition",
+      "GitHub Copilot",
+      "Vercel",
+      "ElevenLabs",
+    ]);
+  });
 });
 
 describe("normalizeFeedItem", () => {
@@ -161,6 +178,30 @@ describe("normalizeFeedItem", () => {
     expect(CreateNewsItemSchema.safeParse(result).success).toBe(true);
     expect(result.category).toBe("model_release");
     expect(result.canonicalUrl).toBe("https://example.com/openai-agent");
+  });
+
+  it("decodes HTML entities from feed text before storage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "openai-news",
+      item: {
+        title: "OpenAI &amp; Anthropic release an agent model",
+        url: "https://example.com/openai-anthropic-agent",
+        summary:
+          "<p>OpenAI &amp; Anthropic&#39;s agents&nbsp;launch with new workflow tools.</p>",
+        bodyText:
+          "<p>Benchmarks show &quot;agentic&quot; model behavior &amp; safer handoffs.</p>",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.title).toBe("OpenAI & Anthropic release an agent model");
+    expect(result.summary).toBe(
+      "OpenAI & Anthropic's agents launch with new workflow tools.",
+    );
+    expect(result.bodyText).toBe(
+      'Benchmarks show "agentic" model behavior & safer handoffs.',
+    );
   });
 
   it("keeps arXiv research tags and entities clean from substring matches", () => {
@@ -232,6 +273,50 @@ describe("normalizeFeedItem", () => {
     );
     expect(marketMapResult.tags).toEqual(
       expect.arrayContaining(["market_map", "gpu_cloud", "infrastructure"]),
+    );
+  });
+
+  it("extracts coding-agent recommendation angles from developer tool coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "developer-tools-ai",
+      item: {
+        title: "Cursor and GitHub Copilot ship autonomous coding agent updates",
+        url: "https://example.com/coding-agent-update",
+        summary:
+          "Devin and Cognition push developer tools toward agentic code review and repo automation.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("agent_product");
+    expect(result.tags).toEqual(
+      expect.arrayContaining(["agent", "coding_agent", "developer_tool"]),
+    );
+  });
+
+  it("extracts model evaluation, tool-use, and local-inference angles", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "hugging-face-blog",
+      item: {
+        title:
+          "Open source model weights improve local inference and tool use",
+        url: "https://example.com/local-tool-use-model",
+        summary:
+          "Benchmarks evaluate compact LLMs for function calling, tool use, and on-device deployment.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("open_source");
+    expect(result.tags).toEqual(
+      expect.arrayContaining([
+        "model",
+        "local_inference",
+        "tool_use",
+        "evals",
+      ]),
     );
   });
 });

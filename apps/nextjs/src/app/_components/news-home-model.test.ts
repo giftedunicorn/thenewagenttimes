@@ -14841,6 +14841,41 @@ describe("selectSessionIntentNewsHomeItems", () => {
     ]);
     expect(feed[0]?.personalizedScore).toBe(134);
   });
+
+  it("does not boost Less feedback stories for the current session intent", () => {
+    const feed = selectSessionIntentNewsHomeItems({
+      intent: {
+        category: "agent_product",
+        query: "LangChain agents",
+        sourceSlug: null,
+      },
+      items: [
+        {
+          ...localItem,
+          id: "safe-model-story",
+          matchedSignals: [],
+          personalizedScore: 126,
+          title: "OpenAI ships a model refresh",
+        },
+        {
+          ...olderItem,
+          id: "blocked-agent-story",
+          category: "agent_product",
+          entities: ["LangChain"],
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 120,
+          tags: ["agents"],
+          title: "LangChain agent runtime adds workflow memory",
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "safe-model-story",
+      "blocked-agent-story",
+    ]);
+    expect(feed[1]?.matchedSignals).not.toContain("session_intent");
+  });
 });
 
 describe("selectSourceCorroboratedNewsHomeItems", () => {

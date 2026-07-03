@@ -20,6 +20,7 @@ import {
   selectNegativeFeedbackAdjustedNewsFeed,
   selectNewsRecommendationRotationSlots,
   selectReaderFreshNewsFeed,
+  selectSessionIntentNewsFeed,
   selectSourceCorroboratedNewsFeed,
   summarizeNewsRecommendation,
 } from "@acme/validators";
@@ -15547,110 +15548,13 @@ export interface NewsSessionIntentFilter {
   sourceSlug: string | null;
 }
 
-const newsSessionIntentSignal = "session_intent";
-const sessionIntentQueryStopwords = new Set([
-  "a",
-  "ai",
-  "an",
-  "and",
-  "for",
-  "in",
-  "of",
-  "on",
-  "or",
-  "the",
-  "to",
-  "with",
-]);
-
-const getSessionIntentQueryTerms = (query: string) =>
-  query
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .map((term) => term.trim())
-    .filter(
-      (term) => term.length >= 2 && !sessionIntentQueryStopwords.has(term),
-    )
-    .slice(0, 6);
-
-const getSessionIntentSearchText = (item: NewsHomeItem) =>
-  [
-    item.title,
-    item.summary,
-    item.category,
-    item.sourceName,
-    item.sourceSlug,
-    ...item.entities,
-    ...item.tags,
-  ]
-    .join(" ")
-    .toLowerCase();
-
-const getSessionIntentBoost = ({
-  intent,
-  item,
-}: {
-  intent: NewsSessionIntentFilter;
-  item: RankedNewsItem<NewsHomeItem>;
-}) => {
-  if (item.matchedSignals.includes(newsSessionIntentSignal)) return 0;
-
-  let boost = 0;
-
-  if (intent.category && item.category === intent.category) boost += 14;
-  if (intent.sourceSlug && item.sourceSlug === intent.sourceSlug) boost += 14;
-
-  const queryTerms = getSessionIntentQueryTerms(intent.query);
-
-  if (queryTerms.length > 0) {
-    const searchText = getSessionIntentSearchText(item);
-    const matchCount = queryTerms.filter((term) =>
-      searchText.includes(term),
-    ).length;
-
-    boost += Math.min(16, matchCount * 5);
-  }
-
-  return boost;
-};
-
 export const selectSessionIntentNewsHomeItems = ({
   intent,
   items,
 }: {
   intent: NewsSessionIntentFilter;
   items: readonly RankedNewsItem<NewsHomeItem>[];
-}) => {
-  const hasIntent = Boolean(
-    intent.category ?? intent.sourceSlug ?? intent.query.trim(),
-  );
-
-  if (!hasIntent) return [...items];
-
-  return items
-    .map((item, index) => {
-      const boost = getSessionIntentBoost({ intent, item });
-
-      if (boost <= 0) return { index, item };
-
-      return {
-        index,
-        item: {
-          ...item,
-          matchedSignals: item.matchedSignals.includes(newsSessionIntentSignal)
-            ? item.matchedSignals
-            : [...item.matchedSignals, newsSessionIntentSignal],
-          personalizedScore: item.personalizedScore + boost,
-        },
-      };
-    })
-    .sort((left, right) =>
-      right.item.personalizedScore === left.item.personalizedScore
-        ? left.index - right.index
-        : right.item.personalizedScore - left.item.personalizedScore,
-    )
-    .map(({ item }) => item);
-};
+}) => selectSessionIntentNewsFeed(items, intent);
 
 const newsChannelComparisonModes = [
   { key: "for_you", label: "For You" },

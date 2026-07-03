@@ -1456,6 +1456,46 @@ describe("getNewsReaderMemory", () => {
     });
   });
 
+  it("summarizes saved and read angle memory from story tags", () => {
+    expect(
+      getNewsReaderMemory({
+        formatCategory: () => "Security",
+        historyItems: [
+          {
+            ...localItem,
+            id: "read-prompt-injection",
+            category: "security",
+            entities: ["Red Team Lab"],
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["prompt-injection"],
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [
+          {
+            ...localItem,
+            id: "saved-prompt-injection",
+            category: "security",
+            entities: ["Red Team Lab"],
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["agents", "prompt_injection"],
+          },
+        ],
+      }).highlights,
+    ).toContainEqual({
+      detail: "prompt injection leads with 2 saved/read stories.",
+      label: "Angle memory",
+    });
+  });
+
   it("keeps the cold-start memory state explicit", () => {
     expect(
       getNewsReaderMemory({
@@ -15114,6 +15154,37 @@ describe("selectNewsHomePositiveFeedbackAnchors", () => {
         action: undefined,
         occurredAt: "2026-07-01T08:00:00.000Z",
         sourceSlug: olderItem.sourceSlug,
+      }),
+    ]);
+  });
+
+  it("preserves saved and read angle tags for local For You anchors", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [],
+        historyItems: [
+          {
+            ...olderItem,
+            tags: ["prompt-injection"],
+            viewedAt: "2026-07-01T08:00:00.000Z",
+          },
+        ],
+        savedItems: [
+          {
+            ...serverItem,
+            savedAt: "2026-07-01T09:00:00.000Z",
+            tags: ["prompt_injection"],
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "save",
+        tags: ["prompt_injection"],
+      }),
+      expect.objectContaining({
+        action: undefined,
+        tags: ["prompt-injection"],
       }),
     ]);
   });

@@ -1311,7 +1311,9 @@ type NewsHomePositiveFeedbackAction = Extract<
 type NewsHomePositiveFeedbackSource = Pick<
   NewsHomeItem,
   "category" | "entities" | "sourceSlug"
->;
+> & {
+  tags?: readonly string[];
+};
 
 export type NewsHomePositiveFeedbackAnchor = PositiveFeedbackNewsItem;
 
@@ -1363,13 +1365,19 @@ const toNewsHomePositiveFeedbackAnchor = ({
   action?: NewsHomePositiveFeedbackAction;
   item: NewsHomePositiveFeedbackSource;
   occurredAt?: string;
-}): NewsHomePositiveFeedbackAnchor => ({
-  action,
-  category: item.category,
-  entities: item.entities,
-  occurredAt,
-  sourceSlug: item.sourceSlug,
-});
+}): NewsHomePositiveFeedbackAnchor => {
+  const anchor: NewsHomePositiveFeedbackAnchor = {
+    action,
+    category: item.category,
+    entities: item.entities,
+    occurredAt,
+    sourceSlug: item.sourceSlug,
+  };
+
+  if (item.tags) anchor.tags = item.tags;
+
+  return anchor;
+};
 
 export const selectNewsHomePositiveFeedbackAnchors = ({
   explicitFeedbackItems,
@@ -1550,6 +1558,13 @@ export const getNewsReaderMemory = ({
   const topEntity = getTopMemorySignal(
     interactionItems.flatMap((item) => getUniqueSignals(item.entities, 24)),
   );
+  const topAngle = getTopMemorySignal(
+    interactionItems.flatMap((item) =>
+      getUniqueSignals(item.tags ?? [], 24)
+        .filter(isSpecificNewsAngleTag)
+        .map(formatNewsAngleQuery),
+    ),
+  );
   const topTopicLabel = topTopic ? formatCategory(topTopic.value) : "None";
   const savedCount = savedItems.length;
   const readCount = historyItems.length;
@@ -1597,6 +1612,15 @@ export const getNewsReaderMemory = ({
     highlights.push({
       detail: `${topEntity.value} is the strongest entity signal.`,
       label: "Entity memory",
+    });
+  }
+
+  if (topAngle) {
+    highlights.push({
+      detail: `${topAngle.value} leads with ${topAngle.count} saved/read ${
+        topAngle.count === 1 ? "story" : "stories"
+      }.`,
+      label: "Angle memory",
     });
   }
 

@@ -34,6 +34,7 @@ import type {
   NewsHomeItem,
   NewsHomeStatus,
   NewsPreferenceBiasAction,
+  NewsPreferenceProfileTrainingAction,
   NewsReaderMemoryItem,
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
@@ -71,6 +72,7 @@ import {
   getNewsFeedbackTrainingUpdate,
   getNewsFeedFatigueReport,
   getNewsFeedGovernor,
+  getNewsFeedGovernorControlTrainingAction,
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
   getNewsFrontPageLayout,
@@ -90,8 +92,14 @@ import {
   getNewsPersonalizedReadingQueue,
   getNewsPreferenceControlPanel,
   getNewsPreferenceBiasTrainingUpdate,
+  getNewsPreferenceBiasCycleAction,
+  getNewsPreferenceBiasResetTrainingUpdate,
+  getNewsPreferenceBiasResetUndoTrainingUpdate,
   getNewsPreferenceBiasUndoTrainingUpdate,
   getNewsPreferencePresets,
+  getNewsPreferenceProfileToggleAction,
+  getNewsPreferenceProfileTrainingUpdate,
+  getNewsPreferenceProfileUndoTrainingUpdate,
   getNewsPreferenceStarter,
   getNewsPreferenceTuningPlan,
   getNewsPreferenceTuningTrainingUpdate,
@@ -140,6 +148,7 @@ import {
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
+  mergeNewsTrainingUpdateHistory,
   revertNewsStoryQuickTuneAction,
   selectActiveNewsGuardrailItems,
   selectFeedFatigueBalancedNewsHomeItems,
@@ -184,9 +193,17 @@ type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
     beforeProfile: NewsPreferenceProfile;
     suggestion: NewsPreferenceTuningSuggestion;
   };
+  preferenceProfileUndoAction?: {
+    action: NewsPreferenceProfileTrainingAction;
+    beforeProfile: NewsPreferenceProfile;
+  };
   biasUndoAction?: {
     action: NewsPreferenceBiasAction;
     beforeProfile: NewsPreferenceProfile;
+  };
+  biasResetUndoAction?: {
+    beforeProfile: NewsPreferenceProfile;
+    label: string;
   };
   undoAction?: NewsStoryQuickTuneAction;
 };
@@ -470,19 +487,8 @@ const formatRunYield = (run: NewsDeskStatus["latestRun"]) => {
   return `${formatCount(run.itemsCreated)} new, ${formatCount(run.itemsUpdated)} updated`;
 };
 
-const toggleValue = (values: readonly string[], value: string) =>
-  values.includes(value)
-    ? values.filter((item) => item !== value)
-    : [...values, value];
-
 const addValue = (values: readonly string[], value: string) =>
   values.includes(value) ? [...values] : [...values, value];
-
-const addValues = (values: readonly string[], nextValues: readonly string[]) =>
-  nextValues.reduce(
-    (currentValues, value) => addValue(currentValues, value),
-    [...values],
-  );
 
 const removeValue = (values: readonly string[], value: string) =>
   values.filter((item) => item !== value);
@@ -542,6 +548,9 @@ export function NewsHome({
   const [feedMode, setFeedMode] = useState<NewsFeedMode>("for_you");
   const [trainingUpdate, setTrainingUpdate] =
     useState<NewsTrainingUpdate | null>(null);
+  const [trainingUpdateHistory, setTrainingUpdateHistory] = useState<
+    NewsTrainingUpdate[]
+  >([]);
   const [activeCategory, setActiveCategory] = useState<NewsCategoryKey | null>(
     null,
   );
@@ -561,6 +570,16 @@ export function NewsHome({
     !activeCategory &&
     !activeSourceSlug &&
     searchQuery.trim().toLowerCase() === normalizedReviewHiddenAngleQuery;
+  const publishTrainingUpdate = useCallback((nextUpdate: NewsTrainingUpdate) => {
+    setTrainingUpdate(nextUpdate);
+    setTrainingUpdateHistory((currentUpdates) =>
+      mergeNewsTrainingUpdateHistory({
+        currentUpdates,
+        limit: 5,
+        nextUpdate,
+      }),
+    );
+  }, []);
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -614,7 +633,7 @@ export function NewsHome({
   const resetReaderMemory = useMutation(
     trpc.news.resetProfile.mutationOptions({
       onError: () => {
-        setTrainingUpdate(
+        publishTrainingUpdate(
           getNewsReaderMemoryResetTrainingUpdate({
             persisted: getNewsReaderMemoryResetPersistence({
               canPersistProfile,
@@ -866,7 +885,7 @@ export function NewsHome({
       );
       setProfile(nextProfile);
       writeStoredProfile(nextProfile);
-      setTrainingUpdate(
+      publishTrainingUpdate(
         getNewsFeedbackTrainingUpdate({
           action,
           afterProfile: nextProfile,
@@ -975,7 +994,7 @@ export function NewsHome({
     setNegativeFeedbackItems((current) =>
       current.filter((feedbackItem) => feedbackItem.id !== item.id),
     );
-    setTrainingUpdate(
+    publishTrainingUpdate(
       getNewsGuardrailRestoreTrainingUpdate({
         formatCategory: getCategoryLabel,
         item,
@@ -998,7 +1017,7 @@ export function NewsHome({
     });
 
     commitProfile(() => afterProfile);
-    setTrainingUpdate(
+    publishTrainingUpdate(
       getNewsStoryQuickTuneTrainingUpdate({
         action,
         afterProfile,
@@ -1019,7 +1038,7 @@ export function NewsHome({
     });
 
     commitProfile(() => afterProfile);
-    setTrainingUpdate(
+    publishTrainingUpdate(
       getNewsStoryQuickTuneUndoTrainingUpdate({
         action,
         afterProfile,
@@ -1083,7 +1102,7 @@ export function NewsHome({
     });
     const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
 
-    setTrainingUpdate({
+    publishTrainingUpdate({
       ...visibleTrainingUpdate,
       ...(undoAction ? { preferenceUndoAction: undoAction } : {}),
     });
@@ -1096,7 +1115,7 @@ export function NewsHome({
     const currentProfile = profile;
 
     commitProfile(() => beforeProfile);
-    setTrainingUpdate(
+    publishTrainingUpdate(
       getNewsPreferenceTuningUndoTrainingUpdate({
         afterProfile: beforeProfile,
         beforeProfile: currentProfile,
@@ -1104,6 +1123,102 @@ export function NewsHome({
         suggestion,
       }),
     );
+  };
+
+  const applyPreferenceProfileAction = (
+    action: NewsPreferenceProfileTrainingAction,
+  ) => {
+    const beforeProfile = profile;
+    const effect = action.effect ?? "add";
+    const afterProfile = action.signals.reduce<NewsPreferenceProfile>(
+      (currentProfile, signal) => {
+        if (signal.kind === "category") {
+          return {
+            ...currentProfile,
+            preferredCategories:
+              effect === "remove"
+                ? removeValue(currentProfile.preferredCategories, signal.signal)
+                : addValue(currentProfile.preferredCategories, signal.signal),
+          };
+        }
+
+        if (signal.kind === "source") {
+          return {
+            ...currentProfile,
+            preferredSources:
+              effect === "remove"
+                ? removeValue(currentProfile.preferredSources, signal.signal)
+                : addValue(currentProfile.preferredSources, signal.signal),
+          };
+        }
+
+        return {
+          ...currentProfile,
+          preferredEntities:
+            effect === "remove"
+              ? removeValue(currentProfile.preferredEntities, signal.signal)
+              : addValue(currentProfile.preferredEntities, signal.signal),
+        };
+      },
+      beforeProfile,
+    );
+
+    commitProfile(() => afterProfile);
+    const trainingUpdate = getNewsPreferenceProfileTrainingUpdate({
+      action,
+      afterProfile,
+      beforeProfile,
+    });
+    const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
+
+    publishTrainingUpdate({
+      ...visibleTrainingUpdate,
+      preferenceProfileUndoAction: undoAction,
+    });
+  };
+
+  const undoPreferenceProfileAction = ({
+    action,
+    beforeProfile,
+  }: NonNullable<NewsTrainingUpdate["preferenceProfileUndoAction"]>) => {
+    const currentProfile = profile;
+
+    commitProfile(() => beforeProfile);
+    publishTrainingUpdate(
+      getNewsPreferenceProfileUndoTrainingUpdate({
+        action,
+        afterProfile: beforeProfile,
+        beforeProfile: currentProfile,
+      }),
+    );
+  };
+
+  const applyPreferenceBiasCycleAction = ({
+    key,
+    label,
+  }: {
+    key: NewsPreferenceBiasAction["key"];
+    label: string;
+  }) => {
+    const beforeProfile = profile;
+    const { action, afterProfile } = getNewsPreferenceBiasCycleAction({
+      key,
+      label,
+      profile: beforeProfile,
+    });
+
+    commitProfile(() => afterProfile);
+    const trainingUpdate = getNewsPreferenceBiasTrainingUpdate({
+      action,
+      afterProfile,
+      beforeProfile,
+    });
+    const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
+
+    publishTrainingUpdate({
+      ...visibleTrainingUpdate,
+      biasUndoAction: undoAction,
+    });
   };
 
   const applyPreferenceBiasAction = (action: NewsPreferenceBiasAction) => {
@@ -1133,7 +1248,7 @@ export function NewsHome({
     });
     const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
 
-    setTrainingUpdate({
+    publishTrainingUpdate({
       ...visibleTrainingUpdate,
       biasUndoAction: undoAction,
     });
@@ -1146,13 +1261,71 @@ export function NewsHome({
     const currentProfile = profile;
 
     commitProfile(() => beforeProfile);
-    setTrainingUpdate(
+    publishTrainingUpdate(
       getNewsPreferenceBiasUndoTrainingUpdate({
         action,
         afterProfile: beforeProfile,
         beforeProfile: currentProfile,
       }),
     );
+  };
+
+  const applyPreferenceBiasResetAction = (label: string) => {
+    const beforeProfile = profile;
+    const afterProfile = {
+      ...beforeProfile,
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    commitProfile(() => afterProfile);
+    const trainingUpdate = getNewsPreferenceBiasResetTrainingUpdate({
+      afterProfile,
+      beforeProfile,
+      label,
+    });
+    const { undoAction, ...visibleTrainingUpdate } = trainingUpdate;
+
+    publishTrainingUpdate({
+      ...visibleTrainingUpdate,
+      biasResetUndoAction: undoAction,
+    });
+  };
+
+  const undoPreferenceBiasResetAction = ({
+    beforeProfile,
+    label,
+  }: NonNullable<NewsTrainingUpdate["biasResetUndoAction"]>) => {
+    const currentProfile = profile;
+
+    commitProfile(() => beforeProfile);
+    publishTrainingUpdate(
+      getNewsPreferenceBiasResetUndoTrainingUpdate({
+        afterProfile: beforeProfile,
+        beforeProfile: currentProfile,
+        label,
+      }),
+    );
+  };
+
+  const applyFeedGovernorControl = (
+    control: Parameters<typeof getNewsFeedGovernorControlTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsFeedGovernorControlTrainingAction(control);
+
+    if (!trainingAction) return;
+
+    if (trainingAction.kind === "profile") {
+      applyPreferenceProfileAction(trainingAction.action);
+      return;
+    }
+
+    if (trainingAction.kind === "bias") {
+      applyPreferenceBiasAction(trainingAction.action);
+      return;
+    }
+
+    applyPreferenceBiasResetAction(trainingAction.label);
   };
 
   const reviewTrainingGuardrailConflict = (
@@ -1197,7 +1370,7 @@ export function NewsHome({
     setRestoredGuardrailItemIds([]);
     setReviewHiddenAngleQuery("");
     clearReaderMemoryStorage();
-    setTrainingUpdate(
+    publishTrainingUpdate(
       getNewsReaderMemoryResetTrainingUpdate({
         persisted: getNewsReaderMemoryResetPersistence({
           canPersistProfile,
@@ -1887,30 +2060,32 @@ export function NewsHome({
           </div>
         </div>
         <nav className="container flex gap-2 overflow-x-auto border-t border-[#161616]/25 py-3 text-sm dark:border-[#f4f1ea]/25">
-          {availableCategories.slice(0, 10).map((category) => (
-            <Button
-              key={category}
-              type="button"
-              variant={
-                profile.preferredCategories.includes(category)
-                  ? "default"
-                  : "outline"
-              }
-              size="sm"
-              className="rounded-none"
-              onClick={() =>
-                commitProfile((current) => ({
-                  ...current,
-                  preferredCategories: toggleValue(
-                    current.preferredCategories,
-                    category,
-                  ),
-                }))
-              }
-            >
-              {getCategoryLabel(category)}
-            </Button>
-          ))}
+          {availableCategories.slice(0, 10).map((category) => {
+            const active = profile.preferredCategories.includes(category);
+            const label = getCategoryLabel(category);
+
+            return (
+              <Button
+                key={category}
+                type="button"
+                variant={active ? "default" : "outline"}
+                size="sm"
+                className="rounded-none"
+                onClick={() =>
+                  applyPreferenceProfileAction(
+                    getNewsPreferenceProfileToggleAction({
+                      active,
+                      kind: "category",
+                      label,
+                      signal: category,
+                    }),
+                  )
+                }
+              >
+                {label}
+              </Button>
+            );
+          })}
         </nav>
         <section className="container grid gap-3 border-t border-[#161616]/25 py-4 dark:border-[#f4f1ea]/25">
           <form
@@ -3661,34 +3836,19 @@ export function NewsHome({
                               type="button"
                               variant="outline"
                               onClick={() =>
-                                commitProfile((current) => {
-                                  if (signal.kind === "category") {
-                                    return {
-                                      ...current,
-                                      preferredCategories: removeValue(
-                                        current.preferredCategories,
-                                        signal.signal,
-                                      ),
-                                    };
-                                  }
-
-                                  if (signal.kind === "source") {
-                                    return {
-                                      ...current,
-                                      preferredSources: removeValue(
-                                        current.preferredSources,
-                                        signal.signal,
-                                      ),
-                                    };
-                                  }
-
-                                  return {
-                                    ...current,
-                                    preferredEntities: removeValue(
-                                      current.preferredEntities,
-                                      signal.signal,
-                                    ),
-                                  };
+                                applyPreferenceProfileAction({
+                                  actionLabel:
+                                    signal.kind === "category"
+                                      ? "Remove topic"
+                                      : signal.kind === "source"
+                                        ? "Remove source"
+                                        : signal.kind === "tag"
+                                          ? "Remove angle"
+                                          : "Remove entity",
+                                  effect: "remove",
+                                  label: signal.label,
+                                  signals: [signal],
+                                  source: "control",
                                 })
                               }
                             >
@@ -3761,33 +3921,14 @@ export function NewsHome({
                           disabled={preset.newSignalCount === 0}
                           type="button"
                           variant="outline"
-                          onClick={() => {
-                            const categories = preset.signals
-                              .filter((signal) => signal.kind === "category")
-                              .map((signal) => signal.signal);
-                            const sources = preset.signals
-                              .filter((signal) => signal.kind === "source")
-                              .map((signal) => signal.signal);
-                            const entities = preset.signals
-                              .filter((signal) => signal.kind === "entity")
-                              .map((signal) => signal.signal);
-
-                            commitProfile((current) => ({
-                              ...current,
-                              preferredCategories: addValues(
-                                current.preferredCategories,
-                                categories,
-                              ),
-                              preferredEntities: addValues(
-                                current.preferredEntities,
-                                entities,
-                              ),
-                              preferredSources: addValues(
-                                current.preferredSources,
-                                sources,
-                              ),
-                            }));
-                          }}
+                          onClick={() =>
+                            applyPreferenceProfileAction({
+                              actionLabel: preset.actionLabel,
+                              label: preset.label,
+                              signals: preset.signals,
+                              source: "preset",
+                            })
+                          }
                         >
                           {preset.actionLabel}
                         </Button>
@@ -3871,34 +4012,11 @@ export function NewsHome({
                               type="button"
                               variant="outline"
                               onClick={() =>
-                                commitProfile((current) => {
-                                  if (suggestion.kind === "category") {
-                                    return {
-                                      ...current,
-                                      preferredCategories: toggleValue(
-                                        current.preferredCategories,
-                                        suggestion.signal,
-                                      ),
-                                    };
-                                  }
-
-                                  if (suggestion.kind === "source") {
-                                    return {
-                                      ...current,
-                                      preferredSources: toggleValue(
-                                        current.preferredSources,
-                                        suggestion.signal,
-                                      ),
-                                    };
-                                  }
-
-                                  return {
-                                    ...current,
-                                    preferredEntities: toggleValue(
-                                      current.preferredEntities,
-                                      suggestion.signal,
-                                    ),
-                                  };
+                                applyPreferenceProfileAction({
+                                  actionLabel: suggestion.actionLabel,
+                                  label: suggestion.label,
+                                  signals: [suggestion],
+                                  source: "starter",
                                 })
                               }
                             >
@@ -4288,13 +4406,16 @@ export function NewsHome({
                           onClick={() => {
                             if (!isNewsCategoryKey(rung.category)) return;
 
-                            commitProfile((current) => ({
-                              ...current,
-                              preferredCategories: addValue(
-                                current.preferredCategories,
-                                rung.category,
-                              ),
-                            }));
+                            if (!isFollowed) {
+                              applyPreferenceProfileAction(
+                                getNewsPreferenceProfileToggleAction({
+                                  active: false,
+                                  kind: "category",
+                                  label: getCategoryLabel(rung.category),
+                                  signal: rung.category,
+                                }),
+                              );
+                            }
                             setActiveCategory(rung.category);
                             setFeedMode("for_you");
                           }}
@@ -4313,66 +4434,81 @@ export function NewsHome({
             </div>
 
             <PreferenceGroup title="Sources">
-              {availableSources.map((source) => (
-                <PreferenceButton
-                  key={source}
-                  active={profile.preferredSources.includes(source)}
-                  onClick={() =>
-                    commitProfile((current) => ({
-                      ...current,
-                      preferredSources: toggleValue(
-                        current.preferredSources,
-                        source,
-                      ),
-                    }))
-                  }
-                >
-                  {source}
-                </PreferenceButton>
-              ))}
+              {availableSources.map((source) => {
+                const active = profile.preferredSources.includes(source);
+
+                return (
+                  <PreferenceButton
+                    key={source}
+                    active={active}
+                    onClick={() =>
+                      applyPreferenceProfileAction(
+                        getNewsPreferenceProfileToggleAction({
+                          active,
+                          kind: "source",
+                          label: source,
+                          signal: source,
+                        }),
+                      )
+                    }
+                  >
+                    {source}
+                  </PreferenceButton>
+                );
+              })}
             </PreferenceGroup>
 
             <PreferenceGroup title="Angles">
-              {availableAngleOptions.map((angle) => (
-                <PreferenceButton
-                  key={angle.signal}
-                  active={profile.preferredEntities.some(
-                    (entity) =>
-                      entity.toLowerCase() === angle.signal.toLowerCase(),
-                  )}
-                  onClick={() =>
-                    commitProfile((current) => ({
-                      ...current,
-                      preferredEntities: toggleValue(
-                        current.preferredEntities,
-                        angle.signal,
-                      ),
-                    }))
-                  }
-                >
-                  {angle.label}
-                </PreferenceButton>
-              ))}
+              {availableAngleOptions.map((angle) => {
+                const active = profile.preferredEntities.some(
+                  (entity) =>
+                    entity.toLowerCase() === angle.signal.toLowerCase(),
+                );
+
+                return (
+                  <PreferenceButton
+                    key={angle.signal}
+                    active={active}
+                    onClick={() =>
+                      applyPreferenceProfileAction(
+                        getNewsPreferenceProfileToggleAction({
+                          active,
+                          kind: "tag",
+                          label: angle.label,
+                          signal: angle.signal,
+                        }),
+                      )
+                    }
+                  >
+                    {angle.label}
+                  </PreferenceButton>
+                );
+              })}
             </PreferenceGroup>
 
             <PreferenceGroup title="Entities">
-              {availableEntities.map((entity) => (
-                <PreferenceButton
-                  key={entity}
-                  active={profile.preferredEntities.includes(entity)}
-                  onClick={() =>
-                    commitProfile((current) => ({
-                      ...current,
-                      preferredEntities: toggleValue(
-                        current.preferredEntities,
-                        entity,
-                      ),
-                    }))
-                  }
-                >
-                  {entity}
-                </PreferenceButton>
-              ))}
+              {availableEntities.map((entity) => {
+                const active = profile.preferredEntities.includes(entity);
+
+                return (
+                  <PreferenceButton
+                    key={entity}
+                    active={active}
+                    onClick={() =>
+                      applyPreferenceProfileAction(
+                        getNewsPreferenceProfileToggleAction({
+                          active,
+                          kind: "entity",
+                          label: entity,
+                          signal: entity,
+                        }),
+                      )
+                    }
+                  >
+                    {entity}
+                  </PreferenceButton>
+                );
+              })}
             </PreferenceGroup>
 
             <div className="mt-5 grid grid-cols-2 gap-3">
@@ -4380,22 +4516,20 @@ export function NewsHome({
                 label="Fresh"
                 value={profile.recencyBias}
                 onClick={() =>
-                  commitProfile((current) => ({
-                    ...current,
-                    recencyBias:
-                      current.recencyBias >= 2 ? 0 : current.recencyBias + 1,
-                  }))
+                  applyPreferenceBiasCycleAction({
+                    key: "recencyBias",
+                    label: "Fresh",
+                  })
                 }
               />
               <BiasButton
                 label="Novel"
                 value={profile.noveltyBias}
                 onClick={() =>
-                  commitProfile((current) => ({
-                    ...current,
-                    noveltyBias:
-                      current.noveltyBias >= 2 ? 0 : current.noveltyBias + 1,
-                  }))
+                  applyPreferenceBiasCycleAction({
+                    key: "noveltyBias",
+                    label: "Novel",
+                  })
                 }
               />
             </div>
@@ -5426,76 +5560,7 @@ export function NewsHome({
                       size="sm"
                       type="button"
                       variant="outline"
-                      onClick={() =>
-                        commitProfile((current) => {
-                          if (control.action === "increase_novelty") {
-                            return {
-                              ...current,
-                              noveltyBias: increaseProfileBias(
-                                current.noveltyBias,
-                              ),
-                            };
-                          }
-
-                          if (control.action === "increase_recency") {
-                            return {
-                              ...current,
-                              recencyBias: increaseProfileBias(
-                                current.recencyBias,
-                              ),
-                            };
-                          }
-
-                          if (control.action === "reset_balance") {
-                            return {
-                              ...current,
-                              noveltyBias: 1,
-                              recencyBias: 1,
-                            };
-                          }
-
-                          if (
-                            control.action === "follow_source" &&
-                            control.signal
-                          ) {
-                            return {
-                              ...current,
-                              preferredSources: toggleValue(
-                                current.preferredSources,
-                                control.signal,
-                              ),
-                            };
-                          }
-
-                          if (
-                            control.action === "follow_topic" &&
-                            control.signal
-                          ) {
-                            return {
-                              ...current,
-                              preferredCategories: toggleValue(
-                                current.preferredCategories,
-                                control.signal,
-                              ),
-                            };
-                          }
-
-                          if (
-                            control.action === "follow_entity" &&
-                            control.signal
-                          ) {
-                            return {
-                              ...current,
-                              preferredEntities: toggleValue(
-                                current.preferredEntities,
-                                control.signal,
-                              ),
-                            };
-                          }
-
-                          return current;
-                        })
-                      }
+                      onClick={() => applyFeedGovernorControl(control)}
                     >
                       {control.buttonLabel}
                     </Button>
@@ -6230,6 +6295,24 @@ export function NewsHome({
                     Undo tuning
                   </Button>
                 ) : null}
+                {trainingUpdate?.preferenceProfileUndoAction ? (
+                  <Button
+                    className="mt-3 h-8 rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const undoAction =
+                        trainingUpdate.preferenceProfileUndoAction;
+
+                      if (!undoAction) return;
+
+                      undoPreferenceProfileAction(undoAction);
+                    }}
+                  >
+                    Undo preference
+                  </Button>
+                ) : null}
                 {trainingUpdate?.biasUndoAction ? (
                   <Button
                     className="mt-3 h-8 rounded-none px-2 text-xs"
@@ -6245,6 +6328,23 @@ export function NewsHome({
                     }}
                   >
                     Undo bias
+                  </Button>
+                ) : null}
+                {trainingUpdate?.biasResetUndoAction ? (
+                  <Button
+                    className="mt-3 h-8 rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      const undoAction = trainingUpdate.biasResetUndoAction;
+
+                      if (!undoAction) return;
+
+                      undoPreferenceBiasResetAction(undoAction);
+                    }}
+                  >
+                    Undo reset
                   </Button>
                 ) : null}
                 {trainingUpdate?.guardrailReviewAction ? (
@@ -6326,6 +6426,33 @@ export function NewsHome({
                     </div>
                   ))}
                 </div>
+                {trainingUpdateHistory.length > 1 ? (
+                  <div className="mt-4 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+                    <h3 className="text-sm font-black">Recent Learning</h3>
+                    <div className="mt-3 grid gap-2">
+                      {trainingUpdateHistory
+                        .slice(1)
+                        .map((historyUpdate, index) => (
+                          <div
+                            key={`${historyUpdate.label}-${historyUpdate.summary}-${index}`}
+                            className="border-t border-[#161616]/15 pt-3 text-sm dark:border-[#f4f1ea]/10"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <span className="font-semibold">
+                                {historyUpdate.label}
+                              </span>
+                              <span className="font-mono text-[10px] text-[#5b5750] dark:text-[#bbb4aa]">
+                                #{index + 2}
+                              </span>
+                            </div>
+                            <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {historyUpdate.summary}
+                            </p>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">

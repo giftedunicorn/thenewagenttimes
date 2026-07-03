@@ -138,6 +138,7 @@ import {
   getNewsStoryQuickTuneTrainingUpdate,
   getNewsStoryQuickTuneUndoTrainingUpdate,
   getNewsStoryRankDetails,
+  getNewsStorySourceUrl,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
   getNewsTopicMatchMatrix,
@@ -165,6 +166,7 @@ import {
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
+  shouldPersistNewsReaderProfile,
   shouldTrainNewsHomeProfileFromAction,
   stripPersistedNewsPreferenceProfile,
 } from "./news-home-model";
@@ -559,7 +561,10 @@ export function NewsHome({
   const isLoadingMoreRef = useRef(false);
   const recordedHomeExposureItemsRef = useRef<NewsHomeItem[]>([]);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
-  const canPersistProfile = status !== "unavailable";
+  const canPersistProfile = shouldPersistNewsReaderProfile({
+    status,
+    visitorKey,
+  });
   const hasExploreFilters = Boolean(
     activeCategory ?? activeSourceSlug ?? searchQuery.trim(),
   );
@@ -7891,8 +7896,9 @@ function StoryAction({
     rankSlot: number,
   ) => void;
 }) {
+  const sourceUrl = getNewsStorySourceUrl(item);
   const actionPanel = getNewsHomeStoryActionPanel({
-    hasSourceUrl: Boolean(item.canonicalUrl),
+    hasSourceUrl: Boolean(sourceUrl),
     isPreview,
   });
 
@@ -7918,7 +7924,7 @@ function StoryAction({
             );
           }
 
-          if (action.type === "source" && item.canonicalUrl) {
+          if (action.type === "source" && sourceUrl) {
             return (
               <Button
                 key={action.action}
@@ -7927,7 +7933,7 @@ function StoryAction({
                 variant="outline"
               >
                 <a
-                  href={item.canonicalUrl}
+                  href={sourceUrl}
                   onClick={() => onAction(item, action.action, rankSlot)}
                   rel="nofollow noopener noreferrer"
                   target="_blank"

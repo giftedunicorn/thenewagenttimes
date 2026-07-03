@@ -164,6 +164,20 @@ export const getNewsHomeStoryActionPanel = ({
   };
 };
 
+export const getNewsStorySourceUrl = (
+  item: Pick<NewsHomeItem, "canonicalUrl" | "originalUrl">,
+) => {
+  const canonicalUrl = item.canonicalUrl?.trim();
+
+  if (canonicalUrl) return canonicalUrl;
+
+  const originalUrl = item.originalUrl?.trim();
+
+  if (originalUrl) return originalUrl;
+
+  return null;
+};
+
 export const isNewsHomePreviewEdition = ({
   hasExploreFilters,
   initialItems,
@@ -17408,14 +17422,25 @@ export interface NewsHomeExposureRecord {
 const normalizeNewsHomeExposureUrl = (url: string | null | undefined) => {
   if (!url) return null;
 
-  const normalizedUrl = url
-    .trim()
-    .split("#")[0]
-    ?.split("?")[0]
-    ?.replace(/\/$/, "")
-    .toLowerCase();
+  const trimmedUrl = url.trim();
 
-  return normalizedUrl && normalizedUrl.length > 0 ? normalizedUrl : null;
+  if (!trimmedUrl) return null;
+
+  const [withoutFragment = ""] = trimmedUrl.split("#");
+  const [withoutQuery = ""] = withoutFragment.split("?");
+  const withoutTrailingSlash = withoutQuery.replace(/\/$/, "");
+  const withoutScheme = withoutTrailingSlash.replace(
+    /^[a-z][a-z0-9+.-]*:\/\//i,
+    "",
+  );
+  const [host = "", ...pathParts] = withoutScheme.split("/");
+  const normalizedHost = host.toLowerCase().replace(/^www\./, "");
+  const normalizedPath = pathParts.join("/").replace(/\/$/, "").toLowerCase();
+  const normalizedUrl = [normalizedHost, normalizedPath]
+    .filter(Boolean)
+    .join("/");
+
+  return normalizedUrl.length > 0 ? normalizedUrl : null;
 };
 
 const getNewsHomeExposureUrlKeys = (item: NewsUrlReference) =>
@@ -17866,6 +17891,14 @@ export const shouldAutoLoadMoreNewsHomeItems = ({
   !isPreview;
 
 export const shouldFetchServerRecommendations = ({
+  status,
+  visitorKey,
+}: {
+  status: NewsHomeStatus;
+  visitorKey: string | null;
+}) => status === "ready" && Boolean(visitorKey);
+
+export const shouldPersistNewsReaderProfile = ({
   status,
   visitorKey,
 }: {

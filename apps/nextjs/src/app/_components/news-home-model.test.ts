@@ -103,6 +103,7 @@ import {
   getNewsStoryQuickTuneTrainingUpdate,
   getNewsStoryQuickTuneUndoTrainingUpdate,
   getNewsStoryRankDetails,
+  getNewsStorySourceUrl,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
   getNewsTopicMatchMatrix,
@@ -133,6 +134,7 @@ import {
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldFetchServerRecommendations,
+  shouldPersistNewsReaderProfile,
   shouldTrainNewsHomeProfileFromAction,
 } from "./news-home-model";
 
@@ -305,6 +307,32 @@ describe("getNewsHomeStoryActionPanel", () => {
       { action: "hide", label: "Less", type: "button" },
       { action: "click_source", label: "Source", type: "source" },
     ]);
+  });
+});
+
+describe("getNewsStorySourceUrl", () => {
+  it("prefers canonical story URLs and falls back to original source URLs", () => {
+    expect(
+      getNewsStorySourceUrl({
+        ...localItem,
+        canonicalUrl: " https://example.com/canonical ",
+        originalUrl: "https://source.example/story",
+      }),
+    ).toBe("https://example.com/canonical");
+    expect(
+      getNewsStorySourceUrl({
+        ...localItem,
+        canonicalUrl: null,
+        originalUrl: " https://source.example/story ",
+      }),
+    ).toBe("https://source.example/story");
+    expect(
+      getNewsStorySourceUrl({
+        ...localItem,
+        canonicalUrl: "   ",
+        originalUrl: null,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -16763,6 +16791,38 @@ describe("selectNewsHomeExposureRecords", () => {
       },
     ]);
   });
+
+  it("skips scheme and www variants of already exposed story URLs", () => {
+    expect(
+      selectNewsHomeExposureRecords({
+        feedMode: "for_you",
+        isPreview: false,
+        items: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://openai.com/news/agent-model",
+            matchedSignals: ["category"],
+            originalUrl: "https://openai.com/news/agent-model",
+            personalizedScore: 140,
+          },
+          {
+            ...localItem,
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+          },
+        ],
+        limit: 2,
+        recordedItems: [
+          {
+            id: "already-exposed-source-url",
+            canonicalUrl: "http://www.openai.com/news/agent-model?utm=home",
+            originalUrl: "http://www.openai.com/news/agent-model#comments",
+          },
+        ],
+        visitorKey: "visitor-test-123",
+      }).map((record) => record.newsItemId),
+    ).toEqual(["local-story"]);
+  });
 });
 
 describe("selectNewsHomePositiveFeedbackAnchors", () => {
@@ -17565,6 +17625,35 @@ describe("shouldFetchServerRecommendations", () => {
     ).toBe(false);
     expect(
       shouldFetchServerRecommendations({
+        status: "ready",
+        visitorKey: null,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldPersistNewsReaderProfile", () => {
+  it("persists reader memory only after live stories are available", () => {
+    expect(
+      shouldPersistNewsReaderProfile({
+        status: "ready",
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(true);
+    expect(
+      shouldPersistNewsReaderProfile({
+        status: "empty",
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(false);
+    expect(
+      shouldPersistNewsReaderProfile({
+        status: "unavailable",
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(false);
+    expect(
+      shouldPersistNewsReaderProfile({
         status: "ready",
         visitorKey: null,
       }),

@@ -45,6 +45,7 @@ import {
   getNewsArticleReadTrainingReceipt,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
+  getNewsArticleSourceUrl,
   selectNewsArticleReadMilestone,
   shouldApplyNewsArticleLocalProfileFromMilestone,
   shouldApplyNewsArticleServerProfileFromInteraction,
@@ -547,6 +548,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     article,
     formatCategory,
   });
+  const sourceUrl = getNewsArticleSourceUrl(article);
 
   const recordAction = (action: ReaderInteractionAction) => {
     const occurredAt = new Date().toISOString();
@@ -672,16 +674,18 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             >
               Less like this
             </Button>
-            <Button asChild className="rounded-none" variant="outline">
-              <a
-                href={article.canonicalUrl ?? article.originalUrl}
-                onClick={() => recordAction("click_source")}
-                rel="nofollow noopener noreferrer"
-                target="_blank"
-              >
-                Source
-              </a>
-            </Button>
+            {sourceUrl ? (
+              <Button asChild className="rounded-none" variant="outline">
+                <a
+                  href={sourceUrl}
+                  onClick={() => recordAction("click_source")}
+                  rel="nofollow noopener noreferrer"
+                  target="_blank"
+                >
+                  Source
+                </a>
+              </Button>
+            ) : null}
           </div>
 
           <div className="relative mt-10 max-w-3xl space-y-7 text-lg leading-8 text-[#2d2d2d] dark:text-[#ddd8ce]">

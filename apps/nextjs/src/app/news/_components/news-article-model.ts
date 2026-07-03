@@ -13,7 +13,10 @@ import type {
   NewsServerProfileAudit,
 } from "../../_components/news-home-model";
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
-import { getNewsServerProfileAuditDisplay } from "../../_components/news-home-model";
+import {
+  getNewsServerProfileAuditDisplay,
+  getNewsStorySourceUrl,
+} from "../../_components/news-home-model";
 
 const normalizeValue = (value: string) => value.trim().toLowerCase();
 
@@ -176,6 +179,10 @@ export const getNewsArticleReadDepthCheckpoints = () =>
       readPercent: milestone.minReadPercent,
       topPercent: Math.round(milestone.minReadPercent * 100),
     }));
+
+export const getNewsArticleSourceUrl = (
+  article: Pick<NewsArticleItem, "canonicalUrl" | "originalUrl">,
+) => getNewsStorySourceUrl(article);
 
 const newsArticleReadMilestoneRank = new Map<NewsArticleReadMilestone, number>(
   newsArticleReadMilestones.map((milestone, index) => [milestone.key, index]),

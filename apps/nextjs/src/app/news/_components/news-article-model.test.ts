@@ -19,6 +19,7 @@ import {
   getNewsArticleReadTrainingReceipt,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
+  getNewsArticleSourceUrl,
   selectNewsArticleReadMilestone,
   shouldApplyNewsArticleLocalProfileFromMilestone,
   shouldApplyNewsArticleServerProfileFromInteraction,
@@ -1494,5 +1495,31 @@ describe("getNewsArticleSourceLens", () => {
         "Lower-confidence rss source with quieter edition heat and sparse entity coverage.",
       tone: "Watch",
     });
+  });
+});
+
+describe("getNewsArticleSourceUrl", () => {
+  it("prefers canonical article URLs and falls back to original source URLs", () => {
+    expect(
+      getNewsArticleSourceUrl({
+        ...article,
+        canonicalUrl: " https://example.com/canonical ",
+        originalUrl: "https://source.example/openai-agents",
+      }),
+    ).toBe("https://example.com/canonical");
+    expect(
+      getNewsArticleSourceUrl({
+        ...article,
+        canonicalUrl: "   ",
+        originalUrl: " https://source.example/openai-agents ",
+      }),
+    ).toBe("https://source.example/openai-agents");
+    expect(
+      getNewsArticleSourceUrl({
+        ...article,
+        canonicalUrl: "   ",
+        originalUrl: "   ",
+      }),
+    ).toBeNull();
   });
 });

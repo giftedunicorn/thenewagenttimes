@@ -521,14 +521,20 @@ const normalizeShared = (input: {
   publishedAt: Date;
   authorName?: string;
   imageUrl?: string;
+  contextText?: string;
   tags?: string[];
   entities?: string[];
 }): NewsItemInput => {
   const title = normalizeText(input.title);
   const summary = normalizeText(input.summary);
   const bodyText = input.bodyText ? normalizeText(input.bodyText) : undefined;
+  const contextText = input.contextText
+    ? normalizeText(input.contextText)
+    : undefined;
   const canonicalUrl = canonicalizeUrl(input.url);
-  const fullText = [title, summary, bodyText].filter(Boolean).join(" ");
+  const fullText = [title, summary, bodyText, contextText]
+    .filter(Boolean)
+    .join(" ");
   const category = inferNewsCategory({
     text: fullText,
     sourceSlug: input.sourceSlug,
@@ -579,6 +585,7 @@ export const normalizeFeedItem = (input: {
     publishedAt: input.item.publishedAt ?? input.now ?? new Date(),
     authorName: input.item.authorName,
     imageUrl: input.item.imageUrl,
+    contextText: input.item.categories?.join(" "),
   });
 
 export const normalizeManualItem = (input: ManualNewsInput): NewsItemInput =>

@@ -41,7 +41,7 @@ const main = async () => {
   if (command === "refresh:rss") {
     const result = await refreshActiveRssSources({ repository });
     console.log(
-      `RSS refresh complete: seeded=${result.sourcesSeeded} sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated}`,
+      `RSS refresh complete: seeded=${result.sourcesSeeded} sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
     );
     return;
   }

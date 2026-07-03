@@ -19,6 +19,7 @@ export interface RawFeedItem {
   publishedAt?: Date;
   authorName?: string;
   imageUrl?: string;
+  categories?: string[];
 }
 
 export interface ManualNewsInput {
@@ -76,6 +77,7 @@ export interface NewsRepository {
     itemsCreated: number;
     itemsUpdated: number;
     errorMessage?: string;
+    metadata?: Record<string, unknown>;
   }): Promise<void>;
   upsertNewsItem(
     item: NewsItemInput,

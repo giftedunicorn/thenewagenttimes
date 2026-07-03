@@ -19,6 +19,16 @@ import {
 
 const sourceId = "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0";
 
+const noSkipped = () => ({
+  itemsSkipped: 0,
+  skippedByReason: {
+    duplicate: 0,
+    future: 0,
+    irrelevant: 0,
+    stale: 0,
+  },
+});
+
 class FakeRepository implements NewsRepository {
   sourcesSeeded = 0;
   requestedSourceSlugs: string[] = [];
@@ -28,6 +38,7 @@ class FakeRepository implements NewsRepository {
         itemsSeen: number;
         itemsCreated: number;
         itemsUpdated: number;
+        metadata?: Record<string, unknown>;
       }
     | undefined;
   upsertedItems: NewsItemInput[] = [];
@@ -158,8 +169,8 @@ describe("seedSources", () => {
   it("passes initial source definitions to the repository", async () => {
     const repository = new FakeRepository();
 
-    await expect(seedSources({ repository })).resolves.toEqual({ created: 17 });
-    expect(repository.sourcesSeeded).toBe(17);
+    await expect(seedSources({ repository })).resolves.toEqual({ created: 23 });
+    expect(repository.sourcesSeeded).toBe(23);
   });
 });
 
@@ -178,6 +189,13 @@ describe("ingestRssSource", () => {
       itemsSeen: 1,
       itemsCreated: 1,
       itemsUpdated: 0,
+      itemsSkipped: 0,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        stale: 0,
+      },
     });
 
     expect(repository.upsertedItems[0]?.category).toBe("model_release");
@@ -206,6 +224,13 @@ describe("ingestRssSource", () => {
       itemsSeen: 2,
       itemsCreated: 1,
       itemsUpdated: 0,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 1,
+        future: 0,
+        irrelevant: 0,
+        stale: 0,
+      },
     });
 
     expect(repository.upsertedItems).toHaveLength(1);
@@ -215,6 +240,15 @@ describe("ingestRssSource", () => {
       itemsSeen: 2,
       itemsCreated: 1,
       itemsUpdated: 0,
+      metadata: {
+        itemsSkipped: 1,
+        skippedByReason: {
+          duplicate: 1,
+          future: 0,
+          irrelevant: 0,
+          stale: 0,
+        },
+      },
       errorMessage: undefined,
     });
   });
@@ -233,6 +267,13 @@ describe("ingestRssSource", () => {
       itemsSeen: 3,
       itemsCreated: 1,
       itemsUpdated: 0,
+      itemsSkipped: 2,
+      skippedByReason: {
+        duplicate: 0,
+        future: 1,
+        irrelevant: 0,
+        stale: 1,
+      },
     });
 
     expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
@@ -244,6 +285,15 @@ describe("ingestRssSource", () => {
       itemsSeen: 3,
       itemsCreated: 1,
       itemsUpdated: 0,
+      metadata: {
+        itemsSkipped: 2,
+        skippedByReason: {
+          duplicate: 0,
+          future: 1,
+          irrelevant: 0,
+          stale: 1,
+        },
+      },
       errorMessage: undefined,
     });
   });
@@ -262,6 +312,13 @@ describe("ingestRssSource", () => {
       itemsSeen: 2,
       itemsCreated: 1,
       itemsUpdated: 0,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 1,
+        stale: 0,
+      },
     });
 
     expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
@@ -300,12 +357,13 @@ describe("ingestActiveRssSources", () => {
         },
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 14,
-      sourcesSucceeded: 13,
+      sourcesAttempted: 20,
+      sourcesSucceeded: 19,
       sourcesFailed: 1,
-      itemsSeen: 13,
-      itemsCreated: 13,
+      itemsSeen: 19,
+      itemsCreated: 19,
       itemsUpdated: 0,
+      itemsSkipped: 0,
     });
 
     expect(repository.requestedSourceSlugs).toEqual(
@@ -324,6 +382,7 @@ describe("buildNewsSourceHealthSummary", () => {
           itemsSeen: 3,
           itemsCreated: 2,
           itemsUpdated: 1,
+          ...noSkipped(),
         },
         {
           sourceSlug: "anthropic-news",
@@ -331,6 +390,7 @@ describe("buildNewsSourceHealthSummary", () => {
           itemsSeen: 0,
           itemsCreated: 0,
           itemsUpdated: 0,
+          ...noSkipped(),
         },
         {
           sourceSlug: "deepmind-blog",
@@ -338,6 +398,7 @@ describe("buildNewsSourceHealthSummary", () => {
           itemsSeen: 0,
           itemsCreated: 0,
           itemsUpdated: 0,
+          ...noSkipped(),
           errorMessage: "feed unavailable",
         },
       ]),
@@ -362,14 +423,15 @@ describe("refreshActiveRssSources", () => {
         fetchFeed: () => Promise.resolve(rssXml),
       }),
     ).resolves.toMatchObject({
-      sourcesSeeded: 17,
-      sourcesAttempted: 14,
-      sourcesSucceeded: 14,
+      sourcesSeeded: 23,
+      sourcesAttempted: 20,
+      sourcesSucceeded: 20,
       sourcesFailed: 0,
-      itemsCreated: 14,
+      itemsCreated: 20,
+      itemsSkipped: 0,
     });
 
-    expect(repository.sourcesSeeded).toBe(17);
+    expect(repository.sourcesSeeded).toBe(23);
     expect(repository.requestedSourceSlugs).toContain("openai-news");
   });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { NewsItemInput } from "./types";
 import {
+  getIngestionRunFinishUpdateValues,
   getNewsItemRefreshDbUpdateValues,
   getNewsItemRefreshUpdateValues,
   shouldResetNewsItemEmbeddingFromRefresh,
@@ -50,6 +51,43 @@ describe("getNewsItemRefreshUpdateValues", () => {
     expect("dedupeKey" in updateValues).toBe(false);
     expect("embeddingStatus" in updateValues).toBe(false);
     expect("sourceId" in updateValues).toBe(false);
+  });
+});
+
+describe("getIngestionRunFinishUpdateValues", () => {
+  it("keeps skipped diagnostics in ingestion run metadata", () => {
+    expect(
+      getIngestionRunFinishUpdateValues({
+        runId: "run-1",
+        status: "succeeded",
+        itemsSeen: 3,
+        itemsCreated: 1,
+        itemsUpdated: 0,
+        metadata: {
+          itemsSkipped: 2,
+          skippedByReason: {
+            duplicate: 0,
+            future: 1,
+            irrelevant: 0,
+            stale: 1,
+          },
+        },
+      }),
+    ).toMatchObject({
+      status: "succeeded",
+      itemsSeen: 3,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+      metadata: {
+        itemsSkipped: 2,
+        skippedByReason: {
+          duplicate: 0,
+          future: 1,
+          irrelevant: 0,
+          stale: 1,
+        },
+      },
+    });
   });
 });
 

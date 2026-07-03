@@ -100,6 +100,18 @@ export const shouldResetNewsItemEmbeddingFromRefresh = (
   !areStringArraysEqual(existing.tags, incoming.tags) ||
   existing.title !== incoming.title;
 
+export const getIngestionRunFinishUpdateValues = (
+  input: Parameters<NewsRepository["finishIngestionRun"]>[0],
+) => ({
+  status: input.status,
+  finishedAt: new Date(),
+  itemsSeen: input.itemsSeen,
+  itemsCreated: input.itemsCreated,
+  itemsUpdated: input.itemsUpdated,
+  errorMessage: input.errorMessage,
+  ...(input.metadata ? { metadata: input.metadata } : {}),
+});
+
 export const createDbNewsRepository = (): NewsRepository => ({
   async seedSources(sources: NewsSourceInput[]) {
     let created = 0;
@@ -157,14 +169,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   async finishIngestionRun(input) {
     await db
       .update(IngestionRun)
-      .set({
-        status: input.status,
-        finishedAt: new Date(),
-        itemsSeen: input.itemsSeen,
-        itemsCreated: input.itemsCreated,
-        itemsUpdated: input.itemsUpdated,
-        errorMessage: input.errorMessage,
-      })
+      .set(getIngestionRunFinishUpdateValues(input))
       .where(eq(IngestionRun.id, input.runId));
   },
 

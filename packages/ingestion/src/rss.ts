@@ -74,10 +74,7 @@ const imageFromMediaValue = (value: unknown): string | undefined => {
     const type = textValue(media.type);
     const url = textValue(media.url);
 
-    if (
-      url &&
-      (medium === "image" || type?.startsWith("image/") || !medium)
-    ) {
+    if (url && (medium === "image" || type?.startsWith("image/") || !medium)) {
       return url;
     }
   }
@@ -133,6 +130,31 @@ const authorName = (value: unknown): string | undefined => {
   return undefined;
 };
 
+const uniqueTexts = (values: readonly (string | undefined)[]) =>
+  Array.from(
+    new Set(
+      values
+        .map((value) => value?.trim())
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+const rssCategories = (value: unknown): string[] =>
+  uniqueTexts(asArray(value).map(textValue));
+
+const atomCategory = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object") {
+    const category = value as { label?: unknown; term?: unknown };
+
+    return textValue(category.label) ?? textValue(category.term);
+  }
+  return undefined;
+};
+
+const atomCategories = (value: unknown): string[] =>
+  uniqueTexts(asArray(value).map(atomCategory));
+
 export const parseFeedXml = (xml: string): RawFeedItem[] => {
   const parsed = parser.parse(xml) as {
     rss?: { channel?: { item?: unknown } };
@@ -150,6 +172,7 @@ export const parseFeedXml = (xml: string): RawFeedItem[] => {
       id: textValue(record.guid),
       summary,
       bodyText,
+      categories: rssCategories(record.category),
       publishedAt: parseDate(record.pubDate),
       authorName: authorName(record.author),
       imageUrl:
@@ -171,6 +194,7 @@ export const parseFeedXml = (xml: string): RawFeedItem[] => {
       id: textValue(record.id),
       summary,
       bodyText,
+      categories: atomCategories(record.category),
       publishedAt: parseDate(record.published) ?? parseDate(record.updated),
       authorName: authorName(record.author),
       imageUrl:

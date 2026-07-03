@@ -60,12 +60,43 @@ describe("initialNewsSources", () => {
       isActive: true,
       sourceType: "rss",
     });
+    expect(sourcesBySlug.get("venturebeat-ai")).toMatchObject({
+      feedUrl: "https://venturebeat.com/category/ai/feed/",
+      isActive: true,
+      sourceType: "rss",
+    });
+    expect(sourcesBySlug.get("the-verge-ai")).toMatchObject({
+      feedUrl:
+        "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml",
+      isActive: true,
+      sourceType: "publication",
+    });
+    expect(sourcesBySlug.get("ars-technica-ai")).toMatchObject({
+      feedUrl: "https://arstechnica.com/ai/feed/",
+      isActive: true,
+      sourceType: "publication",
+    });
+    expect(sourcesBySlug.get("mozilla-ai-blog")).toMatchObject({
+      feedUrl: "https://blog.mozilla.ai/rss/",
+      isActive: true,
+      sourceType: "vendor_blog",
+    });
+    expect(sourcesBySlug.get("import-ai")).toMatchObject({
+      feedUrl: "https://importai.substack.com/feed",
+      isActive: true,
+      sourceType: "research",
+    });
+    expect(sourcesBySlug.get("latent-space")).toMatchObject({
+      feedUrl: "https://www.latent.space/feed",
+      isActive: true,
+      sourceType: "rss",
+    });
   });
 
   it("keeps the active RSS catalog broad enough for a live AI front page", () => {
     expect(
       initialNewsSources.filter((source) => source.isActive && source.feedUrl),
-    ).toHaveLength(14);
+    ).toHaveLength(20);
   });
 
   it("uses unique slugs for every source", () => {

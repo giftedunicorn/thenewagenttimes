@@ -247,6 +247,25 @@ describe("normalizeFeedItem", () => {
     expect(result.tags).toEqual(["other"]);
   });
 
+  it("uses feed category metadata as recommendation context", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "the-verge-ai",
+      item: {
+        title: "Researchers publish a new browser agent finding",
+        url: "https://example.com/browser-agent-finding",
+        summary: "The report explains a mitigation path for product teams.",
+        categories: ["Artificial Intelligence", "Security", "Prompt Injection"],
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("security");
+    expect(result.tags).toEqual(
+      expect.arrayContaining(["security", "prompt_injection"]),
+    );
+  });
+
   it("extracts fine-grained recommendation tags from security and market-map coverage", () => {
     const securityResult = normalizeFeedItem({
       sourceId,
@@ -308,8 +327,7 @@ describe("normalizeFeedItem", () => {
       sourceId,
       sourceSlug: "hugging-face-blog",
       item: {
-        title:
-          "Open source model weights improve local inference and tool use",
+        title: "Open source model weights improve local inference and tool use",
         url: "https://example.com/local-tool-use-model",
         summary:
           "Benchmarks evaluate compact LLMs for function calling, tool use, and on-device deployment.",
@@ -319,12 +337,7 @@ describe("normalizeFeedItem", () => {
 
     expect(result.category).toBe("open_source");
     expect(result.tags).toEqual(
-      expect.arrayContaining([
-        "model",
-        "local_inference",
-        "tool_use",
-        "evals",
-      ]),
+      expect.arrayContaining(["model", "local_inference", "tool_use", "evals"]),
     );
   });
 

@@ -12,6 +12,8 @@ const rssFixture = `<?xml version="1.0"?>
       <guid>agent-model-guid</guid>
       <description><![CDATA[A short summary about the model.]]></description>
       <pubDate>Sat, 27 Jun 2026 08:00:00 GMT</pubDate>
+      <category>Model Releases</category>
+      <category>AI Agents</category>
       <author>news@example.com (AI Reporter)</author>
       <enclosure url="https://example.com/image.jpg" type="image/jpeg" />
     </item>
@@ -27,6 +29,8 @@ const atomFixture = `<?xml version="1.0"?>
     <link href="https://example.com/yc-agent" />
     <summary>YC funds a new workflow agent company.</summary>
     <updated>2026-06-27T09:00:00.000Z</updated>
+    <category term="YC AI" />
+    <category term="AI Agents" label="AI Agents" />
     <author><name>YC Reporter</name></author>
   </entry>
 </feed>`;
@@ -84,6 +88,7 @@ describe("parseFeedXml", () => {
       id: "agent-model-guid",
       summary: "A short summary about the model.",
       publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      categories: ["Model Releases", "AI Agents"],
       authorName: "AI Reporter",
       imageUrl: "https://example.com/image.jpg",
     });
@@ -98,6 +103,7 @@ describe("parseFeedXml", () => {
       id: "tag:example.com,2026:yc-agent",
       summary: "YC funds a new workflow agent company.",
       publishedAt: new Date("2026-06-27T09:00:00.000Z"),
+      categories: ["YC AI", "AI Agents"],
       authorName: "YC Reporter",
     });
   });

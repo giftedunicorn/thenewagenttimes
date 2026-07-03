@@ -20,12 +20,25 @@ export const seedSources = async (input: { repository: NewsRepository }) => {
   return input.repository.seedSources(initialNewsSources);
 };
 
+export type NewsIngestionSkipReason =
+  | "duplicate"
+  | "future"
+  | "irrelevant"
+  | "stale";
+
+export type NewsIngestionSkippedByReason = Record<
+  NewsIngestionSkipReason,
+  number
+>;
+
 export interface NewsSourceRefreshResult {
   sourceSlug: string;
   status: "succeeded" | "failed";
   itemsSeen: number;
   itemsCreated: number;
   itemsUpdated: number;
+  itemsSkipped: number;
+  skippedByReason: NewsIngestionSkippedByReason;
   errorMessage?: string;
 }
 
@@ -125,20 +138,37 @@ export const applyIngestionScores = ({
 const isRelevantAiNewsItem = (item: NewsItemInput) =>
   item.category !== "other" || (item.entities?.length ?? 0) > 0;
 
-const isWithinCurrentNewsEditionWindow = ({
+const createSkippedByReason = (): NewsIngestionSkippedByReason => ({
+  duplicate: 0,
+  future: 0,
+  irrelevant: 0,
+  stale: 0,
+});
+
+const getNewsEditionWindowSkipReason = ({
   now,
   publishedAt,
 }: {
   now: Date;
   publishedAt: Date;
-}) => {
+}): NewsIngestionSkipReason | null => {
   const publishedAtMs = publishedAt.getTime();
   const nowMs = now.getTime();
 
-  if (publishedAtMs > nowMs + newsEditionFutureToleranceMs) return false;
+  if (publishedAtMs > nowMs + newsEditionFutureToleranceMs) return "future";
 
-  return nowMs - publishedAtMs <= newsEditionWindowMs;
+  return nowMs - publishedAtMs > newsEditionWindowMs ? "stale" : null;
 };
+
+const countSkippedItem = (
+  skippedByReason: NewsIngestionSkippedByReason,
+  reason: NewsIngestionSkipReason,
+) => {
+  skippedByReason[reason] += 1;
+};
+
+const getSkippedItemCount = (skippedByReason: NewsIngestionSkippedByReason) =>
+  Object.values(skippedByReason).reduce((total, count) => total + count, 0);
 
 const hasFailureMessage = (
   result: NewsSourceRefreshResult,
@@ -199,6 +229,7 @@ export const ingestRssSource = async (input: {
     const now = input.now ?? new Date();
     let itemsCreated = 0;
     let itemsUpdated = 0;
+    const skippedByReason = createSkippedByReason();
 
     for (const item of rawItems) {
       const normalized = applyIngestionScores({
@@ -212,17 +243,25 @@ export const ingestRssSource = async (input: {
         sourceCredibility: source.credibility,
       });
 
-      if (
-        !isWithinCurrentNewsEditionWindow({
-          now,
-          publishedAt: normalized.publishedAt,
-        }) ||
-        !isRelevantAiNewsItem(normalized)
-      ) {
+      const editionWindowSkipReason = getNewsEditionWindowSkipReason({
+        now,
+        publishedAt: normalized.publishedAt,
+      });
+
+      if (editionWindowSkipReason) {
+        countSkippedItem(skippedByReason, editionWindowSkipReason);
         continue;
       }
 
-      if (seenDedupeKeys.has(normalized.dedupeKey)) continue;
+      if (!isRelevantAiNewsItem(normalized)) {
+        countSkippedItem(skippedByReason, "irrelevant");
+        continue;
+      }
+
+      if (seenDedupeKeys.has(normalized.dedupeKey)) {
+        countSkippedItem(skippedByReason, "duplicate");
+        continue;
+      }
       seenDedupeKeys.add(normalized.dedupeKey);
 
       const result = await input.repository.upsertNewsItem(normalized);
@@ -231,12 +270,22 @@ export const ingestRssSource = async (input: {
       if (result === "updated") itemsUpdated += 1;
     }
 
+    const itemsSkipped = getSkippedItemCount(skippedByReason);
+
     await input.repository.finishIngestionRun({
       runId: run.id,
       status: "succeeded",
       itemsSeen: rawItems.length,
       itemsCreated,
       itemsUpdated,
+      ...(itemsSkipped > 0
+        ? {
+            metadata: {
+              itemsSkipped,
+              skippedByReason,
+            },
+          }
+        : {}),
       errorMessage: undefined,
     });
 
@@ -244,6 +293,8 @@ export const ingestRssSource = async (input: {
       itemsSeen: rawItems.length,
       itemsCreated,
       itemsUpdated,
+      itemsSkipped,
+      skippedByReason,
     };
   } catch (error) {
     await input.repository.finishIngestionRun({
@@ -287,6 +338,8 @@ export const ingestActiveRssSources = async (input: {
         itemsSeen: 0,
         itemsCreated: 0,
         itemsUpdated: 0,
+        itemsSkipped: 0,
+        skippedByReason: createSkippedByReason(),
         errorMessage: error instanceof Error ? error.message : "Unknown error",
       });
     }
@@ -306,6 +359,19 @@ export const ingestActiveRssSources = async (input: {
     itemsUpdated: results.reduce(
       (total, result) => total + result.itemsUpdated,
       0,
+    ),
+    itemsSkipped: results.reduce(
+      (total, result) => total + result.itemsSkipped,
+      0,
+    ),
+    skippedByReason: results.reduce(
+      (total, result) => ({
+        duplicate: total.duplicate + result.skippedByReason.duplicate,
+        future: total.future + result.skippedByReason.future,
+        irrelevant: total.irrelevant + result.skippedByReason.irrelevant,
+        stale: total.stale + result.skippedByReason.stale,
+      }),
+      createSkippedByReason(),
     ),
     results,
     sourceHealth: buildNewsSourceHealthSummary(results),

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "pnpm --dir ../.. run deploy:nextjs"
+  },
+  "deploy": {
+    "startCommand": "pnpm --dir ../.. run start:nextjs"
+  }
+}

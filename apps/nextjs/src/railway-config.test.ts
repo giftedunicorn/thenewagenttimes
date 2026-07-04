@@ -25,14 +25,68 @@ const readJson = async <T>(relativePath: string): Promise<T> => {
 
 describe("Railway Next.js deployment config", () => {
   test.each([
-    ["repo root", "railway.json"],
-    ["Next.js app", "apps/nextjs/railway.json"],
-    ["TanStack app fallback", "apps/tanstack-start/railway.json"],
-  ])("%s uses the Next.js build and start commands", async (_, configPath) => {
-    const config = await readJson<RailwayConfig>(configPath);
+    [
+      "repo root",
+      "railway.json",
+      "pnpm run deploy:nextjs",
+      "pnpm run start:nextjs",
+    ],
+    [
+      "Next.js app",
+      "apps/nextjs/railway.json",
+      "pnpm run deploy:nextjs",
+      "pnpm run start:nextjs",
+    ],
+    [
+      "TanStack app fallback",
+      "apps/tanstack-start/railway.json",
+      "pnpm run deploy:nextjs",
+      "pnpm run start:nextjs",
+    ],
+    [
+      "API package fallback",
+      "packages/api/railway.json",
+      "pnpm --dir ../.. run deploy:nextjs",
+      "pnpm --dir ../.. run start:nextjs",
+    ],
+    [
+      "database package fallback",
+      "packages/db/railway.json",
+      "pnpm --dir ../.. run deploy:nextjs",
+      "pnpm --dir ../.. run start:nextjs",
+    ],
+  ])(
+    "%s uses the Next.js build and start commands",
+    async (_, configPath, buildCommand, startCommand) => {
+      const config = await readJson<RailwayConfig>(configPath);
 
-    expect(config.build?.buildCommand).toBe("pnpm run deploy:nextjs");
-    expect(config.deploy?.startCommand).toBe("pnpm run start:nextjs");
+      expect(config.build?.buildCommand).toBe(buildCommand);
+      expect(config.deploy?.startCommand).toBe(startCommand);
+    },
+  );
+
+  test("shared package Railway fallbacks do not advertise standalone app builds", async () => {
+    const apiPackage = await readJson<PackageManifest>(
+      "packages/api/package.json",
+    );
+    const dbPackage = await readJson<PackageManifest>(
+      "packages/db/package.json",
+    );
+
+    expect(apiPackage.scripts?.build).toBe("tsc");
+    expect(dbPackage.scripts?.build).toBe("tsc");
+  });
+
+  test("shared package Railway fallbacks expose a start script for Railpack detection", async () => {
+    const apiPackage = await readJson<PackageManifest>(
+      "packages/api/package.json",
+    );
+    const dbPackage = await readJson<PackageManifest>(
+      "packages/db/package.json",
+    );
+
+    expect(apiPackage.scripts?.start).toBe("pnpm --dir ../.. run start:nextjs");
+    expect(dbPackage.scripts?.start).toBe("pnpm --dir ../.. run start:nextjs");
   });
 
   test("workspace scripts keep every Railway root pointed at Next.js", async () => {
@@ -67,10 +121,16 @@ describe("Railway Next.js deployment config", () => {
     expect(tanstackPackage.scripts?.build).toBe(
       "pnpm --dir ../.. run deploy:nextjs",
     );
+    expect(tanstackPackage.scripts?.["build:tanstack"]).toBe(
+      "pnpm --dir ../.. run deploy:nextjs",
+    );
     expect(tanstackPackage.scripts?.["start:nextjs"]).toBe(
       "pnpm --dir ../.. run start:nextjs",
     );
     expect(tanstackPackage.scripts?.start).toBe(
+      "pnpm --dir ../.. run start:nextjs",
+    );
+    expect(tanstackPackage.scripts?.["start:tanstack"]).toBe(
       "pnpm --dir ../.. run start:nextjs",
     );
   });
@@ -119,6 +179,17 @@ describe("Railway Next.js deployment config", () => {
     expect(nextPackage.dependencies?.["@fontsource-variable/geist-mono"]).toBe(
       "^5.2.7",
     );
+  });
+
+  test("Next.js layout does not float template chrome over the news edition", async () => {
+    const layout = await readFile(
+      path.join(repoRoot, "apps/nextjs/src/app/layout.tsx"),
+      "utf8",
+    );
+
+    expect(layout).toContain("<ThemeProvider>");
+    expect(layout).not.toContain("<ThemeToggle />");
+    expect(layout).not.toContain("fixed right-4 bottom-4");
   });
 
   test("TanStack fallback route does not expose the starter scaffold", async () => {

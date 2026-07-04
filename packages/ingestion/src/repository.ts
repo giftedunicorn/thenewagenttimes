@@ -1,4 +1,4 @@
-import { and, eq } from "@acme/db";
+import { and, eq, inArray } from "@acme/db";
 import { db } from "@acme/db/client";
 import {
   IngestionRun,
@@ -112,6 +112,9 @@ export const getIngestionRunFinishUpdateValues = (
   ...(input.metadata ? { metadata: input.metadata } : {}),
 });
 
+export const buildEmbeddingQueueCondition = () =>
+  inArray(NewsItem.embeddingStatus, ["pending", "failed"]);
+
 export const createDbNewsRepository = (): NewsRepository => ({
   async seedSources(sources: NewsSourceInput[]) {
     let created = 0;
@@ -156,7 +159,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
     const [run] = await db
       .insert(IngestionRun)
       .values({
-        sourceId: input.sourceId,
+        sourceId: input.sourceId ?? null,
         runType: input.runType,
         status: "running",
       })
@@ -244,7 +247,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
         entities: NewsItem.entities,
       })
       .from(NewsItem)
-      .where(eq(NewsItem.embeddingStatus, "pending"))
+      .where(buildEmbeddingQueueCondition())
       .limit(limit);
   },
 

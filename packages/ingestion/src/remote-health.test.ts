@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   checkRemoteNewsHealth,
+  formatRemoteNewsHealthSummary,
+  RemoteNewsHealthNotReadyError,
+  resolveRemoteNewsHealthCommandInput,
   resolveRemoteNewsHealthUrl,
 } from "./remote-health";
 
@@ -28,10 +31,95 @@ describe("resolveRemoteNewsHealthUrl", () => {
     ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
   });
 
+  it("turns an explicit embed endpoint into the health endpoint", () => {
+    expect(
+      resolveRemoteNewsHealthUrl(
+        "https://thenewagenttimes.up.railway.app/api/news/embed",
+      ),
+    ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+  });
+
   it("uses the Railway public domain when the health URL is not configured", () => {
     expect(
       resolveRemoteNewsHealthUrl("", "thenewagenttimes.up.railway.app"),
     ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+  });
+});
+
+describe("resolveRemoteNewsHealthCommandInput", () => {
+  it("keeps an explicit URL argument ahead of environment URLs", () => {
+    expect(
+      resolveRemoteNewsHealthCommandInput({
+        argv: ["https://custom.example/api/news/refresh"],
+        env: {
+          NEWS_HEALTH_URL: "https://thenewagenttimes.up.railway.app",
+          RAILWAY_PUBLIC_DOMAIN: "thenewagenttimes.up.railway.app",
+        },
+      }),
+    ).toEqual({
+      healthUrl: "https://custom.example/api/news/refresh",
+      railwayPublicDomain: "thenewagenttimes.up.railway.app",
+    });
+  });
+
+  it("falls back to refresh, embed, bootstrap, or Railway public URLs", () => {
+    expect(
+      resolveRemoteNewsHealthCommandInput({
+        argv: [],
+        env: {
+          NEWS_REFRESH_URL:
+            "https://thenewagenttimes.up.railway.app/api/news/refresh",
+        },
+      }),
+    ).toEqual({
+      healthUrl: "https://thenewagenttimes.up.railway.app/api/news/refresh",
+      railwayPublicDomain: undefined,
+    });
+
+    expect(
+      resolveRemoteNewsHealthCommandInput({
+        argv: [],
+        env: {
+          NEWS_EMBED_URL:
+            "https://thenewagenttimes.up.railway.app/api/news/embed",
+        },
+      }),
+    ).toEqual({
+      healthUrl: "https://thenewagenttimes.up.railway.app/api/news/embed",
+      railwayPublicDomain: undefined,
+    });
+
+    expect(
+      resolveRemoteNewsHealthCommandInput({
+        argv: [],
+        env: {
+          NEWS_BOOTSTRAP_URL: "https://thenewagenttimes.up.railway.app",
+          RAILWAY_PUBLIC_DOMAIN: "fallback.up.railway.app",
+        },
+      }),
+    ).toEqual({
+      healthUrl: "https://thenewagenttimes.up.railway.app",
+      railwayPublicDomain: "fallback.up.railway.app",
+    });
+  });
+
+  it("skips blank environment URLs while resolving fallback health targets", () => {
+    expect(
+      resolveRemoteNewsHealthCommandInput({
+        argv: [],
+        env: {
+          NEWS_BOOTSTRAP_URL: "",
+          NEWS_EMBED_URL: "",
+          NEWS_HEALTH_URL: "   ",
+          NEWS_REFRESH_URL:
+            "https://thenewagenttimes.up.railway.app/api/news/refresh",
+          RAILWAY_PUBLIC_DOMAIN: "thenewagenttimes.up.railway.app",
+        },
+      }),
+    ).toEqual({
+      healthUrl: "https://thenewagenttimes.up.railway.app/api/news/refresh",
+      railwayPublicDomain: "thenewagenttimes.up.railway.app",
+    });
   });
 });
 
@@ -57,6 +145,10 @@ describe("checkRemoteNewsHealth", () => {
                   stories: true,
                 },
                 nextStep: "ready",
+                news: {
+                  liveReady: true,
+                  semanticReady: true,
+                },
                 ready: true,
               }),
             ),
@@ -72,6 +164,7 @@ describe("checkRemoteNewsHealth", () => {
       },
     ]);
     expect(result).toEqual({
+      actionRequired: [],
       body: {
         checks: {
           auth: true,
@@ -81,11 +174,114 @@ describe("checkRemoteNewsHealth", () => {
           stories: true,
         },
         nextStep: "ready",
+        news: {
+          liveReady: true,
+          semanticReady: true,
+        },
         ready: true,
       },
+      commands: {},
+      liveReady: true,
+      nextCommand: null,
       nextStep: "ready",
       ready: true,
+      semanticReady: true,
       status: 200,
+    });
+  });
+
+  it("rejects remote health responses that are not production ready", async () => {
+    const error = await checkRemoteNewsHealth({
+      fetchHealth: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                actionRequired: [
+                  "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+                ],
+                checks: {
+                  auth: true,
+                  embeddingProvider: false,
+                  refreshSecret: true,
+                  schema: true,
+                  semantic: false,
+                  sources: true,
+                  stories: true,
+                },
+                nextStep: "configure-embedding-provider",
+                commands: {
+                  next: null,
+                  schema: "pnpm run db:push",
+                  refresh: "pnpm run news:refresh:remote",
+                },
+                news: {
+                  liveReady: true,
+                  semanticReady: false,
+                },
+                ready: false,
+              }),
+            ),
+        }),
+      healthUrl: "https://thenewagenttimes.up.railway.app",
+    }).catch((caughtError: unknown) => caughtError);
+
+    expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
+    expect(error).toMatchObject({
+      message:
+        "Remote news health is not ready: nextStep=configure-embedding-provider",
+      result: {
+        actionRequired: [
+          "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+        ],
+        commands: {
+          next: null,
+          refresh: "pnpm run news:refresh:remote",
+          schema: "pnpm run db:push",
+        },
+        body: {
+          actionRequired: [
+            "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+          ],
+          news: {
+            liveReady: true,
+            semanticReady: false,
+          },
+        },
+        liveReady: true,
+        nextStep: "configure-embedding-provider",
+        nextCommand: null,
+        ready: false,
+        semanticReady: false,
+        status: 200,
+      },
+    });
+  });
+
+  it("rejects 200 responses without a ready flag so scaffold pages cannot pass", async () => {
+    const error = await checkRemoteNewsHealth({
+      fetchHealth: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve("<html>TanStack Start</html>"),
+        }),
+      healthUrl: "https://thenewagenttimes.up.railway.app",
+    }).catch((caughtError: unknown) => caughtError);
+
+    expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
+    expect(error).toMatchObject({
+      message: "Remote news health is not ready: nextStep=unknown",
+      result: {
+        body: "<html>TanStack Start</html>",
+        liveReady: null,
+        nextStep: null,
+        ready: null,
+        semanticReady: null,
+        status: 200,
+      },
     });
   });
 
@@ -95,7 +291,30 @@ describe("checkRemoteNewsHealth", () => {
         healthUrl: "",
       }),
     ).rejects.toThrow(
-      "NEWS_HEALTH_URL, NEWS_REFRESH_URL, or RAILWAY_PUBLIC_DOMAIN is required",
+      "NEWS_HEALTH_URL, NEWS_REFRESH_URL, NEWS_EMBED_URL, NEWS_BOOTSTRAP_URL, or RAILWAY_PUBLIC_DOMAIN is required",
+    );
+  });
+});
+
+describe("formatRemoteNewsHealthSummary", () => {
+  it("prints the next runnable command when health is not ready", () => {
+    expect(
+      formatRemoteNewsHealthSummary({
+        actionRequired: ["Apply the database schema to the target database."],
+        body: {},
+        commands: {
+          next: "pnpm run db:push",
+          schema: "pnpm run db:push",
+        },
+        liveReady: false,
+        nextCommand: "pnpm run db:push",
+        nextStep: "apply-database-schema",
+        ready: false,
+        semanticReady: false,
+        status: 200,
+      }),
+    ).toBe(
+      "Remote news health: status=200 ready=false liveReady=false semanticReady=false nextStep=apply-database-schema nextCommand=pnpm run db:push",
     );
   });
 });

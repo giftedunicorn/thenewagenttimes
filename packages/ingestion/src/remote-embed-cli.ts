@@ -1,17 +1,17 @@
 import {
-  refreshRemoteNewsEdition,
-  resolveRemoteNewsRefreshCommandInput,
-} from "./remote-refresh";
+  embedRemoteNewsItems,
+  resolveRemoteNewsEmbedCommandInput,
+} from "./remote-embed";
 
 const main = async () => {
-  const result = await refreshRemoteNewsEdition({
-    ...resolveRemoteNewsRefreshCommandInput({
+  const result = await embedRemoteNewsItems({
+    ...resolveRemoteNewsEmbedCommandInput({
       argv: process.argv.slice(2),
       env: process.env,
     }),
   });
 
-  console.log(`Remote news refresh complete: status=${result.status}`);
+  console.log(`Remote news embedding complete: status=${result.status}`);
   console.log(JSON.stringify(result.body, null, 2));
 };
 

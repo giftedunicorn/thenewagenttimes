@@ -5,6 +5,7 @@ export {
   ilike,
   inArray,
   lt,
+  notInArray,
   or,
   sql,
   type SQL,

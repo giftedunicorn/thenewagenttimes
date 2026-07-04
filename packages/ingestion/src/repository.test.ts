@@ -2,12 +2,41 @@ import { describe, expect, it } from "vitest";
 
 import type { NewsItemInput } from "./types";
 import {
+  buildEmbeddingQueueCondition,
   getIngestionRunFinishUpdateValues,
   getNewsItemRefreshDbUpdateValues,
   getNewsItemRefreshUpdateValues,
   shouldResetNewsItemEmbeddingFromRefresh,
   shouldUpdateNewsItemFromRefresh,
 } from "./repository";
+
+interface SqlDebugChunk {
+  name?: unknown;
+  queryChunks?: unknown;
+  value?: unknown;
+}
+
+const isSqlDebugChunk = (value: unknown): value is SqlDebugChunk =>
+  typeof value === "object" && value !== null;
+
+const collectSqlDebugText = (value: unknown): string => {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value)) return value.map(collectSqlDebugText).join(" ");
+  if (!isSqlDebugChunk(value)) return "";
+
+  const stringValues =
+    typeof value.value === "string"
+      ? value.value
+      : Array.isArray(value.value)
+        ? value.value.map(collectSqlDebugText).join(" ")
+        : "";
+  const name = typeof value.name === "string" ? value.name : "";
+  const chunks = Array.isArray(value.queryChunks)
+    ? value.queryChunks.map(collectSqlDebugText).join(" ")
+    : "";
+
+  return [name, stringValues, chunks].filter(Boolean).join(" ");
+};
 
 const publishedAt = new Date("2026-07-01T08:00:00.000Z");
 
@@ -51,6 +80,18 @@ describe("getNewsItemRefreshUpdateValues", () => {
     expect("dedupeKey" in updateValues).toBe(false);
     expect("embeddingStatus" in updateValues).toBe(false);
     expect("sourceId" in updateValues).toBe(false);
+  });
+});
+
+describe("buildEmbeddingQueueCondition", () => {
+  it("queues pending and failed stories so transient embedding failures can recover", () => {
+    const sqlText = collectSqlDebugText(buildEmbeddingQueueCondition());
+
+    expect(sqlText).toContain("embeddingStatus");
+    expect(sqlText).toContain("pending");
+    expect(sqlText).toContain("failed");
+    expect(sqlText).not.toContain("embedded");
+    expect(sqlText).not.toContain("skipped");
   });
 });
 

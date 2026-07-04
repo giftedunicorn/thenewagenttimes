@@ -1,3 +1,5 @@
+import { getFirstNonBlankValue } from "./remote-config";
+
 interface RemoteRefreshHttpInit {
   headers: Record<string, string>;
   method: "POST";
@@ -26,6 +28,28 @@ export interface RefreshRemoteNewsEditionInput {
   refreshUrl: string | null | undefined;
 }
 
+export interface ResolveRemoteNewsRefreshCommandInput {
+  argv: readonly string[];
+  env: Record<string, string | undefined>;
+}
+
+export const resolveRemoteNewsRefreshCommandInput = ({
+  argv,
+  env,
+}: ResolveRemoteNewsRefreshCommandInput): Omit<
+  RefreshRemoteNewsEditionInput,
+  "fetchRefresh"
+> => ({
+  railwayPublicDomain: env.RAILWAY_PUBLIC_DOMAIN,
+  refreshSecret: env.NEWS_REFRESH_SECRET,
+  refreshUrl: getFirstNonBlankValue(
+    argv[0],
+    env.NEWS_REFRESH_URL,
+    env.NEWS_HEALTH_URL,
+    env.NEWS_EMBED_URL,
+  ),
+});
+
 export const resolveRemoteNewsRefreshUrl = (
   refreshUrl: string | null | undefined,
   railwayPublicDomain?: string | null,
@@ -37,12 +61,24 @@ export const resolveRemoteNewsRefreshUrl = (
       : resolveRailwayPublicUrl(railwayPublicDomain);
 
   if (!trimmedUrl) {
-    throw new Error("NEWS_REFRESH_URL or RAILWAY_PUBLIC_DOMAIN is required");
+    throw new Error(
+      "NEWS_REFRESH_URL, NEWS_HEALTH_URL, NEWS_EMBED_URL, or RAILWAY_PUBLIC_DOMAIN is required",
+    );
   }
 
   const url = new URL(trimmedUrl);
 
-  if (!url.pathname.endsWith("/api/news/refresh")) {
+  if (url.pathname.endsWith("/api/news/health")) {
+    url.pathname = url.pathname.replace(
+      /\/api\/news\/health$/,
+      "/api/news/refresh",
+    );
+  } else if (url.pathname.endsWith("/api/news/embed")) {
+    url.pathname = url.pathname.replace(
+      /\/api\/news\/embed$/,
+      "/api/news/refresh",
+    );
+  } else if (!url.pathname.endsWith("/api/news/refresh")) {
     const basePath = url.pathname.replace(/\/$/, "");
     url.pathname = `${basePath}/api/news/refresh`;
   }
@@ -73,6 +109,9 @@ const parseRemoteNewsRefreshBody = (text: string): unknown => {
   }
 };
 
+const isRemoteNewsRefreshSuccess = (body: unknown) =>
+  typeof body === "object" && body !== null && "ok" in body && body.ok === true;
+
 const defaultFetchRefresh: RemoteRefreshFetch = (url, init) => fetch(url, init);
 
 export const refreshRemoteNewsEdition = async ({
@@ -91,15 +130,16 @@ export const refreshRemoteNewsEdition = async ({
     method: "POST",
   });
   const responseText = await response.text();
+  const body = parseRemoteNewsRefreshBody(responseText);
 
-  if (!response.ok) {
+  if (!response.ok || !isRemoteNewsRefreshSuccess(body)) {
     throw new Error(
       `Remote news refresh failed: status=${response.status} body=${responseText}`,
     );
   }
 
   return {
-    body: parseRemoteNewsRefreshBody(responseText),
+    body,
     status: response.status,
   };
 };

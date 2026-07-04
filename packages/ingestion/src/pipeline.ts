@@ -1,19 +1,59 @@
+import type { ArxivAiPaper } from "./arxiv";
+import type { GitHubTrendingAiRepository } from "./github";
+import type { HackerNewsAiStory } from "./hacker-news";
 import type {
   EmbeddingProvider,
   NewsItemInput,
   NewsRepository,
   NewsSourceInput,
 } from "./types";
+import type { YcAiCompany } from "./yc";
+import { fetchArxivAiPapers, toArxivAiManualNewsInput } from "./arxiv";
 import { buildEmbeddingInput, hashEmbeddingInput } from "./embedding";
-import { normalizeFeedItem } from "./normalize";
+import {
+  fetchGitHubTrendingAiRepositories,
+  toGitHubTrendingAiManualNewsInput,
+} from "./github";
+import {
+  fetchHackerNewsAiStories,
+  toHackerNewsAiManualNewsInput,
+} from "./hacker-news";
+import { normalizeFeedItem, normalizeManualItem } from "./normalize";
 import { parseFeedXml } from "./rss";
 import { initialNewsSources } from "./sources";
+import { fetchYcAiCompanies, toYcAiManualNewsInput } from "./yc";
+
+export const arxivAiSourceSlug = "arxiv-ai-ml";
+export const githubTrendingAiSourceSlug = "github-trending-ai";
+export const hackerNewsAiSourceSlug = "hacker-news-ai";
+export const ycAiSourceSlug = "yc-ai";
+
+const activeHighSignalSourceSlugs = [
+  arxivAiSourceSlug,
+  hackerNewsAiSourceSlug,
+  githubTrendingAiSourceSlug,
+  ycAiSourceSlug,
+] as const;
 
 export const getActiveRssSourceSlugs = (
   sources: readonly NewsSourceInput[] = initialNewsSources,
 ) =>
   sources
     .filter((source) => source.isActive && source.feedUrl)
+    .map((source) => source.slug);
+
+export const getActiveHighSignalSourceSlugs = (
+  sources: readonly NewsSourceInput[] = initialNewsSources,
+) =>
+  sources
+    .filter(
+      (source) =>
+        source.isActive &&
+        !source.feedUrl &&
+        activeHighSignalSourceSlugs.includes(
+          source.slug as (typeof activeHighSignalSourceSlugs)[number],
+        ),
+    )
     .map((source) => source.slug);
 
 export const seedSources = async (input: { repository: NewsRepository }) => {
@@ -47,6 +87,19 @@ export interface NewsSourceHealthSummary {
   emptySourceSlugs: string[];
   failedSourceSlugs: string[];
   failureMessages: Record<string, string>;
+}
+
+export interface NewsSourceRefreshAggregateSummary {
+  sourcesAttempted: number;
+  sourcesSucceeded: number;
+  sourcesFailed: number;
+  itemsSeen: number;
+  itemsCreated: number;
+  itemsUpdated: number;
+  itemsSkipped: number;
+  skippedByReason: NewsIngestionSkippedByReason;
+  results: NewsSourceRefreshResult[];
+  sourceHealth: NewsSourceHealthSummary;
 }
 
 const newsEditionWindowMs = 45 * 24 * 60 * 60 * 1000;
@@ -170,10 +223,87 @@ const countSkippedItem = (
 const getSkippedItemCount = (skippedByReason: NewsIngestionSkippedByReason) =>
   Object.values(skippedByReason).reduce((total, count) => total + count, 0);
 
+const getFailedSourceMessage = (sourcesFailed: number) =>
+  `${sourcesFailed} ${sourcesFailed === 1 ? "source" : "sources"} failed`;
+
 const hasFailureMessage = (
   result: NewsSourceRefreshResult,
 ): result is NewsSourceRefreshResult & { errorMessage: string } =>
   result.status === "failed" && Boolean(result.errorMessage);
+
+const summarizeNewsSourceRefreshResults = (
+  results: NewsSourceRefreshResult[],
+): NewsSourceRefreshAggregateSummary => ({
+  sourcesAttempted: results.length,
+  sourcesSucceeded: results.filter((result) => result.status === "succeeded")
+    .length,
+  sourcesFailed: results.filter((result) => result.status === "failed").length,
+  itemsSeen: results.reduce((total, result) => total + result.itemsSeen, 0),
+  itemsCreated: results.reduce(
+    (total, result) => total + result.itemsCreated,
+    0,
+  ),
+  itemsUpdated: results.reduce(
+    (total, result) => total + result.itemsUpdated,
+    0,
+  ),
+  itemsSkipped: results.reduce(
+    (total, result) => total + result.itemsSkipped,
+    0,
+  ),
+  skippedByReason: results.reduce(
+    (total, result) => ({
+      duplicate: total.duplicate + result.skippedByReason.duplicate,
+      future: total.future + result.skippedByReason.future,
+      irrelevant: total.irrelevant + result.skippedByReason.irrelevant,
+      stale: total.stale + result.skippedByReason.stale,
+    }),
+    createSkippedByReason(),
+  ),
+  results,
+  sourceHealth: buildNewsSourceHealthSummary(results),
+});
+
+const finishAggregateRefreshRun = async ({
+  repository,
+  results,
+  runType,
+}: {
+  repository: NewsRepository;
+  results: NewsSourceRefreshResult[];
+  runType: Parameters<NewsRepository["startIngestionRun"]>[0]["runType"];
+}) => {
+  const summary = summarizeNewsSourceRefreshResults(results);
+  const aggregateRun = await repository.startIngestionRun({ runType });
+  const status =
+    summary.sourcesFailed === 0
+      ? "succeeded"
+      : summary.sourcesSucceeded === 0
+        ? "failed"
+        : "partial";
+
+  await repository.finishIngestionRun({
+    runId: aggregateRun.id,
+    status,
+    itemsSeen: summary.itemsSeen,
+    itemsCreated: summary.itemsCreated,
+    itemsUpdated: summary.itemsUpdated,
+    errorMessage:
+      summary.sourcesFailed > 0
+        ? getFailedSourceMessage(summary.sourcesFailed)
+        : undefined,
+    metadata: {
+      itemsSkipped: summary.itemsSkipped,
+      skippedByReason: summary.skippedByReason,
+      sourceHealth: summary.sourceHealth,
+      sourcesAttempted: summary.sourcesAttempted,
+      sourcesFailed: summary.sourcesFailed,
+      sourcesSucceeded: summary.sourcesSucceeded,
+    },
+  });
+
+  return summary;
+};
 
 export const buildNewsSourceHealthSummary = (
   results: readonly NewsSourceRefreshResult[],
@@ -268,6 +398,462 @@ export const ingestRssSource = async (input: {
 
       if (result === "created") itemsCreated += 1;
       if (result === "updated") itemsUpdated += 1;
+      if (result === "duplicate")
+        countSkippedItem(skippedByReason, "duplicate");
+    }
+
+    const itemsSkipped = getSkippedItemCount(skippedByReason);
+
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "succeeded",
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      ...(itemsSkipped > 0
+        ? {
+            metadata: {
+              itemsSkipped,
+              skippedByReason,
+            },
+          }
+        : {}),
+      errorMessage: undefined,
+    });
+
+    return {
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      itemsSkipped,
+      skippedByReason,
+    };
+  } catch (error) {
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "failed",
+      itemsSeen: 0,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw error;
+  }
+};
+
+export const ingestGitHubTrendingAiSource = async (input: {
+  repository: NewsRepository;
+  fetchRepositories?: () => Promise<readonly GitHubTrendingAiRepository[]>;
+  limit?: number;
+  now?: Date;
+}) => {
+  const source = await input.repository.findSourceBySlug(
+    githubTrendingAiSourceSlug,
+  );
+
+  if (!source) {
+    throw new Error(`GitHub source not found: ${githubTrendingAiSourceSlug}`);
+  }
+
+  const run = await input.repository.startIngestionRun({
+    sourceId: source.id,
+    runType: "api",
+  });
+  const fetchRepositories =
+    input.fetchRepositories ??
+    (() =>
+      fetchGitHubTrendingAiRepositories({
+        limit: input.limit,
+        now: input.now,
+      }));
+
+  try {
+    const rawItems = await fetchRepositories();
+    const seenDedupeKeys = new Set<string>();
+    const now = input.now ?? new Date();
+    let itemsCreated = 0;
+    let itemsUpdated = 0;
+    const skippedByReason = createSkippedByReason();
+
+    for (const repository of rawItems) {
+      const normalized = applyIngestionScores({
+        item: normalizeManualItem(
+          toGitHubTrendingAiManualNewsInput({
+            repository,
+            sourceId: source.id,
+            sourceSlug: source.slug,
+          }),
+        ),
+        now,
+        sourceCredibility: source.credibility,
+      });
+
+      const editionWindowSkipReason = getNewsEditionWindowSkipReason({
+        now,
+        publishedAt: normalized.publishedAt,
+      });
+
+      if (editionWindowSkipReason) {
+        countSkippedItem(skippedByReason, editionWindowSkipReason);
+        continue;
+      }
+
+      if (!isRelevantAiNewsItem(normalized)) {
+        countSkippedItem(skippedByReason, "irrelevant");
+        continue;
+      }
+
+      if (seenDedupeKeys.has(normalized.dedupeKey)) {
+        countSkippedItem(skippedByReason, "duplicate");
+        continue;
+      }
+      seenDedupeKeys.add(normalized.dedupeKey);
+
+      const result = await input.repository.upsertNewsItem(normalized);
+
+      if (result === "created") itemsCreated += 1;
+      if (result === "updated") itemsUpdated += 1;
+      if (result === "duplicate")
+        countSkippedItem(skippedByReason, "duplicate");
+    }
+
+    const itemsSkipped = getSkippedItemCount(skippedByReason);
+
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "succeeded",
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      ...(itemsSkipped > 0
+        ? {
+            metadata: {
+              itemsSkipped,
+              skippedByReason,
+            },
+          }
+        : {}),
+      errorMessage: undefined,
+    });
+
+    return {
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      itemsSkipped,
+      skippedByReason,
+    };
+  } catch (error) {
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "failed",
+      itemsSeen: 0,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw error;
+  }
+};
+
+export const ingestArxivAiSource = async (input: {
+  repository: NewsRepository;
+  fetchPapers?: () => Promise<readonly ArxivAiPaper[]>;
+  limit?: number;
+  now?: Date;
+}) => {
+  const source = await input.repository.findSourceBySlug(arxivAiSourceSlug);
+
+  if (!source) {
+    throw new Error(`arXiv source not found: ${arxivAiSourceSlug}`);
+  }
+
+  const run = await input.repository.startIngestionRun({
+    sourceId: source.id,
+    runType: "api",
+  });
+  const fetchPapers =
+    input.fetchPapers ??
+    (() =>
+      fetchArxivAiPapers({
+        limit: input.limit,
+      }));
+
+  try {
+    const rawItems = await fetchPapers();
+    const seenDedupeKeys = new Set<string>();
+    const now = input.now ?? new Date();
+    let itemsCreated = 0;
+    let itemsUpdated = 0;
+    const skippedByReason = createSkippedByReason();
+
+    for (const paper of rawItems) {
+      const normalized = applyIngestionScores({
+        item: normalizeManualItem(
+          toArxivAiManualNewsInput({
+            paper,
+            sourceId: source.id,
+            sourceSlug: source.slug,
+          }),
+        ),
+        now,
+        sourceCredibility: source.credibility,
+      });
+
+      const editionWindowSkipReason = getNewsEditionWindowSkipReason({
+        now,
+        publishedAt: normalized.publishedAt,
+      });
+
+      if (editionWindowSkipReason) {
+        countSkippedItem(skippedByReason, editionWindowSkipReason);
+        continue;
+      }
+
+      if (!isRelevantAiNewsItem(normalized)) {
+        countSkippedItem(skippedByReason, "irrelevant");
+        continue;
+      }
+
+      if (seenDedupeKeys.has(normalized.dedupeKey)) {
+        countSkippedItem(skippedByReason, "duplicate");
+        continue;
+      }
+      seenDedupeKeys.add(normalized.dedupeKey);
+
+      const result = await input.repository.upsertNewsItem(normalized);
+
+      if (result === "created") itemsCreated += 1;
+      if (result === "updated") itemsUpdated += 1;
+      if (result === "duplicate")
+        countSkippedItem(skippedByReason, "duplicate");
+    }
+
+    const itemsSkipped = getSkippedItemCount(skippedByReason);
+
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "succeeded",
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      ...(itemsSkipped > 0
+        ? {
+            metadata: {
+              itemsSkipped,
+              skippedByReason,
+            },
+          }
+        : {}),
+      errorMessage: undefined,
+    });
+
+    return {
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      itemsSkipped,
+      skippedByReason,
+    };
+  } catch (error) {
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "failed",
+      itemsSeen: 0,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw error;
+  }
+};
+
+export const ingestHackerNewsAiSource = async (input: {
+  repository: NewsRepository;
+  fetchStories?: () => Promise<readonly HackerNewsAiStory[]>;
+  limitPerQuery?: number;
+  now?: Date;
+}) => {
+  const source = await input.repository.findSourceBySlug(
+    hackerNewsAiSourceSlug,
+  );
+
+  if (!source) {
+    throw new Error(`Hacker News source not found: ${hackerNewsAiSourceSlug}`);
+  }
+
+  const run = await input.repository.startIngestionRun({
+    sourceId: source.id,
+    runType: "api",
+  });
+  const fetchStories =
+    input.fetchStories ??
+    (() =>
+      fetchHackerNewsAiStories({
+        limitPerQuery: input.limitPerQuery,
+        now: input.now,
+      }));
+
+  try {
+    const rawItems = await fetchStories();
+    const seenDedupeKeys = new Set<string>();
+    const now = input.now ?? new Date();
+    let itemsCreated = 0;
+    let itemsUpdated = 0;
+    const skippedByReason = createSkippedByReason();
+
+    for (const story of rawItems) {
+      const normalized = applyIngestionScores({
+        item: normalizeManualItem(
+          toHackerNewsAiManualNewsInput({
+            sourceId: source.id,
+            sourceSlug: source.slug,
+            story,
+          }),
+        ),
+        now,
+        sourceCredibility: source.credibility,
+      });
+
+      const editionWindowSkipReason = getNewsEditionWindowSkipReason({
+        now,
+        publishedAt: normalized.publishedAt,
+      });
+
+      if (editionWindowSkipReason) {
+        countSkippedItem(skippedByReason, editionWindowSkipReason);
+        continue;
+      }
+
+      if (!isRelevantAiNewsItem(normalized)) {
+        countSkippedItem(skippedByReason, "irrelevant");
+        continue;
+      }
+
+      if (seenDedupeKeys.has(normalized.dedupeKey)) {
+        countSkippedItem(skippedByReason, "duplicate");
+        continue;
+      }
+      seenDedupeKeys.add(normalized.dedupeKey);
+
+      const result = await input.repository.upsertNewsItem(normalized);
+
+      if (result === "created") itemsCreated += 1;
+      if (result === "updated") itemsUpdated += 1;
+      if (result === "duplicate")
+        countSkippedItem(skippedByReason, "duplicate");
+    }
+
+    const itemsSkipped = getSkippedItemCount(skippedByReason);
+
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "succeeded",
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      ...(itemsSkipped > 0
+        ? {
+            metadata: {
+              itemsSkipped,
+              skippedByReason,
+            },
+          }
+        : {}),
+      errorMessage: undefined,
+    });
+
+    return {
+      itemsSeen: rawItems.length,
+      itemsCreated,
+      itemsUpdated,
+      itemsSkipped,
+      skippedByReason,
+    };
+  } catch (error) {
+    await input.repository.finishIngestionRun({
+      runId: run.id,
+      status: "failed",
+      itemsSeen: 0,
+      itemsCreated: 0,
+      itemsUpdated: 0,
+      errorMessage: error instanceof Error ? error.message : "Unknown error",
+    });
+    throw error;
+  }
+};
+
+export const ingestYcAiSource = async (input: {
+  repository: NewsRepository;
+  fetchCompanies?: () => Promise<readonly YcAiCompany[]>;
+  limit?: number;
+  now?: Date;
+}) => {
+  const source = await input.repository.findSourceBySlug(ycAiSourceSlug);
+
+  if (!source) {
+    throw new Error(`YC source not found: ${ycAiSourceSlug}`);
+  }
+
+  const run = await input.repository.startIngestionRun({
+    sourceId: source.id,
+    runType: "api",
+  });
+  const fetchCompanies =
+    input.fetchCompanies ??
+    (() =>
+      fetchYcAiCompanies({
+        limit: input.limit,
+      }));
+
+  try {
+    const rawItems = await fetchCompanies();
+    const seenDedupeKeys = new Set<string>();
+    const now = input.now ?? new Date();
+    let itemsCreated = 0;
+    let itemsUpdated = 0;
+    const skippedByReason = createSkippedByReason();
+
+    for (const company of rawItems) {
+      const normalized = applyIngestionScores({
+        item: normalizeManualItem(
+          toYcAiManualNewsInput({
+            company,
+            sourceId: source.id,
+            sourceSlug: source.slug,
+          }),
+        ),
+        now,
+        sourceCredibility: source.credibility,
+      });
+
+      const editionWindowSkipReason = getNewsEditionWindowSkipReason({
+        now,
+        publishedAt: normalized.publishedAt,
+      });
+
+      if (editionWindowSkipReason) {
+        countSkippedItem(skippedByReason, editionWindowSkipReason);
+        continue;
+      }
+
+      if (!isRelevantAiNewsItem(normalized)) {
+        countSkippedItem(skippedByReason, "irrelevant");
+        continue;
+      }
+
+      if (seenDedupeKeys.has(normalized.dedupeKey)) {
+        countSkippedItem(skippedByReason, "duplicate");
+        continue;
+      }
+      seenDedupeKeys.add(normalized.dedupeKey);
+
+      const result = await input.repository.upsertNewsItem(normalized);
+
+      if (result === "created") itemsCreated += 1;
+      if (result === "updated") itemsUpdated += 1;
+      if (result === "duplicate")
+        countSkippedItem(skippedByReason, "duplicate");
     }
 
     const itemsSkipped = getSkippedItemCount(skippedByReason);
@@ -345,37 +931,110 @@ export const ingestActiveRssSources = async (input: {
     }
   }
 
-  return {
-    sourcesAttempted: results.length,
-    sourcesSucceeded: results.filter((result) => result.status === "succeeded")
-      .length,
-    sourcesFailed: results.filter((result) => result.status === "failed")
-      .length,
-    itemsSeen: results.reduce((total, result) => total + result.itemsSeen, 0),
-    itemsCreated: results.reduce(
-      (total, result) => total + result.itemsCreated,
-      0,
-    ),
-    itemsUpdated: results.reduce(
-      (total, result) => total + result.itemsUpdated,
-      0,
-    ),
-    itemsSkipped: results.reduce(
-      (total, result) => total + result.itemsSkipped,
-      0,
-    ),
-    skippedByReason: results.reduce(
-      (total, result) => ({
-        duplicate: total.duplicate + result.skippedByReason.duplicate,
-        future: total.future + result.skippedByReason.future,
-        irrelevant: total.irrelevant + result.skippedByReason.irrelevant,
-        stale: total.stale + result.skippedByReason.stale,
-      }),
-      createSkippedByReason(),
-    ),
+  return finishAggregateRefreshRun({
+    repository: input.repository,
     results,
-    sourceHealth: buildNewsSourceHealthSummary(results),
-  };
+    runType: "rss",
+  });
+};
+
+export const ingestActiveNewsSources = async (input: {
+  repository: NewsRepository;
+  fetchArxivPapers?: () => Promise<readonly ArxivAiPaper[]>;
+  fetchFeed?: (url: string) => Promise<string>;
+  fetchGitHubRepositories?: () => Promise<
+    readonly GitHubTrendingAiRepository[]
+  >;
+  fetchHackerNewsStories?: () => Promise<readonly HackerNewsAiStory[]>;
+  fetchYcCompanies?: () => Promise<readonly YcAiCompany[]>;
+  now?: Date;
+}) => {
+  const results: NewsSourceRefreshResult[] = [];
+
+  for (const sourceSlug of getActiveRssSourceSlugs()) {
+    try {
+      const result = await ingestRssSource({
+        repository: input.repository,
+        sourceSlug,
+        fetchFeed: input.fetchFeed,
+        now: input.now,
+      });
+
+      results.push({
+        sourceSlug,
+        status: "succeeded",
+        ...result,
+      });
+    } catch (error) {
+      results.push({
+        sourceSlug,
+        status: "failed",
+        itemsSeen: 0,
+        itemsCreated: 0,
+        itemsUpdated: 0,
+        itemsSkipped: 0,
+        skippedByReason: createSkippedByReason(),
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  for (const sourceSlug of getActiveHighSignalSourceSlugs()) {
+    try {
+      let result;
+
+      if (sourceSlug === arxivAiSourceSlug) {
+        result = await ingestArxivAiSource({
+          repository: input.repository,
+          fetchPapers: input.fetchArxivPapers,
+          now: input.now,
+        });
+      } else if (sourceSlug === hackerNewsAiSourceSlug) {
+        result = await ingestHackerNewsAiSource({
+          repository: input.repository,
+          fetchStories: input.fetchHackerNewsStories,
+          now: input.now,
+        });
+      } else if (sourceSlug === githubTrendingAiSourceSlug) {
+        result = await ingestGitHubTrendingAiSource({
+          repository: input.repository,
+          fetchRepositories: input.fetchGitHubRepositories,
+          now: input.now,
+        });
+      } else if (sourceSlug === ycAiSourceSlug) {
+        result = await ingestYcAiSource({
+          repository: input.repository,
+          fetchCompanies: input.fetchYcCompanies,
+          now: input.now,
+        });
+      } else {
+        throw new Error(`Unsupported high-signal source: ${sourceSlug}`);
+      }
+
+      results.push({
+        sourceSlug,
+        status: "succeeded",
+        ...result,
+      });
+    } catch (error) {
+      results.push({
+        sourceSlug,
+        status: "failed",
+        itemsSeen: 0,
+        itemsCreated: 0,
+        itemsUpdated: 0,
+        itemsSkipped: 0,
+        skippedByReason: createSkippedByReason(),
+        errorMessage: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+
+  return finishAggregateRefreshRun({
+    repository: input.repository,
+    results,
+    runType: "crawler",
+  });
 };
 
 export const refreshActiveRssSources = async (input: {
@@ -385,6 +1044,26 @@ export const refreshActiveRssSources = async (input: {
 }) => {
   const seedResult = await seedSources({ repository: input.repository });
   const ingestResult = await ingestActiveRssSources(input);
+
+  return {
+    sourcesSeeded: seedResult.created,
+    ...ingestResult,
+  };
+};
+
+export const refreshNewsSources = async (input: {
+  repository: NewsRepository;
+  fetchArxivPapers?: () => Promise<readonly ArxivAiPaper[]>;
+  fetchFeed?: (url: string) => Promise<string>;
+  fetchGitHubRepositories?: () => Promise<
+    readonly GitHubTrendingAiRepository[]
+  >;
+  fetchHackerNewsStories?: () => Promise<readonly HackerNewsAiStory[]>;
+  fetchYcCompanies?: () => Promise<readonly YcAiCompany[]>;
+  now?: Date;
+}) => {
+  const seedResult = await seedSources({ repository: input.repository });
+  const ingestResult = await ingestActiveNewsSources(input);
 
   return {
     sourcesSeeded: seedResult.created,

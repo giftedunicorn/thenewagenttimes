@@ -141,8 +141,8 @@ const sourceCandidates = [
     name: "arXiv AI/ML",
     slug: "arxiv-ai-ml",
     homepageUrl: "https://arxiv.org/list/cs.AI/recent",
-    feedUrl: "https://rss.arxiv.org/rss/cs.AI+cs.LG",
-    sourceType: "rss",
+    feedUrl: null,
+    sourceType: "research",
     credibility: 86,
     isActive: true,
   },
@@ -187,10 +187,10 @@ const sourceCandidates = [
     slug: "product-hunt-ai",
     homepageUrl:
       "https://www.producthunt.com/categories/artificial-intelligence",
-    feedUrl: null,
+    feedUrl: "https://www.producthunt.com/feed",
     sourceType: "product_hunt",
     credibility: 72,
-    isActive: false,
+    isActive: true,
   },
   {
     name: "Hacker News AI",
@@ -199,7 +199,16 @@ const sourceCandidates = [
     feedUrl: null,
     sourceType: "hacker_news",
     credibility: 72,
-    isActive: false,
+    isActive: true,
+  },
+  {
+    name: "GitHub Trending AI",
+    slug: "github-trending-ai",
+    homepageUrl: "https://github.com/trending?l=&since=daily",
+    feedUrl: null,
+    sourceType: "github",
+    credibility: 76,
+    isActive: true,
   },
   {
     name: "YC AI",
@@ -208,7 +217,7 @@ const sourceCandidates = [
     feedUrl: null,
     sourceType: "yc",
     credibility: 80,
-    isActive: false,
+    isActive: true,
   },
 ] as const;
 

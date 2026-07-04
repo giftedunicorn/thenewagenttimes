@@ -64,9 +64,21 @@ const imageFromEnclosure = (value: unknown): string | undefined => {
   return undefined;
 };
 
-const imageFromMediaValue = (value: unknown): string | undefined => {
+const imageUrlExtensionPattern = /\.(?:avif|gif|jpe?g|png|webp)(?:[?#]|$)/i;
+
+type UntypedMediaMode = "any" | "image-url";
+
+const acceptsUntypedMediaUrl = (url: string, mode: UntypedMediaMode) =>
+  mode === "any" || imageUrlExtensionPattern.test(url);
+
+const imageFromMediaValue = (
+  value: unknown,
+  untypedMediaMode: UntypedMediaMode,
+): string | undefined => {
   if (Array.isArray(value)) {
-    return value.map(imageFromMediaValue).find(Boolean);
+    return value
+      .map((entry) => imageFromMediaValue(entry, untypedMediaMode))
+      .find(Boolean);
   }
   if (value && typeof value === "object") {
     const media = value as { medium?: unknown; type?: unknown; url?: unknown };
@@ -74,7 +86,12 @@ const imageFromMediaValue = (value: unknown): string | undefined => {
     const type = textValue(media.type);
     const url = textValue(media.url);
 
-    if (url && (medium === "image" || type?.startsWith("image/") || !medium)) {
+    if (
+      url &&
+      (medium === "image" ||
+        type?.startsWith("image/") ||
+        (!medium && !type && acceptsUntypedMediaUrl(url, untypedMediaMode)))
+    ) {
       return url;
     }
   }
@@ -82,8 +99,8 @@ const imageFromMediaValue = (value: unknown): string | undefined => {
 };
 
 const imageFromMediaFields = (record: Record<string, unknown>) =>
-  imageFromMediaValue(record["media:thumbnail"]) ??
-  imageFromMediaValue(record["media:content"]);
+  imageFromMediaValue(record["media:thumbnail"], "any") ??
+  imageFromMediaValue(record["media:content"], "image-url");
 
 const imageFromAtomLinks = (value: unknown): string | undefined => {
   if (Array.isArray(value)) {
@@ -174,7 +191,7 @@ export const parseFeedXml = (xml: string): RawFeedItem[] => {
       bodyText,
       categories: rssCategories(record.category),
       publishedAt: parseDate(record.pubDate),
-      authorName: authorName(record.author),
+      authorName: authorName(record.author) ?? authorName(record["dc:creator"]),
       imageUrl:
         imageFromEnclosure(record.enclosure) ??
         imageFromMediaFields(record) ??

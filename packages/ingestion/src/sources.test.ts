@@ -20,14 +20,20 @@ describe("initialNewsSources", () => {
     );
   });
 
-  it("keeps deferred high-signal sources in the registry", () => {
+  it("keeps deferred non-RSS high-signal sources in the registry", () => {
     const deferredSourceSlugs = initialNewsSources
       .filter((source) => !source.feedUrl)
       .map((source) => source.slug);
 
     expect(deferredSourceSlugs).toEqual(
-      expect.arrayContaining(["product-hunt-ai", "hacker-news-ai", "yc-ai"]),
+      expect.arrayContaining([
+        "arxiv-ai-ml",
+        "hacker-news-ai",
+        "github-trending-ai",
+        "yc-ai",
+      ]),
     );
+    expect(deferredSourceSlugs).not.toContain("product-hunt-ai");
   });
 
   it("covers independent news, research, and builder commentary RSS sources", () => {
@@ -47,11 +53,6 @@ describe("initialNewsSources", () => {
     });
     expect(sourcesBySlug.get("mit-news-ai")).toMatchObject({
       feedUrl: "https://news.mit.edu/topic/mitartificial-intelligence2-rss.xml",
-      isActive: true,
-      sourceType: "rss",
-    });
-    expect(sourcesBySlug.get("arxiv-ai-ml")).toMatchObject({
-      feedUrl: "https://rss.arxiv.org/rss/cs.AI+cs.LG",
       isActive: true,
       sourceType: "rss",
     });
@@ -90,6 +91,72 @@ describe("initialNewsSources", () => {
       feedUrl: "https://www.latent.space/feed",
       isActive: true,
       sourceType: "rss",
+    });
+  });
+
+  it("keeps arXiv AI active for structured research discovery", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("arxiv-ai-ml")).toMatchObject({
+      feedUrl: null,
+      homepageUrl: "https://arxiv.org/list/cs.AI/recent",
+      isActive: true,
+      sourceType: "research",
+    });
+  });
+
+  it("keeps Product Hunt AI active for launch discovery", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("product-hunt-ai")).toMatchObject({
+      feedUrl: "https://www.producthunt.com/feed",
+      homepageUrl:
+        "https://www.producthunt.com/categories/artificial-intelligence",
+      isActive: true,
+      sourceType: "product_hunt",
+    });
+  });
+
+  it("keeps GitHub Trending ready for open-source AI discovery", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("github-trending-ai")).toMatchObject({
+      feedUrl: null,
+      homepageUrl: "https://github.com/trending?l=&since=daily",
+      isActive: true,
+      sourceType: "github",
+    });
+  });
+
+  it("keeps Hacker News ready for AI community discovery", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("hacker-news-ai")).toMatchObject({
+      feedUrl: null,
+      homepageUrl: "https://news.ycombinator.com/",
+      isActive: true,
+      sourceType: "hacker_news",
+    });
+  });
+
+  it("keeps YC AI active for startup launch discovery", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("yc-ai")).toMatchObject({
+      feedUrl: null,
+      homepageUrl: "https://www.ycombinator.com/companies/industry/ai",
+      isActive: true,
+      sourceType: "yc",
     });
   });
 

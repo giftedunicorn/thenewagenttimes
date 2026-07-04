@@ -49,6 +49,34 @@ const rssMediaFixture = `<?xml version="1.0"?>
   </channel>
 </rss>`;
 
+const rssVideoMediaFixture = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
+  <channel>
+    <title>AI Video Feed</title>
+    <item>
+      <title>AI agent demo ships as a launch video</title>
+      <link>https://example.com/agent-video</link>
+      <description>A launch story embeds a video preview.</description>
+      <pubDate>Sat, 27 Jun 2026 10:30:00 GMT</pubDate>
+      <media:content url="https://example.com/agent-demo.mp4" />
+    </item>
+  </channel>
+</rss>`;
+
+const rssDublinCoreFixture = `<?xml version="1.0"?>
+<rss version="2.0" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <channel>
+    <title>AI Publication Feed</title>
+    <item>
+      <title>Anthropic publishes an agent safety note</title>
+      <link>https://example.com/anthropic-agent-safety</link>
+      <description>A safety note covers agent handoff behavior.</description>
+      <pubDate>Sat, 27 Jun 2026 13:00:00 GMT</pubDate>
+      <dc:creator>Safety Desk</dc:creator>
+    </item>
+  </channel>
+</rss>`;
+
 const atomMediaFixture = `<?xml version="1.0"?>
 <feed xmlns="http://www.w3.org/2005/Atom">
   <title>AI Atom Media Feed</title>
@@ -112,6 +140,21 @@ describe("parseFeedXml", () => {
     const [item] = parseFeedXml(rssMediaFixture);
 
     expect(item?.imageUrl).toBe("https://example.com/agent-media.jpg");
+  });
+
+  it("does not use untyped RSS media videos as article images", () => {
+    const [item] = parseFeedXml(rssVideoMediaFixture);
+
+    expect(item?.imageUrl).toBeUndefined();
+  });
+
+  it("uses RSS Dublin Core creator fields for author names", () => {
+    const [item] = parseFeedXml(rssDublinCoreFixture);
+
+    expect(item).toMatchObject({
+      title: "Anthropic publishes an agent safety note",
+      authorName: "Safety Desk",
+    });
   });
 
   it("uses Atom image enclosures for article visuals", () => {

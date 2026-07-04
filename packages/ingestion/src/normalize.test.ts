@@ -21,6 +21,31 @@ describe("canonicalizeUrl", () => {
       ),
     ).toBe("https://example.com/news?id=123");
   });
+
+  it("removes newsletter and social tracking parameters while keeping content identifiers", () => {
+    expect(
+      canonicalizeUrl(
+        "https://example.com/news?id=123&ref=homepage&mc_cid=abc&mc_eid=reader&ocid=msft&msclkid=click&twclid=tweet",
+      ),
+    ).toBe("https://example.com/news?id=123");
+  });
+
+  it("normalizes trailing path slashes for story URL variants", () => {
+    expect(
+      canonicalizeUrl("https://example.com/news/ai-agent/?utm_source=rss#top"),
+    ).toBe("https://example.com/news/ai-agent");
+  });
+
+  it.each([
+    "javascript:alert('agent')",
+    "data:text/html,unsafe",
+    "mailto:agent@example.com",
+    "ftp://example.com/agent-report",
+  ])("rejects unsafe story URL protocols: %s", (url) => {
+    expect(() => canonicalizeUrl(url)).toThrow(
+      "Unsupported news item URL protocol",
+    );
+  });
 });
 
 describe("buildDedupeKey", () => {
@@ -34,6 +59,21 @@ describe("buildDedupeKey", () => {
       sourceId,
       title: "OpenAI releases a new agent model",
       canonicalUrl: "https://example.com/openai?utm_medium=email",
+    });
+
+    expect(first).toBe(second);
+  });
+
+  it("is stable across trailing slash URL variants", () => {
+    const first = buildDedupeKey({
+      sourceId,
+      title: "OpenAI releases a new agent model",
+      canonicalUrl: "https://example.com/openai/",
+    });
+    const second = buildDedupeKey({
+      sourceId,
+      title: "OpenAI releases a new agent model",
+      canonicalUrl: "https://example.com/openai",
     });
 
     expect(first).toBe(second);
@@ -167,6 +207,14 @@ describe("extractEntities", () => {
       "Vercel",
       "ElevenLabs",
     ]);
+  });
+
+  it("extracts major AI model labs across the global ecosystem", () => {
+    expect(
+      extractEntities(
+        "DeepSeek, Qwen, Alibaba, ByteDance, and Moonshot AI ship new agent models.",
+      ),
+    ).toEqual(["Alibaba", "ByteDance", "DeepSeek", "Moonshot AI", "Qwen"]);
   });
 });
 
@@ -458,6 +506,26 @@ describe("normalizeFeedItem", () => {
         "github_repo",
         "local_inference",
       ]),
+    );
+  });
+
+  it("classifies open-weight model launches as open-source coverage", () => {
+    const result = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "global-ai-labs",
+      item: {
+        title: "Qwen releases open weights for a local inference model",
+        url: "https://example.com/qwen-open-weights",
+        summary:
+          "Alibaba publishes model weights for developers building local LLM workflows.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+
+    expect(result.category).toBe("open_source");
+    expect(result.entities).toEqual(["Alibaba", "Qwen"]);
+    expect(result.tags).toEqual(
+      expect.arrayContaining(["open_source", "model", "open_weights"]),
     );
   });
 

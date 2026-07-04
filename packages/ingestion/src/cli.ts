@@ -1,9 +1,15 @@
 import { createOpenAIEmbeddingProvider } from "./embedding";
 import {
   embedPendingNewsItems,
+  ingestActiveNewsSources,
   ingestActiveRssSources,
+  ingestArxivAiSource,
+  ingestGitHubTrendingAiSource,
+  ingestHackerNewsAiSource,
   ingestRssSource,
+  ingestYcAiSource,
   refreshActiveRssSources,
+  refreshNewsSources,
   seedSources,
 } from "./pipeline";
 import { createDbNewsRepository } from "./repository";
@@ -38,10 +44,58 @@ const main = async () => {
     return;
   }
 
+  if (command === "ingest:github-trending") {
+    const result = await ingestGitHubTrendingAiSource({ repository });
+    console.log(
+      `GitHub Trending AI ingestion complete: seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
+    );
+    return;
+  }
+
+  if (command === "ingest:arxiv-ai") {
+    const result = await ingestArxivAiSource({ repository });
+    console.log(
+      `arXiv AI ingestion complete: seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
+    );
+    return;
+  }
+
+  if (command === "ingest:hacker-news") {
+    const result = await ingestHackerNewsAiSource({ repository });
+    console.log(
+      `Hacker News AI ingestion complete: seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
+    );
+    return;
+  }
+
+  if (command === "ingest:yc-ai") {
+    const result = await ingestYcAiSource({ repository });
+    console.log(
+      `YC AI ingestion complete: seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
+    );
+    return;
+  }
+
+  if (command === "ingest:news:active") {
+    const result = await ingestActiveNewsSources({ repository });
+    console.log(
+      `Active news ingestion complete: sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
+    );
+    return;
+  }
+
   if (command === "refresh:rss") {
     const result = await refreshActiveRssSources({ repository });
     console.log(
       `RSS refresh complete: seeded=${result.sourcesSeeded} sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
+    );
+    return;
+  }
+
+  if (command === "refresh:news") {
+    const result = await refreshNewsSources({ repository });
+    console.log(
+      `News refresh complete: seeded=${result.sourcesSeeded} sources=${result.sourcesSucceeded}/${result.sourcesAttempted} failed=${result.sourcesFailed} seen=${result.itemsSeen} created=${result.itemsCreated} updated=${result.itemsUpdated} skipped=${result.itemsSkipped}`,
     );
     return;
   }
@@ -62,7 +116,7 @@ const main = async () => {
   }
 
   throw new Error(
-    "Usage: cli.ts <seed:sources | ingest:rss <sourceSlug> | ingest:rss:active | refresh:rss | embed:pending [limit]>",
+    "Usage: cli.ts <seed:sources | ingest:rss <sourceSlug> | ingest:rss:active | ingest:github-trending | ingest:arxiv-ai | ingest:hacker-news | ingest:yc-ai | ingest:news:active | refresh:rss | refresh:news | embed:pending [limit]>",
   );
 };
 

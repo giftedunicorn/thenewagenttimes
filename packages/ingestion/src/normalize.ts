@@ -14,13 +14,28 @@ const trackingParams = new Set([
   "utm_term",
   "utm_content",
   "utm_id",
+  "utm_referrer",
   "fbclid",
   "gclid",
+  "igshid",
+  "mc_cid",
+  "mc_eid",
+  "msclkid",
+  "ocid",
+  "ref",
+  "ref_src",
+  "referrer",
+  "twclid",
 ]);
+
+const safeNewsItemUrlProtocols = new Set(["http:", "https:"]);
 
 const knownEntities = [
   "OpenAI",
   "Anthropic",
+  "Alibaba",
+  "ByteDance",
+  "DeepSeek",
   "Google",
   "DeepMind",
   "Meta",
@@ -39,8 +54,10 @@ const knownEntities = [
   "Claude",
   "Cohere",
   "Gemini",
+  "Moonshot AI",
   "Mistral",
   "Perplexity",
+  "Qwen",
   "Cursor",
   "Windsurf",
   "Devin",
@@ -135,8 +152,10 @@ const openSourceTokens = [
   "apache license",
   "github",
   "mit license",
+  "model weights",
   "open source",
   "open-source",
+  "open weights",
   "oss",
 ] as const;
 
@@ -302,7 +321,13 @@ const slugText = (text: string) =>
 
 export const canonicalizeUrl = (url: string): string => {
   const parsed = new URL(url);
+
+  if (!safeNewsItemUrlProtocols.has(parsed.protocol)) {
+    throw new Error("Unsupported news item URL protocol");
+  }
+
   parsed.hash = "";
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
 
   for (const param of [...parsed.searchParams.keys()]) {
     if (trackingParams.has(param.toLowerCase())) {

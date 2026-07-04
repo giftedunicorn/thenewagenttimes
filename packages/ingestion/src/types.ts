@@ -67,7 +67,7 @@ export interface NewsRepository {
     feedUrl: string | null;
   } | null>;
   startIngestionRun(input: {
-    sourceId: string;
+    sourceId?: string;
     runType: "rss" | "manual_import" | "api" | "crawler" | "backfill";
   }): Promise<{ id: string }>;
   finishIngestionRun(input: {

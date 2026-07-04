@@ -1,12 +1,18 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-import type { NewsHomeItem } from "./news-home-model";
+import type {
+  NewsHomeItem,
+  NewsPositiveFeedbackMemoryItem,
+} from "./news-home-model";
 import {
   applyNewsStoryQuickTuneAction,
   buildNewsDeskStatus,
   buildNewsHomeFeedInput,
   buildNewsHomeInteractionMetadata,
+  buildNewsHomeLoadMoreFeedInput,
   buildNewsHomeReaderInteraction,
+  buildNewsHomeSessionIntentFilter,
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
   getNewsAlertRouting,
@@ -21,6 +27,7 @@ import {
   getNewsContinuationRail,
   getNewsCoverageThreads,
   getNewsDeskRunYieldLabel,
+  getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
   getNewsDistributionQueue,
@@ -44,6 +51,11 @@ import {
   getNewsFrontPageSlotMix,
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
+  getNewsHomeCollaborativeRankingSignals,
+  getNewsHomeLoadMoreQueryRoute,
+  getNewsHomeLoadMoreState,
+  getNewsHomePaginationResetKey,
+  getNewsHomePrimaryQueryRoute,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHomeStoryActionPanel,
   getNewsHotBoard,
@@ -110,17 +122,26 @@ import {
   getNewsTopicMatchMatrix,
   getNewsTopicPulse,
   getNextNewsHomeCursor,
+  getNextNewsHomeCursorState,
   getPreviewNewsArticleData,
   getPreviewNewsHomeItems,
+  hasNewsHomeExploreFilters,
   isNewsHomePreviewEdition,
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   mergeNewsTrainingUpdateHistory,
+  removeNewsHomePositiveFeedbackItem,
+  removeNewsReaderMemoryItem,
   revertNewsStoryQuickTuneAction,
   selectActiveNewsGuardrailItems,
+  selectActiveNewsHistoryItems,
+  selectActiveNewsReaderMemoryItem,
+  selectActiveNewsSavedItems,
   selectAngleQuotaBalancedNewsHomeItems,
   selectCategoryQuotaBalancedNewsHomeItems,
+  selectCollaborativeSignalNewsHomeItems,
+  selectDaypartBalancedNewsHomeItems,
   selectEntityQuotaBalancedNewsHomeItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectFreshnessQuotaBalancedNewsHomeItems,
@@ -128,20 +149,26 @@ import {
   selectInitialNewsHomeItems,
   selectNegativeFeedbackAdjustedNewsHomeItems,
   selectNewsFeedModeItems,
+  selectNewsHomeBaseFeedItems,
   selectNewsHomeExposureRecords,
   selectNewsHomeItems,
   selectNewsHomePositiveFeedbackAnchors,
+  selectNewsHomeSessionScopedItems,
   selectReaderFreshNewsHomeItems,
   selectRelatedNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
   selectSourceQuotaBalancedNewsHomeItems,
+  selectStoredNewsPositiveFeedbackItems,
   selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
+  shouldDisableNewsHomeLoadMoreButton,
+  shouldFetchNewsHomePrimaryFeed,
   shouldFetchServerRecommendations,
   shouldPersistNewsReaderProfile,
   shouldTrainNewsHomeProfileFromAction,
+  toNewsHomeItemFromPublicFeedItem,
 } from "./news-home-model";
 
 const localItem = {
@@ -314,6 +341,22 @@ describe("getNewsHomeStoryActionPanel", () => {
       { action: "click_source", label: "Source", type: "source" },
     ]);
   });
+
+  it("turns saved and hidden stories into reversible card actions", () => {
+    expect(
+      getNewsHomeStoryActionPanel({
+        hasSourceUrl: false,
+        isGuardrailed: true,
+        isPreview: false,
+        isSaved: true,
+      }).actions,
+    ).toEqual([
+      { action: "view", label: "Read", type: "read" },
+      { action: "remove_saved", label: "Remove saved", type: "button" },
+      { action: "share", label: "Share", type: "button" },
+      { action: "restore_guardrail", label: "Restore", type: "button" },
+    ]);
+  });
 });
 
 describe("getNewsStorySourceUrl", () => {
@@ -340,6 +383,23 @@ describe("getNewsStorySourceUrl", () => {
       }),
     ).toBeNull();
   });
+
+  it("rejects unsafe source URL protocols before rendering external links", () => {
+    expect(
+      getNewsStorySourceUrl({
+        ...localItem,
+        canonicalUrl: " javascript:alert(1) ",
+        originalUrl: "https://source.example/story",
+      }),
+    ).toBe("https://source.example/story");
+    expect(
+      getNewsStorySourceUrl({
+        ...localItem,
+        canonicalUrl: "data:text/html,unsafe",
+        originalUrl: "mailto:tips@example.com",
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("isNewsHomePreviewEdition", () => {
@@ -350,6 +410,17 @@ describe("isNewsHomePreviewEdition", () => {
         initialItems: getPreviewNewsHomeItems(),
         serverRecommendedItems: [],
         status: "unavailable",
+      }),
+    ).toBe(true);
+  });
+
+  it("detects the preview edition while the connected database is empty", () => {
+    expect(
+      isNewsHomePreviewEdition({
+        hasExploreFilters: false,
+        initialItems: getPreviewNewsHomeItems(),
+        serverRecommendedItems: [],
+        status: "empty",
       }),
     ).toBe(true);
   });
@@ -376,6 +447,114 @@ describe("selectNewsHomeItems", () => {
     ).toEqual(["server-story"]);
   });
 
+  it("preserves server recommendation metadata for For You stories", () => {
+    const recommendedStory = {
+      ...serverItem,
+      matchedSignals: ["semantic_feedback", "collaborative_feedback"],
+      personalizedScore: 143,
+      recommendation: {
+        badges: ["Semantic match", "Similar readers"],
+        scoreLabel: "143 score",
+        summary: "Recommended because it matches recent reader signals.",
+      },
+    } satisfies NewsHomeItem & {
+      matchedSignals: string[];
+      personalizedScore: number;
+      recommendation: {
+        badges: string[];
+        scoreLabel: string;
+        summary: string;
+      };
+    };
+
+    expect(
+      selectNewsHomeItems({
+        initialItems: [localItem],
+        serverRecommendedItems: [recommendedStory],
+      })[0],
+    ).toMatchObject({
+      id: "server-story",
+      matchedSignals: ["semantic_feedback", "collaborative_feedback"],
+      personalizedScore: 143,
+      recommendation: {
+        badges: ["Semantic match", "Similar readers"],
+        scoreLabel: "143 score",
+        summary: "Recommended because it matches recent reader signals.",
+      },
+    });
+  });
+
+  it("preserves the server-ranked For You order without cold-start rebalancing", () => {
+    expect(
+      selectNewsHomeItems({
+        initialItems: [localItem],
+        serverRecommendedItems: [
+          {
+            ...serverItem,
+            category: "model_release",
+            canonicalUrl: "https://example.com/server-stale-lead",
+            id: "server-stale-lead",
+            originalUrl: "https://source.example/server-stale-lead",
+            publishedAt: "2026-06-28T08:00:00.000Z",
+            sourceSlug: "model-desk",
+          },
+          {
+            ...serverItem,
+            category: "agent_product",
+            canonicalUrl: "https://example.com/server-stale-agent",
+            id: "server-stale-agent",
+            originalUrl: "https://source.example/server-stale-agent",
+            publishedAt: "2026-06-28T09:00:00.000Z",
+            sourceSlug: "agent-desk",
+          },
+          {
+            ...serverItem,
+            category: "funding",
+            canonicalUrl: "https://example.com/server-stale-funding",
+            id: "server-stale-funding",
+            originalUrl: "https://source.example/server-stale-funding",
+            publishedAt: "2026-06-28T10:00:00.000Z",
+            sourceSlug: "venturewire",
+          },
+          {
+            ...serverItem,
+            category: "research",
+            canonicalUrl: "https://example.com/server-stale-research",
+            id: "server-stale-research",
+            originalUrl: "https://source.example/server-stale-research",
+            publishedAt: "2026-06-28T11:00:00.000Z",
+            sourceSlug: "research-wire",
+          },
+          {
+            ...serverItem,
+            category: "security",
+            canonicalUrl: "https://example.com/server-fresh-security",
+            id: "server-fresh-security",
+            originalUrl: "https://source.example/server-fresh-security",
+            publishedAt: "2026-07-04T08:00:00.000Z",
+            sourceSlug: "security-desk",
+          },
+          {
+            ...serverItem,
+            category: "policy",
+            canonicalUrl: "https://example.com/server-fresh-policy",
+            id: "server-fresh-policy",
+            originalUrl: "https://source.example/server-fresh-policy",
+            publishedAt: "2026-07-04T07:30:00.000Z",
+            sourceSlug: "policy-wire",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual([
+      "server-stale-lead",
+      "server-stale-agent",
+      "server-stale-funding",
+      "server-stale-research",
+      "server-fresh-security",
+      "server-fresh-policy",
+    ]);
+  });
+
   it("falls back to initial items while server recommendations are unavailable", () => {
     expect(
       selectNewsHomeItems({
@@ -383,6 +562,109 @@ describe("selectNewsHomeItems", () => {
         serverRecommendedItems: [],
       }).map((item) => item.id),
     ).toEqual(["local-story"]);
+  });
+});
+
+describe("selectNewsHomeBaseFeedItems", () => {
+  it("keeps local preview stories available when explore filters cannot use server recommendations", () => {
+    expect(
+      selectNewsHomeBaseFeedItems({
+        fallbackItems: [localItem],
+        hasExploreFilters: true,
+        serverRecommendationsEnabled: false,
+      }).map((item) => item.id),
+    ).toEqual(["local-story"]);
+  });
+
+  it("waits for server-filtered stories when live explore filters can use server recommendations", () => {
+    expect(
+      selectNewsHomeBaseFeedItems({
+        fallbackItems: [localItem],
+        hasExploreFilters: true,
+        serverRecommendationsEnabled: true,
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("selectNewsHomeSessionScopedItems", () => {
+  it("filters local preview candidates by active topic, source, and search intent", () => {
+    const agentItem = {
+      ...olderItem,
+      id: "agent-preview",
+      category: "agent_product",
+      sourceName: "Agent Desk",
+      sourceSlug: "agent-desk",
+      summary: "Browser agents enter daily workflow automation.",
+      tags: ["agents", "workflow"],
+      title: "Agent workflows move into production",
+    };
+
+    expect(
+      selectNewsHomeSessionScopedItems({
+        intent: {
+          category: "agent_product",
+          query: "workflow",
+          sourceSlug: "agent-desk",
+        },
+        items: [localItem, agentItem, serverItem],
+      }).map((item) => item.id),
+    ).toEqual(["agent-preview"]);
+  });
+
+  it("filters local preview candidates by active angle tag intent", () => {
+    const workflowItem = {
+      ...olderItem,
+      id: "workflow-preview",
+      summary: "Production agents now own full workflow automation loops.",
+      tags: ["workflow_automation"],
+      title: "Workflow agents move into production",
+    };
+
+    expect(
+      selectNewsHomeSessionScopedItems({
+        intent: {
+          category: null,
+          query: "",
+          sourceSlug: null,
+          tag: "workflow automation",
+        },
+        items: [localItem, workflowItem, serverItem],
+      }).map((item) => item.id),
+    ).toEqual(["workflow-preview"]);
+  });
+
+  it("matches active topic and source filters against trimmed candidate fields", () => {
+    const paddedAgentItem = {
+      ...olderItem,
+      id: "padded-agent-preview",
+      category: " agent_product ",
+      sourceName: "Agent Desk",
+      sourceSlug: " agent-desk ",
+      summary: "Browser agents enter daily workflow automation.",
+      tags: ["agents", "workflow"],
+      title: "Agent workflows move into production",
+    };
+
+    expect(
+      selectNewsHomeSessionScopedItems({
+        intent: {
+          category: "agent_product",
+          query: "workflow",
+          sourceSlug: "agent-desk",
+        },
+        items: [localItem, paddedAgentItem, serverItem],
+      }).map((item) => item.id),
+    ).toEqual(["padded-agent-preview"]);
+  });
+
+  it("keeps local preview candidates unchanged when no session filter is active", () => {
+    expect(
+      selectNewsHomeSessionScopedItems({
+        intent: { category: null, query: " ", sourceSlug: null },
+        items: [localItem, serverItem],
+      }).map((item) => item.id),
+    ).toEqual(["local-story", "server-story"]);
   });
 });
 
@@ -417,6 +699,143 @@ describe("selectInitialNewsHomeItems", () => {
         limit: 2,
       }).map((item) => item.id),
     ).toEqual(["official-openai-model", "fresh-home-story"]);
+  });
+
+  it("does not let one source dominate the server-rendered front page", () => {
+    expect(
+      selectInitialNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/openai-model-lead",
+            id: "openai-model-lead",
+            originalUrl: "https://source.example/openai-model-lead",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            trendScore: 99,
+          },
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/openai-agent-follow",
+            id: "openai-agent-follow",
+            originalUrl: "https://source.example/openai-agent-follow",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            trendScore: 98,
+          },
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/openai-research-follow",
+            id: "openai-research-follow",
+            originalUrl: "https://source.example/openai-research-follow",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            trendScore: 97,
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/anthropic-agent-angle",
+            id: "anthropic-agent-angle",
+            originalUrl: "https://source.example/anthropic-agent-angle",
+            sourceName: "Anthropic News",
+            sourceSlug: "anthropic-news",
+            trendScore: 88,
+          },
+          {
+            ...olderItem,
+            canonicalUrl: "https://example.com/venture-funding-angle",
+            id: "venture-funding-angle",
+            originalUrl: "https://source.example/venture-funding-angle",
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+            trendScore: 82,
+          },
+        ],
+        limit: 4,
+      }).map((item) => item.id),
+    ).toEqual([
+      "openai-model-lead",
+      "openai-agent-follow",
+      "anthropic-agent-angle",
+      "venture-funding-angle",
+    ]);
+  });
+
+  it("does not let stale stories dominate the server-rendered front page", () => {
+    expect(
+      selectInitialNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            canonicalUrl: "https://example.com/older-model-lead",
+            id: "older-model-lead",
+            originalUrl: "https://source.example/older-model-lead",
+            publishedAt: "2026-06-28T08:00:00.000Z",
+            sourceSlug: "model-desk",
+            trendScore: 99,
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            canonicalUrl: "https://example.com/older-agent-follow",
+            id: "older-agent-follow",
+            originalUrl: "https://source.example/older-agent-follow",
+            publishedAt: "2026-06-28T09:00:00.000Z",
+            sourceSlug: "agent-desk",
+            trendScore: 98,
+          },
+          {
+            ...localItem,
+            category: "funding",
+            canonicalUrl: "https://example.com/older-funding-analysis",
+            id: "older-funding-analysis",
+            originalUrl: "https://source.example/older-funding-analysis",
+            publishedAt: "2026-06-28T10:00:00.000Z",
+            sourceSlug: "venturewire",
+            trendScore: 97,
+          },
+          {
+            ...localItem,
+            category: "research",
+            canonicalUrl: "https://example.com/older-research-deep-dive",
+            id: "older-research-deep-dive",
+            originalUrl: "https://source.example/older-research-deep-dive",
+            publishedAt: "2026-06-28T11:00:00.000Z",
+            sourceSlug: "research-wire",
+            trendScore: 96,
+          },
+          {
+            ...serverItem,
+            category: "security",
+            canonicalUrl: "https://example.com/fresh-security-angle",
+            id: "fresh-security-angle",
+            originalUrl: "https://source.example/fresh-security-angle",
+            publishedAt: "2026-07-04T08:00:00.000Z",
+            sourceSlug: "security-desk",
+            trendScore: 72,
+          },
+          {
+            ...olderItem,
+            category: "policy",
+            canonicalUrl: "https://example.com/fresh-policy-angle",
+            id: "fresh-policy-angle",
+            originalUrl: "https://source.example/fresh-policy-angle",
+            publishedAt: "2026-07-04T07:30:00.000Z",
+            sourceSlug: "policy-wire",
+            trendScore: 70,
+          },
+        ],
+        limit: 5,
+        now: new Date("2026-07-04T12:00:00.000Z"),
+      }).map((item) => item.id),
+    ).toEqual([
+      "older-model-lead",
+      "older-agent-follow",
+      "older-funding-analysis",
+      "fresh-security-angle",
+      "fresh-policy-angle",
+    ]);
   });
 });
 
@@ -460,6 +879,7 @@ describe("buildNewsHomeFeedInput", () => {
         q: "  agents  ",
         readerLocalHour: 21,
         sourceSlug: "openai-news",
+        tag: " workflow automation ",
         visitorKey: "visitor-123",
       }),
     ).toEqual({
@@ -469,6 +889,7 @@ describe("buildNewsHomeFeedInput", () => {
       q: "agents",
       readerLocalHour: 21,
       sourceSlug: "openai-news",
+      tag: "workflow automation",
       visitorKey: "visitor-123",
     });
   });
@@ -485,6 +906,194 @@ describe("buildNewsHomeFeedInput", () => {
         visitorKey: null,
       }),
     ).toEqual({ limit: 30 });
+  });
+
+  it("can omit the time cursor for reader-fresh personalized pagination", () => {
+    expect(
+      buildNewsHomeFeedInput({
+        category: null,
+        cursor: "2026-06-30T08:00:00.000Z",
+        includeCursor: false,
+        limit: 20,
+        q: "",
+        readerLocalHour: 9,
+        sourceSlug: null,
+        visitorKey: "visitor-123",
+      }),
+    ).toEqual({
+      limit: 20,
+      readerLocalHour: 9,
+      visitorKey: "visitor-123",
+    });
+  });
+});
+
+describe("buildNewsHomeLoadMoreFeedInput", () => {
+  it("uses displayed story exclusions instead of a time cursor for personalized load-more pagination", () => {
+    expect(
+      buildNewsHomeLoadMoreFeedInput({
+        category: "agent_product",
+        cursor: "2026-06-30T08:00:00.000Z",
+        excludeNewsItemIds: [
+          "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+          "c79f62c2-bf96-4f31-b8a6-64b9e9aef16b",
+        ],
+        feedMode: "for_you",
+        limit: 20,
+        q: " workflow agents ",
+        readerLocalHour: 21,
+        sourceSlug: "agent-desk",
+        tag: "agent workflow",
+        visitorKey: "visitor-123",
+      }),
+    ).toEqual({
+      category: "agent_product",
+      excludeNewsItemIds: [
+        "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+        "c79f62c2-bf96-4f31-b8a6-64b9e9aef16b",
+      ],
+      limit: 20,
+      q: "workflow agents",
+      readerLocalHour: 21,
+      sourceSlug: "agent-desk",
+      tag: "agent workflow",
+      visitorKey: "visitor-123",
+    });
+  });
+
+  it("passes public channel mode for Latest load-more pagination", () => {
+    expect(
+      buildNewsHomeLoadMoreFeedInput({
+        category: null,
+        cursor: "2026-06-30T08:00:00.000Z",
+        feedMode: "latest",
+        limit: 20,
+        q: "",
+        readerLocalHour: null,
+        sourceSlug: null,
+        tag: null,
+        visitorKey: "visitor-123",
+      }),
+    ).toEqual({
+      cursor: "2026-06-30T08:00:00.000Z",
+      limit: 20,
+      mode: "latest",
+      visitorKey: "visitor-123",
+    });
+  });
+
+  it("passes public channel mode for Trending load-more pagination", () => {
+    expect(
+      buildNewsHomeLoadMoreFeedInput({
+        category: null,
+        cursor: "2026-06-30T08:00:00.000Z",
+        cursorTrendScore: 81,
+        feedMode: "trending",
+        limit: 20,
+        q: "",
+        readerLocalHour: null,
+        sourceSlug: null,
+        tag: null,
+        visitorKey: "visitor-123",
+      }),
+    ).toEqual({
+      cursor: "2026-06-30T08:00:00.000Z",
+      cursorTrendScore: 81,
+      limit: 20,
+      mode: "trending",
+      visitorKey: "visitor-123",
+    });
+  });
+});
+
+describe("getNewsHomeLoadMoreQueryRoute", () => {
+  it("uses personalized recommendations only for the For You channel", () => {
+    expect(getNewsHomeLoadMoreQueryRoute({ feedMode: "for_you" })).toBe(
+      "forYou",
+    );
+    expect(getNewsHomeLoadMoreQueryRoute({ feedMode: "latest" })).toBe("feed");
+    expect(getNewsHomeLoadMoreQueryRoute({ feedMode: "trending" })).toBe(
+      "feed",
+    );
+  });
+});
+
+describe("getNewsHomePrimaryQueryRoute", () => {
+  it("uses the public feed for public channel first pages", () => {
+    expect(getNewsHomePrimaryQueryRoute({ feedMode: "for_you" })).toBe(
+      "forYou",
+    );
+    expect(getNewsHomePrimaryQueryRoute({ feedMode: "latest" })).toBe("feed");
+    expect(getNewsHomePrimaryQueryRoute({ feedMode: "trending" })).toBe("feed");
+  });
+
+  it("wires public channel first pages through the public feed query", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "const primaryFeedRoute = getNewsHomePrimaryQueryRoute({ feedMode });",
+    );
+    expect(source).toContain("trpc.news.feed.queryOptions(primaryFeedInput");
+    expect(source).toContain('primaryFeedRoute === "feed"');
+    expect(source).toContain(".map(toNewsHomeItemFromPublicFeedItem)");
+  });
+});
+
+describe("toNewsHomeItemFromPublicFeedItem", () => {
+  it("maps public feed source metadata into the home story shape", () => {
+    expect(
+      toNewsHomeItemFromPublicFeedItem({
+        ...localItem,
+        embeddingStatus: "embedded",
+        source: {
+          credibility: 95,
+          homepageUrl: "https://source.example",
+          id: "source-openai",
+          name: "OpenAI News",
+          slug: "openai-news",
+          sourceType: "primary",
+        },
+      }),
+    ).toEqual({
+      ...localItem,
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      sourceType: "primary",
+    });
+  });
+});
+
+describe("buildNewsHomeSessionIntentFilter", () => {
+  it("keeps the active angle tag alongside the live feed filters", () => {
+    expect(
+      buildNewsHomeSessionIntentFilter({
+        category: "agent_product",
+        query: " workflow agents ",
+        sourceSlug: "agent-desk",
+        tag: " workflow automation ",
+      }),
+    ).toEqual({
+      category: "agent_product",
+      query: "workflow agents",
+      sourceSlug: "agent-desk",
+      tag: "workflow automation",
+    });
+  });
+});
+
+describe("hasNewsHomeExploreFilters", () => {
+  it("treats a selected angle as an active exploration filter", () => {
+    expect(
+      hasNewsHomeExploreFilters({
+        category: null,
+        query: "   ",
+        sourceSlug: null,
+        tag: "workflow automation",
+      }),
+    ).toBe(true);
   });
 });
 
@@ -508,6 +1117,46 @@ describe("buildNewsHomeInteractionMetadata", () => {
       rankSlot: 2,
       surface: "home_feedback",
     });
+  });
+
+  it("canonicalizes matched signals before storing home interaction metadata", () => {
+    expect(
+      buildNewsHomeInteractionMetadata({
+        action: "save",
+        feedMode: "for_you",
+        item: {
+          ...localItem,
+          matchedSignals: [
+            " category ",
+            "CATEGORY",
+            "semantic_feedback",
+            "Semantic_Feedback",
+            "",
+          ],
+          personalizedScore: 147,
+        },
+        rankSlot: 2,
+      }).matchedSignals,
+    ).toEqual(["category", "semantic_feedback"]);
+  });
+
+  it("canonicalizes matched signal separators before storing home interaction metadata", () => {
+    expect(
+      buildNewsHomeInteractionMetadata({
+        action: "hide",
+        feedMode: "for_you",
+        item: {
+          ...localItem,
+          matchedSignals: [
+            " Negative Feedback ",
+            "negative-feedback",
+            "Source Trust",
+          ],
+          personalizedScore: 42,
+        },
+        rankSlot: 8,
+      }).matchedSignals,
+    ).toEqual(["negative_feedback", "source_trust"]);
   });
 
   it("separates home read, source click, feedback, and exposure surfaces", () => {
@@ -941,6 +1590,190 @@ describe("getNewsReaderDigest", () => {
       "digest-anthropic-counterpoint",
       "digest-openai-follow",
     ]);
+  });
+
+  it("does not turn similar-reader Less feedback into reader digest matches", () => {
+    expect(
+      getNewsReaderDigest({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "digest-lead",
+            category: "model_release",
+            entities: ["OpenAI"],
+            matchedSignals: ["category"],
+            personalizedScore: 170,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Reader-matched lead",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            id: "digest-collaborative-less",
+            category: "funding",
+            entities: ["OpenAI"],
+            matchedSignals: ["collaborative_negative_feedback"],
+            personalizedScore: 164,
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+            title: "Similar readers rejected this digest story",
+            trendScore: 90,
+          },
+          {
+            ...olderItem,
+            id: "digest-market",
+            category: "research",
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 130,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            title: "Trend-led digest fallback",
+            trendScore: 82,
+          },
+        ],
+        profile: localProfile,
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Stories", value: "3" },
+        { label: "Reader matches", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Signals", value: "3" },
+      ],
+      nextReads: [
+        {
+          id: "digest-market",
+          reason: "Trend-led story adds market heat without a profile match.",
+          scoreLabel: "82 heat",
+        },
+      ],
+      summary:
+        "3 ranked stories produce 1 reader-matched lead, 0 exploration options, and 2 trend-led fallbacks.",
+    });
+  });
+
+  it("does not turn Less feedback into reader digest matches", () => {
+    expect(
+      getNewsReaderDigest({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "digest-lead",
+            category: "model_release",
+            entities: ["OpenAI"],
+            matchedSignals: ["category"],
+            personalizedScore: 170,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Reader-matched lead",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            id: "digest-less-story",
+            category: "funding",
+            entities: ["OpenAI"],
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 164,
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+            title: "Reader asked for less like this",
+            trendScore: 90,
+          },
+          {
+            ...olderItem,
+            id: "digest-market",
+            category: "research",
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 130,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            title: "Trend-led digest fallback",
+            trendScore: 82,
+          },
+        ],
+        profile: localProfile,
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Stories", value: "3" },
+        { label: "Reader matches", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Signals", value: "3" },
+      ],
+      nextReads: [
+        {
+          id: "digest-market",
+          reason: "Trend-led story adds market heat without a profile match.",
+          scoreLabel: "82 heat",
+        },
+      ],
+      summary:
+        "3 ranked stories produce 1 reader-matched lead, 0 exploration options, and 2 trend-led fallbacks.",
+    });
+  });
+
+  it("does not turn source corroboration into reader digest matches", () => {
+    expect(
+      getNewsReaderDigest({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "research"
+              ? "Research"
+              : category,
+        items: [
+          {
+            ...localItem,
+            id: "digest-lead",
+            category: "model_release",
+            entities: ["OpenAI"],
+            matchedSignals: ["category"],
+            personalizedScore: 170,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Reader-matched lead",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            id: "digest-corroborated-story",
+            category: "research",
+            entities: ["Anthropic"],
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 145,
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            title: "Independent coverage confirms the research claim",
+            trendScore: 83,
+          },
+        ],
+        profile: localProfile,
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Stories", value: "2" },
+        { label: "Reader matches", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Signals", value: "3" },
+      ],
+      nextReads: [
+        {
+          id: "digest-corroborated-story",
+          reason: "Trend-led story adds market heat without a profile match.",
+          scoreLabel: "83 heat",
+        },
+      ],
+      summary:
+        "2 ranked stories produce 1 reader-matched lead, 0 exploration options, and 1 trend-led fallback.",
+    });
   });
 
   it("keeps the reader digest stable before ranked stories arrive", () => {
@@ -1624,6 +2457,7 @@ describe("mergeNewsReaderMemoryItems", () => {
         localItems: [
           {
             ...localItem,
+            canonicalUrl: "https://example.com/news/local-meaningful-read",
             id: "local-meaningful-read",
             sourceName: "OpenAI News",
             sourceSlug: "openai-news",
@@ -1631,20 +2465,24 @@ describe("mergeNewsReaderMemoryItems", () => {
           },
           {
             ...serverItem,
+            canonicalUrl: "https://example.com/news/server-story",
             viewedAt: "2026-07-01T09:30:00.000Z",
           },
         ],
         serverItems: [
           {
             ...serverItem,
+            canonicalUrl: "https://example.com/news/server-story",
             viewedAt: "2026-07-01T09:00:00.000Z",
           },
           {
             ...olderItem,
+            canonicalUrl: "https://example.com/news/older-story",
             viewedAt: "2026-07-01T08:00:00.000Z",
           },
           {
             ...localItem,
+            canonicalUrl: "https://example.com/news/old-server-read",
             id: "old-server-read",
             viewedAt: "2026-07-01T07:00:00.000Z",
           },
@@ -1676,6 +2514,7 @@ describe("mergeNewsReaderMemoryItems", () => {
         localItems: [
           {
             ...localItem,
+            canonicalUrl: "https://example.com/news/local-save",
             id: "local-save",
             savedAt: "2026-07-01T11:00:00.000Z",
           },
@@ -1683,6 +2522,7 @@ describe("mergeNewsReaderMemoryItems", () => {
         serverItems: [
           {
             ...serverItem,
+            canonicalUrl: "https://example.com/news/server-story",
             savedAt: "2026-07-01T10:00:00.000Z",
           },
         ],
@@ -1701,6 +2541,286 @@ describe("mergeNewsReaderMemoryItems", () => {
       },
     ]);
   });
+
+  it("dedupes reader-memory URL variants while keeping the newest item", () => {
+    expect(
+      mergeNewsReaderMemoryItems({
+        limit: 3,
+        localItems: [
+          {
+            ...localItem,
+            canonicalUrl: null,
+            id: "local-save-variant",
+            originalUrl: "https://example.com/news/openai-model?utm=local",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+        serverItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#server",
+            id: "server-save-variant",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...olderItem,
+            canonicalUrl: "https://example.com/news/agent-product",
+            id: "saved-agent",
+            savedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["local-save-variant", "saved-agent"]);
+  });
+});
+
+describe("selectActiveNewsReaderMemoryItem", () => {
+  it("finds saved or guardrail memory for URL variants of the active story", () => {
+    expect(
+      selectActiveNewsReaderMemoryItem({
+        item: {
+          ...localItem,
+          canonicalUrl: "https://example.com/news/openai-model",
+          id: "live-openai-model",
+          originalUrl: "https://source.example/openai-model?utm=home",
+        },
+        memoryItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#saved",
+            id: "server-saved-openai-model",
+            originalUrl: "https://source.example/openai-model",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+      })?.id,
+    ).toBe("server-saved-openai-model");
+  });
+
+  it("returns undefined when no reader-memory id or URL variant matches", () => {
+    expect(
+      selectActiveNewsReaderMemoryItem({
+        item: localItem,
+        memoryItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/different-story",
+            id: "different-story",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+      }),
+    ).toBeUndefined();
+  });
+});
+
+describe("removeNewsReaderMemoryItem", () => {
+  it("removes one saved reader-memory item without touching other memory", () => {
+    expect(
+      removeNewsReaderMemoryItem({
+        itemId: "saved-model",
+        items: [
+          {
+            ...localItem,
+            id: "saved-model",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            id: "saved-agent",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...olderItem,
+            id: "read-research",
+            viewedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent", "read-research"]);
+  });
+
+  it("removes saved reader-memory URL variants for one story", () => {
+    expect(
+      removeNewsReaderMemoryItem({
+        item: {
+          ...localItem,
+          canonicalUrl: "https://www.example.com/news/openai-model#saved",
+          id: "saved-model",
+          savedAt: "2026-07-01T11:00:00.000Z",
+        },
+        itemId: "saved-model",
+        items: [
+          {
+            ...localItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#saved",
+            id: "saved-model",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+          {
+            ...localItem,
+            canonicalUrl: null,
+            id: "saved-model-variant",
+            originalUrl: "https://example.com/news/openai-model?utm=cache",
+            savedAt: "2026-07-01T10:30:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/saved-agent",
+            id: "saved-agent",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent"]);
+  });
+});
+
+describe("selectActiveNewsSavedItems", () => {
+  it("keeps Less feedback out of the local saved shelf", () => {
+    expect(
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "saved-model",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            id: "saved-model",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/saved-agent",
+            id: "saved-agent",
+            savedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent"]);
+  });
+
+  it("keeps URL variants with Less feedback out of the local saved shelf", () => {
+    expect(
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "hidden-model",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            originalUrl: "https://example.com/news/openai-model?utm=less",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#saved",
+            id: "saved-model",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/agent-product",
+            id: "saved-agent",
+            savedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent"]);
+  });
+
+  it("keeps removed saved URL variants out of the local saved shelf", () => {
+    expect(
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [],
+        removedSavedItems: [
+          {
+            ...localItem,
+            canonicalUrl: null,
+            id: "removed-model",
+            originalUrl: "https://example.com/news/openai-model?utm=remove",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#saved",
+            id: "saved-model-variant",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/agent-product",
+            id: "saved-agent",
+            savedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent"]);
+  });
+});
+
+describe("selectActiveNewsHistoryItems", () => {
+  it("keeps Less feedback out of local reading history", () => {
+    expect(
+      selectActiveNewsHistoryItems({
+        historyItems: [
+          {
+            ...localItem,
+            id: "read-model",
+            viewedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/read-agent",
+            id: "read-agent",
+            viewedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "read-model",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["read-agent"]);
+  });
+
+  it("keeps URL variants with Less feedback out of local reading history", () => {
+    expect(
+      selectActiveNewsHistoryItems({
+        historyItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#history",
+            id: "read-model",
+            viewedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/agent-product",
+            id: "read-agent",
+            viewedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "hidden-model",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            originalUrl: "https://example.com/news/openai-model?utm=less",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["read-agent"]);
+  });
 });
 
 describe("selectStoredNewsReaderMemoryItems", () => {
@@ -1709,8 +2829,10 @@ describe("selectStoredNewsReaderMemoryItems", () => {
       selectStoredNewsReaderMemoryItems([
         {
           category: "model_release",
+          canonicalUrl: "https://example.com/news/openai-agent",
           entities: ["OpenAI", 42, "Agents"],
           id: "local-meaningful-read",
+          originalUrl: "https://example.com/news/openai-agent?utm=local",
           sourceName: "OpenAI News",
           sourceSlug: "openai-news",
           title: "OpenAI releases a new agent stack",
@@ -1748,8 +2870,10 @@ describe("selectStoredNewsReaderMemoryItems", () => {
     ).toEqual([
       {
         category: "model_release",
+        canonicalUrl: "https://example.com/news/openai-agent",
         entities: ["OpenAI", "Agents"],
         id: "local-meaningful-read",
+        originalUrl: "https://example.com/news/openai-agent?utm=local",
         sourceName: "OpenAI News",
         sourceSlug: "openai-news",
         title: "OpenAI releases a new agent stack",
@@ -1777,6 +2901,128 @@ describe("selectStoredNewsReaderMemoryItems", () => {
   });
 });
 
+describe("selectStoredNewsPositiveFeedbackItems", () => {
+  it("keeps only action-specific positive feedback entries from storage", () => {
+    expect(
+      selectStoredNewsPositiveFeedbackItems([
+        {
+          action: "share",
+          category: "model_release",
+          entities: ["OpenAI", 42, "Agents"],
+          id: "local-share",
+          occurredAt: "2026-07-01T10:00:00.000Z",
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          tags: ["model", 7, "agent"],
+          title: "OpenAI releases a new agent stack",
+        },
+        {
+          action: "click_source",
+          category: "market_map",
+          entities: ["Anthropic"],
+          id: "local-source-click",
+          occurredAt: "2026-07-01T10:30:00.000Z",
+          sourceName: "Source Desk",
+          sourceSlug: "source-desk",
+          title: "Source registry covers labs",
+        },
+        {
+          action: "hide",
+          category: "policy",
+          entities: ["Policy"],
+          id: "not-positive",
+          occurredAt: "2026-07-01T11:00:00.000Z",
+          sourceName: "Policy Desk",
+          sourceSlug: "policy-desk",
+          title: "Invalid action",
+        },
+        {
+          action: "save",
+          category: "research",
+          entities: ["Benchmarks"],
+          id: "missing-occurred-at",
+          sourceName: "Research Desk",
+          sourceSlug: "research-desk",
+          title: "Missing timestamp",
+        },
+        null,
+      ]),
+    ).toEqual([
+      {
+        action: "click_source",
+        category: "market_map",
+        entities: ["Anthropic"],
+        id: "local-source-click",
+        occurredAt: "2026-07-01T10:30:00.000Z",
+        sourceName: "Source Desk",
+        sourceSlug: "source-desk",
+        title: "Source registry covers labs",
+      },
+      {
+        action: "share",
+        category: "model_release",
+        entities: ["OpenAI", "Agents"],
+        id: "local-share",
+        occurredAt: "2026-07-01T10:00:00.000Z",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        tags: ["model", "agent"],
+        title: "OpenAI releases a new agent stack",
+      },
+    ]);
+  });
+
+  it("returns the newest stored positive feedback entries within the configured limit", () => {
+    expect(
+      selectStoredNewsPositiveFeedbackItems(
+        [
+          {
+            action: "share",
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "old-share",
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "Old share",
+          },
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "recent-save",
+            occurredAt: "2026-07-01T10:00:00.000Z",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Recent save",
+          },
+          {
+            action: "click_source",
+            category: "research",
+            entities: ["Benchmarks"],
+            id: "recent-source",
+            occurredAt: "2026-07-01T09:30:00.000Z",
+            sourceName: "Research Desk",
+            sourceSlug: "research-desk",
+            title: "Recent source",
+          },
+          {
+            action: "share",
+            category: "funding",
+            entities: ["Runway"],
+            id: "new-share",
+            occurredAt: "2026-07-01T10:30:00.000Z",
+            sourceName: "Funding Desk",
+            sourceSlug: "funding-desk",
+            title: "New share",
+          },
+        ],
+        { limit: 3 },
+      ).map((item) => item.id),
+    ).toEqual(["new-share", "recent-save", "recent-source"]);
+  });
+});
+
 describe("selectActiveNewsGuardrailItems", () => {
   it("removes restored Less guardrails from active reader memory", () => {
     expect(
@@ -1794,6 +3040,34 @@ describe("selectActiveNewsGuardrailItems", () => {
           },
         ],
         restoredItemIds: ["restored-story"],
+      }).map((item) => item.id),
+    ).toEqual(["still-hidden-story"]);
+  });
+
+  it("removes restored Less guardrail URL variants from active reader memory", () => {
+    expect(
+      selectActiveNewsGuardrailItems({
+        guardrailItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#hidden",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-model-variant",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/still-hidden",
+            hiddenAt: "2026-07-01T10:30:00.000Z",
+            id: "still-hidden-story",
+          },
+        ],
+        restoredItemIds: ["restored-model"],
+        restoredItems: [
+          {
+            canonicalUrl: null,
+            originalUrl: "https://example.com/news/openai-model?utm=restore",
+          },
+        ],
       }).map((item) => item.id),
     ).toEqual(["still-hidden-story"]);
   });
@@ -2290,6 +3564,41 @@ describe("getNewsReaderJourneyMap", () => {
       summary: "Reader journey will appear after profile or behavior signals.",
     });
   });
+
+  it("does not describe source corroboration as a reader journey signal", () => {
+    const journey = getNewsReaderJourneyMap({
+      formatCategory: (category) => category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "journey-corroborated-lead",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 150,
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          title: "Independent coverage confirms the launch",
+          trendScore: 94,
+        },
+      ],
+      limit: 5,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(journey.steps[0]).toMatchObject({
+      detail: "Top ranked story opens the session with 0 reader signals.",
+      id: "journey-corroborated-lead",
+      key: "impression",
+    });
+  });
 });
 
 describe("getNewsReaderWatchlist", () => {
@@ -2499,6 +3808,57 @@ describe("getNewsReaderWatchlist", () => {
     });
   });
 
+  it("normalizes watchlist source variants before scoring signal support", () => {
+    const watchlist = getNewsReaderWatchlist({
+      formatCategory: (category) =>
+        category === "research" ? "Research" : category,
+      items: [
+        {
+          ...localItem,
+          id: "watch-anthropic-lab-lead",
+          category: "research",
+          entities: ["Anthropic"],
+          matchedSignals: [],
+          personalizedScore: 128,
+          sourceName: "Lab Wire",
+          sourceSlug: "lab-wire",
+          title: "Anthropic research gains lab momentum",
+          trendScore: 92,
+        },
+        {
+          ...serverItem,
+          id: "watch-anthropic-lab-follow",
+          category: "research",
+          entities: ["Anthropic"],
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Lab Wire",
+          sourceSlug: " Lab-Wire ",
+          title: "Anthropic research follow-up stays on the same source",
+          trendScore: 90,
+        },
+      ],
+      limit: 3,
+      profile: createDefaultNewsPreferenceProfile(),
+    });
+
+    expect(watchlist.entries).toContainEqual({
+      key: "entity:anthropic",
+      kind: "Entity",
+      reason: "High heat suggests adding this signal to the watchlist.",
+      score: 149,
+      signal: "Anthropic",
+      sourceNames: ["Lab Wire"],
+      statusLabel: "Suggested",
+      supportLabel: "2 stories / 1 source",
+      topStory: {
+        id: "watch-anthropic-lab-lead",
+        sourceName: "Lab Wire",
+        title: "Anthropic research gains lab momentum",
+      },
+    });
+  });
+
   it("keeps watchlist empty before stories are ranked", () => {
     expect(
       getNewsReaderWatchlist({
@@ -2670,6 +4030,149 @@ describe("getNewsReaderCohorts", () => {
 });
 
 describe("getNewsCollaborativeSignals", () => {
+  it("returns raw collaborative ranking signals for active reader cohorts", () => {
+    expect(
+      getNewsHomeCollaborativeRankingSignals({
+        formatCategory: (category) =>
+          category === "agent_product"
+            ? "Agents"
+            : category === "model_release"
+              ? "Models"
+              : category,
+        historyItems: [
+          {
+            ...localItem,
+            id: "read-model",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "Read model analysis",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "openai-model",
+            matchedSignals: ["category", "source", "entity"],
+            personalizedScore: 152,
+            sourceName: "OpenAI News",
+            sourceScore: 94,
+            sourceSlug: "openai-news",
+            title: "OpenAI ships a new reasoning model",
+            trendScore: 92,
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "agent-memory",
+            matchedSignals: ["exploration"],
+            personalizedScore: 126,
+            sourceName: "Agent Desk",
+            sourceScore: 82,
+            sourceSlug: "agent-desk",
+            title: "Agent teams test shared memory",
+            trendScore: 88,
+          },
+        ],
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: ["openai-news"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1.2,
+          recencyBias: 1,
+        },
+        savedItems: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "saved-agent",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Saved agent workflow",
+          },
+        ],
+      }),
+    ).toEqual([
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        newsItemId: "openai-model",
+        score: 17,
+        sourceSlug: "openai-news",
+        tags: ["model"],
+      },
+      {
+        category: "agent_product",
+        entities: ["Agents"],
+        newsItemId: "agent-memory",
+        score: 11,
+        sourceSlug: "agent-desk",
+        tags: ["model"],
+      },
+    ]);
+  });
+
+  it("does not give guardrail and edition signals reader-match collaborative lift", () => {
+    const signals = getNewsHomeCollaborativeRankingSignals({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "a-verified-model",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 130,
+          sourceName: "Model Lab",
+          sourceScore: 90,
+          sourceSlug: "model-lab",
+          title: "Independent coverage confirms the model launch",
+          trendScore: 90,
+        },
+        {
+          ...serverItem,
+          id: "b-less-model",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 128,
+          sourceName: "Rumor Feed",
+          sourceScore: 90,
+          sourceSlug: "rumor-feed",
+          title: "Less feedback keeps this model story guarded",
+          trendScore: 90,
+        },
+        {
+          ...olderItem,
+          id: "z-reader-model",
+          matchedSignals: ["category"],
+          personalizedScore: 126,
+          sourceName: "OpenAI News",
+          sourceScore: 90,
+          sourceSlug: "openai-news",
+          title: "Reader-matched model story",
+          trendScore: 90,
+        },
+      ],
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(signals.map((signal) => signal.newsItemId)).toEqual([
+      "z-reader-model",
+      "a-verified-model",
+      "b-less-model",
+    ]);
+    expect(signals.map((signal) => signal.score)).toEqual([11, 8, 8]);
+  });
+
   it("turns active reader cohorts into collaborative story lift signals", () => {
     expect(
       getNewsCollaborativeSignals({
@@ -2998,6 +4501,126 @@ describe("getNewsSessionIntent", () => {
         "Session intent will appear after preference or behavior signals arrive.",
     });
   });
+
+  it("does not count guardrail and edition signals as session intent candidates", () => {
+    const session = getNewsSessionIntent({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "guarded-agent",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 126,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Guarded agent story",
+          trendScore: 80,
+        },
+        {
+          ...serverItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "verified-agent",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 124,
+          sourceName: "Model Lab",
+          sourceSlug: "model-lab",
+          title: "Verified agent story",
+          trendScore: 84,
+        },
+        {
+          ...olderItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "timed-agent",
+          matchedSignals: ["daypart"],
+          personalizedScore: 122,
+          sourceName: "Morning Wire",
+          sourceSlug: "morning-wire",
+          title: "Timed agent story",
+          trendScore: 78,
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(session.intents[0]).toEqual(
+      expect.objectContaining({
+        candidateCount: 0,
+        label: "Builder Run",
+        leadStory: null,
+        score: 1,
+      }),
+    );
+    expect(session.metrics).toContainEqual({
+      label: "Candidate stories",
+      value: "0",
+    });
+    expect(session.summary).toBe(
+      "Session intent is Builder Run with 1 signal, 0 candidate stories, and 0 guardrails.",
+    );
+  });
+
+  it("uses the active angle filter as immediate session intent", () => {
+    expect(
+      getNewsSessionIntent({
+        activeIntent: {
+          category: null,
+          query: "",
+          sourceSlug: null,
+          tag: "workflow",
+        },
+        formatCategory: (category) => category,
+        historyItems: [],
+        items: [],
+        limit: 3,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      intents: [
+        {
+          candidateCount: 0,
+          evidence: ["workflow"],
+          guardrailCount: 0,
+          label: "Builder Run",
+          leadStory: null,
+          nextAction:
+            "Lead with practical builder stories and keep one lab follow-up nearby.",
+          score: 4,
+        },
+      ],
+      label: "Builder Session",
+      metrics: [
+        { label: "Primary intent", value: "Builder Run" },
+        { label: "Strength", value: "4" },
+        { label: "Candidate stories", value: "0" },
+        { label: "Guardrails", value: "0" },
+      ],
+      summary:
+        "Session intent is Builder Run with 4 signals, 0 candidate stories, and 0 guardrails.",
+    });
+  });
 });
 
 describe("getNewsProfileSignalLedger", () => {
@@ -3185,6 +4808,114 @@ describe("getNewsProfileSignalLedger", () => {
       ],
       summary:
         "Profile ledger is waiting for explicit preferences or behavior signals.",
+    });
+  });
+
+  it("breaks positive behavior ledger signals down by reader action", () => {
+    expect(
+      getNewsProfileSignalLedger({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        historyItems: [
+          {
+            ...localItem,
+            id: "read-agent",
+            category: "agent_product",
+            title: "Read agent workflow story",
+          },
+        ],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            id: "shared-model",
+            occurredAt: "2026-07-01T10:00:00.000Z",
+            title: "Shared model launch story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            id: "source-click-agent",
+            occurredAt: "2026-07-01T10:05:00.000Z",
+            sourceName: "Agent Desk",
+            title: "Source-clicked agent story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [
+          {
+            ...localItem,
+            id: "saved-agent",
+            category: "agent_product",
+            title: "Saved agent builder story",
+          },
+        ],
+      }).entries[1],
+    ).toEqual({
+      count: 4,
+      detail:
+        "1 share, 1 source click, 1 saved story, and 1 read are feeding the profile.",
+      effect: "Raises related coverage",
+      label: "Positive behavior",
+      signals: [
+        "Shared model launch story",
+        "Source-clicked agent story",
+        "Saved agent builder story",
+        "Read agent workflow story",
+      ],
+      source: "Reads, saves, shares, and source clicks",
+    });
+  });
+
+  it("dedupes explicit save feedback against saved URL variants", () => {
+    expect(
+      getNewsProfileSignalLedger({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        historyItems: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "save",
+            canonicalUrl: null,
+            id: "saved-agent-feedback",
+            occurredAt: "2026-07-01T10:05:00.000Z",
+            originalUrl: "https://example.com/news/agent-builder?utm=local",
+            title: "Saved agent builder story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://www.example.com/news/agent-builder#saved",
+            id: "saved-agent",
+            category: "agent_product",
+            title: "Saved agent builder story",
+          },
+        ],
+      }).entries[1],
+    ).toEqual({
+      count: 1,
+      detail: "1 saved story is feeding the profile.",
+      effect: "Raises related coverage",
+      label: "Positive behavior",
+      signals: ["Saved agent builder story"],
+      source: "Reads and saves",
     });
   });
 
@@ -3489,6 +5220,10 @@ describe("getNewsServerProfileAuditDisplay", () => {
         positiveSignalCount: 3,
         summary:
           "Profile leans toward agent_product and model_release, led by openai-news and OpenAI.",
+        topActions: [
+          { count: 2, key: "save" },
+          { count: 1, key: "click_source" },
+        ],
         topCategories: [
           { count: 2, key: "agent_product" },
           { count: 1, key: "model_release" },
@@ -3522,6 +5257,7 @@ describe("getNewsServerProfileAuditDisplay", () => {
         "model_release 1",
         "openai-news 2",
         "agents 2",
+        "Save 2",
         "home 2",
         "category 2",
       ],
@@ -3534,6 +5270,41 @@ describe("getNewsServerProfileAuditDisplay", () => {
       ],
       summary:
         "Profile leans toward agent_product and model_release, led by openai-news and OpenAI.",
+    });
+  });
+
+  it("keeps Less guardrail actions visible when reads are more frequent", () => {
+    expect(
+      getNewsServerProfileAuditDisplay({
+        averageHomeRankSlot: null,
+        ignoredSignalCount: 2,
+        negativeSignalCount: 1,
+        positiveSignalCount: 0,
+        summary:
+          "Profile is guarding against Less feedback while recent exposure or low-depth reads stay out of training.",
+        topActions: [
+          { count: 2, key: "view" },
+          { count: 1, key: "hide" },
+        ],
+        topCategories: [],
+        topEntities: [],
+        topFeedModes: [],
+        topMatchedSignals: [],
+        topSources: [],
+        topSurfaces: [{ count: 2, key: "home_read" }],
+        topTags: [],
+        trainedSignalCount: 0,
+      }),
+    ).toEqual({
+      chips: ["Read 2", "Less 1", "home_read 2"],
+      label: "Server Guarding",
+      metrics: [
+        { label: "Trained", value: "0" },
+        { label: "Ignored", value: "2" },
+        { label: "Hidden", value: "1" },
+      ],
+      summary:
+        "Profile is guarding against Less feedback while recent exposure or low-depth reads stay out of training.",
     });
   });
 
@@ -3664,6 +5435,37 @@ describe("getNewsFeedbackTrainingUpdate", () => {
       ],
       summary: "Save trained the feed toward Agents from Agent Desk.",
     });
+  });
+
+  it("labels learned sources with source names when story slugs have padding", () => {
+    expect(
+      getNewsFeedbackTrainingUpdate({
+        action: "save",
+        afterProfile: {
+          preferredCategories: ["model_release", "agent_product"],
+          preferredSources: ["agent-desk"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1.2,
+          recencyBias: 1.2,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        item: {
+          ...localItem,
+          category: "agent_product",
+          sourceName: "Agent Desk",
+          sourceSlug: " agent-desk ",
+          title: "Agent desk story",
+        },
+      }).signals.find((signal) => signal.label === "Source"),
+    ).toEqual({ label: "Source", value: "Agent Desk" });
   });
 
   it("marks shared stories as stronger positive feedback", () => {
@@ -5493,6 +7295,38 @@ describe("getNewsRecommendationNudge", () => {
     });
   });
 
+  it("uses a discovery slot to offer the discovered topic as a preference", () => {
+    expect(
+      getNewsRecommendationNudge({
+        formatCategory: (category) =>
+          category === "product_hunt" ? "Product Hunt" : category,
+        item: {
+          ...localItem,
+          category: "product_hunt",
+          matchedSignals: ["discovery_slot"],
+          personalizedScore: 112,
+        },
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow topic",
+        kind: "category",
+        label: "Product Hunt",
+        signal: "product_hunt",
+      },
+      detail:
+        "This discovery slot is testing a topic outside your strongest signals. Follow Product Hunt if it belongs in your mix.",
+      label: "Tune this reason",
+    });
+  });
+
   it("stays quiet when the recommendation reason is already covered", () => {
     expect(
       getNewsRecommendationNudge({
@@ -6978,6 +8812,48 @@ describe("getNewsLiveWire", () => {
     });
   });
 
+  it("normalizes live wire source and topic variants before summarizing coverage", () => {
+    const liveWire = getNewsLiveWire({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "live-model-lead",
+          category: "model_release",
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI launches the live model update",
+          trendScore: 88,
+        },
+        {
+          ...serverItem,
+          id: "live-model-follow",
+          category: " MODEL_RELEASE ",
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+          sourceName: "OpenAI News",
+          sourceSlug: " OpenAI-News ",
+          title: "OpenAI follow-up keeps the same live thread moving",
+          trendScore: 84,
+        },
+      ],
+      limit: 2,
+    });
+
+    expect(liveWire.metrics).toEqual([
+      { label: "Live stories", value: "2" },
+      { label: "Sources", value: "1" },
+      { label: "Topics", value: "1" },
+      { label: "Hot updates", value: "0" },
+    ]);
+    expect(liveWire.summary).toBe(
+      "2 live updates from 1 source across 1 topic.",
+    );
+  });
+
   it("keeps the live wire empty before stories load", () => {
     expect(
       getNewsLiveWire({
@@ -7471,6 +9347,62 @@ describe("getNewsHotBoard", () => {
       title: "Fresh security angle enters the briefing",
     });
   });
+
+  it("does not treat similar-reader Less feedback as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "collaborative-less-hot-story",
+            category: "funding",
+            matchedSignals: ["collaborative_negative_feedback"],
+            personalizedScore: 130,
+            sourceName: "VentureWire",
+            sourceScore: 80,
+            sourceSlug: "venturewire",
+            title: "Similar readers rejected this hot story",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toMatchObject({
+      id: "collaborative-less-hot-story",
+      label: "Newswire Hot",
+      reason: "Newswire momentum keeps this story on the board.",
+    });
+  });
+
+  it("does not treat Less feedback as reader-matched heat", () => {
+    expect(
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "less-feedback-hot-story",
+            category: "funding",
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 128,
+            sourceName: "VentureWire",
+            sourceScore: 80,
+            sourceSlug: "venturewire",
+            title: "Reader already asked for less like this",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    ).toMatchObject({
+      id: "less-feedback-hot-story",
+      label: "Newswire Hot",
+      reason: "Newswire momentum keeps this story on the board.",
+    });
+  });
 });
 
 describe("getNewsSearchTrends", () => {
@@ -7660,6 +9592,50 @@ describe("getNewsSearchTrends", () => {
     });
   });
 
+  it("does not turn Less guardrails into reader search trends", () => {
+    expect(
+      getNewsSearchTrends({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 132,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "Reader asked for less of this search trend",
+            trendScore: 87,
+          },
+        ],
+        limit: 3,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Queries", value: "1" },
+        { label: "Reader", value: "0" },
+        { label: "Rising", value: "1" },
+        { label: "Market", value: "0" },
+      ],
+      trends: [
+        {
+          key: "topic:model_release",
+          label: "Rising Search",
+          reason: "Multiple stories are pushing this query up the search rail.",
+        },
+      ],
+    });
+  });
+
   it("turns repeated story tags into clickable angle search trends", () => {
     expect(
       getNewsSearchTrends({
@@ -7707,6 +9683,57 @@ describe("getNewsSearchTrends", () => {
         id: "local-story",
         sourceName: "Security Desk",
         title: "Prompt injection exploits hit browser agents",
+      },
+    });
+  });
+
+  it("normalizes search trend source variants before scoring query support", () => {
+    const trends = getNewsSearchTrends({
+      formatCategory: (category) =>
+        category === "research" ? "Research" : category,
+      items: [
+        {
+          ...localItem,
+          id: "search-anthropic-lab-lead",
+          category: "research",
+          entities: ["Anthropic"],
+          matchedSignals: [],
+          personalizedScore: 128,
+          sourceName: "Lab Wire",
+          sourceSlug: "lab-wire",
+          title: "Anthropic research gains search momentum",
+          trendScore: 92,
+        },
+        {
+          ...serverItem,
+          id: "search-anthropic-lab-follow",
+          category: "research",
+          entities: ["Anthropic"],
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Lab Wire",
+          sourceSlug: " Lab-Wire ",
+          title: "Anthropic research follow-up drives the same query",
+          trendScore: 90,
+        },
+      ],
+      limit: 4,
+      profile: createDefaultNewsPreferenceProfile(),
+    });
+
+    expect(trends.trends).toContainEqual({
+      key: "entity:anthropic",
+      kind: "Entity",
+      label: "Rising Search",
+      query: "Anthropic",
+      reason: "Multiple stories are pushing this query up the search rail.",
+      score: 127,
+      sourceNames: ["Lab Wire"],
+      supportLabel: "2 stories / 1 source",
+      topStory: {
+        id: "search-anthropic-lab-lead",
+        sourceName: "Lab Wire",
+        title: "Anthropic research gains search momentum",
       },
     });
   });
@@ -7775,6 +9802,43 @@ describe("getNewsTopicPulse", () => {
         latestPublishedAt: "2026-07-01T09:00:00.000Z",
         sources: ["VentureWire"],
         storyCount: 1,
+      },
+    ]);
+  });
+
+  it("normalizes topic category variants before ranking pulses", () => {
+    expect(
+      getNewsTopicPulse({
+        items: [
+          {
+            ...localItem,
+            id: "pulse-model-lead",
+            category: "model_release",
+            publishedAt: "2026-07-01T08:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            id: "pulse-model-follow",
+            category: " MODEL_RELEASE ",
+            publishedAt: "2026-07-01T10:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceSlug: " OpenAI-News ",
+            trendScore: 84,
+          },
+        ],
+        limit: 2,
+      }),
+    ).toEqual([
+      {
+        averageTrendScore: 87,
+        category: "model_release",
+        heatScore: 127,
+        latestPublishedAt: "2026-07-01T10:00:00.000Z",
+        sources: ["OpenAI News"],
+        storyCount: 2,
       },
     ]);
   });
@@ -7922,6 +9986,40 @@ describe("getNewsTopicMatchMatrix", () => {
     });
   });
 
+  it("does not put Less guardrail topics into Follow mode", () => {
+    expect(
+      getNewsTopicMatchMatrix({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 130,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Reader asked for less of this topic",
+            trendScore: 80,
+          },
+        ],
+        limit: 1,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["model-desk"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }).rows[0],
+    ).toMatchObject({
+      category: "model_release",
+      mode: "Watch",
+      readerLabel: "0 signals",
+      reason: "Low-signal topic to monitor.",
+    });
+  });
+
   it("returns a stable empty matrix before stories load", () => {
     expect(
       getNewsTopicMatchMatrix({
@@ -8051,6 +10149,59 @@ describe("getNewsEditionBriefing", () => {
         },
       ],
     });
+  });
+
+  it("normalizes source and topic variants before summarizing the briefing", () => {
+    const briefing = getNewsEditionBriefing({
+      entityLimit: 1,
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "briefing-openai-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI leads the AI briefing",
+          trendScore: 90,
+        },
+        {
+          ...serverItem,
+          id: "briefing-openai-follow",
+          category: " MODEL_RELEASE ",
+          entities: ["OpenAI"],
+          matchedSignals: ["entity"],
+          personalizedScore: 132,
+          sourceName: "OpenAI News",
+          sourceSlug: " OpenAI-News ",
+          title: "OpenAI follow-up stays in the same briefing lane",
+          trendScore: 84,
+        },
+      ],
+      topicLimit: 1,
+    });
+
+    expect(briefing.metrics).toEqual([
+      { label: "Stories", value: "2" },
+      { label: "Sources", value: "1" },
+      { label: "Topics", value: "1" },
+    ]);
+    expect(briefing.sourceCount).toBe(1);
+    expect(briefing.entities).toEqual([
+      {
+        entity: "OpenAI",
+        heatScore: 133,
+        sourceCount: 1,
+        storyCount: 2,
+      },
+    ]);
+    expect(briefing.summary).toBe(
+      "2 stories from 1 source, led by Models coverage and OpenAI momentum.",
+    );
   });
 
   it("returns a stable empty briefing before stories load", () => {
@@ -8744,6 +10895,68 @@ describe("getNewsSectionFronts", () => {
     ]);
   });
 
+  it("normalizes section category and source variants before building section fronts", () => {
+    expect(
+      getNewsSectionFronts({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "section-model-lead",
+            category: "model_release",
+            matchedSignals: ["category"],
+            personalizedScore: 140,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI leads the model section",
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            id: "section-model-follow",
+            category: " MODEL_RELEASE ",
+            matchedSignals: ["entity"],
+            personalizedScore: 120,
+            publishedAt: "2026-07-01T10:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceSlug: " OpenAI-News ",
+            title: "OpenAI follow-up stays in the model section",
+            trendScore: 84,
+          },
+        ],
+        limit: 2,
+        storiesPerSection: 3,
+      }),
+    ).toEqual([
+      {
+        averageTrendScore: 87,
+        category: "model_release",
+        heatScore: 249,
+        label: "Models",
+        latestPublishedAt: "2026-07-01T10:00:00.000Z",
+        lead: {
+          id: "section-model-lead",
+          personalizedScore: 140,
+          publishedAt: "2026-07-01T08:00:00.000Z",
+          sourceName: "OpenAI News",
+          title: "OpenAI leads the model section",
+        },
+        sourceCount: 1,
+        storyCount: 2,
+        summary: "2 stories from 1 source, led by OpenAI News.",
+        supportingStories: [
+          {
+            id: "section-model-follow",
+            personalizedScore: 120,
+            sourceName: "OpenAI News",
+            title: "OpenAI follow-up stays in the model section",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("returns no section fronts when the edition is empty", () => {
     expect(
       getNewsSectionFronts({
@@ -8902,6 +11115,70 @@ describe("getNewsSourceClusters", () => {
       ],
       summary: "2 source clusters consolidate 5 stories from 5 sources.",
     });
+  });
+
+  it("normalizes source variants before scoring source clusters", () => {
+    expect(
+      getNewsSourceClusters({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "cluster-openai-lead",
+            category: "model_release",
+            entities: ["OpenAI", "GPT-6"],
+            matchedSignals: ["category", "entity"],
+            personalizedScore: 168,
+            sourceName: "Model Desk",
+            sourceScore: 94,
+            sourceSlug: "model-desk",
+            title: "OpenAI GPT-6 model release sets new coding mark",
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            id: "cluster-openai-follow",
+            category: "model_release",
+            entities: ["OpenAI", "GPT-6"],
+            matchedSignals: ["entity"],
+            personalizedScore: 142,
+            sourceName: "Model Desk",
+            sourceScore: 88,
+            sourceSlug: " Model-Desk ",
+            title: "Researchers benchmark OpenAI GPT-6 coding release",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+        storiesPerCluster: 2,
+      }).clusters,
+    ).toEqual([
+      {
+        averageTrustScore: 91,
+        categoryLabel: "Models",
+        commonSignals: ["OpenAI", "GPT-6"],
+        heatScore: 287,
+        key: "model_release:openai:gpt-6",
+        lead: {
+          id: "cluster-openai-lead",
+          personalizedScore: 168,
+          sourceName: "Model Desk",
+          title: "OpenAI GPT-6 model release sets new coding mark",
+        },
+        sourceCount: 1,
+        storyCount: 2,
+        summary: "2 reports from 1 source converge on OpenAI and GPT-6.",
+        supportingStories: [
+          {
+            id: "cluster-openai-follow",
+            sourceName: "Model Desk",
+            sourceScore: 88,
+            title: "Researchers benchmark OpenAI GPT-6 coding release",
+          },
+        ],
+      },
+    ]);
   });
 
   it("keeps source clusters empty before stories cluster", () => {
@@ -9260,6 +11537,45 @@ describe("getNewsStoryTimeline", () => {
       summary: "Story timeline will appear after ranked stories are available.",
     });
   });
+
+  it("normalizes timeline source and topic variants before summarizing events", () => {
+    const timeline = getNewsStoryTimeline({
+      formatCategory: (category) => category,
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          id: "timeline-source-original",
+          matchedSignals: [],
+          personalizedScore: 130,
+          publishedAt: "2026-07-01T09:30:00.000Z",
+          sourceSlug: "openai-news",
+          title: "OpenAI releases a model update",
+        },
+        {
+          ...serverItem,
+          category: " MODEL_RELEASE ",
+          id: "timeline-source-variant",
+          matchedSignals: [],
+          personalizedScore: 124,
+          publishedAt: "2026-07-01T10:30:00.000Z",
+          sourceSlug: " OpenAI-News ",
+          title: "OpenAI model update gets follow-up coverage",
+        },
+      ],
+      limit: 4,
+    });
+
+    expect(timeline.metrics).toEqual(
+      expect.arrayContaining([
+        { label: "Sources", value: "1" },
+        { label: "Topics", value: "1" },
+      ]),
+    );
+    expect(timeline.summary).toBe(
+      "2 timeline events show how 2 stories developed across 1 source.",
+    );
+  });
 });
 
 describe("getNewsCoverageThreads", () => {
@@ -9438,6 +11754,49 @@ describe("getNewsCoverageThreads", () => {
     );
   });
 
+  it("normalizes source variants before verifying coverage threads", () => {
+    expect(
+      getNewsCoverageThreads({
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            matchedSignals: [],
+            personalizedScore: 130,
+            sourceName: "OpenAI News",
+            sourceScore: 92,
+            sourceSlug: "openai-news",
+            title: "OpenAI model update leads the thread",
+            trendScore: 86,
+          },
+          {
+            ...serverItem,
+            entities: ["OpenAI"],
+            matchedSignals: [],
+            personalizedScore: 124,
+            sourceName: "OpenAI News",
+            sourceScore: 92,
+            sourceSlug: " OpenAI-News ",
+            title: "OpenAI model update gets more detail",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+        storiesPerThread: 2,
+      }).threads[0],
+    ).toEqual(
+      expect.objectContaining({
+        entity: "OpenAI",
+        sourceCount: 1,
+        storyCount: 2,
+        summary: "2 stories from 1 source connect around OpenAI.",
+        verificationLabel: "Developing thread",
+        verificationSummary:
+          "2 reports from OpenAI News are still waiting for independent confirmation.",
+      }),
+    );
+  });
+
   it("returns an empty coverage state when no entity repeats", () => {
     expect(
       getNewsCoverageThreads({
@@ -9598,6 +11957,68 @@ describe("getNewsConsensusBoard", () => {
       threads: [],
     });
   });
+
+  it("normalizes source variants before labeling consensus threads", () => {
+    expect(
+      getNewsConsensusBoard({
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            matchedSignals: [],
+            personalizedScore: 130,
+            sourceName: "OpenAI News",
+            sourceScore: 92,
+            sourceSlug: "openai-news",
+            title: "OpenAI model update leads consensus",
+            trendScore: 86,
+          },
+          {
+            ...serverItem,
+            entities: ["OpenAI"],
+            matchedSignals: [],
+            personalizedScore: 124,
+            sourceName: "OpenAI News",
+            sourceScore: 92,
+            sourceSlug: " OpenAI-News ",
+            title: "OpenAI model update gets same-source follow-up",
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+        storiesPerThread: 2,
+      }),
+    ).toEqual({
+      label: "1 Threads",
+      metrics: [
+        { label: "Verified", value: "0" },
+        { label: "Single-source", value: "1" },
+        { label: "High-risk", value: "0" },
+      ],
+      summary:
+        "1 consensus thread: 0 verified, 1 single-source, and 0 high-risk.",
+      threads: [
+        {
+          confidenceLabel: "1 source / 92 trust",
+          entity: "OpenAI",
+          label: "Single-source",
+          reason: "Only one source is covering this thread so far.",
+          stories: [
+            {
+              id: "local-story",
+              sourceName: "OpenAI News",
+              title: "OpenAI model update leads consensus",
+            },
+            {
+              id: "server-story",
+              sourceName: "OpenAI News",
+              title: "OpenAI model update gets same-source follow-up",
+            },
+          ],
+        },
+      ],
+    });
+  });
 });
 
 describe("getNewsPersonalizedReadingQueue", () => {
@@ -9665,6 +12086,66 @@ describe("getNewsPersonalizedReadingQueue", () => {
         personalizedScore: 126,
         sourceName: "Agent Desk",
         title: "OpenAI agent workflow gets a deployment follow-up",
+      },
+    });
+  });
+
+  it("matches reader-memory follow-ups across normalized source and topic variants", () => {
+    const queue = getNewsPersonalizedReadingQueue({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "model-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 170,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "OpenAI leads the morning model brief",
+          trendScore: 96,
+        },
+        {
+          ...localItem,
+          id: "agent-memory-follow-up",
+          category: " AGENT_PRODUCT ",
+          entities: ["Planner Tools"],
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Agent Desk",
+          sourceScore: 82,
+          sourceSlug: " Agent-Desk ",
+          tags: ["agent"],
+          title: "Agent planner tools pick up from saved coverage",
+          trendScore: 82,
+        },
+      ],
+      negativeFeedbackItems: [],
+      savedItems: [
+        {
+          ...serverItem,
+          id: "saved-agent-anchor",
+          category: "agent_product",
+          entities: ["Workflow Memory"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Saved agent memory setup",
+        },
+      ],
+    });
+
+    expect(queue.slots[1]).toEqual({
+      intent: "Follow Interest",
+      label: "Continue thread",
+      reason: "Agents from your saved stories anchors this follow-up.",
+      story: {
+        id: "agent-memory-follow-up",
+        personalizedScore: 126,
+        sourceName: "Agent Desk",
+        title: "Agent planner tools pick up from saved coverage",
       },
     });
   });
@@ -10104,6 +12585,152 @@ describe("getNewsMissedCoverageShelf", () => {
     });
   });
 
+  it("does not resurface tail stories rejected by similar readers", () => {
+    expect(
+      getNewsMissedCoverageShelf({
+        frontPageCount: 1,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "lead-story",
+            matchedSignals: ["category"],
+            personalizedScore: 190,
+            trendScore: 95,
+          },
+          {
+            ...serverItem,
+            id: "collaborative-less-tail",
+            matchedSignals: ["collaborative_negative_feedback"],
+            personalizedScore: 170,
+            sourceScore: 90,
+            title: "Similar readers rejected this tail story",
+            trendScore: 99,
+          },
+          {
+            ...olderItem,
+            id: "safe-tail",
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 90,
+            sourceName: "Research Notes",
+            sourceScore: 80,
+            title: "Unread counterpoint remains available",
+            trendScore: 80,
+          },
+        ],
+        limit: 1,
+      }),
+    ).toEqual({
+      label: "1 Unread",
+      metrics: [
+        { label: "Scanned", value: "2" },
+        { label: "Unread", value: "1" },
+        { label: "Top score", value: "178" },
+      ],
+      stories: [
+        {
+          id: "safe-tail",
+          reason: "Counterpoint catch-up",
+          scoreLabel: "178 score",
+          sourceName: "Research Notes",
+          title: "Unread counterpoint remains available",
+        },
+      ],
+      summary: "1 unread story outside the lead stack is worth a second look.",
+    });
+  });
+
+  it("does not resurface tail stories rejected by the current reader", () => {
+    expect(
+      getNewsMissedCoverageShelf({
+        frontPageCount: 1,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "lead-story",
+            matchedSignals: ["category"],
+            personalizedScore: 190,
+            trendScore: 95,
+          },
+          {
+            ...serverItem,
+            id: "less-feedback-tail",
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 170,
+            sourceScore: 90,
+            title: "Reader rejected this tail story",
+            trendScore: 99,
+          },
+          {
+            ...olderItem,
+            id: "safe-tail",
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 90,
+            sourceName: "Research Notes",
+            sourceScore: 80,
+            title: "Unread counterpoint remains available",
+            trendScore: 80,
+          },
+        ],
+        limit: 1,
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Scanned", value: "2" },
+        { label: "Unread", value: "1" },
+        { label: "Top score", value: "178" },
+      ],
+      stories: [
+        {
+          id: "safe-tail",
+          reason: "Counterpoint catch-up",
+        },
+      ],
+    });
+  });
+
+  it("does not label source corroboration as missed reader coverage", () => {
+    expect(
+      getNewsMissedCoverageShelf({
+        frontPageCount: 1,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "lead-story",
+            entities: ["OpenAI"],
+            matchedSignals: ["category"],
+            personalizedScore: 190,
+            trendScore: 95,
+          },
+          {
+            ...serverItem,
+            id: "corroborated-tail",
+            entities: ["OpenAI"],
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 120,
+            sourceName: "Model Wire",
+            sourceScore: 80,
+            title: "Independent coverage confirms the same lead topic",
+            trendScore: 80,
+          },
+        ],
+        limit: 1,
+      }),
+    ).toMatchObject({
+      stories: [
+        {
+          id: "corroborated-tail",
+          reason: "Deep cut",
+          scoreLabel: "178 score",
+        },
+      ],
+    });
+  });
+
   it("keeps the shelf empty when no unread tail stories are available", () => {
     expect(
       getNewsMissedCoverageShelf({
@@ -10346,6 +12973,154 @@ describe("getNewsContinuationRail", () => {
       summary:
         "2 follow-ups continue your latest read: Read OpenAI agent story.",
     });
+  });
+
+  it("matches continuation source and topic against trimmed follow-up fields", () => {
+    const rail = getNewsContinuationRail({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [
+        {
+          ...localItem,
+          id: "read-openai-model",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Read OpenAI model story",
+        },
+      ],
+      items: [
+        {
+          ...olderItem,
+          id: "padded-model-follow",
+          category: " MODEL_RELEASE ",
+          entities: ["Anthropic"],
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+          sourceName: "OpenAI News",
+          sourceSlug: " OPENAI-NEWS ",
+          title: "Padded source and topic follow-up",
+        },
+      ],
+      limit: 1,
+    });
+
+    expect(rail.followUps).toEqual([
+      {
+        id: "padded-model-follow",
+        reason: "Models follow-up",
+        scoreLabel: "3 signals / 140 score",
+        sourceName: "OpenAI News",
+        title: "Padded source and topic follow-up",
+      },
+    ]);
+  });
+
+  it("does not continue reading trails through stories rejected by similar readers", () => {
+    const rail = getNewsContinuationRail({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [
+        {
+          ...localItem,
+          id: "read-openai-model",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "Read OpenAI model story",
+        },
+      ],
+      items: [
+        {
+          ...serverItem,
+          id: "collaborative-less-follow",
+          category: "funding",
+          entities: ["OpenAI", "Series A"],
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 180,
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "Similar readers rejected this follow-up",
+        },
+        {
+          ...olderItem,
+          id: "safe-model-follow",
+          category: "model_release",
+          entities: ["Anthropic"],
+          matchedSignals: ["category"],
+          personalizedScore: 130,
+          sourceName: "Model Lab",
+          sourceSlug: "model-lab",
+          title: "Model release follow-up remains readable",
+        },
+      ],
+      limit: 1,
+    });
+
+    expect(rail.followUps).toEqual([
+      {
+        id: "safe-model-follow",
+        reason: "Models follow-up",
+        scoreLabel: "2 signals / 130 score",
+        sourceName: "Model Lab",
+        title: "Model release follow-up remains readable",
+      },
+    ]);
+  });
+
+  it("does not continue reading trails through stories rejected by the current reader", () => {
+    const rail = getNewsContinuationRail({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [
+        {
+          ...localItem,
+          id: "read-openai-model",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "Read OpenAI model story",
+        },
+      ],
+      items: [
+        {
+          ...serverItem,
+          id: "less-feedback-follow",
+          category: "funding",
+          entities: ["OpenAI", "Series A"],
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 180,
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "Reader rejected this follow-up",
+        },
+        {
+          ...olderItem,
+          id: "safe-model-follow",
+          category: "model_release",
+          entities: ["Anthropic"],
+          matchedSignals: ["category"],
+          personalizedScore: 130,
+          sourceName: "Model Lab",
+          sourceSlug: "model-lab",
+          title: "Model release follow-up remains readable",
+        },
+      ],
+      limit: 1,
+    });
+
+    expect(rail.followUps).toEqual([
+      {
+        id: "safe-model-follow",
+        reason: "Models follow-up",
+        scoreLabel: "2 signals / 130 score",
+        sourceName: "Model Lab",
+        title: "Model release follow-up remains readable",
+      },
+    ]);
   });
 
   it("keeps the continuation rail empty before reading history exists", () => {
@@ -11016,6 +13791,82 @@ describe("getNewsPersonalizationMix", () => {
     });
   });
 
+  it("does not count guardrail signals as reader-match mix objectives", () => {
+    expect(
+      getNewsPersonalizationMix({
+        items: [
+          {
+            ...localItem,
+            id: "reader-topic",
+            matchedSignals: ["category"],
+            personalizedScore: 148,
+            sourceScore: 78,
+            trendScore: 74,
+          },
+          {
+            ...serverItem,
+            id: "less-feedback-heat",
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 108,
+            sourceName: "Market Heat",
+            sourceScore: 74,
+            sourceSlug: "market-heat",
+            trendScore: 94,
+          },
+          {
+            ...olderItem,
+            id: "similar-reader-trust",
+            matchedSignals: ["collaborative_negative_feedback"],
+            personalizedScore: 102,
+            sourceName: "Primary Lab",
+            sourceScore: 92,
+            sourceSlug: "primary-lab",
+            trendScore: 64,
+          },
+        ],
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: ["local-source"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toMatchObject({
+      label: "Balanced Mix",
+      metrics: [
+        { label: "Reader match", value: "33%" },
+        { label: "Exploration", value: "0%" },
+        { label: "Heat", value: "33%" },
+        { label: "Bias", value: "Balanced" },
+      ],
+      objectives: [
+        expect.objectContaining({
+          count: 1,
+          label: "Reader Match",
+          shareLabel: "33%",
+        }),
+        expect.objectContaining({
+          count: 0,
+          label: "Exploration",
+          shareLabel: "0%",
+        }),
+        expect.objectContaining({
+          count: 1,
+          label: "Trend Heat",
+          shareLabel: "33%",
+        }),
+        expect.objectContaining({
+          count: 1,
+          label: "Source Trust",
+          shareLabel: "33%",
+        }),
+      ],
+      summary:
+        "3 stories tuned across reader match 33%, exploration 0%, heat 33%, and trust 33%.",
+    });
+  });
+
   it("keeps the personalization mix explicit while stories are unavailable", () => {
     expect(
       getNewsPersonalizationMix({
@@ -11264,6 +14115,68 @@ describe("getNewsExperimentAllocation", () => {
       ],
       summary: "Experiment allocation will appear after stories are ranked.",
     });
+  });
+
+  it("does not activate reader-match experiments for guardrail and edition signals", () => {
+    const allocation = getNewsExperimentAllocation({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "verified-coverage",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 128,
+          sourceName: "Model Lab",
+          sourceScore: 84,
+          sourceSlug: "model-lab",
+          title: "Independent coverage confirms the launch",
+          trendScore: 88,
+        },
+        {
+          ...serverItem,
+          id: "daypart-story",
+          matchedSignals: ["daypart"],
+          personalizedScore: 124,
+          sourceName: "Morning Wire",
+          sourceScore: 82,
+          sourceSlug: "morning-wire",
+          title: "Morning timing lifts this story",
+          trendScore: 82,
+        },
+        {
+          ...olderItem,
+          id: "less-feedback-story",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 102,
+          sourceName: "Rumor Feed",
+          sourceScore: 70,
+          sourceSlug: "rumor-feed",
+          title: "Less feedback keeps this story guarded",
+          trendScore: 79,
+        },
+      ],
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: ["local-source"],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(allocation.arms).not.toContainEqual(
+      expect.objectContaining({ key: "reader_match" }),
+    );
+    expect(allocation.arms).toContainEqual(
+      expect.objectContaining({
+        key: "freshness_probe",
+        storyCount: 1,
+      }),
+    );
   });
 });
 
@@ -12175,6 +15088,88 @@ describe("getNewsRecommendationTrace", () => {
     });
   });
 
+  it("does not double-count action-specific reader-memory signals in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "shared-follow-up",
+          title: "Shared model follow-up leads the edition",
+          category: "model_release",
+          matchedSignals: ["positive_feedback", "positive_share_feedback"],
+          personalizedScore: 142,
+          sourceName: "OpenAI News",
+          sourceScore: 86,
+          trendScore: 73,
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Reader matches",
+      value: "1",
+    });
+    expect(trace.steps[0]).toEqual({
+      detail:
+        "OpenAI News leads because 1 reader signal meets 86 trust and 73 heat.",
+      label: "Lead story",
+      scoreLabel: "142 score",
+      title: "Shared model follow-up leads the edition",
+    });
+  });
+
+  it("surfaces action-specific reader-memory anchors in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "shared-follow-up",
+          title: "Shared model follow-up leads the edition",
+          category: "model_release",
+          matchedSignals: ["positive_feedback", "positive_share_feedback"],
+          personalizedScore: 142,
+          sourceName: "OpenAI News",
+          sourceScore: 86,
+          trendScore: 73,
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.steps).toContainEqual({
+      detail: "Stories you shared anchor this recommendation.",
+      label: "Reader memory",
+      scoreLabel: "Shared follow-up",
+      title: "Shared model follow-up leads the edition",
+    });
+    expect(trace.summary).toBe(
+      "Trace explains 2 ranking decisions across 1 story.",
+    );
+  });
+
   it("keeps the trace empty before the feed has ranked stories", () => {
     expect(
       getNewsRecommendationTrace({
@@ -12419,6 +15414,194 @@ describe("getNewsEditorialGuardrails", () => {
     });
   });
 
+  it("flags source concentration across padded source slug variants", () => {
+    expect(
+      getNewsEditorialGuardrails({
+        items: [
+          {
+            ...localItem,
+            id: "openai-release-one",
+            matchedSignals: ["category"],
+            personalizedScore: 160,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI release one",
+          },
+          {
+            ...localItem,
+            id: "openai-release-two",
+            matchedSignals: ["source"],
+            personalizedScore: 150,
+            sourceName: "OpenAI News Mirror",
+            sourceSlug: " openai-news ",
+            title: "OpenAI release two",
+          },
+          {
+            ...localItem,
+            id: "openai-release-three",
+            matchedSignals: ["entity"],
+            personalizedScore: 140,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI release three",
+          },
+          {
+            ...olderItem,
+            id: "agent-alternate",
+            category: "agent_product",
+            entities: ["Anthropic"],
+            matchedSignals: ["exploration"],
+            personalizedScore: 120,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent alternate",
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }).risks.find((risk) => risk.label === "Source concentration"),
+    ).toEqual({
+      action: "Mix another source before promoting more OpenAI News coverage.",
+      detail: "OpenAI News carries 3 of 4 stories in this slice.",
+      label: "Source concentration",
+      severity: "high",
+      stories: [
+        {
+          id: "openai-release-one",
+          sourceName: "OpenAI News",
+          title: "OpenAI release one",
+        },
+        {
+          id: "openai-release-two",
+          sourceName: "OpenAI News Mirror",
+          title: "OpenAI release two",
+        },
+      ],
+    });
+  });
+
+  it("flags single-source entity threads across padded source slug variants", () => {
+    expect(
+      getNewsEditorialGuardrails({
+        items: [
+          {
+            ...localItem,
+            id: "openai-primary",
+            entities: ["OpenAI", "Agents"],
+            matchedSignals: ["entity"],
+            personalizedScore: 160,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI primary source update",
+          },
+          {
+            ...localItem,
+            id: "openai-mirror",
+            entities: ["OpenAI", "Evals"],
+            matchedSignals: ["entity"],
+            personalizedScore: 150,
+            sourceName: "OpenAI News Mirror",
+            sourceSlug: " openai-news ",
+            title: "OpenAI mirror update",
+          },
+          {
+            ...localItem,
+            id: "openai-analysis",
+            entities: ["OpenAI", "Benchmarks"],
+            matchedSignals: ["entity"],
+            personalizedScore: 140,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI benchmark analysis",
+          },
+          {
+            ...olderItem,
+            id: "anthropic-agent",
+            category: "agent_product",
+            entities: ["Anthropic", "Claude"],
+            matchedSignals: ["exploration"],
+            personalizedScore: 120,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Anthropic agent update",
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }).risks.find((risk) => risk.label === "Single-source thread"),
+    ).toEqual({
+      action:
+        "Wait for another source before treating OpenAI coverage as consensus.",
+      detail: "OpenAI appears in 3 stories from OpenAI News only.",
+      label: "Single-source thread",
+      severity: "medium",
+      stories: [
+        {
+          id: "openai-primary",
+          sourceName: "OpenAI News",
+          title: "OpenAI primary source update",
+        },
+        {
+          id: "openai-mirror",
+          sourceName: "OpenAI News Mirror",
+          title: "OpenAI mirror update",
+        },
+      ],
+    });
+  });
+
+  it("does not treat source slug variants as independent entity concentration", () => {
+    expect(
+      getNewsEditorialGuardrails({
+        items: [
+          {
+            ...localItem,
+            id: "openai-primary",
+            entities: ["OpenAI", "Agents"],
+            matchedSignals: ["entity"],
+            personalizedScore: 160,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI primary source update",
+          },
+          {
+            ...localItem,
+            id: "openai-mirror",
+            entities: ["OpenAI", "Evals"],
+            matchedSignals: ["entity"],
+            personalizedScore: 150,
+            sourceName: "OpenAI News Mirror",
+            sourceSlug: " openai-news ",
+            title: "OpenAI mirror update",
+          },
+          {
+            ...localItem,
+            id: "openai-analysis",
+            entities: ["OpenAI", "Benchmarks"],
+            matchedSignals: ["entity"],
+            personalizedScore: 140,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "OpenAI benchmark analysis",
+          },
+          {
+            ...olderItem,
+            id: "anthropic-agent",
+            category: "agent_product",
+            entities: ["Anthropic", "Claude"],
+            matchedSignals: ["exploration"],
+            personalizedScore: 120,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Anthropic agent update",
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }).risks.find((risk) => risk.label === "Entity concentration"),
+    ).toBeUndefined();
+  });
+
   it("stays empty while the desk has no ranked stories to review", () => {
     expect(
       getNewsEditorialGuardrails({
@@ -12541,6 +15724,65 @@ describe("getNewsFeedRecipe", () => {
     );
     expect(recipe.summary).toBe(
       "3 stories: 1 reader-led, 1 verified coverage, and 1 edition-timed.",
+    );
+  });
+
+  it("does not classify guardrail signals as reader-led recipe slices", () => {
+    const recipe = getNewsFeedRecipe({
+      items: [
+        {
+          ...localItem,
+          matchedSignals: ["category"],
+          personalizedScore: 150,
+          sourceScore: 80,
+          title: "Reader profile story",
+          trendScore: 72,
+        },
+        {
+          ...serverItem,
+          id: "less-feedback-heat",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 118,
+          sourceName: "Market Heat",
+          sourceScore: 72,
+          title: "Less feedback story still has market heat",
+          trendScore: 94,
+        },
+        {
+          ...olderItem,
+          id: "similar-reader-trust",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 112,
+          sourceName: "Primary Lab",
+          sourceScore: 91,
+          title: "Similar readers rejected this trusted source story",
+          trendScore: 70,
+        },
+      ],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: ["local-source"],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      storiesPerSlice: 2,
+    });
+
+    expect(recipe.metrics).toContainEqual({
+      label: "Reader signals",
+      value: "1",
+    });
+    expect(recipe.metrics).toContainEqual({
+      label: "Trend heat",
+      value: "1",
+    });
+    expect(recipe.metrics).toContainEqual({
+      label: "Source trust",
+      value: "1",
+    });
+    expect(recipe.summary).toBe(
+      "3 stories: 1 reader-led, 1 trend-led, and 1 source-trust.",
     );
   });
 
@@ -12942,6 +16184,134 @@ describe("getNewsRankingPipeline", () => {
     });
   });
 
+  it("normalizes source variants before counting ranking pipeline diversity guardrails", () => {
+    const pipeline = getNewsRankingPipeline({
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "openai-ranking-lead",
+          entities: ["OpenAI"],
+          matchedSignals: [],
+          personalizedScore: 120,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI ranking lead",
+          trendScore: 80,
+        },
+        {
+          ...serverItem,
+          id: "openai-ranking-follow",
+          entities: ["Anthropic"],
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "OpenAI News",
+          sourceSlug: " OpenAI-News ",
+          title: "OpenAI ranking follow-up",
+          trendScore: 78,
+        },
+      ],
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(pipeline.metrics).toEqual([
+      { label: "Candidates", value: "2" },
+      { label: "Personalized", value: "0" },
+      { label: "Explore", value: "0" },
+      { label: "Guardrails", value: "1" },
+    ]);
+    expect(pipeline.stages[0]?.detail).toBe(
+      "Pulls 2 candidate stories from 1 source before ranking.",
+    );
+    expect(pipeline.stages[2]?.signals).toEqual([
+      "0 exploration stories",
+      "1 unique source",
+      "1 adjacent source repeat",
+      "0 adjacent entity repeats",
+    ]);
+    expect(pipeline.summary).toBe(
+      "Ranker processed 2 candidates into a Balanced feed with 0 personalized stories, 0 exploration stories, and 1 guardrail.",
+    );
+  });
+
+  it("does not count guardrail and edition signals as personalized ranking items", () => {
+    const pipeline = getNewsRankingPipeline({
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "reader-fit",
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+          title: "Reader category fit leads the feed",
+          trendScore: 76,
+        },
+        {
+          ...serverItem,
+          entities: ["Anthropic"],
+          id: "verified-coverage",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 128,
+          sourceName: "Model Lab",
+          sourceSlug: "model-lab",
+          title: "Independent coverage confirms the launch",
+          trendScore: 88,
+        },
+        {
+          ...olderItem,
+          entities: ["Mistral"],
+          id: "daypart-story",
+          matchedSignals: ["daypart"],
+          personalizedScore: 124,
+          sourceName: "Morning Wire",
+          sourceSlug: "morning-wire",
+          title: "Morning timing lifts this story",
+          trendScore: 82,
+        },
+        {
+          ...olderItem,
+          entities: ["Rumor"],
+          id: "less-feedback-story",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 102,
+          sourceName: "Rumor Feed",
+          sourceSlug: "rumor-feed",
+          title: "Less feedback keeps this story guarded",
+          trendScore: 79,
+        },
+      ],
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(pipeline.metrics).toContainEqual({
+      label: "Personalized",
+      value: "1",
+    });
+    expect(pipeline.stages[1]?.signals).toEqual([
+      "Reader category fit leads the feed",
+      "Independent coverage confirms the launch",
+    ]);
+    expect(pipeline.summary).toBe(
+      "Ranker processed 4 candidates into a Balanced feed with 1 personalized story, 0 exploration stories, and 0 guardrails.",
+    );
+  });
+
   it("keeps the ranking pipeline visible for an empty feed", () => {
     expect(
       getNewsRankingPipeline({
@@ -13160,6 +16530,83 @@ describe("getNewsExplorationSlots", () => {
         "Exploration slots will appear after stories outside the profile are available.",
     });
   });
+
+  it("keeps verified outside-profile stories eligible while excluding Less feedback guardrails", () => {
+    expect(
+      getNewsExplorationSlots({
+        formatCategory: (category) =>
+          category === "policy"
+            ? "Policy"
+            : category === "hot_take"
+              ? "Hot Takes"
+              : "Models",
+        items: [
+          {
+            ...localItem,
+            matchedSignals: ["category"],
+            personalizedScore: 160,
+            title: "Profile model story",
+            trendScore: 76,
+          },
+          {
+            ...serverItem,
+            id: "verified-policy",
+            category: "policy",
+            entities: ["Regulators"],
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 120,
+            sourceName: "Policy Desk",
+            sourceScore: 91,
+            sourceSlug: "policy-desk",
+            title: "Verified policy story outside profile",
+            trendScore: 92,
+          },
+          {
+            ...olderItem,
+            id: "less-feedback-rumor",
+            category: "hot_take",
+            entities: ["Rumor"],
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 119,
+            sourceName: "Rumor Feed",
+            sourceScore: 80,
+            sourceSlug: "rumor-feed",
+            title: "Less feedback story should stay out",
+            trendScore: 97,
+          },
+        ],
+        limit: 3,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: ["local-source"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      label: "Discovery Slots",
+      metrics: [
+        { label: "Candidates", value: "1" },
+        { label: "New topics", value: "1" },
+        { label: "New sources", value: "1" },
+        { label: "Guarded", value: "0" },
+      ],
+      slots: [
+        {
+          id: "verified-policy",
+          reason: "Trusted heat",
+          scoreLabel: "209 discovery",
+          signal: "Policy",
+          sourceName: "Policy Desk",
+          title: "Verified policy story outside profile",
+        },
+      ],
+      summary:
+        "1 exploration slot open 1 topic and 1 source beyond the current profile while guarding 0 negative signals.",
+    });
+  });
 });
 
 describe("getNewsDiscoveryLadder", () => {
@@ -13254,7 +16701,7 @@ describe("getNewsDiscoveryLadder", () => {
           label: "Explore Agents",
           reason:
             "Exploration signal opens an adjacent topic without replacing the profile.",
-          scoreLabel: "355 ladder",
+          scoreLabel: "343 ladder",
           sourceName: "Agent Desk",
           statusLabel: "Adjacent",
           title: "Agent workflow startup expands",
@@ -13275,6 +16722,50 @@ describe("getNewsDiscoveryLadder", () => {
       ],
       summary:
         "3 discovery rungs connect 1 followed topic with 2 expansion topics.",
+    });
+  });
+
+  it("does not treat guardrail and edition signals as discovery ladder reader signals", () => {
+    expect(
+      getNewsDiscoveryLadder({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "guarded-model-ladder",
+            matchedSignals: [
+              "negative_feedback",
+              "source_corroboration",
+              "daypart",
+            ],
+            personalizedScore: 100,
+            sourceScore: 70,
+            title: "Guarded model story stays in followed topic",
+            trendScore: 50,
+          },
+        ],
+        limit: 3,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }).rungs[0],
+    ).toEqual({
+      actionLabel: "Read next",
+      category: "model_release",
+      categoryLabel: "Models",
+      id: "guarded-model-ladder",
+      key: "model_release-guarded-model-ladder",
+      label: "Deepen Models",
+      reason: "Known topic is strong enough to deepen the profile.",
+      scoreLabel: "256 ladder",
+      sourceName: "Local Source",
+      statusLabel: "Following",
+      title: "Guarded model story stays in followed topic",
     });
   });
 
@@ -13910,6 +17401,114 @@ describe("getNewsRefreshSimulation", () => {
           sourceName: "Safety Lab",
           statusLabel: "Dampen",
           title: "Jailbreak story to reduce",
+        },
+      ],
+      summary:
+        "3 simulated refresh moves: 1 boost, 1 exploration, and 1 dampen.",
+    });
+  });
+
+  it("explores verified outside-profile stories while dampening Less feedback signals", () => {
+    expect(
+      getNewsRefreshSimulation({
+        formatCategory: (category) =>
+          category === "policy"
+            ? "Policy"
+            : category === "hot_take"
+              ? "Hot Takes"
+              : "Models",
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            matchedSignals: ["category"],
+            personalizedScore: 148,
+            title: "Profile model refresh candidate",
+            trendScore: 86,
+          },
+          {
+            ...serverItem,
+            id: "verified-policy",
+            category: "policy",
+            entities: ["Regulators"],
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 120,
+            sourceName: "Policy Desk",
+            sourceSlug: "policy-desk",
+            title: "Verified policy story outside profile",
+            trendScore: 92,
+          },
+          {
+            ...olderItem,
+            id: "less-feedback-rumor",
+            category: "hot_take",
+            entities: ["Rumor"],
+            matchedSignals: ["negative_feedback"],
+            personalizedScore: 119,
+            sourceName: "Rumor Feed",
+            sourceSlug: "rumor-feed",
+            title: "Less feedback story should dampen",
+            trendScore: 97,
+          },
+        ],
+        limit: 3,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1.2,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Refresh Simulation Ready",
+      metrics: [
+        { label: "Moves", value: "3" },
+        { label: "Boosts", value: "1" },
+        { label: "Explore", value: "1" },
+        { label: "Dampers", value: "1" },
+      ],
+      moves: [
+        {
+          actionLabel: "Raise weight",
+          category: "model_release",
+          categoryLabel: "Models",
+          deltaLabel: "+24 next",
+          id: "local-story",
+          key: "boost-local-story",
+          label: "Boost Models",
+          reason: "Reader profile keeps this story in the next refresh.",
+          sourceName: "Local Source",
+          statusLabel: "Boost",
+          title: "Profile model refresh candidate",
+        },
+        {
+          actionLabel: "Keep exploring",
+          category: "policy",
+          categoryLabel: "Policy",
+          deltaLabel: "+18 next",
+          id: "verified-policy",
+          key: "explore-verified-policy",
+          label: "Explore Policy",
+          reason: "Novelty bias leaves room for an adjacent topic test.",
+          sourceName: "Policy Desk",
+          statusLabel: "Explore",
+          title: "Verified policy story outside profile",
+        },
+        {
+          actionLabel: "Lower weight",
+          category: "hot_take",
+          categoryLabel: "Hot Takes",
+          deltaLabel: "-42 next",
+          id: "less-feedback-rumor",
+          key: "dampen-less-feedback-rumor",
+          label: "Dampen Hot Takes",
+          reason: "Less feedback already dampens this story.",
+          sourceName: "Rumor Feed",
+          statusLabel: "Dampen",
+          title: "Less feedback story should dampen",
         },
       ],
       summary:
@@ -14818,6 +18417,83 @@ describe("getNewsFilterBubbleReport", () => {
     });
   });
 
+  it("does not treat source slug variants as mixed-source entity lock", () => {
+    const report = getNewsFilterBubbleReport({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "research"
+            ? "Research"
+            : category === "funding"
+              ? "Funding"
+              : category,
+      items: [
+        {
+          ...localItem,
+          id: "openai-model-release",
+          matchedSignals: ["entity"],
+          personalizedScore: 150,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI ships a faster reasoning model",
+        },
+        {
+          ...localItem,
+          category: "model_release",
+          id: "openai-agent",
+          matchedSignals: ["entity"],
+          personalizedScore: 139,
+          sourceName: "OpenAI News Mirror",
+          sourceSlug: " openai-news ",
+          title: "OpenAI agent workflows roll into team plans",
+        },
+        {
+          ...localItem,
+          category: "model_release",
+          id: "openai-platform",
+          matchedSignals: ["entity"],
+          personalizedScore: 126,
+          sourceName: "OpenAI News",
+          sourceSlug: "OpenAI-News",
+          title: "OpenAI platform tooling gains safety hooks",
+        },
+        {
+          ...localItem,
+          category: "research",
+          entities: ["Mistral"],
+          id: "mistral-research",
+          matchedSignals: ["exploration"],
+          personalizedScore: 118,
+          sourceName: "Research Notes",
+          sourceSlug: "research-notes",
+          title: "Mistral publishes a new evaluation suite",
+        },
+        {
+          ...localItem,
+          category: "funding",
+          entities: ["Anthropic"],
+          id: "anthropic-funding",
+          matchedSignals: ["exploration"],
+          personalizedScore: 112,
+          sourceName: "Funding Desk",
+          sourceSlug: "funding-desk",
+          title: "Anthropic closes an enterprise expansion round",
+        },
+      ],
+      profile: {
+        ...localProfile,
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["OpenAI"],
+      },
+    });
+
+    expect(report.checks).not.toContainEqual(
+      expect.objectContaining({ label: "Entity lock" }),
+    );
+    expect(report.summary).not.toContain("dominating the entity mix");
+  });
+
   it("flags angle concentration even when sources and topics look broad", () => {
     const report = getNewsFilterBubbleReport({
       formatCategory: (category) =>
@@ -14916,6 +18592,94 @@ describe("getNewsFilterBubbleReport", () => {
     expect(report.summary).toBe(
       "Filter bubble risk is high: 3 profile-matched stories, 2 exploration stories, and 5 sources with prompt injection dominating the angle mix.",
     );
+  });
+
+  it("does not treat source slug variants as mixed-source angle lock", () => {
+    const report = getNewsFilterBubbleReport({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "research"
+            ? "Research"
+            : category === "market_map"
+              ? "Market Maps"
+              : category === "policy"
+                ? "Policy"
+                : category,
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "prompt-injection-security",
+          matchedSignals: ["tag"],
+          personalizedScore: 150,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection incident response expands",
+        },
+        {
+          ...localItem,
+          category: "research",
+          entities: ["Browser Agents"],
+          id: "prompt-injection-research",
+          matchedSignals: ["tag"],
+          personalizedScore: 142,
+          sourceName: "Security Desk Mirror",
+          sourceSlug: " security-desk ",
+          tags: ["prompt_injection"],
+          title: "Researchers benchmark prompt injection mitigations",
+        },
+        {
+          ...localItem,
+          category: "market_map",
+          entities: ["AI Market"],
+          id: "prompt-injection-market",
+          matchedSignals: ["tag"],
+          personalizedScore: 136,
+          sourceName: "Security Desk",
+          sourceSlug: "Security-Desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection vendors enter market maps",
+        },
+        {
+          ...localItem,
+          category: "policy",
+          entities: ["Policy Teams"],
+          id: "red-team-policy",
+          matchedSignals: ["exploration"],
+          personalizedScore: 128,
+          sourceName: "Policy Desk",
+          sourceSlug: "policy-desk",
+          tags: ["red_team"],
+          title: "Policy teams formalize red-team reporting",
+        },
+        {
+          ...localItem,
+          category: "research",
+          entities: ["Eval Teams"],
+          id: "evals-research",
+          matchedSignals: ["exploration"],
+          personalizedScore: 120,
+          sourceName: "Lab Notes",
+          sourceSlug: "lab-notes",
+          tags: ["evals"],
+          title: "Research teams update eval coverage",
+        },
+      ],
+      profile: {
+        ...localProfile,
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["prompt_injection"],
+      },
+    });
+
+    expect(report.checks).not.toContainEqual(
+      expect.objectContaining({ label: "Angle lock" }),
+    );
+    expect(report.summary).not.toContain("dominating the angle mix");
   });
 
   it("keeps the report empty while ranked stories are unavailable", () => {
@@ -15456,6 +19220,145 @@ describe("getNewsDistributionQueue", () => {
     });
   });
 
+  it("suppresses stories rejected by similar readers before active distribution", () => {
+    const queue = getNewsDistributionQueue({
+      hiddenItemIds: [],
+      items: [
+        {
+          ...localItem,
+          id: "collaborative-less-story",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 150,
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          title: "Similar readers rejected this model update",
+        },
+        {
+          ...serverItem,
+          id: "ordinary-market-story",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "Market Desk",
+          sourceSlug: "market-desk",
+          title: "Market map stays in the hold lane",
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+    });
+    const suppressQueue = queue.queues.find(
+      (bucket) => bucket.key === "suppress",
+    );
+
+    expect(queue.metrics).toContainEqual({ label: "Suppress", value: "1" });
+    expect(suppressQueue?.stories).toContainEqual({
+      id: "collaborative-less-story",
+      reason: "Similar-reader Less feedback",
+      scoreLabel: "150 score",
+      sourceName: "Model Wire",
+      title: "Similar readers rejected this model update",
+    });
+  });
+
+  it("suppresses stories rejected by the current reader before active distribution", () => {
+    const queue = getNewsDistributionQueue({
+      hiddenItemIds: [],
+      items: [
+        {
+          ...localItem,
+          id: "less-feedback-story",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 150,
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          title: "Reader asked for less of this model update",
+        },
+        {
+          ...serverItem,
+          id: "ordinary-market-story",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "Market Desk",
+          sourceSlug: "market-desk",
+          title: "Market map stays in the hold lane",
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+    });
+    const suppressQueue = queue.queues.find(
+      (bucket) => bucket.key === "suppress",
+    );
+
+    expect(queue.metrics).toContainEqual({ label: "Suppress", value: "1" });
+    expect(suppressQueue?.stories).toContainEqual({
+      id: "less-feedback-story",
+      reason: "Less feedback",
+      scoreLabel: "150 score",
+      sourceName: "Model Wire",
+      title: "Reader asked for less of this model update",
+    });
+  });
+
+  it("does not describe source corroboration as a reader boost signal", () => {
+    const queue = getNewsDistributionQueue({
+      hiddenItemIds: [],
+      items: [
+        {
+          ...localItem,
+          id: "corroborated-story",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 150,
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          title: "Independent coverage confirms this model update",
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+    });
+    const boostQueue = queue.queues.find((bucket) => bucket.key === "boost");
+
+    expect(boostQueue?.stories).toContainEqual({
+      id: "corroborated-story",
+      reason: "High recommendation score",
+      scoreLabel: "150 score",
+      sourceName: "Model Wire",
+      title: "Independent coverage confirms this model update",
+    });
+  });
+
+  it("does not boost low-score stories with only guardrail and edition signals", () => {
+    const queue = getNewsDistributionQueue({
+      hiddenItemIds: [],
+      items: [
+        {
+          ...localItem,
+          id: "verified-timed-story",
+          matchedSignals: ["source_corroboration", "daypart"],
+          personalizedScore: 120,
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          title: "Verified timed story should stay in hold",
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [],
+    });
+
+    const boostQueue = queue.queues.find((bucket) => bucket.key === "boost");
+    const holdQueue = queue.queues.find((bucket) => bucket.key === "hold");
+
+    expect(boostQueue?.stories).toEqual([]);
+    expect(holdQueue?.stories).toContainEqual({
+      id: "verified-timed-story",
+      reason: "Trend-led candidate",
+      scoreLabel: "120 score",
+      sourceName: "Model Wire",
+      title: "Verified timed story should stay in hold",
+    });
+  });
+
   it("keeps an explicit waiting distribution while ranked stories are unavailable", () => {
     expect(
       getNewsDistributionQueue({
@@ -15643,6 +19546,40 @@ describe("getNewsAlertRouting", () => {
     });
   });
 
+  it("explains high-trust immediate alerts from the current session separately from profile alerts", () => {
+    expect(
+      getNewsAlertRouting({
+        hiddenItemIds: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Workflow Agents"],
+            id: "session-intent-immediate-alert",
+            matchedSignals: ["session_intent"],
+            personalizedScore: 146,
+            sourceName: "Agent Desk",
+            sourceScore: 90,
+            sourceSlug: "agent-desk",
+            title: "Workflow agents warrant a live session alert",
+            trendScore: 88,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }).lanes[0]?.stories,
+    ).toEqual([
+      {
+        deliveryLabel: "Now",
+        id: "session-intent-immediate-alert",
+        reason: "High-trust current session alert",
+        scoreLabel: "146 score / 88 heat",
+        sourceName: "Agent Desk",
+        title: "Workflow agents warrant a live session alert",
+      },
+    ]);
+  });
+
   it("routes high-trust personalized stories into immediate, digest, watch, and muted alert lanes", () => {
     expect(
       getNewsAlertRouting({
@@ -15795,6 +19732,116 @@ describe("getNewsAlertRouting", () => {
       summary:
         "4 stories routed for alerts: 1 immediate, 1 digest, 1 watch, and 1 muted.",
     });
+  });
+
+  it("does not treat source corroboration as a reader alert signal", () => {
+    expect(
+      getNewsAlertRouting({
+        hiddenItemIds: [],
+        items: [
+          {
+            ...localItem,
+            id: "corroborated-alert-candidate",
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 150,
+            sourceName: "Model Wire",
+            sourceScore: 91,
+            sourceSlug: "model-wire",
+            title: "Independent model coverage confirms the same launch",
+            trendScore: 94,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }),
+    ).toEqual({
+      label: "Alert Router Ready",
+      lanes: [
+        {
+          count: 0,
+          key: "immediate",
+          label: "Immediate",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "High-trust, high-heat stories that match the reader profile.",
+        },
+        {
+          count: 1,
+          key: "digest",
+          label: "Digest",
+          shareLabel: "100%",
+          stories: [
+            {
+              deliveryLabel: "Next brief",
+              id: "corroborated-alert-candidate",
+              reason: "High-score digest",
+              scoreLabel: "150 score / 94 heat",
+              sourceName: "Model Wire",
+              title: "Independent model coverage confirms the same launch",
+            },
+          ],
+          summary: "Useful personalized stories that can wait for the brief.",
+        },
+        {
+          count: 0,
+          key: "watch",
+          label: "Watch",
+          shareLabel: "0%",
+          stories: [],
+          summary: "Noisy or exploratory stories held for verification.",
+        },
+        {
+          count: 0,
+          key: "muted",
+          label: "Muted",
+          shareLabel: "0%",
+          stories: [],
+          summary: "Stories blocked from alerts by reader feedback or trust.",
+        },
+      ],
+      metrics: [
+        { label: "Immediate", value: "0" },
+        { label: "Digest", value: "1" },
+        { label: "Watch", value: "0" },
+        { label: "Muted", value: "0" },
+      ],
+      summary:
+        "1 story routed for alerts: 0 immediate, 1 digest, 0 watch, and 0 muted.",
+    });
+  });
+
+  it("explains current session intent alert routes separately from profile alerts", () => {
+    expect(
+      getNewsAlertRouting({
+        hiddenItemIds: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            id: "session-intent-alert",
+            matchedSignals: ["session_intent"],
+            personalizedScore: 126,
+            sourceName: "Agent Desk",
+            sourceScore: 86,
+            sourceSlug: "agent-desk",
+            title: "Workflow agents match the current alert session",
+            trendScore: 82,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+      }).lanes[1]?.stories,
+    ).toEqual([
+      {
+        deliveryLabel: "Next brief",
+        id: "session-intent-alert",
+        reason: "Current session alert brief",
+        scoreLabel: "126 score / 82 heat",
+        sourceName: "Agent Desk",
+        title: "Workflow agents match the current alert session",
+      },
+    ]);
   });
 
   it("keeps alert routing cold before stories are ranked", () => {
@@ -15981,6 +20028,53 @@ describe("getNewsPersonalizedPushQueue", () => {
       summary:
         "3 stories queued for reader push: 2 now, 1 digest, 0 watch, and 0 muted.",
     });
+  });
+
+  it("explains high-trust push-now stories from the current session separately from profile matches", () => {
+    expect(
+      getNewsPersonalizedPushQueue({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Workflow Agents"],
+            id: "session-intent-push-now",
+            matchedSignals: ["session_intent"],
+            personalizedScore: 146,
+            sourceName: "Agent Desk",
+            sourceScore: 90,
+            sourceSlug: "agent-desk",
+            title: "Workflow agents warrant a live push",
+            trendScore: 88,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }).lanes[0]?.stories,
+    ).toEqual([
+      {
+        categoryLabel: "Agents",
+        deliveryLabel: "Push now",
+        id: "session-intent-push-now",
+        reason: "High-trust current session match",
+        scoreLabel: "146 score / 88 heat",
+        sourceName: "Agent Desk",
+        title: "Workflow agents warrant a live push",
+        triggerLabel: "session intent",
+      },
+    ]);
   });
 
   it("queues reader-facing pushes from profile, memory, exploration, and muted signals", () => {
@@ -16177,6 +20271,138 @@ describe("getNewsPersonalizedPushQueue", () => {
     });
   });
 
+  it("does not treat source corroboration as a reader push signal", () => {
+    expect(
+      getNewsPersonalizedPushQueue({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "corroborated-push-candidate",
+            category: "model_release",
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 150,
+            sourceName: "Model Wire",
+            sourceScore: 91,
+            sourceSlug: "model-wire",
+            title: "Independent model coverage confirms the same launch",
+            trendScore: 94,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Push Queue Ready",
+      lanes: [
+        {
+          count: 0,
+          key: "push_now",
+          label: "Push now",
+          shareLabel: "0%",
+          stories: [],
+          summary: "High-trust profile matches can trigger a live push.",
+        },
+        {
+          count: 1,
+          key: "digest",
+          label: "Next digest",
+          shareLabel: "100%",
+          stories: [
+            {
+              categoryLabel: "Models",
+              deliveryLabel: "Next digest",
+              id: "corroborated-push-candidate",
+              reason: "High-score recommendation can wait for the next brief",
+              scoreLabel: "150 score / 94 heat",
+              sourceName: "Model Wire",
+              title: "Independent model coverage confirms the same launch",
+              triggerLabel: "recommendation score",
+            },
+          ],
+          summary:
+            "Useful reader matches wait for the next personalized brief.",
+        },
+        {
+          count: 0,
+          key: "watch",
+          label: "Quiet watch",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Exploration and lower-intent stories stay visible without a push.",
+        },
+        {
+          count: 0,
+          key: "muted",
+          label: "Muted",
+          shareLabel: "0%",
+          stories: [],
+          summary: "Hidden or negatively matched stories never become pushes.",
+        },
+      ],
+      metrics: [
+        { label: "Now", value: "0" },
+        { label: "Digest", value: "1" },
+        { label: "Watch", value: "0" },
+        { label: "Muted", value: "0" },
+      ],
+      summary:
+        "1 story queued for reader push: 0 now, 1 digest, 0 watch, and 0 muted.",
+    });
+  });
+
+  it("explains current session intent pushes separately from durable profile matches", () => {
+    expect(
+      getNewsPersonalizedPushQueue({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            id: "session-intent-push",
+            matchedSignals: ["session_intent"],
+            personalizedScore: 128,
+            sourceName: "Agent Desk",
+            sourceScore: 86,
+            sourceSlug: "agent-desk",
+            title: "Workflow agents match the current session",
+            trendScore: 82,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }).lanes[1]?.stories,
+    ).toEqual([
+      {
+        categoryLabel: "Agents",
+        deliveryLabel: "Next digest",
+        id: "session-intent-push",
+        reason: "Current session interest can wait for the next brief",
+        scoreLabel: "128 score / 82 heat",
+        sourceName: "Agent Desk",
+        title: "Workflow agents match the current session",
+        triggerLabel: "session intent",
+      },
+    ]);
+  });
+
   it("keeps the personalized push queue cold before stories are ranked", () => {
     expect(
       getNewsPersonalizedPushQueue({
@@ -16339,6 +20565,138 @@ describe("getNewsChannelStrategy", () => {
     });
   });
 
+  it("does not count similar-reader Less feedback as profile-led channel coverage", () => {
+    const strategy = getNewsChannelStrategy({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "reader-match",
+          matchedSignals: ["category"],
+          personalizedScore: 142,
+        },
+        {
+          ...serverItem,
+          id: "collaborative-less-story",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 138,
+        },
+        {
+          ...olderItem,
+          id: "explore-story",
+          matchedSignals: ["exploration"],
+          personalizedScore: 104,
+        },
+        {
+          ...localItem,
+          id: "trend-story",
+          matchedSignals: [],
+          personalizedScore: 95,
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(strategy.metrics).toEqual([
+      { label: "Profile-led", value: "25%" },
+      { label: "Exploration", value: "25%" },
+      { label: "Trend-led", value: "50%" },
+      { label: "Active topics", value: "1" },
+    ]);
+    expect(strategy.summary).toBe(
+      "4 stories distributed across 3 AI channels: 1 profile-led, 1 exploration, and 2 trend-led.",
+    );
+  });
+
+  it("does not count Less feedback as profile-led channel coverage", () => {
+    const strategy = getNewsChannelStrategy({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "reader-match",
+          matchedSignals: ["category"],
+          personalizedScore: 142,
+        },
+        {
+          ...serverItem,
+          id: "less-feedback-story",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 138,
+        },
+        {
+          ...olderItem,
+          id: "explore-story",
+          matchedSignals: ["exploration"],
+          personalizedScore: 104,
+        },
+        {
+          ...localItem,
+          id: "trend-story",
+          matchedSignals: [],
+          personalizedScore: 95,
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(strategy.metrics).toEqual([
+      { label: "Profile-led", value: "25%" },
+      { label: "Exploration", value: "25%" },
+      { label: "Trend-led", value: "50%" },
+      { label: "Active topics", value: "1" },
+    ]);
+    expect(strategy.summary).toBe(
+      "4 stories distributed across 3 AI channels: 1 profile-led, 1 exploration, and 2 trend-led.",
+    );
+  });
+
+  it("does not count source corroboration as profile-led channel coverage", () => {
+    const strategy = getNewsChannelStrategy({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "reader-match",
+          matchedSignals: ["category"],
+          personalizedScore: 142,
+        },
+        {
+          ...serverItem,
+          id: "corroborated-story",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 138,
+        },
+        {
+          ...olderItem,
+          id: "explore-story",
+          matchedSignals: ["exploration"],
+          personalizedScore: 104,
+        },
+        {
+          ...localItem,
+          id: "trend-story",
+          matchedSignals: [],
+          personalizedScore: 95,
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(strategy.metrics).toEqual([
+      { label: "Profile-led", value: "25%" },
+      { label: "Exploration", value: "25%" },
+      { label: "Trend-led", value: "50%" },
+      { label: "Active topics", value: "1" },
+    ]);
+    expect(strategy.summary).toBe(
+      "4 stories distributed across 3 AI channels: 1 profile-led, 1 exploration, and 2 trend-led.",
+    );
+  });
+
   it("keeps the channel strategy useful before stories or reader signals exist", () => {
     expect(
       getNewsChannelStrategy({
@@ -16454,6 +20812,73 @@ describe("getNewsFeedbackCoach", () => {
       ],
       summary: "3 feedback actions can tune the next For You edition.",
     });
+  });
+
+  it("does not suggest strengthening stories protected by Less guardrails", () => {
+    const coach = getNewsFeedbackCoach({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "less-feedback-story",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 130,
+        },
+        {
+          ...serverItem,
+          id: "collaborative-less-story",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 126,
+        },
+        {
+          ...olderItem,
+          id: "share-candidate",
+          matchedSignals: [],
+          personalizedScore: 110,
+          sourceScore: 86,
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(coach.actions).toEqual([
+      {
+        action: "share",
+        buttonLabel: "Share",
+        label: "Boost signal",
+        reason:
+          "Share this Models story if it should strongly shape future editions.",
+        storyId: "share-candidate",
+        storyTitle: "Local trend fallback",
+      },
+    ]);
+  });
+
+  it("uses trimmed shared entities in feedback coaching reasons", () => {
+    const coach = getNewsFeedbackCoach({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          entities: [" OpenAI "],
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 142,
+        },
+      ],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(coach.actions[0]?.reason).toBe(
+      "Save this Models story to reinforce Local Source and OpenAI.",
+    );
   });
 
   it("keeps feedback coaching stable before ranked stories load", () => {
@@ -16705,6 +21130,86 @@ describe("getNewsChannelRail", () => {
     });
   });
 
+  it("normalizes channel category and source variants before building the rail", () => {
+    expect(
+      getNewsChannelRail({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        items: [
+          {
+            ...localItem,
+            id: "agent-channel-lead",
+            category: "agent_product",
+            entities: ["Agents"],
+            matchedSignals: ["category"],
+            personalizedScore: 148,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent memory tools lead the channel",
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            id: "agent-channel-follow",
+            category: " AGENT_PRODUCT ",
+            entities: ["Workflow"],
+            matchedSignals: ["category"],
+            personalizedScore: 132,
+            sourceName: "Agent Desk",
+            sourceSlug: " Agent-Desk ",
+            title: "Workflow agents extend the same channel",
+            trendScore: 86,
+          },
+        ],
+        limit: 3,
+        profile: {
+          ...localProfile,
+          preferredCategories: ["agent_product"],
+        },
+      }),
+    ).toEqual({
+      channels: [
+        {
+          key: "for_you",
+          label: "For You",
+          reason:
+            "Reader-ranked front page blends profile matches, exploration, and trend heat.",
+          scoreLabel: "148 lead score",
+          sourceCount: 1,
+          statusLabel: "Live",
+          storyCount: 2,
+          topStory: {
+            id: "agent-channel-lead",
+            sourceName: "Agent Desk",
+            title: "Agent memory tools lead the channel",
+          },
+        },
+        {
+          key: "agent_product",
+          label: "Agents",
+          reason: "2 stories match an active reader topic.",
+          scoreLabel: "2 stories / 88 heat",
+          sourceCount: 1,
+          statusLabel: "Following",
+          storyCount: 2,
+          topStory: {
+            id: "agent-channel-lead",
+            sourceName: "Agent Desk",
+            title: "Agent memory tools lead the channel",
+          },
+        },
+      ],
+      label: "Channel Rail Ready",
+      metrics: [
+        { label: "Channels", value: "2" },
+        { label: "Following", value: "1" },
+        { label: "Discover", value: "0" },
+        { label: "Sources", value: "1" },
+      ],
+      summary: "2 channels route 2 stories across 1 source.",
+    });
+  });
+
   it("keeps the channel rail waiting before stories are ranked", () => {
     expect(
       getNewsChannelRail({
@@ -16848,6 +21353,114 @@ describe("getNewsChannelComparison", () => {
     });
   });
 
+  it("does not describe similar-reader Less feedback as reader signals", () => {
+    const comparison = getNewsChannelComparison({
+      items: [
+        {
+          ...olderItem,
+          id: "collaborative-less-lead",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 155,
+          publishedAt: "2026-06-30T08:00:00.000Z",
+          sourceName: "Model Desk",
+          title: "Similar readers rejected this story",
+          trendScore: 70,
+        },
+        {
+          ...localItem,
+          id: "latest-lead",
+          matchedSignals: [],
+          personalizedScore: 90,
+          publishedAt: "2026-07-01T12:00:00.000Z",
+          sourceName: "Launch Feed",
+          title: "Fresh launch leads Latest",
+          trendScore: 65,
+        },
+      ],
+      limit: 2,
+    });
+
+    expect(comparison.channels[0]).toMatchObject({
+      key: "for_you",
+      lead: {
+        id: "collaborative-less-lead",
+      },
+      reason: "Similar-reader guardrail",
+    });
+  });
+
+  it("does not describe current-reader Less feedback as channel reader signals", () => {
+    const comparison = getNewsChannelComparison({
+      items: [
+        {
+          ...olderItem,
+          id: "less-feedback-lead",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 155,
+          publishedAt: "2026-06-30T08:00:00.000Z",
+          sourceName: "Model Desk",
+          title: "Reader asked for less like this",
+          trendScore: 70,
+        },
+        {
+          ...localItem,
+          id: "latest-lead",
+          matchedSignals: [],
+          personalizedScore: 90,
+          publishedAt: "2026-07-01T12:00:00.000Z",
+          sourceName: "Launch Feed",
+          title: "Fresh launch leads Latest",
+          trendScore: 65,
+        },
+      ],
+      limit: 2,
+    });
+
+    expect(comparison.channels[0]).toMatchObject({
+      key: "for_you",
+      lead: {
+        id: "less-feedback-lead",
+      },
+      reason: "Less feedback guardrail",
+    });
+  });
+
+  it("does not describe source corroboration as channel reader signals", () => {
+    const comparison = getNewsChannelComparison({
+      items: [
+        {
+          ...olderItem,
+          id: "corroborated-lead",
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 155,
+          publishedAt: "2026-06-30T08:00:00.000Z",
+          sourceName: "Model Wire",
+          title: "Independent coverage confirms the launch",
+          trendScore: 70,
+        },
+        {
+          ...localItem,
+          id: "latest-lead",
+          matchedSignals: [],
+          personalizedScore: 90,
+          publishedAt: "2026-07-01T12:00:00.000Z",
+          sourceName: "Launch Feed",
+          title: "Fresh launch leads Latest",
+          trendScore: 65,
+        },
+      ],
+      limit: 2,
+    });
+
+    expect(comparison.channels[0]).toMatchObject({
+      key: "for_you",
+      lead: {
+        id: "corroborated-lead",
+      },
+      reason: "Personalized score",
+    });
+  });
+
   it("returns a stable empty comparison before stories load", () => {
     expect(getNewsChannelComparison({ items: [], limit: 3 })).toEqual({
       channels: [],
@@ -16985,6 +21598,92 @@ describe("getNewsEditionQualityGate", () => {
     });
   });
 
+  it("does not count Less guardrails as reader-fit quality matches", () => {
+    const gate = getNewsEditionQualityGate({
+      formatCategory: (category) => category,
+      items: [
+        {
+          ...localItem,
+          id: "less-quality-story",
+          matchedSignals: ["negative_feedback"],
+          personalizedScore: 150,
+          sourceSlug: "model-desk",
+        },
+        {
+          ...serverItem,
+          id: "collaborative-less-quality-story",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 140,
+          sourceSlug: "venturewire",
+        },
+      ],
+      negativeFeedbackItems: [],
+      profile: localProfile,
+    });
+
+    expect(
+      gate.checks.find((check) => check.key === "reader_fit"),
+    ).toMatchObject({
+      action: "Tune reader signals",
+      detail: "No ranked story currently carries reader profile signals.",
+      evidenceLabel: "0 profile matches",
+      status: "watch",
+    });
+  });
+
+  it("normalizes source variants before checking edition source spread", () => {
+    const gate = getNewsEditionQualityGate({
+      formatCategory: (category) => category,
+      items: [
+        {
+          ...localItem,
+          id: "quality-openai-lead",
+          matchedSignals: ["category"],
+          personalizedScore: 168,
+          sourceName: "OpenAI News",
+          sourceScore: 94,
+          sourceSlug: "openai-news",
+          trendScore: 96,
+        },
+        {
+          ...serverItem,
+          id: "quality-openai-follow",
+          matchedSignals: ["entity"],
+          personalizedScore: 132,
+          sourceName: "OpenAI News",
+          sourceScore: 90,
+          sourceSlug: " OpenAI-News ",
+          trendScore: 81,
+        },
+        {
+          ...olderItem,
+          id: "quality-agent-source",
+          matchedSignals: ["exploration"],
+          personalizedScore: 119,
+          sourceName: "Agent Scout",
+          sourceScore: 86,
+          sourceSlug: "agent-scout",
+          trendScore: 88,
+        },
+      ],
+      negativeFeedbackItems: [],
+      profile: localProfile,
+    });
+
+    expect(gate.checks.find((check) => check.key === "source_mix")).toEqual({
+      action: "Add source variety",
+      detail: "2 sources are not enough for a broad edition.",
+      evidenceLabel: "2 sources",
+      key: "source_mix",
+      label: "Source mix",
+      status: "watch",
+    });
+    expect(gate.metrics).toContainEqual({ label: "Sources", value: "2" });
+    expect(gate.summary).toBe(
+      "3 checks passed with 2 watch items and 0 blockers across 2 sources.",
+    );
+  });
+
   it("blocks the edition quality gate before ranked stories arrive", () => {
     expect(
       getNewsEditionQualityGate({
@@ -17070,6 +21769,44 @@ describe("getNewsSourceBalance", () => {
         ],
       }).concentration,
     ).toBe("Concentrated");
+  });
+
+  it("collapses padded source slug variants before measuring source balance", () => {
+    expect(
+      getNewsSourceBalance({
+        items: [
+          {
+            ...localItem,
+            id: "openai-canonical",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+          },
+          {
+            ...localItem,
+            id: "openai-padded",
+            sourceName: "OpenAI News Mirror",
+            sourceSlug: " openai-news ",
+          },
+          {
+            ...localItem,
+            id: "venture-story",
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+          },
+        ],
+      }),
+    ).toEqual({
+      concentration: "Concentrated",
+      dominantSource: {
+        count: 2,
+        name: "OpenAI News",
+        percentage: 67,
+        slug: "openai-news",
+      },
+      summary: "2 sources represented; OpenAI News leads with 67%.",
+      totalCount: 3,
+      uniqueSourceCount: 2,
+    });
   });
 
   it("returns a stable empty source balance", () => {
@@ -17704,32 +22441,32 @@ describe("selectSourceCorroboratedNewsHomeItems", () => {
 
 describe("selectNewsHomeExposureRecords", () => {
   it("records bounded home exposures for unseen live feed items", () => {
-    expect(
-      selectNewsHomeExposureRecords({
-        feedMode: "for_you",
-        isPreview: false,
-        items: [
-          {
-            ...serverItem,
-            matchedSignals: ["category"],
-            personalizedScore: 140,
-          },
-          {
-            ...localItem,
-            matchedSignals: ["entity"],
-            personalizedScore: 130,
-          },
-          {
-            ...olderItem,
-            matchedSignals: [],
-            personalizedScore: 120,
-          },
-        ],
-        limit: 2,
-        recordedItems: [],
-        visitorKey: "visitor-test-123",
-      }),
-    ).toEqual([
+    const records = selectNewsHomeExposureRecords({
+      feedMode: "for_you",
+      isPreview: false,
+      items: [
+        {
+          ...serverItem,
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+        },
+        {
+          ...localItem,
+          matchedSignals: ["entity"],
+          personalizedScore: 130,
+        },
+        {
+          ...olderItem,
+          matchedSignals: [],
+          personalizedScore: 120,
+        },
+      ],
+      limit: 2,
+      recordedItems: [],
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(records).toEqual([
       {
         action: "view",
         metadata: {
@@ -17759,6 +22496,9 @@ describe("selectNewsHomeExposureRecords", () => {
         visitorKey: "visitor-test-123",
       },
     ]);
+    expect(records[0]?.metadata.matchedSignals).toEqual(["category"]);
+    expect(records[0]?.metadata.personalizedScore).toBe(140);
+    expect(records[0]?.metadata.rankSlot).toBe(0);
   });
 
   it("skips preview sessions, missing visitors, and already exposed URL variants", () => {
@@ -17912,12 +22652,14 @@ describe("selectNewsHomePositiveFeedbackAnchors", () => {
         historyItems: [
           {
             ...olderItem,
+            canonicalUrl: "https://example.com/news/read-history",
             viewedAt: "2026-07-01T08:00:00.000Z",
           },
         ],
         savedItems: [
           {
             ...serverItem,
+            canonicalUrl: "https://example.com/news/saved-story",
             savedAt: "2026-07-01T09:00:00.000Z",
           },
         ],
@@ -17948,6 +22690,7 @@ describe("selectNewsHomePositiveFeedbackAnchors", () => {
         historyItems: [
           {
             ...olderItem,
+            canonicalUrl: "https://example.com/news/read-prompt-injection",
             tags: ["prompt-injection"],
             viewedAt: "2026-07-01T08:00:00.000Z",
           },
@@ -17955,6 +22698,7 @@ describe("selectNewsHomePositiveFeedbackAnchors", () => {
         savedItems: [
           {
             ...serverItem,
+            canonicalUrl: "https://example.com/news/saved-prompt-injection",
             savedAt: "2026-07-01T09:00:00.000Z",
             tags: ["prompt_injection"],
           },
@@ -17971,24 +22715,203 @@ describe("selectNewsHomePositiveFeedbackAnchors", () => {
       }),
     ]);
   });
+
+  it("does not double-count the same saved story as explicit and saved feedback", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [
+          {
+            ...localItem,
+            action: "save",
+            occurredAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+        historyItems: [],
+        savedItems: [
+          {
+            ...localItem,
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "save",
+        occurredAt: "2026-07-01T10:00:00.000Z",
+        sourceSlug: localItem.sourceSlug,
+      }),
+    ]);
+  });
+
+  it("keeps a shared explicit anchor over weaker saved memory for the same story", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            occurredAt: "2026-07-01T10:15:00.000Z",
+          },
+        ],
+        historyItems: [],
+        savedItems: [
+          {
+            ...localItem,
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "share",
+        occurredAt: "2026-07-01T10:15:00.000Z",
+        sourceSlug: localItem.sourceSlug,
+      }),
+    ]);
+  });
+
+  it("dedupes URL variants before anchoring local For You feedback", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            canonicalUrl: "https://www.example.com/news/openai-model#share",
+            id: "shared-model",
+            occurredAt: "2026-07-01T10:15:00.000Z",
+          },
+        ],
+        historyItems: [],
+        savedItems: [
+          {
+            ...localItem,
+            id: "saved-model",
+            originalUrl: "https://example.com/news/openai-model?utm=saved",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "share",
+        id: "shared-model",
+        occurredAt: "2026-07-01T10:15:00.000Z",
+      }),
+    ]);
+  });
+
+  it("excludes positive anchors for stories with active Less guardrails", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            occurredAt: "2026-07-01T10:15:00.000Z",
+          },
+        ],
+        historyItems: [
+          {
+            ...localItem,
+            viewedAt: "2026-07-01T09:45:00.000Z",
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            hiddenAt: "2026-07-01T10:20:00.000Z",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("excludes URL-variant positive anchors for stories with active Less guardrails", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            canonicalUrl: "https://www.example.com/news/openai-model#share",
+            id: "shared-model",
+            occurredAt: "2026-07-01T10:15:00.000Z",
+          },
+        ],
+        historyItems: [],
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            hiddenAt: "2026-07-01T10:20:00.000Z",
+            id: "hidden-model",
+            originalUrl: "https://example.com/news/openai-model?utm=less",
+          },
+        ],
+        savedItems: [],
+      }),
+    ).toEqual([]);
+  });
+
+  it("preserves saved and read URL metadata for local For You anchors", () => {
+    expect(
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: [],
+        historyItems: [
+          {
+            ...olderItem,
+            canonicalUrl: "https://example.com/news/read-agent",
+            originalUrl: "https://source.example/news/read-agent?utm=history",
+            viewedAt: "2026-07-01T08:00:00.000Z",
+          },
+        ],
+        savedItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/saved-agent",
+            originalUrl: "https://source.example/news/saved-agent?utm=saved",
+            savedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        action: "save",
+        canonicalUrl: "https://example.com/news/saved-agent",
+        originalUrl: "https://source.example/news/saved-agent?utm=saved",
+      }),
+      expect.objectContaining({
+        action: undefined,
+        canonicalUrl: "https://example.com/news/read-agent",
+        originalUrl: "https://source.example/news/read-agent?utm=history",
+      }),
+    ]);
+  });
 });
 
 describe("mergeNewsHomePositiveFeedbackItems", () => {
   it("upgrades a saved story to a stronger shared feedback anchor", () => {
-    const merged = mergeNewsHomePositiveFeedbackItems({
-      currentItems: [
-        {
+    const merged =
+      mergeNewsHomePositiveFeedbackItems<NewsPositiveFeedbackMemoryItem>({
+        currentItems: [
+          {
+            ...localItem,
+            action: "save",
+            occurredAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+        nextItem: {
           ...localItem,
-          action: "save",
-          occurredAt: "2026-07-01T09:00:00.000Z",
+          action: "share",
+          occurredAt: "2026-07-01T09:05:00.000Z",
         },
-      ],
-      nextItem: {
-        ...localItem,
-        action: "share",
-        occurredAt: "2026-07-01T09:05:00.000Z",
-      },
-    });
+      });
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({
@@ -18020,6 +22943,292 @@ describe("mergeNewsHomePositiveFeedbackItems", () => {
       id: localItem.id,
       occurredAt: "2026-07-01T09:05:00.000Z",
     });
+  });
+
+  it("dedupes URL variants before storing positive feedback memory", () => {
+    const merged = mergeNewsHomePositiveFeedbackItems({
+      currentItems: [
+        {
+          ...localItem,
+          action: "save",
+          canonicalUrl: null,
+          id: "saved-model",
+          occurredAt: "2026-07-01T09:00:00.000Z",
+          originalUrl: "https://example.com/news/openai-model?utm=saved",
+        },
+      ],
+      nextItem: {
+        ...localItem,
+        action: "share",
+        canonicalUrl: "https://www.example.com/news/openai-model#share",
+        id: "shared-model",
+        occurredAt: "2026-07-01T09:05:00.000Z",
+      },
+    });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      action: "share",
+      id: "shared-model",
+      occurredAt: "2026-07-01T09:05:00.000Z",
+    });
+  });
+
+  it("compacts existing URL-variant positive feedback memory while storing stronger feedback", () => {
+    const merged =
+      mergeNewsHomePositiveFeedbackItems<NewsPositiveFeedbackMemoryItem>({
+        currentItems: [
+          {
+            ...localItem,
+            action: "save",
+            canonicalUrl: null,
+            id: "saved-model",
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            originalUrl: "https://example.com/news/openai-model?utm=saved",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            canonicalUrl: "https://www.example.com/news/openai-model#source",
+            id: "source-model",
+            occurredAt: "2026-07-01T09:02:00.000Z",
+          },
+        ],
+        nextItem: {
+          ...localItem,
+          action: "share",
+          canonicalUrl: "https://example.com/news/openai-model?utm=share",
+          id: "shared-model",
+          occurredAt: "2026-07-01T09:05:00.000Z",
+        },
+      });
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0]).toMatchObject({
+      action: "share",
+      id: "shared-model",
+      occurredAt: "2026-07-01T09:05:00.000Z",
+    });
+  });
+
+  it("keeps the newest explicit feedback anchors within the configured limit", () => {
+    const merged = mergeNewsHomePositiveFeedbackItems({
+      currentItems: [
+        {
+          ...localItem,
+          id: "old-share",
+          action: "share",
+          canonicalUrl: "https://example.com/news/old-share",
+          occurredAt: "2026-07-01T08:00:00.000Z",
+        },
+        {
+          ...localItem,
+          id: "recent-save",
+          action: "save",
+          canonicalUrl: "https://example.com/news/recent-save",
+          occurredAt: "2026-07-01T10:00:00.000Z",
+        },
+        {
+          ...localItem,
+          id: "recent-source",
+          action: "click_source",
+          canonicalUrl: "https://example.com/news/recent-source",
+          occurredAt: "2026-07-01T09:30:00.000Z",
+        },
+      ],
+      limit: 3,
+      nextItem: {
+        ...localItem,
+        id: "new-share",
+        action: "share",
+        canonicalUrl: "https://example.com/news/new-share",
+        occurredAt: "2026-07-01T10:30:00.000Z",
+      },
+    });
+
+    expect(merged.map((item) => item.id)).toEqual([
+      "new-share",
+      "recent-save",
+      "recent-source",
+    ]);
+  });
+});
+
+describe("selectCollaborativeSignalNewsHomeItems", () => {
+  it("lifts homepage stories that similar readers engaged with", () => {
+    const feed = selectCollaborativeSignalNewsHomeItems({
+      collaborativeSignals: [
+        {
+          newsItemId: "cohort-hit",
+          score: 6,
+        },
+      ],
+      items: [
+        {
+          ...localItem,
+          id: "direct-match",
+          matchedSignals: ["category"],
+          personalizedScore: 130,
+        },
+        {
+          ...localItem,
+          id: "generic-story",
+          matchedSignals: [],
+          personalizedScore: 124,
+        },
+        {
+          ...localItem,
+          id: "cohort-hit",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceScore: 86,
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "direct-match",
+      "cohort-hit",
+      "generic-story",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("collaborative_feedback");
+  });
+});
+
+describe("selectDaypartBalancedNewsHomeItems", () => {
+  it("lifts stories that match the reader local daypart", () => {
+    const feed = selectDaypartBalancedNewsHomeItems({
+      items: [
+        {
+          ...localItem,
+          category: "funding",
+          id: "funding-brief",
+          matchedSignals: [],
+          personalizedScore: 101,
+        },
+        {
+          ...localItem,
+          category: "research",
+          id: "morning-research",
+          matchedSignals: [],
+          personalizedScore: 96,
+          sourceScore: 86,
+        },
+      ],
+      now: new Date("2026-07-04T00:00:00.000Z"),
+      readerLocalHour: 8,
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "morning-research",
+      "funding-brief",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("daypart");
+  });
+});
+
+describe("removeNewsHomePositiveFeedbackItem", () => {
+  it("removes only the saved feedback anchor for one story", () => {
+    expect(
+      removeNewsHomePositiveFeedbackItem({
+        itemId: "saved-model",
+        items: [
+          {
+            ...localItem,
+            id: "saved-model",
+            action: "save",
+            occurredAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "saved-model",
+            action: "share",
+            occurredAt: "2026-07-01T10:10:00.000Z",
+          },
+          {
+            ...serverItem,
+            id: "saved-agent",
+            action: "save",
+            canonicalUrl: "https://example.com/news/saved-agent",
+            occurredAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => `${item.id}:${item.action}`),
+    ).toEqual(["saved-model:share", "saved-agent:save"]);
+  });
+
+  it("removes URL-variant saved feedback anchors for one story", () => {
+    expect(
+      removeNewsHomePositiveFeedbackItem({
+        itemId: "saved-model",
+        items: [
+          {
+            ...localItem,
+            action: "save",
+            canonicalUrl: "https://www.example.com/news/openai-model#saved",
+            id: "saved-model",
+            occurredAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...localItem,
+            action: "save",
+            canonicalUrl: null,
+            id: "saved-model-variant",
+            occurredAt: "2026-07-01T09:50:00.000Z",
+            originalUrl: "https://example.com/news/openai-model?utm=cache",
+          },
+          {
+            ...localItem,
+            action: "share",
+            canonicalUrl: "https://example.com/news/openai-model",
+            id: "shared-model",
+            occurredAt: "2026-07-01T10:10:00.000Z",
+          },
+          {
+            ...serverItem,
+            action: "save",
+            canonicalUrl: "https://example.com/news/saved-agent",
+            id: "saved-agent",
+            occurredAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => `${item.id}:${item.action}`),
+    ).toEqual(["shared-model:share", "saved-agent:save"]);
+  });
+
+  it("uses an explicit story URL reference when the exact saved feedback id is absent", () => {
+    expect(
+      removeNewsHomePositiveFeedbackItem({
+        item: {
+          canonicalUrl: "https://www.example.com/news/openai-model#article",
+        },
+        itemId: "article-model",
+        items: [
+          {
+            ...localItem,
+            action: "save",
+            canonicalUrl: null,
+            id: "saved-model-variant",
+            occurredAt: "2026-07-01T09:50:00.000Z",
+            originalUrl: "https://example.com/news/openai-model?utm=cache",
+          },
+          {
+            ...localItem,
+            action: "share",
+            canonicalUrl: "https://example.com/news/openai-model",
+            id: "shared-model",
+            occurredAt: "2026-07-01T10:10:00.000Z",
+          },
+          {
+            ...serverItem,
+            action: "save",
+            canonicalUrl: "https://example.com/news/saved-agent",
+            id: "saved-agent",
+            occurredAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => `${item.id}:${item.action}`),
+    ).toEqual(["shared-model:share", "saved-agent:save"]);
   });
 });
 
@@ -18743,6 +23952,59 @@ describe("getNewsFeedFatigueReport", () => {
     });
   });
 
+  it("normalizes source and topic variants before reporting feed fatigue", () => {
+    expect(
+      getNewsFeedFatigueReport({
+        items: [
+          {
+            ...localItem,
+            id: "openai-model-lead",
+            category: "model_release",
+            entities: ["OpenAI"],
+            matchedSignals: ["category"],
+            personalizedScore: 180,
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+          },
+          {
+            ...serverItem,
+            id: "openai-model-follow",
+            category: " MODEL_RELEASE ",
+            entities: ["Anthropic"],
+            matchedSignals: ["source"],
+            personalizedScore: 170,
+            sourceName: "OpenAI News",
+            sourceSlug: " OpenAI-News ",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Watch",
+      metrics: [
+        { label: "Source repeats", value: "1" },
+        { label: "Topic repeats", value: "1" },
+        { label: "Entity repeats", value: "0" },
+        { label: "Longest source run", value: "2" },
+        { label: "Longest topic run", value: "2" },
+        { label: "Longest entity run", value: "1" },
+      ],
+      notices: [
+        {
+          detail:
+            "OpenAI News repeats across 2 adjacent stories before the next source appears.",
+          label: "Source fatigue",
+        },
+        {
+          detail:
+            "Models repeats across 2 adjacent stories before the next topic appears.",
+          label: "Topic fatigue",
+        },
+      ],
+      summary:
+        "2 stories checked for source, topic, and entity fatigue: 1 source repeat, 1 topic repeat, 0 entity repeats.",
+    });
+  });
+
   it("marks a balanced feed when adjacent fatigue is absent", () => {
     expect(
       getNewsFeedFatigueReport({
@@ -18892,6 +24154,106 @@ describe("mergeNewsHomeItems", () => {
   });
 });
 
+describe("getNewsHomeLoadMoreState", () => {
+  it("does not report more results when a personalized page only repeats visible stories", () => {
+    const state = getNewsHomeLoadMoreState({
+      currentVisibleItems: [localItem, serverItem],
+      loadedItems: [],
+      nextItems: [serverItem],
+    });
+
+    expect(state.hasNewVisibleItems).toBe(false);
+    expect(state.loadedItems.map((item) => item.id)).toEqual(["server-story"]);
+  });
+
+  it("reports more results when a loaded page adds a new visible story", () => {
+    const state = getNewsHomeLoadMoreState({
+      currentVisibleItems: [localItem, serverItem],
+      loadedItems: [serverItem],
+      nextItems: [
+        serverItem,
+        {
+          ...olderItem,
+          canonicalUrl: "https://example.com/older-story",
+          originalUrl: "https://example.com/older-story",
+        },
+      ],
+    });
+
+    expect(state.hasNewVisibleItems).toBe(true);
+    expect(state.loadedItems.map((item) => item.id)).toEqual([
+      "server-story",
+      "older-story",
+    ]);
+  });
+});
+
+describe("getNewsHomePaginationResetKey", () => {
+  it("changes when the reader switches feed modes or active filters", () => {
+    const baseKey = getNewsHomePaginationResetKey({
+      category: null,
+      feedMode: "for_you",
+      query: "",
+      reviewHiddenAngleQuery: "",
+      sourceSlug: null,
+      tag: null,
+    });
+
+    expect(
+      getNewsHomePaginationResetKey({
+        category: null,
+        feedMode: "latest",
+        query: "",
+        reviewHiddenAngleQuery: "",
+        sourceSlug: null,
+        tag: null,
+      }),
+    ).not.toBe(baseKey);
+    expect(
+      getNewsHomePaginationResetKey({
+        category: null,
+        feedMode: "for_you",
+        query: "",
+        reviewHiddenAngleQuery: "",
+        sourceSlug: null,
+        tag: "agent workflow",
+      }),
+    ).not.toBe(baseKey);
+    expect(
+      getNewsHomePaginationResetKey({
+        category: "agent_product",
+        feedMode: "for_you",
+        query: "",
+        reviewHiddenAngleQuery: "",
+        sourceSlug: null,
+        tag: null,
+      }),
+    ).not.toBe(baseKey);
+  });
+
+  it("normalizes equivalent query and filter whitespace", () => {
+    expect(
+      getNewsHomePaginationResetKey({
+        category: null,
+        feedMode: "for_you",
+        query: "  Agent Workflow  ",
+        reviewHiddenAngleQuery: "  Agent Workflow ",
+        sourceSlug: " agent-desk ",
+        tag: " workflow automation ",
+      }),
+    ).toBe(
+      getNewsHomePaginationResetKey({
+        category: null,
+        feedMode: "for_you",
+        query: "Agent Workflow",
+        reviewHiddenAngleQuery: "Agent Workflow",
+        sourceSlug: "agent-desk",
+        tag: "workflow automation",
+      }),
+    );
+  });
+});
+
 describe("selectRelatedNewsHomeItems", () => {
   it("removes current article URL variants and deduplicates related stories", () => {
     expect(
@@ -19038,11 +24400,71 @@ describe("getNextNewsHomeCursor", () => {
   });
 });
 
+describe("getNextNewsHomeCursorState", () => {
+  it("keeps Latest pagination on the oldest visible timestamp", () => {
+    expect(
+      getNextNewsHomeCursorState({
+        items: [
+          { ...localItem, publishedAt: "2026-07-01T12:00:00.000Z" },
+          { ...serverItem, publishedAt: "2026-07-01T09:00:00.000Z" },
+          { ...olderItem, publishedAt: "2026-06-30T08:00:00.000Z" },
+        ],
+        mode: "latest",
+      }),
+    ).toEqual({
+      cursor: "2026-06-30T08:00:00.000Z",
+    });
+  });
+
+  it("keeps Trending pagination on the lowest heat tuple already loaded", () => {
+    expect(
+      getNextNewsHomeCursorState({
+        items: [
+          {
+            ...localItem,
+            id: "hot-newer",
+            publishedAt: "2026-07-01T12:00:00.000Z",
+            trendScore: 98,
+          },
+          {
+            ...serverItem,
+            id: "cooler-newer",
+            publishedAt: "2026-07-01T10:00:00.000Z",
+            trendScore: 82,
+          },
+          {
+            ...olderItem,
+            id: "cooler-older",
+            publishedAt: "2026-06-30T08:00:00.000Z",
+            trendScore: 82,
+          },
+        ],
+        mode: "trending",
+      }),
+    ).toEqual({
+      cursor: "2026-06-30T08:00:00.000Z",
+      cursorTrendScore: 82,
+    });
+  });
+
+  it("uses only a time cursor for personalized pagination", () => {
+    expect(
+      getNextNewsHomeCursorState({
+        items: [localItem, olderItem],
+        mode: "for_you",
+      }),
+    ).toEqual({
+      cursor: "2026-06-30T08:00:00.000Z",
+    });
+  });
+});
+
 describe("shouldAutoLoadMoreNewsHomeItems", () => {
   it("only auto-loads when the live feed end is visible and pagination is ready", () => {
     expect(
       shouldAutoLoadMoreNewsHomeItems({
         cursor: "2026-06-30T08:00:00.000Z",
+        feedMode: "for_you",
         hasMoreItems: true,
         isFeedEndVisible: true,
         isLoadingMore: false,
@@ -19055,6 +24477,7 @@ describe("shouldAutoLoadMoreNewsHomeItems", () => {
   it("does not auto-load for preview, exhausted, loading, anonymous, hidden, or empty-cursor states", () => {
     const readyState = {
       cursor: "2026-06-30T08:00:00.000Z",
+      feedMode: "for_you" as const,
       hasMoreItems: true,
       isFeedEndVisible: true,
       isLoadingMore: false,
@@ -19084,6 +24507,118 @@ describe("shouldAutoLoadMoreNewsHomeItems", () => {
       shouldAutoLoadMoreNewsHomeItems({ ...readyState, cursor: null }),
     ).toBe(false);
   });
+
+  it("auto-loads public channels without a reader key", () => {
+    const readyPublicState = {
+      cursor: "2026-06-30T08:00:00.000Z",
+      hasMoreItems: true,
+      isFeedEndVisible: true,
+      isLoadingMore: false,
+      isPreview: false,
+      visitorKey: null,
+    };
+
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({
+        ...readyPublicState,
+        feedMode: "latest",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({
+        ...readyPublicState,
+        feedMode: "trending",
+      }),
+    ).toBe(true);
+    expect(
+      shouldAutoLoadMoreNewsHomeItems({
+        ...readyPublicState,
+        feedMode: "for_you",
+      }),
+    ).toBe(false);
+  });
+
+  it("wires load-more gating through the active feed mode", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain("if (!cursor || !visitorKey) return;");
+    expect(source).toContain("if (!cursor) return;");
+    expect(source).toContain("feedMode,");
+  });
+});
+
+describe("shouldDisableNewsHomeLoadMoreButton", () => {
+  it("keeps public channel load-more buttons enabled without a reader key", () => {
+    const readyPublicButtonState = {
+      cursor: "2026-06-30T08:00:00.000Z",
+      hasMoreItems: true,
+      isLoadingMore: false,
+      visitorKey: null,
+    };
+
+    expect(
+      shouldDisableNewsHomeLoadMoreButton({
+        ...readyPublicButtonState,
+        feedMode: "latest",
+      }),
+    ).toBe(false);
+    expect(
+      shouldDisableNewsHomeLoadMoreButton({
+        ...readyPublicButtonState,
+        feedMode: "trending",
+      }),
+    ).toBe(false);
+    expect(
+      shouldDisableNewsHomeLoadMoreButton({
+        ...readyPublicButtonState,
+        feedMode: "for_you",
+      }),
+    ).toBe(true);
+  });
+
+  it("disables load-more buttons while loading, exhausted, or missing a cursor", () => {
+    const readyButtonState = {
+      cursor: "2026-06-30T08:00:00.000Z",
+      feedMode: "latest" as const,
+      hasMoreItems: true,
+      isLoadingMore: false,
+      visitorKey: null,
+    };
+
+    expect(
+      shouldDisableNewsHomeLoadMoreButton({
+        ...readyButtonState,
+        isLoadingMore: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableNewsHomeLoadMoreButton({
+        ...readyButtonState,
+        hasMoreItems: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldDisableNewsHomeLoadMoreButton({
+        ...readyButtonState,
+        cursor: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("wires the manual load-more button through the channel-aware helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).not.toContain(
+      "!visitorKey || !nextCursor || isLoadingMore || !hasMoreItems",
+    );
+    expect(source).toContain("shouldDisableNewsHomeLoadMoreButton({");
+  });
 });
 
 describe("shouldFetchServerRecommendations", () => {
@@ -19106,6 +24641,55 @@ describe("shouldFetchServerRecommendations", () => {
         visitorKey: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe("shouldFetchNewsHomePrimaryFeed", () => {
+  it("lets public channels fetch the first live page without a reader key", () => {
+    expect(
+      shouldFetchNewsHomePrimaryFeed({
+        feedMode: "for_you",
+        status: "ready",
+        visitorKey: null,
+      }),
+    ).toBe(false);
+    expect(
+      shouldFetchNewsHomePrimaryFeed({
+        feedMode: "latest",
+        status: "ready",
+        visitorKey: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldFetchNewsHomePrimaryFeed({
+        feedMode: "trending",
+        status: "ready",
+        visitorKey: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldFetchNewsHomePrimaryFeed({
+        feedMode: "latest",
+        status: "unavailable",
+        visitorKey: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("wires primary feed query enabling through the channel-aware helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("const primaryFeedEnabled =");
+    expect(source).toContain("shouldFetchNewsHomePrimaryFeed({");
+    expect(source).toContain(
+      'enabled: primaryFeedEnabled && primaryFeedRoute === "feed"',
+    );
+    expect(source).toContain(
+      'enabled: primaryFeedEnabled && primaryFeedRoute === "forYou"',
+    );
   });
 });
 
@@ -19147,6 +24731,29 @@ describe("getNewsHomeReaderMemoryResetCacheScopes", () => {
       "history",
       "guardrails",
     ]);
+  });
+});
+
+describe("NewsHome reader-memory removal mutations", () => {
+  it("writes the rollback server profile after saved and guardrail removals", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("onSuccess: async (serverProfile) =>");
+    expect(source).toMatch(
+      /const applyServerProfile = useCallback\([\s\S]*?stripPersistedNewsPreferenceProfile\(serverProfile\)[\s\S]*?setProfile\(nextProfile\)[\s\S]*?writeStoredProfile\(nextProfile\)/,
+    );
+    expect(source).toMatch(
+      /const removeSaved = useMutation\([\s\S]*?onSuccess: async \(serverProfile\)[\s\S]*?applyServerProfile\(serverProfile\)/,
+    );
+    expect(source).toMatch(
+      /const restoreGuardrail = useMutation\([\s\S]*?onSuccess: async \(serverProfile\)[\s\S]*?applyServerProfile\(serverProfile\)/,
+    );
+    expect(source).toMatch(
+      /const restoreGuardrail = useMutation\([\s\S]*?trpc\.news\.profile\.pathFilter\(\)/,
+    );
   });
 });
 
@@ -19637,6 +25244,52 @@ describe("getNewsStoryProofStrip", () => {
     });
   });
 
+  it("summarizes share-anchored recommendations as shared follow-ups", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["positive_feedback", "positive_share_feedback"],
+          personalizedScore: 142,
+          sourceScore: 86,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Shared follow-up" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "86" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Personalized from stories you shared, with 86 source trust and 73 story heat.",
+    });
+  });
+
+  it("summarizes read-anchored recommendations as read follow-ups", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["positive_feedback", "positive_read_feedback"],
+          personalizedScore: 128,
+          sourceScore: 86,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Read follow-up" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "86" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Personalized from stories you read, with 86 source trust and 73 story heat.",
+    });
+  });
+
   it("labels Less feedback as a guardrail instead of a positive reader match", () => {
     expect(
       getNewsStoryProofStrip({
@@ -19657,6 +25310,29 @@ describe("getNewsStoryProofStrip", () => {
       ],
       summary:
         "Dampened by Less feedback, but kept visible by 82 source trust and 73 story heat.",
+    });
+  });
+
+  it("labels similar-reader Less feedback as a crowd guardrail", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 62,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Crowd guardrail" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "82" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Dampened by similar-reader Less feedback, but kept visible by 82 source trust and 73 story heat.",
     });
   });
 });
@@ -19731,6 +25407,58 @@ describe("getNewsDeskStatusSummary", () => {
     });
   });
 
+  it("surfaces a partial refresh run instead of reporting a clean live edition", () => {
+    expect(
+      getNewsDeskStatusSummary({
+        health: "error",
+        activeSources: 8,
+        totalSources: 12,
+        publishedStories: 24,
+        latestPublishedAt: "2026-07-01T10:30:00.000Z",
+        latestRun: {
+          sourceName: "Active RSS refresh",
+          status: "partial",
+          runType: "rss",
+          startedAt: "2026-07-01T10:00:00.000Z",
+          finishedAt: "2026-07-01T10:02:00.000Z",
+          itemsSeen: 30,
+          itemsCreated: 8,
+          itemsUpdated: 12,
+          errorMessage: "3 sources failed",
+        },
+      }),
+    ).toEqual({
+      label: "Refresh partial",
+      detail: "Active RSS refresh partially completed: 3 sources failed",
+    });
+  });
+
+  it("labels source-free aggregate RSS runs as active refreshes", () => {
+    expect(
+      getNewsDeskStatusSummary({
+        health: "error",
+        activeSources: 8,
+        totalSources: 12,
+        publishedStories: 24,
+        latestPublishedAt: "2026-07-01T10:30:00.000Z",
+        latestRun: {
+          sourceName: null,
+          status: "partial",
+          runType: "rss",
+          startedAt: "2026-07-01T10:00:00.000Z",
+          finishedAt: "2026-07-01T10:02:00.000Z",
+          itemsSeen: 30,
+          itemsCreated: 8,
+          itemsUpdated: 12,
+          errorMessage: "3 sources failed",
+        },
+      }),
+    ).toEqual({
+      label: "Refresh partial",
+      detail: "Active RSS refresh partially completed: 3 sources failed",
+    });
+  });
+
   it("explains when the production schema is unavailable", () => {
     expect(
       getNewsDeskStatusSummary({
@@ -19790,8 +25518,67 @@ describe("getNewsDeskRunYieldLabel", () => {
   });
 });
 
+describe("getNewsDeskSourceHealthDiagnostics", () => {
+  it("summarizes failed and empty source diagnostics from aggregate refreshes", () => {
+    expect(
+      getNewsDeskSourceHealthDiagnostics({
+        sourceName: null,
+        status: "partial",
+        runType: "rss",
+        startedAt: "2026-07-01T10:00:00.000Z",
+        finishedAt: "2026-07-01T10:02:00.000Z",
+        itemsSeen: 30,
+        itemsCreated: 8,
+        itemsUpdated: 12,
+        errorMessage: "3 sources failed",
+        sourceHealth: {
+          emptySourceSlugs: ["google-ai-blog"],
+          failedSourceSlugs: ["anthropic-news", "mistral-news"],
+          failureMessages: {
+            "anthropic-news": "feed unavailable",
+            "mistral-news": "Feed request failed: 500",
+          },
+          healthySourceSlugs: ["openai-news", "deepmind-blog"],
+        },
+      }),
+    ).toEqual([
+      {
+        detail: "feed unavailable",
+        label: "anthropic-news",
+        state: "failed",
+      },
+      {
+        detail: "Feed request failed: 500",
+        label: "mistral-news",
+        state: "failed",
+      },
+      {
+        detail: "No items were collected in the latest refresh.",
+        label: "google-ai-blog",
+        state: "empty",
+      },
+    ]);
+  });
+
+  it("returns no diagnostics when the latest run has no source health payload", () => {
+    expect(
+      getNewsDeskSourceHealthDiagnostics({
+        sourceName: "OpenAI",
+        status: "succeeded",
+        runType: "rss",
+        startedAt: "2026-07-01T10:00:00.000Z",
+        finishedAt: "2026-07-01T10:01:00.000Z",
+        itemsSeen: 12,
+        itemsCreated: 4,
+        itemsUpdated: 8,
+        errorMessage: null,
+      }),
+    ).toEqual([]);
+  });
+});
+
 describe("getNewsProductionReadinessChecklist", () => {
-  it("keeps schema and source setup actionable while preview mode is serving", () => {
+  it("prioritizes refresh secret setup while preview mode is serving", () => {
     expect(
       getNewsProductionReadinessChecklist({
         refreshConfigured: false,
@@ -19806,6 +25593,11 @@ describe("getNewsProductionReadinessChecklist", () => {
       }),
     ).toEqual([
       {
+        detail: "Set NEWS_REFRESH_SECRET before scheduling refresh calls.",
+        label: "Protect refresh endpoint",
+        state: "current",
+      },
+      {
         detail:
           "Preview stories are serving now; apply the production news schema to unlock live collection.",
         label: "Apply database schema",
@@ -19817,13 +25609,13 @@ describe("getNewsProductionReadinessChecklist", () => {
         state: "pending",
       },
       {
-        detail: "Set NEWS_REFRESH_SECRET before scheduling refresh calls.",
-        label: "Protect refresh endpoint",
-        state: "current",
-      },
-      {
         detail: "Run news:refresh or news:refresh:remote after sources exist.",
         label: "Run first refresh",
+        state: "pending",
+      },
+      {
+        detail: "Generate embeddings after the first live refresh.",
+        label: "Generate embeddings",
         state: "pending",
       },
       {
@@ -19852,6 +25644,7 @@ describe("getNewsProductionReadinessChecklist", () => {
       ["Seed sources", "done"],
       ["Protect refresh endpoint", "done"],
       ["Run first refresh", "current"],
+      ["Generate embeddings", "pending"],
       ["Live stories", "pending"],
     ]);
   });
@@ -19863,10 +25656,12 @@ describe("getNewsProductionReadinessChecklist", () => {
         status: {
           health: "live",
           activeSources: 9,
+          embeddedStories: 42,
           totalSources: 12,
           publishedStories: 42,
           latestPublishedAt: "2026-07-01T10:30:00.000Z",
           latestRun: null,
+          unembeddedStories: 0,
         },
       }).map((item) => [item.label, item.state]),
     ).toEqual([
@@ -19874,7 +25669,30 @@ describe("getNewsProductionReadinessChecklist", () => {
       ["Seed sources", "done"],
       ["Protect refresh endpoint", "done"],
       ["Run first refresh", "done"],
+      ["Generate embeddings", "done"],
       ["Live stories", "done"],
+    ]);
+  });
+
+  it("keeps semantic personalization pending while live stories need embeddings", () => {
+    expect(
+      getNewsProductionReadinessChecklist({
+        refreshConfigured: true,
+        status: {
+          health: "live",
+          activeSources: 9,
+          embeddedStories: 12,
+          totalSources: 12,
+          publishedStories: 42,
+          latestPublishedAt: "2026-07-01T10:30:00.000Z",
+          latestRun: null,
+          unembeddedStories: 30,
+        },
+      }).map((item) => [item.label, item.state, item.detail]),
+    ).toContainEqual([
+      "Generate embeddings",
+      "current",
+      "30 published stories still need embeddings for semantic recommendations.",
     ]);
   });
 });
@@ -19946,6 +25764,28 @@ describe("buildNewsDeskStatus", () => {
           itemsCreated: 0,
           itemsUpdated: 0,
           errorMessage: "Feed request failed: 500",
+        },
+      }).health,
+    ).toBe("error");
+  });
+
+  it("marks the desk in error when the latest refresh only partially completed", () => {
+    expect(
+      buildNewsDeskStatus({
+        activeSources: 3,
+        totalSources: 4,
+        publishedStories: 12,
+        latestPublishedAt: "2026-07-01T10:30:00.000Z",
+        latestRun: {
+          sourceName: "Active RSS refresh",
+          status: "partial",
+          runType: "rss",
+          startedAt: "2026-07-01T10:00:00.000Z",
+          finishedAt: "2026-07-01T10:01:00.000Z",
+          itemsSeen: 16,
+          itemsCreated: 4,
+          itemsUpdated: 6,
+          errorMessage: "2 sources failed",
         },
       }).health,
     ).toBe("error");

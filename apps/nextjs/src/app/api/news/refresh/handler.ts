@@ -35,6 +35,9 @@ const readRequestSecret = (request: Request) => {
   );
 };
 
+const getNewsRefreshErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "Unknown news refresh failure";
+
 export const handleNewsRefreshRequest = async ({
   expectedSecret,
   refresh,
@@ -51,7 +54,16 @@ export const handleNewsRefreshRequest = async ({
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const result = await refresh();
+  let result: NewsRefreshSummary;
+
+  try {
+    result = await refresh();
+  } catch (error) {
+    return Response.json(
+      { error: getNewsRefreshErrorMessage(error), ok: false },
+      { status: 500 },
+    );
+  }
 
   return Response.json({
     ok: true,

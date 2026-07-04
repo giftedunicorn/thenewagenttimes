@@ -101,4 +101,26 @@ describe("handleNewsRefreshRequest", () => {
     });
     expect(refresh).toHaveBeenCalledOnce();
   });
+
+  it("returns structured JSON when the refresh job fails", async () => {
+    const refresh = vi.fn(() =>
+      Promise.reject(new Error("relation news_source does not exist")),
+    );
+
+    const response = await handleNewsRefreshRequest({
+      expectedSecret: "correct-secret-value",
+      refresh,
+      request: new Request("https://example.com/api/news/refresh", {
+        headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "relation news_source does not exist",
+      ok: false,
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
 });

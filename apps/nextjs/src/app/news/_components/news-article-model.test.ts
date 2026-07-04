@@ -1,9 +1,11 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
+  getNewsArticleGuardrailSignalState,
   getNewsArticleHeroVisual,
   getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
@@ -18,6 +20,7 @@ import {
   getNewsArticleReadingPath,
   getNewsArticleReadPercent,
   getNewsArticleReadTrainingReceipt,
+  getNewsArticleSaveSignalState,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
   getNewsArticleSourceUrl,
@@ -256,9 +259,11 @@ describe("getNewsArticleLocalHistoryItem", () => {
         viewedAt: "2026-07-01T09:30:00.000Z",
       }),
     ).toEqual({
+      canonicalUrl: "https://example.com/openai-agents",
       category: "model_release",
       entities: ["OpenAI", "Agents"],
       id: "article-openai-agents",
+      originalUrl: "https://source.example/openai-agents",
       sourceName: "OpenAI News",
       sourceSlug: "openai-news",
       title: "OpenAI releases a new agent stack",
@@ -275,14 +280,111 @@ describe("getNewsArticleLocalSavedItem", () => {
         savedAt: "2026-07-01T09:45:00.000Z",
       }),
     ).toEqual({
+      canonicalUrl: "https://example.com/openai-agents",
       category: "model_release",
       entities: ["OpenAI", "Agents"],
       id: "article-openai-agents",
+      originalUrl: "https://source.example/openai-agents",
       savedAt: "2026-07-01T09:45:00.000Z",
       sourceName: "OpenAI News",
       sourceSlug: "openai-news",
       tags: ["model", "agent"],
       title: "OpenAI releases a new agent stack",
+    });
+  });
+});
+
+describe("getNewsArticleSaveSignalState", () => {
+  it("switches the article save action into a remove action for saved stories", () => {
+    expect(
+      getNewsArticleSaveSignalState({
+        articleId: "article-openai-agents",
+        savedItems: [{ id: "other-story" }, { id: "article-openai-agents" }],
+      }),
+    ).toEqual({
+      isSaved: true,
+      label: "Remove saved signal",
+    });
+
+    expect(
+      getNewsArticleSaveSignalState({
+        articleId: "article-openai-agents",
+        savedItems: [{ id: "other-story" }],
+      }),
+    ).toEqual({
+      isSaved: false,
+      label: "Save signal",
+    });
+  });
+
+  it("switches the article save action into a remove action for saved URL variants", () => {
+    expect(
+      getNewsArticleSaveSignalState({
+        article,
+        articleId: "article-openai-agents",
+        savedItems: [
+          {
+            canonicalUrl: null,
+            id: "cached-openai-agents",
+            originalUrl: "https://example.com/openai-agents?utm=saved",
+          },
+        ],
+      }),
+    ).toEqual({
+      isSaved: true,
+      label: "Remove saved signal",
+    });
+  });
+});
+
+describe("getNewsArticleGuardrailSignalState", () => {
+  it("switches the article Less action into a restore action for guardrailed stories", () => {
+    expect(
+      getNewsArticleGuardrailSignalState({
+        articleId: "article-openai-agents",
+        guardrailItems: [
+          { id: "other-story" },
+          getNewsArticleLocalGuardrailItem({
+            article,
+            hiddenAt: "2026-07-01T10:00:00.000Z",
+          }),
+        ],
+      }),
+    ).toEqual({
+      isGuardrailed: true,
+      label: "Restore signal",
+    });
+
+    expect(
+      getNewsArticleGuardrailSignalState({
+        articleId: "article-openai-agents",
+        guardrailItems: [{ id: "other-story" }],
+      }),
+    ).toEqual({
+      isGuardrailed: false,
+      label: "Less like this",
+    });
+  });
+
+  it("switches the article Less action into a restore action for guardrailed URL variants", () => {
+    expect(
+      getNewsArticleGuardrailSignalState({
+        article: {
+          canonicalUrl: "https://example.com/openai-agents#article",
+          originalUrl: "https://source.example/openai-agents?utm=reader",
+        },
+        articleId: "article-url-variant",
+        guardrailItems: [
+          {
+            canonicalUrl: "https://www.example.com/openai-agents",
+            id: "cached-openai-agents",
+            originalUrl: "https://source.example/openai-agents",
+          },
+        ],
+      }),
+    ).toEqual({
+      isGuardrailed: true,
+      label: "Restore signal",
     });
   });
 });
@@ -295,11 +397,13 @@ describe("getNewsArticleLocalGuardrailItem", () => {
         hiddenAt: "2026-07-01T10:15:00.000Z",
       }),
     ).toEqual({
+      canonicalUrl: "https://example.com/openai-agents",
       category: "model_release",
       entities: ["OpenAI", "Agents"],
       hiddenAt: "2026-07-01T10:15:00.000Z",
       id: "article-openai-agents",
       occurredAt: "2026-07-01T10:15:00.000Z",
+      originalUrl: "https://source.example/openai-agents",
       sourceName: "OpenAI News",
       sourceSlug: "openai-news",
       tags: ["model", "agent"],
@@ -318,9 +422,11 @@ describe("getNewsArticleLocalMemoryItemForAction", () => {
       }),
     ).toEqual({
       item: {
+        canonicalUrl: "https://example.com/openai-agents",
         category: "model_release",
         entities: ["OpenAI", "Agents"],
         id: "article-openai-agents",
+        originalUrl: "https://source.example/openai-agents",
         savedAt: "2026-07-01T09:45:00.000Z",
         sourceName: "OpenAI News",
         sourceSlug: "openai-news",
@@ -338,11 +444,13 @@ describe("getNewsArticleLocalMemoryItemForAction", () => {
       }),
     ).toEqual({
       item: {
+        canonicalUrl: "https://example.com/openai-agents",
         category: "model_release",
         entities: ["OpenAI", "Agents"],
         hiddenAt: "2026-07-01T10:15:00.000Z",
         id: "article-openai-agents",
         occurredAt: "2026-07-01T10:15:00.000Z",
+        originalUrl: "https://source.example/openai-agents",
         sourceName: "OpenAI News",
         sourceSlug: "openai-news",
         tags: ["model", "agent"],
@@ -352,14 +460,29 @@ describe("getNewsArticleLocalMemoryItemForAction", () => {
     });
   });
 
-  it("does not create local collection entries for share or source clicks", () => {
+  it("maps article Share and Source actions into local positive feedback memory", () => {
     expect(
       getNewsArticleLocalMemoryItemForAction({
         action: "share",
         article,
         occurredAt: "2026-07-01T09:45:00.000Z",
       }),
-    ).toBeNull();
+    ).toEqual({
+      item: {
+        action: "share",
+        canonicalUrl: "https://example.com/openai-agents",
+        category: "model_release",
+        entities: ["OpenAI", "Agents"],
+        id: "article-openai-agents",
+        occurredAt: "2026-07-01T09:45:00.000Z",
+        originalUrl: "https://source.example/openai-agents",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        tags: ["model", "agent"],
+        title: "OpenAI releases a new agent stack",
+      },
+      storage: "positive",
+    });
 
     expect(
       getNewsArticleLocalMemoryItemForAction({
@@ -367,7 +490,22 @@ describe("getNewsArticleLocalMemoryItemForAction", () => {
         article,
         occurredAt: "2026-07-01T09:45:00.000Z",
       }),
-    ).toBeNull();
+    ).toEqual({
+      item: {
+        action: "click_source",
+        canonicalUrl: "https://example.com/openai-agents",
+        category: "model_release",
+        entities: ["OpenAI", "Agents"],
+        id: "article-openai-agents",
+        occurredAt: "2026-07-01T09:45:00.000Z",
+        originalUrl: "https://source.example/openai-agents",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        tags: ["model", "agent"],
+        title: "OpenAI releases a new agent stack",
+      },
+      storage: "positive",
+    });
   });
 });
 
@@ -523,7 +661,46 @@ describe("getNewsArticleReaderSignalCacheScopes", () => {
       "profile",
       "saved",
       "history",
+      "guardrails",
     ]);
+  });
+});
+
+describe("NewsArticle guardrail restore mutation", () => {
+  it("writes the rollback server profile after restoring article Less feedback", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("trpc.news.restoreGuardrail.mutationOptions");
+    expect(source).toMatch(
+      /const restoreGuardrail = useMutation\([\s\S]*?onSuccess: async \(serverProfile\)[\s\S]*?stripPersistedNewsPreferenceProfile\(serverProfile\)[\s\S]*?setProfile\(nextProfile\)[\s\S]*?writeStoredProfile\(nextProfile\)/,
+    );
+    expect(source).toContain("getNewsArticleGuardrailSignalState");
+    expect(source).toContain("restoreGuardrailSignal");
+  });
+});
+
+describe("NewsArticle persisted reader memory hydration", () => {
+  it("hydrates Save and Less button state from server reader memory", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("trpc.news.saved.queryOptions");
+    expect(source).toContain("trpc.news.guardrails.queryOptions");
+    expect(source).toContain("const serverSavedItems =");
+    expect(source).toContain("const serverGuardrailItems =");
+    expect(source).toContain("selectActiveNewsSavedItems");
+    expect(source).toContain("selectActiveNewsGuardrailItems");
+    expect(source).toMatch(
+      /getNewsArticleSaveSignalState\({[\s\S]*?savedItems,[\s\S]*?}\)/,
+    );
+    expect(source).toMatch(
+      /getNewsArticleGuardrailSignalState\({[\s\S]*?guardrailItems,[\s\S]*?}\)/,
+    );
   });
 });
 
@@ -669,6 +846,64 @@ describe("getNewsArticleReadingPath", () => {
         title: "Security teams expand AI evals",
       },
     ]);
+  });
+
+  it("normalizes source and topic variants in the article reading path", () => {
+    expect(
+      getNewsArticleReadingPath({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "padded-source-topic-follow-up",
+            title: "OpenAI publishes a model follow-up",
+            category: " MODEL_RELEASE ",
+            tags: ["funding"],
+            entities: ["Anthropic"],
+            personalizedScore: 116,
+            sourceName: "OpenAI News",
+            sourceSlug: " OPENAI-NEWS ",
+          },
+        ],
+      }).recommendations,
+    ).toEqual([
+      {
+        id: "padded-source-topic-follow-up",
+        reason: "Same topic",
+        signalCount: 2,
+        scoreLabel: "2 signals / 116 score",
+        title: "OpenAI publishes a model follow-up",
+      },
+    ]);
+  });
+
+  it("does not use source corroboration as an article reader signal", () => {
+    expect(
+      getNewsArticleReadingPath({
+        article,
+        formatCategory: (category) => category,
+        limit: 2,
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "corroborated-no-overlap",
+            category: "funding",
+            entities: ["YC"],
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 140,
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+            tags: ["funding"],
+            title: "Independent coverage confirms a funding claim",
+          },
+        ],
+      }),
+    ).toMatchObject({
+      recommendations: [],
+      summary: "Reading path will appear as related stories load.",
+    });
   });
 
   it("keeps the article context useful when no related stories are available", () => {
@@ -915,6 +1150,150 @@ describe("getNewsArticleNextReads", () => {
         },
       ],
       summary: "2 next reads: 1 continue, 1 explore, and 0 verify.",
+    });
+  });
+
+  it("does not count source corroboration as a next-read signal", () => {
+    expect(
+      getNewsArticleNextReads({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1.4,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "corroborated-next-read",
+            category: "funding",
+            entities: ["YC"],
+            matchedSignals: ["source_corroboration"],
+            personalizedScore: 130,
+            sourceName: "VentureWire",
+            sourceScore: 84,
+            sourceSlug: "venturewire",
+            tags: ["funding"],
+            title: "Independent coverage confirms a funding claim",
+            trendScore: 94,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Candidates", value: "1" },
+        { label: "Continue", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Verify", value: "1" },
+      ],
+      reads: [
+        {
+          id: "corroborated-next-read",
+          reason: "High heat needs source check",
+          scoreLabel: "0 signals / 130 score",
+          statusLabel: "Verify",
+        },
+      ],
+    });
+  });
+
+  it("routes source trust guardrails into the verify lane", () => {
+    expect(
+      getNewsArticleNextReads({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1.4,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "source-review-next-read",
+            category: "funding",
+            entities: ["YC"],
+            matchedSignals: ["source_trust"],
+            personalizedScore: 130,
+            sourceName: "Rumor Desk",
+            sourceScore: 84,
+            sourceSlug: "rumor-desk",
+            tags: ["funding"],
+            title: "A source review story needs verification",
+            trendScore: 72,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Candidates", value: "1" },
+        { label: "Continue", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Verify", value: "1" },
+      ],
+      reads: [
+        {
+          id: "source-review-next-read",
+          reason: "Source needs review",
+          scoreLabel: "0 signals / 130 score",
+          statusLabel: "Verify",
+        },
+      ],
+    });
+  });
+
+  it("normalizes source and topic variants before assigning next-read lanes", () => {
+    expect(
+      getNewsArticleNextReads({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 1,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1.4,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "padded-source-topic-next-read",
+            title: "OpenAI model release gets an update",
+            category: " MODEL_RELEASE ",
+            tags: ["funding"],
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 118,
+            sourceName: "OpenAI News",
+            sourceScore: 84,
+            sourceSlug: " OPENAI-NEWS ",
+            trendScore: 84,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Candidates", value: "1" },
+        { label: "Continue", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Verify", value: "0" },
+      ],
+      reads: [
+        {
+          id: "padded-source-topic-next-read",
+          reason: "Same topic",
+          scoreLabel: "2 signals / 118 score",
+          statusLabel: "Continue",
+        },
+      ],
     });
   });
 
@@ -1263,19 +1642,26 @@ describe("getNewsArticleLearningImpact", () => {
           signalLabel: "+1 signal",
         },
         {
+          action: "click_source",
+          biasLabel: "+0.6 bias",
+          detail: "Source would add OpenAI News to the reader profile.",
+          label: "Source",
+          signalLabel: "+1 signal",
+        },
+        {
           action: "hide",
           biasLabel: "-0.4 bias",
-          detail:
-            "Less would remove Models, OpenAI, Agents from this reader profile.",
+          detail: "Less would remove OpenAI, Agents from this reader profile.",
           label: "Less",
-          signalLabel: "-3 signals",
+          signalLabel: "-2 signals",
         },
       ],
       label: "Learning Active",
       metrics: [
         { label: "Article memory", value: "3" },
         { label: "Save adds", value: "+1" },
-        { label: "Less removes", value: "-3" },
+        { label: "Source adds", value: "+1" },
+        { label: "Less removes", value: "-2" },
         { label: "Next candidates", value: "2" },
       ],
       nextStories: [
@@ -1339,6 +1725,13 @@ describe("getNewsArticleLearningImpact", () => {
           signalLabel: "+4 signals",
         },
         {
+          action: "click_source",
+          biasLabel: "+0.6 bias",
+          detail: "Source would add OpenAI News to the reader profile.",
+          label: "Source",
+          signalLabel: "+1 signal",
+        },
+        {
           action: "hide",
           biasLabel: "-0.4 bias",
           detail: "Less would only dampen ranking bias until a signal exists.",
@@ -1350,6 +1743,7 @@ describe("getNewsArticleLearningImpact", () => {
       metrics: [
         { label: "Article memory", value: "0" },
         { label: "Save adds", value: "+4" },
+        { label: "Source adds", value: "+1" },
         { label: "Less removes", value: "0" },
         { label: "Next candidates", value: "0" },
       ],
@@ -1537,6 +1931,23 @@ describe("getNewsArticleSourceUrl", () => {
         ...article,
         canonicalUrl: "   ",
         originalUrl: "   ",
+      }),
+    ).toBeNull();
+  });
+
+  it("rejects unsafe article source URL protocols", () => {
+    expect(
+      getNewsArticleSourceUrl({
+        ...article,
+        canonicalUrl: "javascript:alert(1)",
+        originalUrl: "https://source.example/openai-agents",
+      }),
+    ).toBe("https://source.example/openai-agents");
+    expect(
+      getNewsArticleSourceUrl({
+        ...article,
+        canonicalUrl: "data:text/html,unsafe",
+        originalUrl: "mailto:tips@example.com",
       }),
     ).toBeNull();
   });

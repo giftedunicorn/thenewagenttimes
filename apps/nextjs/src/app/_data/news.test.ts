@@ -1,10 +1,87 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildNewsHomeCandidateOrderByExpressions,
   buildRelatedNewsCondition,
+  getNewsHomeData,
   getNewsRunSkipDiagnosticsFromMetadata,
   shouldReadNewsArticleFromDatabase,
 } from "./news";
+
+const newsDbMock = vi.hoisted(() => {
+  interface QueryResult {
+    reject?: Error;
+    resolve?: unknown;
+  }
+
+  const queuedResults: QueryResult[] = [];
+
+  class MockNewsQuery implements PromiseLike<unknown> {
+    constructor(private readonly result: QueryResult) {}
+
+    from() {
+      return this;
+    }
+
+    innerJoin() {
+      return this;
+    }
+
+    leftJoin() {
+      return this;
+    }
+
+    limit() {
+      return this;
+    }
+
+    orderBy() {
+      return this;
+    }
+
+    where() {
+      return this;
+    }
+
+    then<TResult1 = unknown, TResult2 = never>(
+      onfulfilled?:
+        | ((value: unknown) => PromiseLike<TResult1> | TResult1)
+        | null,
+      onrejected?:
+        | ((reason: unknown) => PromiseLike<TResult2> | TResult2)
+        | null,
+    ) {
+      const promise = this.result.reject
+        ? Promise.reject(this.result.reject)
+        : Promise.resolve(this.result.resolve);
+
+      return promise.then(onfulfilled, onrejected);
+    }
+  }
+
+  return {
+    queueResults: (...results: QueryResult[]) => {
+      queuedResults.push(...results);
+    },
+    reset: () => {
+      queuedResults.length = 0;
+    },
+    select: vi.fn(
+      () =>
+        new MockNewsQuery(
+          queuedResults.shift() ?? {
+            reject: new Error("missing news_source table"),
+          },
+        ),
+    ),
+  };
+});
+
+vi.mock("@acme/db/client", () => ({
+  db: {
+    select: newsDbMock.select,
+  },
+}));
 
 interface SqlDebugChunk {
   name?: unknown;
@@ -50,12 +127,93 @@ describe("buildRelatedNewsCondition", () => {
   });
 });
 
+describe("buildNewsHomeCandidateOrderByExpressions", () => {
+  it("recalls fresh homepage candidates before heat-only ordering", () => {
+    const orderText = buildNewsHomeCandidateOrderByExpressions()
+      .map(collectSqlDebugText)
+      .join(" ");
+
+    expect(orderText.indexOf("publishedAt")).toBeLessThan(
+      orderText.indexOf("trendScore"),
+    );
+  });
+});
+
 describe("shouldReadNewsArticleFromDatabase", () => {
   it("skips database article lookup for preview ids", () => {
     expect(shouldReadNewsArticleFromDatabase("preview-desk")).toBe(false);
     expect(
       shouldReadNewsArticleFromDatabase("7c8c33ef-4f20-4f78-93ea-9400c4023902"),
     ).toBe(true);
+  });
+});
+
+describe("getNewsHomeData", () => {
+  it("serves the preview edition while a connected database has no published stories", async () => {
+    newsDbMock.reset();
+    newsDbMock.queueResults(
+      { resolve: [] },
+      {
+        resolve: [
+          {
+            activeSources: 6,
+            totalSources: 8,
+          },
+        ],
+      },
+      {
+        resolve: [
+          {
+            embeddedStories: 0,
+            latestPublishedAt: null,
+            publishedStories: 0,
+            unembeddedStories: 0,
+          },
+        ],
+      },
+      { resolve: [] },
+    );
+
+    const data = await getNewsHomeData();
+
+    expect(data.status).toBe("empty");
+    expect(data.deskStatus.health).toBe("seeded");
+    expect(data.deskStatus.activeSources).toBe(6);
+    expect(data.items).toHaveLength(12);
+    expect(data.items[0]?.id).toBe("preview-model-shift");
+  });
+
+  it("serves the preview edition without reporting a console error", async () => {
+    newsDbMock.reset();
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    const data = await getNewsHomeData();
+
+    expect(data.status).toBe("unavailable");
+    expect(data.deskStatus.health).toBe("unavailable");
+    expect(data.deskStatus.publishedStories).toBe(0);
+    expect(
+      data.items.some(
+        (item) =>
+          item.id === "preview-model-shift" &&
+          item.title ===
+            "Model releases shift from benchmark wins to agent reliability",
+      ),
+    ).toBe(true);
+
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Unable to load news homepage data",
+      "missing news_source table",
+    );
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });
 
@@ -78,6 +236,30 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
         future: 1,
         irrelevant: 2,
         stale: 1,
+      },
+    });
+  });
+
+  it("extracts persisted aggregate source health diagnostics from run metadata", () => {
+    expect(
+      getNewsRunSkipDiagnosticsFromMetadata({
+        sourceHealth: {
+          emptySourceSlugs: ["google-ai-blog"],
+          failedSourceSlugs: ["anthropic-news"],
+          failureMessages: {
+            "anthropic-news": "feed unavailable",
+          },
+          healthySourceSlugs: ["openai-news", "deepmind-blog"],
+        },
+      }),
+    ).toMatchObject({
+      sourceHealth: {
+        emptySourceSlugs: ["google-ai-blog"],
+        failedSourceSlugs: ["anthropic-news"],
+        failureMessages: {
+          "anthropic-news": "feed unavailable",
+        },
+        healthySourceSlugs: ["openai-news", "deepmind-blog"],
       },
     });
   });

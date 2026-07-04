@@ -18,14 +18,23 @@ import {
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
 
-import type { NewsReaderMemoryItem } from "../../_components/news-home-model";
+import type {
+  NewsPositiveFeedbackMemoryItem,
+  NewsReaderMemoryItem,
+} from "../../_components/news-home-model";
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import type { NewsArticleReadMilestone } from "./news-article-model";
 import { useTRPC } from "~/trpc/react";
 import {
   createDefaultNewsPreferenceProfile,
+  mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
+  removeNewsHomePositiveFeedbackItem,
+  removeNewsReaderMemoryItem,
+  selectActiveNewsGuardrailItems,
+  selectActiveNewsSavedItems,
   selectHydratedNewsPreferenceProfile,
+  selectStoredNewsPositiveFeedbackItems,
   selectStoredNewsReaderMemoryItems,
   stripPersistedNewsPreferenceProfile,
 } from "../../_components/news-home-model";
@@ -33,17 +42,21 @@ import {
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
+  getNewsArticleGuardrailSignalState,
   getNewsArticleHeroVisual,
   getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
+  getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
   getNewsArticleLocalMemoryItemForAction,
+  getNewsArticleLocalSavedItem,
   getNewsArticleNextReads,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
   getNewsArticleReaderSignalCacheScopes,
   getNewsArticleReadingPath,
   getNewsArticleReadTrainingReceipt,
+  getNewsArticleSaveSignalState,
   getNewsArticleServerProfileAuditDisplay,
   getNewsArticleSourceLens,
   getNewsArticleSourceUrl,
@@ -63,6 +76,7 @@ const profileStorageKey = "new-ai-times-profile";
 const savedStorageKey = "new-ai-times-saved";
 const historyStorageKey = "new-ai-times-history";
 const guardrailStorageKey = "new-ai-times-guardrails";
+const positiveFeedbackStorageKey = "new-ai-times-positive-feedback";
 const visitorStorageKey = "new-ai-times-visitor-key";
 
 const categoryLabels: Record<string, string> = {
@@ -145,6 +159,16 @@ const readStoredMemoryItems = (storageKey: string) => {
   }
 };
 
+const writeStoredMemoryItems = ({
+  items,
+  storageKey,
+}: {
+  items: readonly NewsReaderMemoryItem[];
+  storageKey: string;
+}) => {
+  window.localStorage.setItem(storageKey, JSON.stringify(items));
+};
+
 const writeStoredMemoryItem = ({
   item,
   storageKey,
@@ -152,14 +176,54 @@ const writeStoredMemoryItem = ({
   item: NewsReaderMemoryItem;
   storageKey: string;
 }) => {
-  window.localStorage.setItem(
+  const nextItems = mergeNewsReaderMemoryItems({
+    localItems: [item],
+    serverItems: readStoredMemoryItems(storageKey),
+  });
+
+  writeStoredMemoryItems({
+    items: nextItems,
     storageKey,
+  });
+
+  return nextItems;
+};
+
+const readStoredPositiveFeedbackItems = () => {
+  if (typeof window === "undefined") return [];
+
+  const stored = window.localStorage.getItem(positiveFeedbackStorageKey);
+  if (!stored) return [];
+
+  try {
+    return selectStoredNewsPositiveFeedbackItems(JSON.parse(stored) as unknown);
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredPositiveFeedbackItem = ({
+  item,
+}: {
+  item: NewsPositiveFeedbackMemoryItem;
+}) => {
+  window.localStorage.setItem(
+    positiveFeedbackStorageKey,
     JSON.stringify(
-      mergeNewsReaderMemoryItems({
-        localItems: [item],
-        serverItems: readStoredMemoryItems(storageKey),
+      mergeNewsHomePositiveFeedbackItems({
+        currentItems: readStoredPositiveFeedbackItems(),
+        nextItem: item,
       }),
     ),
+  );
+};
+
+const writeStoredPositiveFeedbackItems = (
+  items: readonly NewsPositiveFeedbackMemoryItem[],
+) => {
+  window.localStorage.setItem(
+    positiveFeedbackStorageKey,
+    JSON.stringify(items),
   );
 };
 
@@ -222,6 +286,18 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     typeof getNewsArticleFeedbackLoop
   > | null>(null);
   const [visitorKey, setVisitorKey] = useState<string | null>(null);
+  const [localSavedItems, setLocalSavedItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
+  const [removedSavedItems, setRemovedSavedItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
+  const [localGuardrailItems, setLocalGuardrailItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
+  const [restoredGuardrailItems, setRestoredGuardrailItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
   const [readTrainingMilestones, setReadTrainingMilestones] = useState<
     NewsArticleReadMilestone[]
   >([]);
@@ -246,6 +322,18 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       { enabled: canPersistReaderSignals },
     ),
   );
+  const savedQuery = useQuery(
+    trpc.news.saved.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistReaderSignals && Boolean(visitorKey) },
+    ),
+  );
+  const guardrailsQuery = useQuery(
+    trpc.news.guardrails.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistReaderSignals && Boolean(visitorKey) },
+    ),
+  );
   const invalidateReaderSignalQueries = async () => {
     const invalidations = getNewsArticleReaderSignalCacheScopes().map(
       (scope) => {
@@ -261,6 +349,10 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           case "history":
             return queryClient.invalidateQueries(
               trpc.news.history.pathFilter(),
+            );
+          case "guardrails":
+            return queryClient.invalidateQueries(
+              trpc.news.guardrails.pathFilter(),
             );
         }
       },
@@ -282,9 +374,33 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       },
     }),
   );
+  const removeSaved = useMutation(
+    trpc.news.removeSaved.mutationOptions({
+      onSuccess: async (serverProfile) => {
+        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
+        setProfile(nextProfile);
+        writeStoredProfile(nextProfile);
+
+        await invalidateReaderSignalQueries();
+      },
+    }),
+  );
+  const restoreGuardrail = useMutation(
+    trpc.news.restoreGuardrail.mutationOptions({
+      onSuccess: async (serverProfile) => {
+        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
+        setProfile(nextProfile);
+        writeStoredProfile(nextProfile);
+
+        await invalidateReaderSignalQueries();
+      },
+    }),
+  );
 
   useEffect(() => {
     setProfile(readStoredProfile());
+    setLocalSavedItems(readStoredMemoryItems(savedStorageKey));
+    setLocalGuardrailItems(readStoredMemoryItems(guardrailStorageKey));
     setVisitorKey(readOrCreateVisitorKey());
   }, []);
 
@@ -535,6 +651,57 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   const serverProfileAudit = getNewsArticleServerProfileAuditDisplay(
     profileQuery.data?.audit,
   );
+  const serverSavedItems = useMemo(
+    () =>
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [],
+        removedSavedItems,
+        savedItems: savedQuery.data ?? [],
+      }),
+    [removedSavedItems, savedQuery.data],
+  );
+  const restoredGuardrailItemIds = useMemo(
+    () => restoredGuardrailItems.map((item) => item.id),
+    [restoredGuardrailItems],
+  );
+  const serverGuardrailItems = useMemo(
+    () =>
+      selectActiveNewsGuardrailItems({
+        guardrailItems: guardrailsQuery.data ?? [],
+        restoredItemIds: restoredGuardrailItemIds,
+        restoredItems: restoredGuardrailItems,
+      }),
+    [guardrailsQuery.data, restoredGuardrailItemIds, restoredGuardrailItems],
+  );
+  const activeLocalGuardrailItems = useMemo(
+    () =>
+      selectActiveNewsGuardrailItems({
+        guardrailItems: localGuardrailItems,
+        restoredItemIds: restoredGuardrailItemIds,
+        restoredItems: restoredGuardrailItems,
+      }),
+    [localGuardrailItems, restoredGuardrailItemIds, restoredGuardrailItems],
+  );
+  const guardrailItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        localItems: activeLocalGuardrailItems,
+        serverItems: serverGuardrailItems,
+      }),
+    [activeLocalGuardrailItems, serverGuardrailItems],
+  );
+  const savedItems = useMemo(() => {
+    const mergedSavedItems = mergeNewsReaderMemoryItems({
+      localItems: localSavedItems,
+      serverItems: serverSavedItems,
+    });
+
+    return selectActiveNewsSavedItems({
+      negativeFeedbackItems: guardrailItems,
+      removedSavedItems,
+      savedItems: mergedSavedItems,
+    });
+  }, [guardrailItems, localSavedItems, removedSavedItems, serverSavedItems]);
   const articleFeedbackLoop =
     feedbackLoop ??
     getNewsArticleFeedbackLoop({
@@ -550,6 +717,96 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     formatCategory,
   });
   const sourceUrl = getNewsArticleSourceUrl(article);
+  const saveSignalState = getNewsArticleSaveSignalState({
+    article,
+    articleId: article.id,
+    savedItems,
+  });
+  const guardrailSignalState = getNewsArticleGuardrailSignalState({
+    article,
+    articleId: article.id,
+    guardrailItems,
+  });
+
+  const removeSavedSignal = () => {
+    const savedMemoryItem = getNewsArticleLocalSavedItem({
+      article,
+      savedAt: new Date().toISOString(),
+    });
+
+    setRemovedSavedItems((current) =>
+      [
+        savedMemoryItem,
+        ...removeNewsReaderMemoryItem({
+          item: savedMemoryItem,
+          itemId: article.id,
+          items: current,
+        }),
+      ].slice(0, 12),
+    );
+    setLocalSavedItems((current) => {
+      const nextItems = removeNewsReaderMemoryItem({
+        item: savedMemoryItem,
+        itemId: article.id,
+        items: current,
+      });
+
+      writeStoredMemoryItems({
+        items: nextItems,
+        storageKey: savedStorageKey,
+      });
+
+      return nextItems;
+    });
+    writeStoredPositiveFeedbackItems(
+      removeNewsHomePositiveFeedbackItem({
+        item: savedMemoryItem,
+        itemId: article.id,
+        items: readStoredPositiveFeedbackItems(),
+      }),
+    );
+
+    if (canPersistReaderSignals && visitorKey) {
+      removeSaved.mutate({
+        visitorKey,
+        newsItemId: article.id,
+      });
+    }
+  };
+
+  const restoreGuardrailSignal = () => {
+    const guardrailMemoryItem = getNewsArticleLocalGuardrailItem({
+      article,
+      hiddenAt: new Date().toISOString(),
+    });
+
+    setRestoredGuardrailItems((current) =>
+      current.some((item) => item.id === guardrailMemoryItem.id)
+        ? current
+        : [guardrailMemoryItem, ...current].slice(0, 12),
+    );
+    setLocalGuardrailItems((current) => {
+      const nextItems = removeNewsReaderMemoryItem({
+        item: guardrailMemoryItem,
+        itemId: article.id,
+        items: current,
+      });
+
+      writeStoredMemoryItems({
+        items: nextItems,
+        storageKey: guardrailStorageKey,
+      });
+
+      return nextItems;
+    });
+
+    if (canPersistReaderSignals && visitorKey) {
+      restoreGuardrail.mutate({
+        visitorKey,
+        newsItemId: article.id,
+      });
+    }
+  };
 
   const recordAction = (action: ReaderInteractionAction) => {
     const occurredAt = new Date().toISOString();
@@ -575,13 +832,39 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     });
 
     if (localMemoryItem) {
-      writeStoredMemoryItem({
-        item: localMemoryItem.item,
-        storageKey:
-          localMemoryItem.storage === "saved"
-            ? savedStorageKey
-            : guardrailStorageKey,
-      });
+      if (localMemoryItem.storage === "positive") {
+        writeStoredPositiveFeedbackItem({ item: localMemoryItem.item });
+      } else {
+        const nextItems = writeStoredMemoryItem({
+          item: localMemoryItem.item,
+          storageKey:
+            localMemoryItem.storage === "saved"
+              ? savedStorageKey
+              : guardrailStorageKey,
+        });
+
+        if (localMemoryItem.storage === "saved") {
+          setRemovedSavedItems((current) =>
+            removeNewsReaderMemoryItem({
+              item: localMemoryItem.item,
+              itemId: article.id,
+              items: current,
+            }),
+          );
+          setLocalSavedItems(nextItems);
+        }
+
+        if (localMemoryItem.storage === "guardrail") {
+          setRestoredGuardrailItems((current) =>
+            removeNewsReaderMemoryItem({
+              item: localMemoryItem.item,
+              itemId: article.id,
+              items: current,
+            }),
+          );
+          setLocalGuardrailItems(nextItems);
+        }
+      }
     }
 
     if (canPersistReaderSignals && visitorKey) {
@@ -654,10 +937,19 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           <div className="mt-8 flex flex-wrap gap-3">
             <Button
               className="rounded-none"
+              disabled={saveSignalState.isSaved && removeSaved.isPending}
               type="button"
-              onClick={() => recordAction("save")}
+              variant={saveSignalState.isSaved ? "outline" : undefined}
+              onClick={() => {
+                if (saveSignalState.isSaved) {
+                  removeSavedSignal();
+                  return;
+                }
+
+                recordAction("save");
+              }}
             >
-              Save signal
+              {saveSignalState.label}
             </Button>
             <Button
               className="rounded-none"
@@ -669,11 +961,21 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             </Button>
             <Button
               className="rounded-none"
+              disabled={
+                guardrailSignalState.isGuardrailed && restoreGuardrail.isPending
+              }
               type="button"
               variant="outline"
-              onClick={() => recordAction("hide")}
+              onClick={() => {
+                if (guardrailSignalState.isGuardrailed) {
+                  restoreGuardrailSignal();
+                  return;
+                }
+
+                recordAction("hide");
+              }}
             >
-              Less like this
+              {guardrailSignalState.label}
             </Button>
             {sourceUrl ? (
               <Button asChild className="rounded-none" variant="outline">

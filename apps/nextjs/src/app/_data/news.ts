@@ -42,6 +42,12 @@ const uuidPattern =
 export const shouldReadNewsArticleFromDatabase = (id: string) =>
   uuidPattern.test(id);
 
+export const buildNewsHomeCandidateOrderByExpressions = () => [
+  desc(NewsItem.publishedAt),
+  desc(NewsItem.trendScore),
+  desc(NewsItem.sourceScore),
+];
+
 interface NewsHomeData {
   items: NewsHomeItem[];
   status: NewsHomeStatus;
@@ -72,11 +78,11 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
         .from(NewsItem)
         .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
         .where(eq(NewsItem.status, "published"))
-        .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
+        .orderBy(...buildNewsHomeCandidateOrderByExpressions())
         .limit(90),
       getNewsDeskStatus(),
     ]);
-    const items = selectInitialNewsHomeItems({
+    const liveItems = selectInitialNewsHomeItems({
       items: rows.map((row) => ({
         ...row,
         publishedAt: row.publishedAt.toISOString(),
@@ -85,12 +91,12 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
     });
 
     return {
-      items,
-      status: items.length > 0 ? "ready" : "empty",
+      items: liveItems.length > 0 ? liveItems : getPreviewNewsHomeItems(),
+      status: liveItems.length > 0 ? "ready" : "empty",
       deskStatus,
     };
   } catch (error: unknown) {
-    console.error(
+    console.warn(
       "Unable to load news homepage data",
       error instanceof Error ? error.message : String(error),
     );
@@ -134,6 +140,49 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const getMetadataNumber = (metadata: Record<string, unknown>, key: string) =>
   typeof metadata[key] === "number" ? metadata[key] : 0;
 
+const getMetadataStringArray = (
+  metadata: Record<string, unknown>,
+  key: string,
+) =>
+  Array.isArray(metadata[key])
+    ? metadata[key].filter(
+        (value): value is string => typeof value === "string",
+      )
+    : [];
+
+const getMetadataStringRecord = (
+  metadata: Record<string, unknown>,
+  key: string,
+) =>
+  isRecord(metadata[key])
+    ? Object.fromEntries(
+        Object.entries(metadata[key]).filter(
+          (entry): entry is [string, string] => typeof entry[1] === "string",
+        ),
+      )
+    : {};
+
+const getNewsRunSourceHealthFromMetadata = (
+  metadata: Record<string, unknown>,
+) => {
+  if (!isRecord(metadata.sourceHealth)) return undefined;
+
+  const sourceHealth = metadata.sourceHealth;
+
+  return {
+    emptySourceSlugs: getMetadataStringArray(sourceHealth, "emptySourceSlugs"),
+    failedSourceSlugs: getMetadataStringArray(
+      sourceHealth,
+      "failedSourceSlugs",
+    ),
+    failureMessages: getMetadataStringRecord(sourceHealth, "failureMessages"),
+    healthySourceSlugs: getMetadataStringArray(
+      sourceHealth,
+      "healthySourceSlugs",
+    ),
+  };
+};
+
 export const getNewsRunSkipDiagnosticsFromMetadata = (metadata: unknown) => {
   if (!isRecord(metadata)) {
     return {
@@ -145,6 +194,7 @@ export const getNewsRunSkipDiagnosticsFromMetadata = (metadata: unknown) => {
   const skippedByReasonMetadata = isRecord(metadata.skippedByReason)
     ? metadata.skippedByReason
     : {};
+  const sourceHealth = getNewsRunSourceHealthFromMetadata(metadata);
 
   return {
     itemsSkipped: getMetadataNumber(metadata, "itemsSkipped"),
@@ -154,6 +204,7 @@ export const getNewsRunSkipDiagnosticsFromMetadata = (metadata: unknown) => {
       irrelevant: getMetadataNumber(skippedByReasonMetadata, "irrelevant"),
       stale: getMetadataNumber(skippedByReasonMetadata, "stale"),
     },
+    ...(sourceHealth ? { sourceHealth } : {}),
   };
 };
 
@@ -168,6 +219,8 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
     db
       .select({
         publishedStories: sql<number>`count(*)::int`,
+        embeddedStories: sql<number>`count(*) filter (where ${NewsItem.embeddingStatus} = 'embedded')::int`,
+        unembeddedStories: sql<number>`count(*) filter (where ${NewsItem.embeddingStatus} <> 'embedded')::int`,
         latestPublishedAt: sql<Date | null>`max(${NewsItem.publishedAt})`,
       })
       .from(NewsItem)
@@ -196,8 +249,10 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
 
   return buildNewsDeskStatus({
     activeSources: sourceCount?.activeSources ?? 0,
+    embeddedStories: itemCount?.embeddedStories ?? 0,
     totalSources: sourceCount?.totalSources ?? 0,
     publishedStories: itemCount?.publishedStories ?? 0,
+    unembeddedStories: itemCount?.unembeddedStories ?? 0,
     latestPublishedAt: itemCount?.latestPublishedAt?.toISOString() ?? null,
     latestRun: latestRun
       ? (() => {

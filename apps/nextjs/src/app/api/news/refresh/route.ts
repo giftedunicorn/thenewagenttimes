@@ -1,7 +1,4 @@
-import {
-  createDbNewsRepository,
-  refreshActiveRssSources,
-} from "@acme/ingestion";
+import { createDbNewsRepository, refreshNewsSources } from "@acme/ingestion";
 
 import { env } from "~/env";
 import { handleNewsRefreshRequest } from "./handler";
@@ -12,7 +9,7 @@ export const POST = (request: Request) =>
   handleNewsRefreshRequest({
     expectedSecret: env.NEWS_REFRESH_SECRET,
     refresh: () =>
-      refreshActiveRssSources({
+      refreshNewsSources({
         repository: createDbNewsRepository(),
       }),
     request,

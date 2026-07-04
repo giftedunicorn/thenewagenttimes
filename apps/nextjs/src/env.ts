@@ -17,6 +17,8 @@ export const env = createEnv({
    */
   server: {
     NEWS_REFRESH_SECRET: z.string().min(16).optional(),
+    OPENAI_API_KEY: z.string().min(1).optional(),
+    OPENAI_EMBEDDING_MODEL: z.string().min(1).optional(),
     POSTGRES_URL: z.url(),
     RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
   },

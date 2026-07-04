@@ -33,16 +33,21 @@ import type {
   NewsFeedMode,
   NewsHomeItem,
   NewsHomeStatus,
+  NewsHomeStoryActionCommand,
+  NewsPositiveFeedbackMemoryItem,
   NewsPreferenceBiasAction,
   NewsPreferenceProfileTrainingAction,
   NewsReaderMemoryItem,
+  PersistedNewsPreferenceProfile,
 } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
   applyNewsStoryQuickTuneAction,
   buildNewsHomeFeedInput,
   buildNewsHomeInteractionMetadata,
+  buildNewsHomeLoadMoreFeedInput,
   buildNewsHomeReaderInteraction,
+  buildNewsHomeSessionIntentFilter,
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
   getNewsAlertRouting,
@@ -57,6 +62,7 @@ import {
   getNewsContinuationRail,
   getNewsCoverageThreads,
   getNewsDeskRunYieldLabel,
+  getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
   getNewsDistributionQueue,
@@ -80,6 +86,11 @@ import {
   getNewsFrontPageSlotMix,
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
+  getNewsHomeCollaborativeRankingSignals,
+  getNewsHomeLoadMoreQueryRoute,
+  getNewsHomeLoadMoreState,
+  getNewsHomePaginationResetKey,
+  getNewsHomePrimaryQueryRoute,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHomeStoryActionPanel,
   getNewsHotBoard,
@@ -144,37 +155,51 @@ import {
   getNewsTasteCalibration,
   getNewsTopicMatchMatrix,
   getNewsTopicPulse,
-  getNextNewsHomeCursor,
+  getNextNewsHomeCursorState,
   getPreviewNewsHomeItems,
+  hasNewsHomeExploreFilters,
   isNewsHomePreviewEdition,
   mergeNewsHomeItems,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   mergeNewsTrainingUpdateHistory,
+  removeNewsHomePositiveFeedbackItem,
+  removeNewsReaderMemoryItem,
   revertNewsStoryQuickTuneAction,
   selectActiveNewsGuardrailItems,
+  selectActiveNewsHistoryItems,
+  selectActiveNewsReaderMemoryItem,
+  selectActiveNewsSavedItems,
   selectAngleQuotaBalancedNewsHomeItems,
   selectCategoryQuotaBalancedNewsHomeItems,
+  selectCollaborativeSignalNewsHomeItems,
+  selectDaypartBalancedNewsHomeItems,
   selectEntityQuotaBalancedNewsHomeItems,
   selectFeedFatigueBalancedNewsHomeItems,
   selectFreshnessQuotaBalancedNewsHomeItems,
   selectHydratedNewsPreferenceProfile,
   selectNegativeFeedbackAdjustedNewsHomeItems,
   selectNewsFeedModeItems,
+  selectNewsHomeBaseFeedItems,
   selectNewsHomeExposureRecords,
   selectNewsHomeItems,
   selectNewsHomePositiveFeedbackAnchors,
+  selectNewsHomeSessionScopedItems,
   selectReaderFreshNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
   selectSourceQuotaBalancedNewsHomeItems,
+  selectStoredNewsPositiveFeedbackItems,
   selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
+  shouldDisableNewsHomeLoadMoreButton,
+  shouldFetchNewsHomePrimaryFeed,
   shouldFetchServerRecommendations,
   shouldPersistNewsReaderProfile,
   shouldTrainNewsHomeProfileFromAction,
   stripPersistedNewsPreferenceProfile,
+  toNewsHomeItemFromPublicFeedItem,
 } from "./news-home-model";
 
 type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
@@ -215,10 +240,7 @@ type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
   };
   undoAction?: NewsStoryQuickTuneAction;
 };
-type PositiveNewsHomeFeedbackItem = NewsHomeItem & {
-  action: Extract<ReaderInteractionAction, "click_source" | "save" | "share">;
-  occurredAt: string;
-};
+type PositiveNewsHomeFeedbackItem = NewsPositiveFeedbackMemoryItem;
 
 interface NewsHomeProps {
   initialItems: NewsHomeItem[];
@@ -280,6 +302,7 @@ const profileStorageKey = "new-ai-times-profile";
 const savedStorageKey = "new-ai-times-saved";
 const historyStorageKey = "new-ai-times-history";
 const guardrailStorageKey = "new-ai-times-guardrails";
+const positiveFeedbackStorageKey = "new-ai-times-positive-feedback";
 const restoredGuardrailStorageKey = "new-ai-times-restored-guardrails";
 const visitorStorageKey = "new-ai-times-visitor-key";
 const previewItems = getPreviewNewsHomeItems();
@@ -386,9 +409,11 @@ const toLocalSavedMemoryItem = ({
   item: NewsHomeItem;
   savedAt: string;
 }): NewsReaderMemoryItem => ({
+  canonicalUrl: item.canonicalUrl,
   category: item.category,
   entities: [...item.entities],
   id: item.id,
+  originalUrl: item.originalUrl,
   savedAt,
   sourceName: item.sourceName,
   sourceSlug: item.sourceSlug,
@@ -403,11 +428,13 @@ const toLocalGuardrailMemoryItem = ({
   hiddenAt: string;
   item: NewsHomeItem;
 }): NewsReaderMemoryItem => ({
+  canonicalUrl: item.canonicalUrl,
   category: item.category,
   entities: [...item.entities],
   hiddenAt,
   id: item.id,
   occurredAt: hiddenAt,
+  originalUrl: item.originalUrl,
   sourceName: item.sourceName,
   sourceSlug: item.sourceSlug,
   tags: [...item.tags],
@@ -421,12 +448,35 @@ const readStoredSavedItems = () => readStoredMemoryItems(savedStorageKey);
 const readStoredGuardrailItems = () =>
   readStoredMemoryItems(guardrailStorageKey);
 
+const readStoredPositiveFeedbackItems = () => {
+  if (typeof window === "undefined") return [];
+
+  const stored = window.localStorage.getItem(positiveFeedbackStorageKey);
+  if (!stored) return [];
+
+  try {
+    return selectStoredNewsPositiveFeedbackItems(JSON.parse(stored) as unknown);
+  } catch {
+    return [];
+  }
+};
+
+const writeStoredPositiveFeedbackItems = (
+  items: readonly NewsPositiveFeedbackMemoryItem[],
+) => {
+  window.localStorage.setItem(
+    positiveFeedbackStorageKey,
+    JSON.stringify(items),
+  );
+};
+
 const readStoredRestoredGuardrailItemIds = () =>
   readStoredItemIds(restoredGuardrailStorageKey);
 
 const clearReaderMemoryStorage = () => {
   clearStoredMemoryItems(guardrailStorageKey);
   clearStoredMemoryItems(historyStorageKey);
+  clearStoredMemoryItems(positiveFeedbackStorageKey);
   clearStoredMemoryItems(restoredGuardrailStorageKey);
   clearStoredMemoryItems(savedStorageKey);
 };
@@ -533,6 +583,9 @@ export function NewsHome({
   const [localSavedItems, setLocalSavedItems] = useState<
     NewsReaderMemoryItem[]
   >([]);
+  const [removedSavedItems, setRemovedSavedItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
   const [localHistoryItems, setLocalHistoryItems] = useState<
     NewsReaderMemoryItem[]
   >([]);
@@ -541,6 +594,9 @@ export function NewsHome({
   >([]);
   const [restoredGuardrailItemIds, setRestoredGuardrailItemIds] = useState<
     string[]
+  >([]);
+  const [restoredGuardrailItems, setRestoredGuardrailItems] = useState<
+    NewsReaderMemoryItem[]
   >([]);
   const [loadedItems, setLoadedItems] = useState<NewsHomeItem[]>([]);
   const [hasMoreItems, setHasMoreItems] = useState(true);
@@ -558,6 +614,7 @@ export function NewsHome({
     null,
   );
   const [activeSourceSlug, setActiveSourceSlug] = useState<string | null>(null);
+  const [activeAngleTag, setActiveAngleTag] = useState<string | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
   const recordedHomeExposureItemsRef = useRef<NewsHomeItem[]>([]);
@@ -566,15 +623,23 @@ export function NewsHome({
     status,
     visitorKey,
   });
-  const hasExploreFilters = Boolean(
-    activeCategory ?? activeSourceSlug ?? searchQuery.trim(),
-  );
+  const hasExploreFilters = hasNewsHomeExploreFilters({
+    category: activeCategory,
+    query: searchQuery,
+    sourceSlug: activeSourceSlug,
+    tag: activeAngleTag,
+  });
+  const serverRecommendationsEnabled = shouldFetchServerRecommendations({
+    status,
+    visitorKey,
+  });
   const normalizedReviewHiddenAngleQuery = reviewHiddenAngleQuery
     .trim()
     .toLowerCase();
   const isReviewingHiddenAngle =
     Boolean(normalizedReviewHiddenAngleQuery) &&
     !activeCategory &&
+    !activeAngleTag &&
     !activeSourceSlug &&
     searchQuery.trim().toLowerCase() === normalizedReviewHiddenAngleQuery;
   const publishTrainingUpdate = useCallback(
@@ -614,21 +679,32 @@ export function NewsHome({
       { enabled: canPersistProfile && Boolean(visitorKey) },
     ),
   );
+  const primaryFeedInput = buildNewsHomeFeedInput({
+    category: activeCategory,
+    cursor: null,
+    feedMode,
+    limit: 30,
+    q: searchQuery,
+    readerLocalHour,
+    sourceSlug: activeSourceSlug,
+    tag: activeAngleTag,
+    visitorKey,
+  });
+  const primaryFeedRoute = getNewsHomePrimaryQueryRoute({ feedMode });
+  const primaryFeedEnabled = shouldFetchNewsHomePrimaryFeed({
+    feedMode,
+    status,
+    visitorKey,
+  });
   const forYouQuery = useQuery(
-    trpc.news.forYou.queryOptions(
-      buildNewsHomeFeedInput({
-        category: activeCategory,
-        cursor: null,
-        limit: 30,
-        q: searchQuery,
-        readerLocalHour,
-        sourceSlug: activeSourceSlug,
-        visitorKey,
-      }),
-      {
-        enabled: shouldFetchServerRecommendations({ status, visitorKey }),
-      },
-    ),
+    trpc.news.forYou.queryOptions(primaryFeedInput, {
+      enabled: primaryFeedEnabled && primaryFeedRoute === "forYou",
+    }),
+  );
+  const publicFeedQuery = useQuery(
+    trpc.news.feed.queryOptions(primaryFeedInput, {
+      enabled: primaryFeedEnabled && primaryFeedRoute === "feed",
+    }),
   );
   const updateProfile = useMutation(
     trpc.news.updateProfile.mutationOptions({
@@ -639,6 +715,17 @@ export function NewsHome({
         ]);
       },
     }),
+  );
+  const applyServerProfile = useCallback(
+    (serverProfile: PersistedNewsPreferenceProfile) => {
+      const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
+
+      setProfile(nextProfile);
+      writeStoredProfile(nextProfile);
+
+      return nextProfile;
+    },
+    [],
   );
   const resetReaderMemory = useMutation(
     trpc.news.resetProfile.mutationOptions({
@@ -654,16 +741,16 @@ export function NewsHome({
         );
       },
       onSuccess: async (serverProfile) => {
-        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
-        setProfile(nextProfile);
+        applyServerProfile(serverProfile);
         setHiddenItemIds([]);
         setLocalGuardrailItems([]);
         setLocalHistoryItems([]);
         setLocalSavedItems([]);
+        setRemovedSavedItems([]);
         setNegativeFeedbackItems([]);
         setPositiveFeedbackItems([]);
         setRestoredGuardrailItemIds([]);
-        writeStoredProfile(nextProfile);
+        setRestoredGuardrailItems([]);
         clearReaderMemoryStorage();
         const invalidations = getNewsHomeReaderMemoryResetCacheScopes().map(
           (scope) => {
@@ -699,9 +786,7 @@ export function NewsHome({
   const recordInteraction = useMutation(
     trpc.news.recordInteraction.mutationOptions({
       onSuccess: async (serverProfile) => {
-        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
-        setProfile(nextProfile);
-        writeStoredProfile(nextProfile);
+        applyServerProfile(serverProfile);
         await Promise.all([
           queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
           queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
@@ -717,15 +802,35 @@ export function NewsHome({
   );
   const restoreGuardrail = useMutation(
     trpc.news.restoreGuardrail.mutationOptions({
-      onSuccess: async () => {
+      onSuccess: async (serverProfile) => {
+        applyServerProfile(serverProfile);
         await Promise.all([
           queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
           queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
         ]);
       },
     }),
   );
-  const serverRecommendedItems = forYouQuery.data;
+  const removeSaved = useMutation(
+    trpc.news.removeSaved.mutationOptions({
+      onSuccess: async (serverProfile) => {
+        applyServerProfile(serverProfile);
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
+        ]);
+      },
+    }),
+  );
+  const serverRecommendedItems = useMemo(
+    () =>
+      primaryFeedRoute === "feed"
+        ? (publicFeedQuery.data ?? []).map(toNewsHomeItemFromPublicFeedItem)
+        : forYouQuery.data,
+    [forYouQuery.data, primaryFeedRoute, publicFeedQuery.data],
+  );
   const rawServerGuardrailItems = useMemo(
     () => guardrailsQuery.data ?? [],
     [guardrailsQuery.data],
@@ -735,26 +840,35 @@ export function NewsHome({
       selectActiveNewsGuardrailItems({
         guardrailItems: rawServerGuardrailItems,
         restoredItemIds: restoredGuardrailItemIds,
+        restoredItems: restoredGuardrailItems,
       }),
-    [rawServerGuardrailItems, restoredGuardrailItemIds],
+    [rawServerGuardrailItems, restoredGuardrailItemIds, restoredGuardrailItems],
   );
   const activeLocalGuardrailItems = useMemo(
     () =>
       selectActiveNewsGuardrailItems({
         guardrailItems: localGuardrailItems,
         restoredItemIds: restoredGuardrailItemIds,
+        restoredItems: restoredGuardrailItems,
       }),
-    [localGuardrailItems, restoredGuardrailItemIds],
+    [localGuardrailItems, restoredGuardrailItemIds, restoredGuardrailItems],
   );
   const hiddenNewsHomeItems = useMemo(
     () =>
       mergeNewsHomeItems({
-        currentItems: negativeFeedbackItems.filter(
-          (item) => !restoredGuardrailItemIds.includes(item.id),
-        ),
+        currentItems: selectActiveNewsGuardrailItems({
+          guardrailItems: negativeFeedbackItems,
+          restoredItemIds: restoredGuardrailItemIds,
+          restoredItems: restoredGuardrailItems,
+        }),
         nextItems: serverGuardrailItems,
       }),
-    [negativeFeedbackItems, restoredGuardrailItemIds, serverGuardrailItems],
+    [
+      negativeFeedbackItems,
+      restoredGuardrailItemIds,
+      restoredGuardrailItems,
+      serverGuardrailItems,
+    ],
   );
   const guardrailItems = useMemo(
     () =>
@@ -771,7 +885,11 @@ export function NewsHome({
       ),
     [guardrailItems, hiddenItemIds],
   );
-  const initialFeedItems = hasExploreFilters ? [] : fallbackItems;
+  const initialFeedItems = selectNewsHomeBaseFeedItems({
+    fallbackItems,
+    hasExploreFilters,
+    serverRecommendationsEnabled,
+  });
   const baseItems = selectNewsHomeItems({
     initialItems: initialFeedItems,
     serverRecommendedItems,
@@ -785,14 +903,46 @@ export function NewsHome({
       nextItems: loadedItems,
     }),
   });
+  const activeFeedIntent = useMemo(
+    () =>
+      buildNewsHomeSessionIntentFilter({
+        category: activeCategory,
+        query: searchQuery,
+        sourceSlug: activeSourceSlug,
+        tag: activeAngleTag,
+      }),
+    [activeAngleTag, activeCategory, activeSourceSlug, searchQuery],
+  );
+  const paginationResetKey = getNewsHomePaginationResetKey({
+    category: activeCategory,
+    feedMode,
+    query: searchQuery,
+    reviewHiddenAngleQuery,
+    sourceSlug: activeSourceSlug,
+    tag: activeAngleTag,
+  });
+  const scopedItems = serverRecommendationsEnabled
+    ? items
+    : selectNewsHomeSessionScopedItems({
+        intent: activeFeedIntent,
+        items,
+      });
   const isPreview = isNewsHomePreviewEdition({
     hasExploreFilters,
     initialItems,
     serverRecommendedItems,
     status,
   });
-  const nextCursor = getNextNewsHomeCursor(items);
+  const nextCursorState = getNextNewsHomeCursorState({
+    items: scopedItems,
+    mode: feedMode,
+  });
+  const nextCursor = nextCursorState.cursor;
+  const nextCursorTrendScore = nextCursorState.cursorTrendScore;
   const deskStatusSummary = getNewsDeskStatusSummary(deskStatus);
+  const sourceHealthDiagnostics = getNewsDeskSourceHealthDiagnostics(
+    deskStatus.latestRun,
+  );
   const readinessChecklist = getNewsProductionReadinessChecklist({
     refreshConfigured,
     status: deskStatus,
@@ -807,6 +957,7 @@ export function NewsHome({
     setLocalHistoryItems(readStoredHistoryItems());
     setLocalSavedItems(readStoredSavedItems());
     setLocalGuardrailItems(storedGuardrails);
+    setPositiveFeedbackItems(readStoredPositiveFeedbackItems());
     setRestoredGuardrailItemIds(storedRestoredGuardrailItemIds);
     setHiddenItemIds(
       storedGuardrails
@@ -840,19 +991,21 @@ export function NewsHome({
   useEffect(() => {
     setLoadedItems([]);
     setHasMoreItems(true);
-  }, [activeCategory, activeSourceSlug, reviewHiddenAngleQuery, searchQuery]);
+  }, [paginationResetKey]);
 
   useEffect(() => {
     if (!reviewHiddenAngleQuery) return;
 
     if (
       activeCategory ||
+      activeAngleTag ||
       activeSourceSlug ||
       searchQuery.trim().toLowerCase() !== normalizedReviewHiddenAngleQuery
     ) {
       setReviewHiddenAngleQuery("");
     }
   }, [
+    activeAngleTag,
     activeCategory,
     activeSourceSlug,
     normalizedReviewHiddenAngleQuery,
@@ -914,6 +1067,13 @@ export function NewsHome({
         writeStoredItemIds(restoredGuardrailStorageKey, nextIds);
         return nextIds;
       });
+      setRestoredGuardrailItems((current) =>
+        removeNewsReaderMemoryItem({
+          item,
+          itemId: item.id,
+          items: current,
+        }),
+      );
       setHiddenItemIds((current) =>
         current.includes(item.id) ? current : [...current, item.id],
       );
@@ -956,12 +1116,15 @@ export function NewsHome({
         });
       }
 
-      setPositiveFeedbackItems((current) =>
-        mergeNewsHomePositiveFeedbackItems({
+      setPositiveFeedbackItems((current) => {
+        const nextItems = mergeNewsHomePositiveFeedbackItems({
           currentItems: current,
           nextItem: { ...item, action, occurredAt },
-        }),
-      );
+        });
+
+        writeStoredPositiveFeedbackItems(nextItems);
+        return nextItems;
+      });
     }
 
     if (visitorKey && canPersistProfile && !isPreview) {
@@ -988,19 +1151,30 @@ export function NewsHome({
       writeStoredItemIds(restoredGuardrailStorageKey, nextIds);
       return nextIds;
     });
+    setRestoredGuardrailItems((current) =>
+      current.some((restoredItem) => restoredItem.id === item.id)
+        ? current
+        : [...current, item],
+    );
     setHiddenItemIds((current) =>
       current.filter((itemId) => itemId !== item.id),
     );
     setLocalGuardrailItems((current) => {
-      const nextItems = current.filter(
-        (guardrailItem) => guardrailItem.id !== item.id,
-      );
+      const nextItems = removeNewsReaderMemoryItem({
+        item,
+        itemId: item.id,
+        items: current,
+      });
 
       writeStoredMemoryItems(guardrailStorageKey, nextItems);
       return nextItems;
     });
     setNegativeFeedbackItems((current) =>
-      current.filter((feedbackItem) => feedbackItem.id !== item.id),
+      removeNewsReaderMemoryItem({
+        item,
+        itemId: item.id,
+        items: current,
+      }),
     );
     publishTrainingUpdate(
       getNewsGuardrailRestoreTrainingUpdate({
@@ -1011,6 +1185,46 @@ export function NewsHome({
 
     if (visitorKey && canPersistProfile && !isPreview) {
       restoreGuardrail.mutate({
+        visitorKey,
+        newsItemId: item.id,
+      });
+    }
+  };
+
+  const removeSavedItem = (item: NewsReaderMemoryItem) => {
+    setRemovedSavedItems((current) =>
+      [
+        item,
+        ...removeNewsReaderMemoryItem({
+          item,
+          itemId: item.id,
+          items: current,
+        }),
+      ].slice(0, 12),
+    );
+    setLocalSavedItems((current) => {
+      const nextItems = removeNewsReaderMemoryItem({
+        item,
+        itemId: item.id,
+        items: current,
+      });
+
+      writeStoredMemoryItems(savedStorageKey, nextItems);
+      return nextItems;
+    });
+    setPositiveFeedbackItems((current) => {
+      const nextItems = removeNewsHomePositiveFeedbackItem({
+        item,
+        itemId: item.id,
+        items: current,
+      });
+
+      writeStoredPositiveFeedbackItems(nextItems);
+      return nextItems;
+    });
+
+    if (visitorKey && canPersistProfile && !isPreview) {
+      removeSaved.mutate({
         visitorKey,
         newsItemId: item.id,
       });
@@ -1343,6 +1557,7 @@ export function NewsHome({
     action: NonNullable<NewsTrainingUpdate["guardrailReviewAction"]>,
   ) => {
     if (action.resetFilters) {
+      setActiveAngleTag(null);
       setActiveCategory(null);
       setActiveSourceSlug(null);
     }
@@ -1360,6 +1575,7 @@ export function NewsHome({
   };
 
   const clearExploreFilters = () => {
+    setActiveAngleTag(null);
     setActiveCategory(null);
     setActiveSourceSlug(null);
     setReviewHiddenAngleQuery("");
@@ -1379,6 +1595,7 @@ export function NewsHome({
     setNegativeFeedbackItems([]);
     setPositiveFeedbackItems([]);
     setRestoredGuardrailItemIds([]);
+    setRestoredGuardrailItems([]);
     setReviewHiddenAngleQuery("");
     clearReaderMemoryStorage();
     publishTrainingUpdate(
@@ -1398,11 +1615,12 @@ export function NewsHome({
   const loadMoreStories = useCallback(async () => {
     const cursor = nextCursor;
 
-    if (!cursor || !visitorKey) return;
+    if (!cursor) return;
 
     if (
       !shouldAutoLoadMoreNewsHomeItems({
         cursor,
+        feedMode,
         hasMoreItems,
         isFeedEndVisible: true,
         isLoadingMore: isLoadingMoreRef.current,
@@ -1416,40 +1634,58 @@ export function NewsHome({
     isLoadingMoreRef.current = true;
     setIsLoadingMore(true);
     try {
-      const nextItems = await queryClient.fetchQuery(
-        trpc.news.forYou.queryOptions(
-          buildNewsHomeFeedInput({
-            category: activeCategory,
-            cursor,
-            limit: 20,
-            q: searchQuery,
-            readerLocalHour,
-            sourceSlug: activeSourceSlug,
-            visitorKey,
-          }),
-        ),
-      );
+      const loadMoreInput = buildNewsHomeLoadMoreFeedInput({
+        category: activeCategory,
+        cursor,
+        cursorTrendScore: nextCursorTrendScore,
+        excludeNewsItemIds: scopedItems.map((item) => item.id),
+        feedMode,
+        limit: 20,
+        q: searchQuery,
+        readerLocalHour,
+        sourceSlug: activeSourceSlug,
+        tag: activeAngleTag,
+        visitorKey,
+      });
+      const loadMoreRoute = getNewsHomeLoadMoreQueryRoute({ feedMode });
+      const nextItems =
+        loadMoreRoute === "forYou"
+          ? await queryClient.fetchQuery(
+              trpc.news.forYou.queryOptions(loadMoreInput),
+            )
+          : (
+              await queryClient.fetchQuery(
+                trpc.news.feed.queryOptions(loadMoreInput),
+              )
+            ).map(toNewsHomeItemFromPublicFeedItem);
 
-      setLoadedItems((current) =>
-        mergeNewsHomeItems({
-          currentItems: current,
-          nextItems,
-        }),
-      );
-      setHasMoreItems(nextItems.length > 0);
+      const loadMoreState = getNewsHomeLoadMoreState({
+        currentVisibleItems: scopedItems,
+        loadedItems,
+        nextItems,
+      });
+
+      setLoadedItems(loadMoreState.loadedItems);
+      setHasMoreItems(loadMoreState.hasNewVisibleItems);
     } finally {
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
   }, [
+    activeAngleTag,
     activeCategory,
     activeSourceSlug,
+    feedMode,
     hasMoreItems,
     isPreview,
+    loadedItems,
     nextCursor,
+    nextCursorTrendScore,
     queryClient,
     readerLocalHour,
+    scopedItems,
     searchQuery,
+    trpc.news.feed,
     trpc.news.forYou,
     visitorKey,
   ]);
@@ -1470,6 +1706,7 @@ export function NewsHome({
         if (
           shouldAutoLoadMoreNewsHomeItems({
             cursor: nextCursor,
+            feedMode,
             hasMoreItems,
             isFeedEndVisible: Boolean(entry?.isIntersecting),
             isLoadingMore: isLoadingMoreRef.current,
@@ -1486,32 +1723,50 @@ export function NewsHome({
     observer.observe(feedEnd);
 
     return () => observer.disconnect();
-  }, [hasMoreItems, isPreview, loadMoreStories, nextCursor, visitorKey]);
+  }, [
+    feedMode,
+    hasMoreItems,
+    isPreview,
+    loadMoreStories,
+    nextCursor,
+    visitorKey,
+  ]);
 
   const serverSavedItems = useMemo(
-    () => savedQuery.data ?? [],
-    [savedQuery.data],
-  );
-  const savedItems = useMemo(
     () =>
-      mergeNewsReaderMemoryItems({
-        localItems: localSavedItems,
-        serverItems: serverSavedItems,
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [],
+        removedSavedItems,
+        savedItems: savedQuery.data ?? [],
       }),
-    [localSavedItems, serverSavedItems],
+    [removedSavedItems, savedQuery.data],
   );
+  const savedItems = useMemo(() => {
+    const mergedSavedItems = mergeNewsReaderMemoryItems({
+      localItems: localSavedItems,
+      serverItems: serverSavedItems,
+    });
+
+    return selectActiveNewsSavedItems({
+      negativeFeedbackItems: guardrailItems,
+      savedItems: mergedSavedItems,
+    });
+  }, [guardrailItems, localSavedItems, serverSavedItems]);
   const serverHistoryItems = useMemo(
     () => historyQuery.data ?? [],
     [historyQuery.data],
   );
-  const historyItems = useMemo(
-    () =>
-      mergeNewsReaderMemoryItems({
-        localItems: localHistoryItems,
-        serverItems: serverHistoryItems,
-      }),
-    [localHistoryItems, serverHistoryItems],
-  );
+  const historyItems = useMemo(() => {
+    const mergedHistoryItems = mergeNewsReaderMemoryItems({
+      localItems: localHistoryItems,
+      serverItems: serverHistoryItems,
+    });
+
+    return selectActiveNewsHistoryItems({
+      historyItems: mergedHistoryItems,
+      negativeFeedbackItems: guardrailItems,
+    });
+  }, [guardrailItems, localHistoryItems, serverHistoryItems]);
   const negativeFeedbackMemoryItems = useMemo(
     () =>
       mergeNewsReaderMemoryItems({
@@ -1525,20 +1780,44 @@ export function NewsHome({
       selectNewsHomePositiveFeedbackAnchors({
         explicitFeedbackItems: positiveFeedbackItems,
         historyItems,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
         savedItems,
       }),
-    [historyItems, positiveFeedbackItems, savedItems],
+    [
+      historyItems,
+      negativeFeedbackMemoryItems,
+      positiveFeedbackItems,
+      savedItems,
+    ],
   );
   const personalizedItems = useMemo(
     () =>
       selectDiverseNewsFeed(
-        rankNewsForReader(dedupeNewsItems(items), profile),
+        rankNewsForReader(dedupeNewsItems(scopedItems), profile),
         {
           explorationInterval: getNewsExplorationInterval(profile),
-          limit: items.length,
+          limit: scopedItems.length,
         },
       ),
-    [items, profile],
+    [profile, scopedItems],
+  );
+  const collaborativeRankingSignals = useMemo(
+    () =>
+      getNewsHomeCollaborativeRankingSignals({
+        formatCategory: getCategoryLabel,
+        historyItems,
+        items: personalizedItems,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
+        profile,
+        savedItems,
+      }),
+    [
+      historyItems,
+      negativeFeedbackMemoryItems,
+      personalizedItems,
+      profile,
+      savedItems,
+    ],
   );
   const rankedItems = useMemo(() => {
     const modeItems = selectNewsFeedModeItems({
@@ -1548,11 +1827,7 @@ export function NewsHome({
     const sessionIntentItems =
       feedMode === "for_you"
         ? selectSessionIntentNewsHomeItems({
-            intent: {
-              category: activeCategory,
-              query: searchQuery,
-              sourceSlug: activeSourceSlug,
-            },
+            intent: activeFeedIntent,
             items: modeItems,
           })
         : modeItems;
@@ -1560,8 +1835,12 @@ export function NewsHome({
       sessionIntentItems,
       historyItems,
     );
+    const collaborativeSignalItems = selectCollaborativeSignalNewsHomeItems({
+      collaborativeSignals: collaborativeRankingSignals,
+      items: exposureBalancedItems,
+    });
     const positiveAnchoredItems = selectPositiveFeedbackAnchoredNewsFeed(
-      exposureBalancedItems,
+      collaborativeSignalItems,
       positiveFeedbackAnchors,
       new Date(generatedAt),
     );
@@ -1575,8 +1854,13 @@ export function NewsHome({
     const sourceCorroboratedItems = selectSourceCorroboratedNewsHomeItems({
       items: trustBalancedItems,
     });
-    const fatigueBalancedItems = selectFeedFatigueBalancedNewsHomeItems({
+    const daypartBalancedItems = selectDaypartBalancedNewsHomeItems({
       items: sourceCorroboratedItems,
+      now: new Date(generatedAt),
+      readerLocalHour,
+    });
+    const fatigueBalancedItems = selectFeedFatigueBalancedNewsHomeItems({
+      items: daypartBalancedItems,
     });
     const breakingPriorityItems = selectBreakingNewsPriorityFeed(
       fatigueBalancedItems,
@@ -1622,15 +1906,15 @@ export function NewsHome({
       limit: categoryQuotaBalancedItems.length,
     });
   }, [
-    activeCategory,
-    activeSourceSlug,
+    activeFeedIntent,
+    collaborativeRankingSignals,
     feedMode,
     generatedAt,
     historyItems,
     negativeFeedbackMemoryItems,
     personalizedItems,
     positiveFeedbackAnchors,
-    searchQuery,
+    readerLocalHour,
   ]);
 
   useEffect(() => {
@@ -1679,7 +1963,9 @@ export function NewsHome({
     limit: 8,
   });
   const availableEntities = getTopEntities(items);
-  const availableAngleOptions = getNewsAnglePreferenceOptions({ items });
+  const availableAngleOptions = getNewsAnglePreferenceOptions({
+    items: [...fallbackItems, ...items],
+  });
   const readerMemory = getNewsReaderMemory({
     formatCategory: getCategoryLabel,
     historyItems,
@@ -1691,9 +1977,16 @@ export function NewsHome({
     guardrailItems,
     positiveItems: [...savedItems, ...historyItems],
   });
-  const guardrailItemsById = new Map(
-    guardrailItems.map((item) => [item.id, item]),
-  );
+  const selectSavedItemForStory = (item: NewsReaderMemoryItem) =>
+    selectActiveNewsReaderMemoryItem({
+      item,
+      memoryItems: savedItems,
+    });
+  const selectGuardrailItemForStory = (item: NewsReaderMemoryItem) =>
+    selectActiveNewsReaderMemoryItem({
+      item,
+      memoryItems: guardrailItems,
+    });
   const readerJourneyMap = getNewsReaderJourneyMap({
     formatCategory: getCategoryLabel,
     historyItems,
@@ -1738,6 +2031,7 @@ export function NewsHome({
     savedItems,
   });
   const sessionIntent = getNewsSessionIntent({
+    activeIntent: activeFeedIntent,
     formatCategory: getCategoryLabel,
     historyItems,
     items: rankedItems,
@@ -1750,6 +2044,7 @@ export function NewsHome({
     formatCategory: getCategoryLabel,
     historyItems,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });
@@ -2267,6 +2562,37 @@ export function NewsHome({
               ))}
             </div>
           ) : null}
+          {availableAngleOptions.length > 0 ? (
+            <div className="flex gap-2 overflow-x-auto text-sm">
+              <Button
+                className="rounded-none"
+                size="sm"
+                type="button"
+                variant={!activeAngleTag ? "default" : "outline"}
+                onClick={() => setActiveAngleTag(null)}
+              >
+                All angles
+              </Button>
+              {availableAngleOptions.slice(0, 10).map((angle) => (
+                <Button
+                  key={angle.signal}
+                  className="rounded-none"
+                  size="sm"
+                  type="button"
+                  variant={
+                    activeAngleTag === angle.signal ? "default" : "outline"
+                  }
+                  onClick={() =>
+                    setActiveAngleTag((current) =>
+                      current === angle.signal ? null : angle.signal,
+                    )
+                  }
+                >
+                  {angle.label}
+                </Button>
+              ))}
+            </div>
+          ) : null}
         </section>
       </header>
 
@@ -2630,9 +2956,13 @@ export function NewsHome({
                 </div>
                 <StoryAction
                   item={leadStory}
+                  guardrailItem={selectGuardrailItemForStory(leadStory)}
                   isPreview={isPreview}
                   rankSlot={0}
+                  savedItem={selectSavedItemForStory(leadStory)}
                   onAction={recordStoryAction}
+                  onRemoveSaved={removeSavedItem}
+                  onRestoreGuardrail={restoreGuardrailItem}
                 />
               </div>
               <StoryVisual item={leadStory} featured />
@@ -2649,8 +2979,12 @@ export function NewsHome({
                 profile={profile}
                 rankSlot={index + 1}
                 rankedAt={rankDetailsAt}
+                guardrailItem={selectGuardrailItemForStory(story)}
+                savedItem={selectSavedItemForStory(story)}
                 onTune={applyStoryQuickTuneAction}
                 onAction={recordStoryAction}
+                onRemoveSaved={removeSavedItem}
+                onRestoreGuardrail={restoreGuardrailItem}
               />
             ))}
           </section>
@@ -3210,8 +3544,12 @@ export function NewsHome({
                   profile={profile}
                   rankSlot={index + 4}
                   rankedAt={rankDetailsAt}
+                  guardrailItem={selectGuardrailItemForStory(story)}
+                  savedItem={selectSavedItemForStory(story)}
                   onTune={applyStoryQuickTuneAction}
                   onAction={recordStoryAction}
+                  onRemoveSaved={removeSavedItem}
+                  onRestoreGuardrail={restoreGuardrailItem}
                 />
               ))
             ) : (
@@ -3231,9 +3569,13 @@ export function NewsHome({
             <div className="flex justify-center border-b border-[#161616]/25 pb-6 dark:border-[#f4f1ea]/25">
               <Button
                 className="rounded-none"
-                disabled={
-                  !visitorKey || !nextCursor || isLoadingMore || !hasMoreItems
-                }
+                disabled={shouldDisableNewsHomeLoadMoreButton({
+                  cursor: nextCursor,
+                  feedMode,
+                  hasMoreItems,
+                  isLoadingMore,
+                  visitorKey,
+                })}
                 type="button"
                 variant="outline"
                 onClick={() => void loadMoreStories()}
@@ -7386,19 +7728,32 @@ export function NewsHome({
             <div className="mt-4 grid gap-3">
               {savedItems.length > 0 ? (
                 savedItems.map((item) => (
-                  <Link
+                  <div
                     key={item.id}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
+                    className="flex flex-col gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:flex-row sm:items-start sm:justify-between dark:border-[#f4f1ea]/15"
                   >
-                    <span className="leading-5 font-semibold">
-                      {item.title}
-                    </span>
-                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / saved{" "}
-                      {item.savedAt ? formatTime(item.savedAt) : "recently"}
-                    </span>
-                  </Link>
+                    <Link
+                      className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                      href={`/news/${item.id}`}
+                    >
+                      <span className="leading-5 font-semibold">
+                        {item.title}
+                      </span>
+                      <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                        {item.sourceName} / saved{" "}
+                        {item.savedAt ? formatTime(item.savedAt) : "recently"}
+                      </span>
+                    </Link>
+                    <Button
+                      className="h-8 rounded-none px-3 text-xs sm:self-center"
+                      disabled={removeSaved.isPending}
+                      onClick={() => removeSavedItem(item)}
+                      type="button"
+                      variant="outline"
+                    >
+                      Remove
+                    </Button>
+                  </div>
                 ))
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
@@ -7462,6 +7817,7 @@ export function NewsHome({
                       variant="outline"
                       onClick={() => {
                         if (prompt.resetFilters) {
+                          setActiveAngleTag(null);
                           setActiveCategory(null);
                           setActiveSourceSlug(null);
                         }
@@ -7515,7 +7871,9 @@ export function NewsHome({
                       type="button"
                       variant="outline"
                       onClick={() => {
-                        const guardrailItem = guardrailItemsById.get(item.id);
+                        const guardrailItem = guardrailItems.find(
+                          (memoryItem) => memoryItem.id === item.id,
+                        );
 
                         if (!guardrailItem) return;
 
@@ -7680,6 +8038,33 @@ export function NewsHome({
             <p className="mt-3 text-sm leading-6 opacity-80">
               {deskStatusSummary.detail}
             </p>
+            {sourceHealthDiagnostics.length > 0 ? (
+              <div className="mt-4 grid gap-2 border-y border-current/20 py-4">
+                <p className="font-mono text-xs tracking-normal uppercase opacity-70">
+                  Source diagnostics
+                </p>
+                <div className="grid gap-2">
+                  {sourceHealthDiagnostics.map((diagnostic) => (
+                    <div
+                      key={`${diagnostic.state}-${diagnostic.label}`}
+                      className="grid gap-1 border-l border-current/40 pl-3 text-sm sm:grid-cols-[5rem_1fr] sm:gap-3"
+                    >
+                      <span className="font-mono text-xs uppercase opacity-70">
+                        {diagnostic.state}
+                      </span>
+                      <span>
+                        <span className="block font-semibold break-words">
+                          {diagnostic.label}
+                        </span>
+                        <span className="mt-1 block text-xs leading-5 opacity-70">
+                          {diagnostic.detail}
+                        </span>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <div className="mt-4 grid gap-2 border-y border-current/20 py-4">
               {readinessChecklist.map((item) => (
                 <div
@@ -7915,24 +8300,59 @@ function StoryVisual({
 
 function StoryAction({
   item,
+  guardrailItem,
   isPreview,
   rankSlot,
+  savedItem,
   onAction,
+  onRemoveSaved,
+  onRestoreGuardrail,
 }: {
   item: RankedNewsHomeItem;
+  guardrailItem?: NewsReaderMemoryItem;
   isPreview: boolean;
   rankSlot: number;
+  savedItem?: NewsReaderMemoryItem;
   onAction: (
     item: RankedNewsHomeItem,
     action: ReaderInteractionAction,
     rankSlot: number,
   ) => void;
+  onRemoveSaved: (item: NewsReaderMemoryItem) => void;
+  onRestoreGuardrail: (item: NewsReaderMemoryItem) => void;
 }) {
   const sourceUrl = getNewsStorySourceUrl(item);
   const actionPanel = getNewsHomeStoryActionPanel({
     hasSourceUrl: Boolean(sourceUrl),
+    isGuardrailed: Boolean(guardrailItem),
     isPreview,
+    isSaved: Boolean(savedItem),
   });
+  const runAction = (action: NewsHomeStoryActionCommand) => {
+    if (action === "remove_saved") {
+      onRemoveSaved(
+        savedItem ??
+          toLocalSavedMemoryItem({
+            item,
+            savedAt: new Date().toISOString(),
+          }),
+      );
+      return;
+    }
+
+    if (action === "restore_guardrail") {
+      onRestoreGuardrail(
+        guardrailItem ??
+          toLocalGuardrailMemoryItem({
+            hiddenAt: new Date().toISOString(),
+            item,
+          }),
+      );
+      return;
+    }
+
+    onAction(item, action, rankSlot);
+  };
 
   return (
     <div className="grid gap-2">
@@ -7948,7 +8368,7 @@ function StoryAction({
               <Button key={action.action} asChild className="rounded-none">
                 <Link
                   href={`/news/${item.id}`}
-                  onClick={() => onAction(item, action.action, rankSlot)}
+                  onClick={() => runAction(action.action)}
                 >
                   {action.label}
                 </Link>
@@ -7966,7 +8386,7 @@ function StoryAction({
               >
                 <a
                   href={sourceUrl}
-                  onClick={() => onAction(item, action.action, rankSlot)}
+                  onClick={() => runAction(action.action)}
                   rel="nofollow noopener noreferrer"
                   target="_blank"
                 >
@@ -7982,7 +8402,7 @@ function StoryAction({
               className="rounded-none"
               type="button"
               variant="outline"
-              onClick={() => onAction(item, action.action, rankSlot)}
+              onClick={() => runAction(action.action)}
             >
               {action.label}
             </Button>
@@ -7995,25 +8415,33 @@ function StoryAction({
 
 function StoryCard({
   item,
+  guardrailItem,
   isPreview,
   mode,
   profile,
   rankSlot,
   rankedAt,
+  savedItem,
   onAction,
+  onRemoveSaved,
+  onRestoreGuardrail,
   onTune,
 }: {
   item: RankedNewsHomeItem;
+  guardrailItem?: NewsReaderMemoryItem;
   isPreview: boolean;
   mode: NewsFeedMode;
   profile: NewsPreferenceProfile;
   rankSlot: number;
   rankedAt: Date;
+  savedItem?: NewsReaderMemoryItem;
   onAction: (
     item: RankedNewsHomeItem,
     action: ReaderInteractionAction,
     rankSlot: number,
   ) => void;
+  onRemoveSaved: (item: NewsReaderMemoryItem) => void;
+  onRestoreGuardrail: (item: NewsReaderMemoryItem) => void;
   onTune: (action: NewsStoryQuickTuneAction) => void;
 }) {
   return (
@@ -8037,9 +8465,13 @@ function StoryCard({
       <StoryQuickTune item={item} profile={profile} onTune={onTune} />
       <StoryAction
         item={item}
+        guardrailItem={guardrailItem}
         isPreview={isPreview}
         rankSlot={rankSlot}
+        savedItem={savedItem}
         onAction={onAction}
+        onRemoveSaved={onRemoveSaved}
+        onRestoreGuardrail={onRestoreGuardrail}
       />
     </article>
   );
@@ -8047,25 +8479,33 @@ function StoryCard({
 
 function StoryRow({
   item,
+  guardrailItem,
   isPreview,
   mode,
   profile,
   rankSlot,
   rankedAt,
+  savedItem,
   onAction,
+  onRemoveSaved,
+  onRestoreGuardrail,
   onTune,
 }: {
   item: RankedNewsHomeItem;
+  guardrailItem?: NewsReaderMemoryItem;
   isPreview: boolean;
   mode: NewsFeedMode;
   profile: NewsPreferenceProfile;
   rankSlot: number;
   rankedAt: Date;
+  savedItem?: NewsReaderMemoryItem;
   onAction: (
     item: RankedNewsHomeItem,
     action: ReaderInteractionAction,
     rankSlot: number,
   ) => void;
+  onRemoveSaved: (item: NewsReaderMemoryItem) => void;
+  onRestoreGuardrail: (item: NewsReaderMemoryItem) => void;
   onTune: (action: NewsStoryQuickTuneAction) => void;
 }) {
   return (
@@ -8102,9 +8542,13 @@ function StoryRow({
       </div>
       <StoryAction
         item={item}
+        guardrailItem={guardrailItem}
         isPreview={isPreview}
         rankSlot={rankSlot}
+        savedItem={savedItem}
         onAction={onAction}
+        onRemoveSaved={onRemoveSaved}
+        onRestoreGuardrail={onRestoreGuardrail}
       />
     </article>
   );

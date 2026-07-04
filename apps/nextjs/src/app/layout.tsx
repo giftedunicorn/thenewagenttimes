@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 
 import { cn } from "@acme/ui";
-import { ThemeProvider, ThemeToggle } from "@acme/ui/theme";
+import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
 import { env } from "~/env";
@@ -55,9 +55,6 @@ export default function RootLayout(props: { children: React.ReactNode }) {
       >
         <ThemeProvider>
           <TRPCReactProvider>{props.children}</TRPCReactProvider>
-          <div className="fixed right-4 bottom-4 z-50">
-            <ThemeToggle />
-          </div>
           <Toaster />
         </ThemeProvider>
       </body>

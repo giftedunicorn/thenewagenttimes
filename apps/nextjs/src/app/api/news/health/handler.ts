@@ -6,12 +6,15 @@ import {
 
 interface HandleNewsHealthRequestInput {
   authSecret?: string | undefined;
+  embeddingApiKey?: string | undefined;
   getDeskStatus: () => Promise<NewsDeskStatus>;
   refreshSecret: string | undefined;
 }
 
 type NewsHealthNextStep =
   | "apply-database-schema"
+  | "configure-embedding-provider"
+  | "embed-news-stories"
   | "configure-auth-secret"
   | "configure-refresh-secret"
   | "inspect-ingestion-run"
@@ -29,12 +32,36 @@ const unavailableNewsDeskStatus = () =>
     unavailable: true,
   });
 
+const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
+  const sourceHealth = status.latestRun?.sourceHealth;
+
+  if (!sourceHealth || sourceHealth.failedSourceSlugs.length === 0) {
+    return null;
+  }
+
+  const failedSources = sourceHealth.failedSourceSlugs
+    .map((slug) => {
+      const message = sourceHealth.failureMessages[slug];
+
+      return message ? `${slug} (${message})` : slug;
+    })
+    .join(", ");
+  const emptySources =
+    sourceHealth.emptySourceSlugs.length > 0
+      ? ` Empty sources: ${sourceHealth.emptySourceSlugs.join(", ")}.`
+      : "";
+
+  return `Inspect failed sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh after fixing source issues.`;
+};
+
 const getNewsHealthActions = ({
   authConfigured,
+  embeddingConfigured,
   refreshConfigured,
   status,
 }: {
   authConfigured: boolean;
+  embeddingConfigured: boolean;
   refreshConfigured: boolean;
   status: NewsDeskStatus;
 }) => {
@@ -48,6 +75,12 @@ const getNewsHealthActions = ({
 
   if (!refreshConfigured) {
     actions.push("Set NEWS_REFRESH_SECRET in the Railway service environment.");
+  }
+
+  if (!embeddingConfigured) {
+    actions.push(
+      "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+    );
   }
 
   if (status.health === "unavailable") {
@@ -68,25 +101,52 @@ const getNewsHealthActions = ({
 
   if (status.health === "error") {
     actions.push(
-      "Inspect the latest ingestion run and rerun pnpm run news:refresh.",
+      getFailedSourceDiagnostics(status) ??
+        "Inspect the latest ingestion run and rerun pnpm run news:refresh.",
+    );
+  }
+
+  if (status.health === "live" && !isNewsSemanticReady(status)) {
+    actions.push(
+      "Run pnpm run news:embed:remote so semantic recommendations can use the live edition.",
     );
   }
 
   return actions;
 };
 
+const isNewsSemanticReady = (status: NewsDeskStatus) =>
+  status.publishedStories > 0 &&
+  (status.embeddedStories ?? 0) > 0 &&
+  (status.unembeddedStories ?? status.publishedStories) === 0;
+
+const isNewsLiveReady = (status: NewsDeskStatus) => status.health === "live";
+
+const newsHealthCommands = {
+  bootstrap: "pnpm run news:bootstrap:remote",
+  embed: "pnpm run news:embed:remote",
+  health: "pnpm run news:health:remote",
+  refresh: "pnpm run news:refresh:remote",
+  schema: "pnpm run db:push",
+  seedSources: "pnpm run news:seed-sources",
+} as const;
+
 const getNewsHealthChecks = ({
   authConfigured,
+  embeddingConfigured,
   refreshConfigured,
   status,
 }: {
   authConfigured: boolean;
+  embeddingConfigured: boolean;
   refreshConfigured: boolean;
   status: NewsDeskStatus;
 }) => ({
   auth: authConfigured,
+  embeddingProvider: embeddingConfigured,
   refreshSecret: refreshConfigured,
   schema: status.health !== "unavailable",
+  semantic: isNewsSemanticReady(status),
   sources: status.activeSources > 0,
   stories: status.health === "live",
 });
@@ -95,17 +155,21 @@ const areNewsHealthChecksReady = (
   checks: ReturnType<typeof getNewsHealthChecks>,
 ) =>
   checks.auth &&
+  checks.embeddingProvider &&
   checks.refreshSecret &&
   checks.schema &&
+  checks.semantic &&
   checks.sources &&
   checks.stories;
 
 const getNewsHealthNextStep = ({
   authConfigured,
+  embeddingConfigured,
   refreshConfigured,
   status,
 }: {
   authConfigured: boolean;
+  embeddingConfigured: boolean;
   refreshConfigured: boolean;
   status: NewsDeskStatus;
 }): NewsHealthNextStep => {
@@ -115,20 +179,44 @@ const getNewsHealthNextStep = ({
   if (status.health === "empty") return "seed-news-sources";
   if (status.health === "seeded") return "run-news-refresh";
   if (status.health === "error") return "inspect-ingestion-run";
+  if (!embeddingConfigured) return "configure-embedding-provider";
+  if (!isNewsSemanticReady(status)) return "embed-news-stories";
 
   return "ready";
 };
 
+const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
+  switch (nextStep) {
+    case "apply-database-schema":
+      return newsHealthCommands.schema;
+    case "seed-news-sources":
+      return newsHealthCommands.seedSources;
+    case "run-news-refresh":
+    case "inspect-ingestion-run":
+      return newsHealthCommands.refresh;
+    case "embed-news-stories":
+      return newsHealthCommands.embed;
+    case "configure-auth-secret":
+    case "configure-embedding-provider":
+    case "configure-refresh-secret":
+    case "ready":
+      return null;
+  }
+};
+
 export const handleNewsHealthRequest = async ({
   authSecret,
+  embeddingApiKey,
   getDeskStatus,
   refreshSecret,
 }: HandleNewsHealthRequestInput) => {
   const authConfigured = Boolean(authSecret?.trim());
+  const embeddingConfigured = Boolean(embeddingApiKey?.trim());
   const refreshConfigured = Boolean(refreshSecret?.trim());
   const status = await getDeskStatus().catch(() => unavailableNewsDeskStatus());
   const checks = getNewsHealthChecks({
     authConfigured,
+    embeddingConfigured,
     refreshConfigured,
     status,
   });
@@ -136,23 +224,40 @@ export const handleNewsHealthRequest = async ({
   return Response.json({
     actionRequired: getNewsHealthActions({
       authConfigured,
+      embeddingConfigured,
       refreshConfigured,
       status,
     }),
     authConfigured,
     checks,
+    commands: {
+      ...newsHealthCommands,
+      next: getNewsHealthCommandForNextStep(
+        getNewsHealthNextStep({
+          authConfigured,
+          embeddingConfigured,
+          refreshConfigured,
+          status,
+        }),
+      ),
+    },
     news: {
       activeSources: status.activeSources,
+      embeddedStories: status.embeddedStories ?? 0,
       health: status.health,
       latestPublishedAt: status.latestPublishedAt,
       latestRun: status.latestRun,
+      liveReady: isNewsLiveReady(status),
       publishedStories: status.publishedStories,
-      ready: status.health === "live",
+      ready: isNewsSemanticReady(status),
+      semanticReady: isNewsSemanticReady(status),
       summary: getNewsDeskStatusSummary(status),
       totalSources: status.totalSources,
+      unembeddedStories: status.unembeddedStories ?? status.publishedStories,
     },
     nextStep: getNewsHealthNextStep({
       authConfigured,
+      embeddingConfigured,
       refreshConfigured,
       status,
     }),

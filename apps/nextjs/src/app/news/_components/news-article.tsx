@@ -42,6 +42,7 @@ import {
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
+  getNewsArticleFormattedDate,
   getNewsArticleGuardrailSignalState,
   getNewsArticleHeroVisual,
   getNewsArticleInteractionMetadata,
@@ -256,15 +257,6 @@ const readOrCreateVisitorKey = () => {
   window.localStorage.setItem(visitorStorageKey, next);
   return next;
 };
-
-const formatDate = (date: string) =>
-  new Intl.DateTimeFormat("en", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(date));
 
 const paragraphsFromArticle = (article: NewsArticleItem) => {
   const text = article.bodyText?.trim() ?? article.summary;
@@ -901,7 +893,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             <span>/</span>
             <span>{article.sourceName}</span>
             <span>/</span>
-            <span>{formatDate(article.publishedAt)}</span>
+            <span>{getNewsArticleFormattedDate(article.publishedAt)}</span>
           </div>
 
           <h1 className="max-w-5xl text-4xl leading-[1.04] font-black tracking-normal sm:text-6xl lg:text-7xl">

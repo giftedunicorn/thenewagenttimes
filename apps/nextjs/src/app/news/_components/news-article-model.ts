@@ -168,6 +168,16 @@ const getReadTimeLabel = (text: string) => {
   return `${minutes} min read`;
 };
 
+export const getNewsArticleFormattedDate = (date: string) =>
+  new Intl.DateTimeFormat("en", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(date));
+
 export const getNewsArticleReadPercent = ({
   documentHeight,
   scrollY,

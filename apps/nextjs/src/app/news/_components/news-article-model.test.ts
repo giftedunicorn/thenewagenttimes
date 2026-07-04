@@ -5,6 +5,7 @@ import {
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
+  getNewsArticleFormattedDate,
   getNewsArticleGuardrailSignalState,
   getNewsArticleHeroVisual,
   getNewsArticleInteractionMetadata,
@@ -106,6 +107,14 @@ describe("getNewsArticleReadPercent", () => {
         viewportHeight: 500,
       }),
     ).toBe(1);
+  });
+});
+
+describe("getNewsArticleFormattedDate", () => {
+  it("uses a stable UTC article timestamp across server and browser time zones", () => {
+    expect(getNewsArticleFormattedDate("2026-07-04T17:13:00.000Z")).toBe(
+      "July 4, 2026 at 5:13 PM",
+    );
   });
 });
 

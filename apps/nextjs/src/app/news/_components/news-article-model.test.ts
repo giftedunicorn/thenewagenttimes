@@ -1776,12 +1776,7 @@ describe("getNewsArticleServerProfileAuditDisplay", () => {
         trainedSignalCount: 7,
       }),
     ).toEqual({
-      chips: [
-        "model_release 4",
-        "agent_product 2",
-        "openai-news 3",
-        "agents 4",
-      ],
+      chips: ["Models 4", "Agents 2", "OpenAI News 3", "agents 4"],
       label: "Server Learned",
       metrics: [
         { label: "Trained", value: "7" },

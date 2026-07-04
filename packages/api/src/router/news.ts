@@ -198,6 +198,10 @@ const NewsInteractionMetadataSchema = z
     exposure: z.boolean().optional(),
     exposureSlot: z.number().int().min(0).max(50).optional(),
     feedMode: NewsFeedModeSchema.optional(),
+    intentCategory: NewsCategorySchema.optional(),
+    intentQuery: optionalTrimmedString(256),
+    intentSourceSlug: optionalTrimmedString(160),
+    intentTag: optionalNewsTagFilter,
     matchedSignals: NewsInteractionMatchedSignalsSchema.optional(),
     personalizedScore: z.number().finite().optional(),
     rankSlot: z.number().int().min(0).max(240).optional(),
@@ -523,6 +527,42 @@ const formatProfileAuditList = (values: readonly string[]) => {
   return `${values.slice(0, -1).join(", ")} and ${values.at(-1)}`;
 };
 
+const newsProfileAuditCategoryLabels = {
+  agent_product: "Agents",
+  big_tech: "Big Tech",
+  funding: "Funding",
+  hot_take: "Hot Takes",
+  market_map: "Market Maps",
+  model_release: "Models",
+  musk_ai: "Musk AI",
+  new_concept: "New Concepts",
+  open_source: "Open Source",
+  other: "Other",
+  policy: "Policy",
+  product_hunt: "Product Hunt",
+  research: "Research",
+  security: "Security",
+  yc_ai: "YC AI",
+} as const satisfies Record<z.infer<typeof NewsCategorySchema>, string>;
+
+const newsProfileAuditCategoryLabelsByKey: Partial<Record<string, string>> =
+  newsProfileAuditCategoryLabels;
+
+const formatNewsProfileAuditCategory = (category: string) => {
+  const normalizedCategory = category.trim();
+  const label = newsProfileAuditCategoryLabelsByKey[normalizedCategory];
+
+  if (label) return label;
+
+  const fallbackLabel = normalizedCategory
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+  return fallbackLabel || category;
+};
+
 const createSignalCounter = () =>
   new Map<string, NewsReaderProfileSignalCount>();
 
@@ -573,6 +613,14 @@ const getAverageHomeRankSlot = (rankSlots: readonly number[]) => {
   return Math.round(average * 10) / 10;
 };
 
+const isArticleReadWithDepth = ({
+  action,
+  metadata,
+}: Pick<NewsRecordInteractionInput, "action" | "metadata">) =>
+  action === "view" &&
+  metadata?.surface?.trim().toLowerCase() === "article" &&
+  typeof metadata.readPercent === "number";
+
 const getProfileTrainingActionLabel = (action: string) => {
   if (action === "click_source") return "source clicks";
   if (action === "save") return "saves";
@@ -613,6 +661,22 @@ const toTopTrainingAction = (
       left.firstSeenIndex - right.firstSeenIndex,
   )[0]?.key;
 
+const getLatestProfileSignalTimestamp = (
+  currentTimestamp: string | null,
+  candidateTimestamp: string,
+) => {
+  const candidateTime = new Date(candidateTimestamp).getTime();
+
+  if (Number.isNaN(candidateTime)) return currentTimestamp;
+  if (!currentTimestamp) return new Date(candidateTime).toISOString();
+
+  const currentTime = new Date(currentTimestamp).getTime();
+
+  return Number.isNaN(currentTime) || candidateTime > currentTime
+    ? new Date(candidateTime).toISOString()
+    : currentTimestamp;
+};
+
 const summarizeProfilePreference = ({
   ignoredSignalCount,
   negativeSignalCount,
@@ -642,7 +706,7 @@ const summarizeProfilePreference = ({
     ? `, driven by ${getProfileTrainingActionLabel(topTrainingAction)}`
     : "";
   const categoryText = formatProfileAuditList(
-    profile.preferredCategories.slice(0, 2),
+    profile.preferredCategories.slice(0, 2).map(formatNewsProfileAuditCategory),
   );
   const leaderText = formatProfileAuditList(
     [profile.preferredSources[0], profile.preferredEntities[0]].filter(
@@ -671,21 +735,78 @@ export const summarizeNewsReaderProfileSignals = ({
   const categoryCounts = createSignalCounter();
   const entityCounts = createSignalCounter();
   const feedModeCounts = createSignalCounter();
+  const guardrailCategoryCounts = createSignalCounter();
+  const guardrailEntityCounts = createSignalCounter();
+  const guardrailSourceCounts = createSignalCounter();
+  const guardrailTagCounts = createSignalCounter();
+  const intentCategoryCounts = createSignalCounter();
+  const intentQueryCounts = createSignalCounter();
+  const intentSourceCounts = createSignalCounter();
+  const intentTagCounts = createSignalCounter();
   const matchedSignalCounts = createSignalCounter();
+  const readMilestoneCounts = createSignalCounter();
   const sourceCounts = createSignalCounter();
   const surfaceCounts = createSignalCounter();
   const tagCounts = createSignalCounter();
   const trainingActionCounts = createSignalCounter();
   const homeRankSlots: number[] = [];
+  const readPercents: number[] = [];
   let ignoredSignalCount = 0;
+  let lastSignalAt: string | null = null;
+  let lastTrainedAt: string | null = null;
   let negativeSignalCount = 0;
   let positiveSignalCount = 0;
+  let shallowReadCount = 0;
+  let trainedReadCount = 0;
 
   interactions.forEach((interaction, index) => {
+    lastSignalAt = getLatestProfileSignalTimestamp(
+      lastSignalAt,
+      interaction.occurredAt,
+    );
+
     addSignalCount(actionCounts, interaction.action, index);
 
     if (interaction.metadata?.feedMode) {
       addSignalCount(feedModeCounts, interaction.metadata.feedMode, index);
+    }
+
+    if (interaction.metadata?.readMilestone) {
+      addSignalCount(
+        readMilestoneCounts,
+        interaction.metadata.readMilestone,
+        index,
+      );
+    }
+
+    if (interaction.metadata?.intentCategory) {
+      addSignalCount(
+        intentCategoryCounts,
+        interaction.metadata.intentCategory,
+        index,
+      );
+    }
+
+    if (interaction.metadata?.intentQuery) {
+      addSignalCount(
+        intentQueryCounts,
+        interaction.metadata.intentQuery,
+        index,
+      );
+    }
+
+    if (interaction.metadata?.intentSourceSlug) {
+      addSignalCount(
+        intentSourceCounts,
+        interaction.metadata.intentSourceSlug,
+        index,
+      );
+    }
+
+    if (interaction.metadata?.intentTag) {
+      getNewsRecommendationAngleLabels([
+        interaction.metadata.intentTag,
+      ]).forEach((tag) => addSignalCount(intentTagCounts, tag, index));
     }
 
     if (interaction.metadata?.surface) {
@@ -706,19 +827,42 @@ export const summarizeNewsReaderProfileSignals = ({
       homeRankSlots.push(rankSlot);
     }
 
+    const hasArticleReadDepth = isArticleReadWithDepth(interaction);
+    const articleReadPercent = hasArticleReadDepth
+      ? interaction.metadata?.readPercent
+      : undefined;
+
+    if (typeof articleReadPercent === "number") {
+      readPercents.push(articleReadPercent);
+    }
+
     if (interaction.action === "hide") {
       negativeSignalCount += 1;
+      addSignalCount(guardrailCategoryCounts, interaction.category, index);
+      addSignalCount(guardrailSourceCounts, interaction.sourceSlug, index);
+      interaction.entities.forEach((entity) =>
+        addSignalCount(guardrailEntityCounts, entity, index),
+      );
+      getNewsRecommendationAngleLabels(interaction.tags ?? []).forEach((tag) =>
+        addSignalCount(guardrailTagCounts, tag, index),
+      );
       return;
     }
 
     const isTrainingSignal = shouldTrainNewsProfileFromInteraction(interaction);
 
     if (!isTrainingSignal) {
+      if (hasArticleReadDepth) shallowReadCount += 1;
       ignoredSignalCount += 1;
       return;
     }
 
     positiveSignalCount += 1;
+    if (hasArticleReadDepth) trainedReadCount += 1;
+    lastTrainedAt = getLatestProfileSignalTimestamp(
+      lastTrainedAt,
+      interaction.occurredAt,
+    );
     addSignalCount(trainingActionCounts, interaction.action, index);
     addSignalCount(categoryCounts, interaction.category, index);
     addSignalCount(sourceCounts, interaction.sourceSlug, index);
@@ -729,10 +873,31 @@ export const summarizeNewsReaderProfileSignals = ({
       addSignalCount(tagCounts, tag, index),
     );
   });
+  const topIntentCategories = toTopSignalCounts(intentCategoryCounts);
+  const topIntentQueries = toTopSignalCounts(intentQueryCounts);
+  const topIntentSources = toTopSignalCounts(intentSourceCounts);
+  const topIntentTags = toTopSignalCounts(intentTagCounts);
+  const topReadMilestones = toTopSignalCounts(readMilestoneCounts);
+  const topGuardrailCategories = toTopSignalCounts(guardrailCategoryCounts);
+  const topGuardrailEntities = toTopSignalCounts(guardrailEntityCounts);
+  const topGuardrailSources = toTopSignalCounts(guardrailSourceCounts);
+  const topGuardrailTags = toTopSignalCounts(guardrailTagCounts);
 
   return {
     averageHomeRankSlot: getAverageHomeRankSlot(homeRankSlots),
+    ...(readPercents.length > 0
+      ? {
+          averageReadPercent:
+            Math.round(
+              (readPercents.reduce((total, value) => total + value, 0) /
+                readPercents.length) *
+                100,
+            ) / 100,
+        }
+      : {}),
     ignoredSignalCount,
+    lastSignalAt,
+    lastTrainedAt,
     negativeSignalCount,
     positiveSignalCount,
     summary: summarizeProfilePreference({
@@ -746,10 +911,21 @@ export const summarizeNewsReaderProfileSignals = ({
     topCategories: toTopSignalCounts(categoryCounts),
     topEntities: toTopSignalCounts(entityCounts),
     topFeedModes: toTopSignalCounts(feedModeCounts),
+    ...(topGuardrailCategories.length > 0 ? { topGuardrailCategories } : {}),
+    ...(topGuardrailEntities.length > 0 ? { topGuardrailEntities } : {}),
+    ...(topGuardrailSources.length > 0 ? { topGuardrailSources } : {}),
+    ...(topGuardrailTags.length > 0 ? { topGuardrailTags } : {}),
+    ...(topIntentCategories.length > 0 ? { topIntentCategories } : {}),
+    ...(topIntentQueries.length > 0 ? { topIntentQueries } : {}),
+    ...(topIntentSources.length > 0 ? { topIntentSources } : {}),
+    ...(topIntentTags.length > 0 ? { topIntentTags } : {}),
     topMatchedSignals: toTopSignalCounts(matchedSignalCounts),
+    ...(topReadMilestones.length > 0 ? { topReadMilestones } : {}),
     topSources: toTopSignalCounts(sourceCounts),
     topSurfaces: toTopSignalCounts(surfaceCounts),
     topTags: toTopSignalCounts(tagCounts),
+    ...(shallowReadCount > 0 ? { shallowReadCount } : {}),
+    ...(trainedReadCount > 0 ? { trainedReadCount } : {}),
     trainedSignalCount: positiveSignalCount,
   };
 };
@@ -1068,6 +1244,14 @@ const tagCondition = (tag: string | undefined): SQL<unknown> | undefined => {
   return sql`${NewsItem.tags} @> array[${tag}]::text[]`;
 };
 
+const textArraySql = (values: readonly string[]): SQL<unknown> =>
+  values.length > 0
+    ? sql`array[${sql.join(
+        values.map((value) => sql`${value}`),
+        sql`, `,
+      )}]::text[]`
+    : sql`array[]::text[]`;
+
 const publishedFeedConditions = (
   input: NewsFeedFilterInput & Partial<NewsPublishedFeedConditionInput>,
 ): SQL<unknown> | undefined =>
@@ -1354,10 +1538,10 @@ export const buildNewsCollaborativeSignalCondition = ({
       ? inArray(NewsSource.slug, candidateSourceSlugs)
       : undefined,
     candidateEntities.length > 0
-      ? sql`${NewsItem.entities} && ${candidateEntities}`
+      ? sql`${NewsItem.entities} && ${textArraySql(candidateEntities)}`
       : undefined,
     candidateTags.length > 0
-      ? sql`${NewsItem.tags} && ${candidateTags}`
+      ? sql`${NewsItem.tags} && ${textArraySql(candidateTags)}`
       : undefined,
   ].filter((condition): condition is SQL<unknown> => condition !== undefined);
 

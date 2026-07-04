@@ -1,3 +1,4 @@
+import type { newsCategoryValues } from "@acme/db/schema";
 import type {
   NewsCollaborativeSignal,
   NewsPreferenceProfile,
@@ -34,6 +35,31 @@ import {
   summarizeNewsRecommendation,
 } from "@acme/validators";
 
+type NewsHomeInteractionIntentCategory = (typeof newsCategoryValues)[number];
+
+const newsHomeInteractionIntentCategories = [
+  "funding",
+  "product_hunt",
+  "model_release",
+  "new_concept",
+  "hot_take",
+  "agent_product",
+  "big_tech",
+  "musk_ai",
+  "yc_ai",
+  "research",
+  "policy",
+  "security",
+  "open_source",
+  "market_map",
+  "other",
+] as const satisfies readonly NewsHomeInteractionIntentCategory[];
+
+const isNewsHomeInteractionIntentCategory = (
+  category: string,
+): category is NewsHomeInteractionIntentCategory =>
+  (newsHomeInteractionIntentCategories as readonly string[]).includes(category);
+
 export interface NewsHomeItem extends RecommendableNewsItem {
   summary: string;
   canonicalUrl: string | null;
@@ -43,6 +69,22 @@ export interface NewsHomeItem extends RecommendableNewsItem {
   sourceName: string;
   sourceType: string;
 }
+
+export const formatNewsEditionDate = (date: string) =>
+  new Intl.DateTimeFormat("en", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(date));
+
+export const formatNewsTime = (date: string) =>
+  new Intl.DateTimeFormat("en", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(new Date(date));
 
 export interface NewsHomePublicFeedItem
   extends Omit<
@@ -101,18 +143,32 @@ export interface NewsServerProfileAuditSignal {
 
 export interface NewsServerProfileAudit {
   averageHomeRankSlot: number | null;
+  averageReadPercent?: number;
   ignoredSignalCount: number;
+  lastSignalAt?: string | null;
+  lastTrainedAt?: string | null;
   negativeSignalCount: number;
   positiveSignalCount: number;
+  shallowReadCount?: number;
   summary: string;
   topActions?: readonly NewsServerProfileAuditSignal[];
   topCategories: readonly NewsServerProfileAuditSignal[];
   topEntities: readonly NewsServerProfileAuditSignal[];
   topFeedModes: readonly NewsServerProfileAuditSignal[];
+  topGuardrailCategories?: readonly NewsServerProfileAuditSignal[];
+  topGuardrailEntities?: readonly NewsServerProfileAuditSignal[];
+  topGuardrailSources?: readonly NewsServerProfileAuditSignal[];
+  topGuardrailTags?: readonly NewsServerProfileAuditSignal[];
+  topIntentCategories?: readonly NewsServerProfileAuditSignal[];
+  topIntentQueries?: readonly NewsServerProfileAuditSignal[];
+  topIntentSources?: readonly NewsServerProfileAuditSignal[];
+  topIntentTags?: readonly NewsServerProfileAuditSignal[];
   topMatchedSignals: readonly NewsServerProfileAuditSignal[];
+  topReadMilestones?: readonly NewsServerProfileAuditSignal[];
   topSources: readonly NewsServerProfileAuditSignal[];
   topSurfaces?: readonly NewsServerProfileAuditSignal[];
   topTags?: readonly NewsServerProfileAuditSignal[];
+  trainedReadCount?: number;
   trainedSignalCount: number;
 }
 
@@ -605,6 +661,7 @@ export interface NewsDeskRun {
     duplicate: number;
     future: number;
     irrelevant: number;
+    low_quality: number;
     stale: number;
   };
   sourceHealth?: NewsDeskRunSourceHealth;
@@ -672,6 +729,48 @@ export const buildNewsDeskStatus = ({
 
 const newsDeskNumberFormatter = new Intl.NumberFormat("en");
 
+const newsDeskSkippedReasonLabels = {
+  duplicate: "duplicate",
+  future: "future-dated",
+  irrelevant: "non-AI",
+  low_quality: "low-quality",
+  stale: "stale",
+} as const satisfies Record<
+  keyof NonNullable<NewsDeskRun["skippedByReason"]>,
+  string
+>;
+
+const newsDeskSkippedReasonOrder = [
+  "low_quality",
+  "irrelevant",
+  "duplicate",
+  "future",
+  "stale",
+] as const satisfies readonly (keyof typeof newsDeskSkippedReasonLabels)[];
+
+const formatNewsDeskSkippedReason = ({
+  count,
+  reason,
+}: {
+  count: number;
+  reason: keyof typeof newsDeskSkippedReasonLabels;
+}) =>
+  `${newsDeskNumberFormatter.format(count)} ${newsDeskSkippedReasonLabels[reason]}`;
+
+const getNewsDeskSkippedReasonSummary = (
+  skippedByReason: NewsDeskRun["skippedByReason"],
+) => {
+  if (!skippedByReason) return "";
+
+  const parts = newsDeskSkippedReasonOrder.flatMap((reason) => {
+    const count = skippedByReason[reason];
+
+    return count > 0 ? [formatNewsDeskSkippedReason({ count, reason })] : [];
+  });
+
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+};
+
 export const getNewsDeskRunYieldLabel = (run: NewsDeskStatus["latestRun"]) => {
   if (!run) return "No items yet";
 
@@ -681,7 +780,9 @@ export const getNewsDeskRunYieldLabel = (run: NewsDeskStatus["latestRun"]) => {
   const skippedCount = run.itemsSkipped ?? 0;
 
   return skippedCount > 0
-    ? `${baseLabel}, ${newsDeskNumberFormatter.format(skippedCount)} skipped`
+    ? `${baseLabel}, ${newsDeskNumberFormatter.format(
+        skippedCount,
+      )} skipped${getNewsDeskSkippedReasonSummary(run.skippedByReason)}`
     : baseLabel;
 };
 
@@ -841,23 +942,35 @@ export const hasNewsHomeExploreFilters = ({
   );
 };
 
+const initialNewsExplorationTrendThreshold = 80;
+const initialNewsExplorationSourceThreshold = 75;
+
+const isInitialNewsExplorationCandidate = (item: NewsHomeItem) =>
+  item.trendScore >= initialNewsExplorationTrendThreshold &&
+  item.sourceScore >= initialNewsExplorationSourceThreshold;
+
 const toInitialNewsRankedItem = (
   item: NewsHomeItem,
 ): RankedNewsItem<NewsHomeItem> => {
-  const matchedSignals =
+  const matchedSignals = (
     "matchedSignals" in item && Array.isArray(item.matchedSignals)
       ? item.matchedSignals.filter(
           (signal): signal is string => typeof signal === "string",
         )
-      : [];
+      : []
+  ).filter((signal) => signal.trim().length > 0);
   const personalizedScore =
     "personalizedScore" in item && typeof item.personalizedScore === "number"
       ? item.personalizedScore
       : Math.round(item.trendScore);
+  const initialMatchedSignals =
+    matchedSignals.length === 0 && isInitialNewsExplorationCandidate(item)
+      ? ["exploration"]
+      : matchedSignals;
 
   return {
     ...item,
-    matchedSignals,
+    matchedSignals: initialMatchedSignals,
     personalizedScore,
   };
 };
@@ -1010,6 +1123,10 @@ export const getNewsHomePrimaryQueryRoute = getNewsHomeLoadMoreQueryRoute;
 export interface NewsHomeInteractionMetadata {
   [key: string]: unknown;
   feedMode: NewsFeedMode;
+  intentCategory?: NewsHomeInteractionIntentCategory;
+  intentQuery?: string;
+  intentSourceSlug?: string;
+  intentTag?: string;
   matchedSignals: string[];
   personalizedScore: number;
   rankSlot: number;
@@ -1044,28 +1161,61 @@ const getUniqueNewsHomeInteractionSignals = (
   return uniqueSignals.slice(0, 12);
 };
 
+const addNewsHomeIntentMetadata = ({
+  intent,
+  metadata,
+}: {
+  intent: NewsSessionIntentFilter | undefined;
+  metadata: Partial<NewsHomeInteractionMetadata>;
+}) => {
+  if (!intent) return metadata;
+
+  const category = intent.category?.trim();
+  const query = intent.query.trim();
+  const sourceSlug = intent.sourceSlug?.trim();
+  const tag = intent.tag?.trim();
+
+  if (category && isNewsHomeInteractionIntentCategory(category)) {
+    metadata.intentCategory = category;
+  }
+  if (query) metadata.intentQuery = query;
+  if (sourceSlug) metadata.intentSourceSlug = sourceSlug;
+  if (tag) metadata.intentTag = tag;
+
+  return metadata;
+};
+
 export const buildNewsHomeInteractionMetadata = ({
   action,
   feedMode,
+  intent,
   item,
   rankSlot,
 }: {
   action: ReaderInteractionAction;
   feedMode: NewsFeedMode;
+  intent?: NewsSessionIntentFilter;
   item: RankedNewsItem<NewsHomeItem>;
   rankSlot: number;
-}): NewsHomeInteractionMetadata => ({
-  feedMode,
-  matchedSignals: getUniqueNewsHomeInteractionSignals(item.matchedSignals),
-  personalizedScore: item.personalizedScore,
-  rankSlot: toNewsHomeRankSlot(rankSlot),
-  surface:
-    action === "view"
-      ? "home_read"
-      : action === "click_source"
-        ? "home_source"
-        : "home_feedback",
-});
+}): NewsHomeInteractionMetadata => {
+  const metadata = addNewsHomeIntentMetadata({
+    intent,
+    metadata: {
+      feedMode,
+      matchedSignals: getUniqueNewsHomeInteractionSignals(item.matchedSignals),
+      personalizedScore: item.personalizedScore,
+      rankSlot: toNewsHomeRankSlot(rankSlot),
+      surface:
+        action === "view"
+          ? "home_read"
+          : action === "click_source"
+            ? "home_source"
+            : "home_feedback",
+    },
+  });
+
+  return metadata as NewsHomeInteractionMetadata;
+};
 
 export const buildNewsHomeReaderInteraction = ({
   action,
@@ -3948,7 +4098,9 @@ export const getNewsSessionIntent = ({
         definition: activeIntent.sourceSlug
           ? findNewsSessionIntentForSource(activeIntent.sourceSlug)
           : undefined,
-        evidence: activeIntent.sourceSlug ?? "",
+        evidence: activeIntent.sourceSlug
+          ? formatNewsSourceDisplayLabel(activeIntent.sourceSlug)
+          : "",
       },
       {
         definition: activeIntent.tag
@@ -3992,7 +4144,12 @@ export const getNewsSessionIntent = ({
     incrementNewsSessionIntentScore({ accumulators, amount: 1, definition });
 
     const accumulator = definition ? accumulators.get(definition.label) : null;
-    if (accumulator) addNewsSessionIntentEvidence(accumulator, sourceSlug);
+    if (accumulator) {
+      addNewsSessionIntentEvidence(
+        accumulator,
+        formatNewsSourceDisplayLabel(sourceSlug),
+      );
+    }
   }
 
   for (const entity of normalizedProfile.preferredEntities) {
@@ -4760,6 +4917,230 @@ const formatNewsServerProfileAuditSignalChip = (
   signal: NewsServerProfileAuditSignal,
 ) => `${signal.key} ${signal.count}`;
 
+const formatNewsServerProfileAuditKeyLabel = (key: string) => {
+  const normalizedKey = key.trim();
+  const fallbackLabel = normalizedKey
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+  return fallbackLabel || key;
+};
+
+const newsCategoryDisplayLabels: Record<string, string> = {
+  agent_product: "Agents",
+  big_tech: "Big Tech",
+  funding: "Funding",
+  hot_take: "Hot Takes",
+  market_map: "Market Maps",
+  model_release: "Models",
+  musk_ai: "Musk AI",
+  new_concept: "New Concepts",
+  open_source: "Open Source",
+  other: "Other",
+  policy: "Policy",
+  product_hunt: "Product Hunt",
+  research: "Research",
+  robotics: "Robotics",
+  security: "Security",
+  social_signal: "Hot Takes",
+  yc_ai: "YC AI",
+};
+
+const formatNewsCategoryDisplayLabel = (category: string) => {
+  const normalizedCategory = category.trim();
+  const label = newsCategoryDisplayLabels[normalizedCategory];
+
+  if (label) return label;
+
+  const fallbackLabel = normalizedCategory
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+  return fallbackLabel || category;
+};
+
+const escapeNewsServerProfileAuditSummaryPattern = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const replaceNewsServerProfileAuditSummaryToken = ({
+  label,
+  summary,
+  token,
+}: {
+  label: string;
+  summary: string;
+  token: string;
+}) =>
+  summary.replace(
+    new RegExp(
+      `(^|[^A-Za-z0-9_-])${escapeNewsServerProfileAuditSummaryPattern(token)}(?=$|[^A-Za-z0-9_-])`,
+      "g",
+    ),
+    (_, prefix: string) => `${prefix}${label}`,
+  );
+
+const newsSourceDisplayLabels: Record<string, string> = {
+  "agent-desk": "Agent Desk",
+  anthropic: "Anthropic",
+  deepmind: "DeepMind",
+  "google-ai": "Google AI",
+  "openai-news": "OpenAI News",
+  "oss-desk": "OSS Desk",
+  "product-hunt": "Product Hunt",
+  venturewire: "VentureWire",
+  "y-combinator": "Y Combinator",
+  yc: "YC",
+};
+
+const newsSourceDisplayTokenLabels: Record<string, string> = {
+  ai: "AI",
+  api: "API",
+  gpu: "GPU",
+  hn: "HN",
+  oss: "OSS",
+  yc: "YC",
+};
+
+const formatNewsSourceDisplayLabel = (source: string) => {
+  const normalizedSource = source.trim();
+  const label = newsSourceDisplayLabels[normalizedSource];
+
+  if (label) return label;
+
+  const fallbackLabel = normalizedSource
+    .split(/[-_]+/)
+    .filter(Boolean)
+    .map(
+      (part) =>
+        newsSourceDisplayTokenLabels[part.toLowerCase()] ??
+        `${part.charAt(0).toUpperCase()}${part.slice(1)}`,
+    )
+    .join(" ");
+
+  return fallbackLabel || source;
+};
+
+const formatNewsServerProfileAuditSummary = (audit: NewsServerProfileAudit) => {
+  const categoryFormattedSummary = Object.entries(
+    newsCategoryDisplayLabels,
+  ).reduce(
+    (formattedSummary, [category, label]) =>
+      replaceNewsServerProfileAuditSummaryToken({
+        label,
+        summary: formattedSummary,
+        token: category,
+      }),
+    audit.summary,
+  );
+  const sourceKeys = [
+    ...audit.topSources,
+    ...(audit.topIntentSources ?? []),
+    ...(audit.topGuardrailSources ?? []),
+  ].map((signal) => signal.key);
+
+  return Array.from(new Set(sourceKeys)).reduce(
+    (formattedSummary, source) =>
+      replaceNewsServerProfileAuditSummaryToken({
+        label: formatNewsSourceDisplayLabel(source),
+        summary: formattedSummary,
+        token: source,
+      }),
+    categoryFormattedSummary,
+  );
+};
+
+const formatNewsServerProfileAuditCategoryChip = (
+  signal: NewsServerProfileAuditSignal,
+) => `${formatNewsCategoryDisplayLabel(signal.key)} ${signal.count}`;
+
+const formatNewsServerProfileAuditSourceChip = (
+  signal: NewsServerProfileAuditSignal,
+) => `${formatNewsSourceDisplayLabel(signal.key)} ${signal.count}`;
+
+const formatNewsServerProfileAuditGuardrailChip = (
+  signal: NewsServerProfileAuditSignal,
+) => `Less ${signal.key} ${signal.count}`;
+
+const formatNewsServerProfileAuditGuardrailSourceChip = (
+  signal: NewsServerProfileAuditSignal,
+) => `Less ${formatNewsSourceDisplayLabel(signal.key)} ${signal.count}`;
+
+const formatNewsServerProfileAuditGuardrailCategoryChip = (
+  signal: NewsServerProfileAuditSignal,
+) => `Less ${formatNewsCategoryDisplayLabel(signal.key)} ${signal.count}`;
+
+const formatNewsServerProfileAuditIntentCategoryChip = (
+  signal: NewsServerProfileAuditSignal,
+) => `Intent ${formatNewsCategoryDisplayLabel(signal.key)} ${signal.count}`;
+
+const newsServerProfileAuditSurfaceLabels: Record<string, string> = {
+  article: "Article",
+  article_feedback: "Article feedback",
+  article_source: "Article source",
+  home: "Home",
+  home_exposure: "Home exposure",
+  home_feedback: "Home feedback",
+  home_read: "Home read",
+  home_source: "Home source",
+  mobile_home: "Mobile home",
+};
+
+const formatNewsServerProfileAuditSurfaceChip = (
+  signal: NewsServerProfileAuditSignal,
+) =>
+  `${newsServerProfileAuditSurfaceLabels[signal.key] ?? formatNewsServerProfileAuditKeyLabel(signal.key)} ${signal.count}`;
+
+const newsServerProfileAuditMatchedSignalLabels: Record<string, string> = {
+  angle_quota: "Angle balance",
+  category: "Topic match",
+  category_quota: "Topic balance",
+  collaborative_feedback: "Similar readers",
+  collaborative_negative_feedback: "Community Less",
+  daypart: "Daypart",
+  entity: "Entity match",
+  entity_quota: "Entity balance",
+  exposure_cooldown: "Exposure cooldown",
+  exploration: "Exploration",
+  freshness_quota: "Freshness balance",
+  home_exposure_cooldown: "Exposure cooldown",
+  negative_feedback: "Less feedback",
+  positive_feedback: "Positive feedback",
+  positive_read_feedback: "Read feedback",
+  positive_share_feedback: "Share feedback",
+  semantic_feedback: "Semantic match",
+  session_intent: "Intent match",
+  source: "Source match",
+  source_corroboration: "Source corroboration",
+  source_quota: "Source balance",
+  tag: "Tag match",
+};
+
+const formatNewsServerProfileAuditMatchedSignalChip = (
+  signal: NewsServerProfileAuditSignal,
+) =>
+  `${newsServerProfileAuditMatchedSignalLabels[signal.key] ?? formatNewsServerProfileAuditKeyLabel(signal.key)} ${signal.count}`;
+
+const newsServerProfileAuditReadMilestoneLabels: Record<string, string> = {
+  deep_read: "Deep read",
+  meaningful_read: "Meaningful read",
+  opened: "Opened",
+};
+
+const formatNewsServerProfileAuditReadMilestoneChip = (
+  signal: NewsServerProfileAuditSignal,
+) => {
+  const fallbackLabel = signal.key.split("_").filter(Boolean).join(" ");
+  const label =
+    newsServerProfileAuditReadMilestoneLabels[signal.key] ??
+    `${fallbackLabel.charAt(0).toUpperCase()}${fallbackLabel.slice(1)}`;
+
+  return `${label} ${signal.count}`;
+};
+
 const formatNewsServerProfileAuditActionChip = (
   signal: NewsServerProfileAuditSignal,
 ) => `${getFeedbackActionLabel(signal.key)} ${signal.count}`;
@@ -4787,6 +5168,38 @@ const getNewsServerProfileAuditLabel = (audit: NewsServerProfileAudit) => {
   return "Server Waiting";
 };
 
+const newsServerProfileAuditMonthLabels = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
+const formatNewsServerProfileAuditTimestamp = (
+  timestamp: string | null | undefined,
+) => {
+  if (!timestamp) return null;
+
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  const month = newsServerProfileAuditMonthLabels[date.getUTCMonth()];
+  const day = date.getUTCDate();
+  const hour = String(date.getUTCHours()).padStart(2, "0");
+  const minute = String(date.getUTCMinutes()).padStart(2, "0");
+
+  return `${month} ${day}, ${hour}:${minute} UTC`;
+};
+
 export const getNewsServerProfileAuditDisplay = (
   audit: NewsServerProfileAudit | undefined,
 ) => {
@@ -4807,8 +5220,8 @@ export const getNewsServerProfileAuditDisplay = (
   const chips = [
     ...audit.topCategories
       .slice(0, 2)
-      .map(formatNewsServerProfileAuditSignalChip),
-    ...audit.topSources.slice(0, 1).map(formatNewsServerProfileAuditSignalChip),
+      .map(formatNewsServerProfileAuditCategoryChip),
+    ...audit.topSources.slice(0, 1).map(formatNewsServerProfileAuditSourceChip),
     ...(audit.topTags ?? [])
       .slice(0, 1)
       .map(formatNewsServerProfileAuditSignalChip),
@@ -4817,16 +5230,81 @@ export const getNewsServerProfileAuditDisplay = (
     ),
     ...(audit.topSurfaces ?? [])
       .slice(0, 1)
-      .map(formatNewsServerProfileAuditSignalChip),
+      .map(formatNewsServerProfileAuditSurfaceChip),
     ...audit.topMatchedSignals
       .slice(0, 1)
+      .map(formatNewsServerProfileAuditMatchedSignalChip),
+    ...(audit.topReadMilestones ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditReadMilestoneChip),
+    ...(audit.topIntentCategories ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditIntentCategoryChip),
+    ...(audit.topIntentQueries ?? [])
+      .slice(0, 1)
       .map(formatNewsServerProfileAuditSignalChip),
+    ...(audit.topIntentSources ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditSourceChip),
+    ...(audit.topIntentTags ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditSignalChip),
+    ...(audit.topGuardrailCategories ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditGuardrailCategoryChip),
+    ...(audit.topGuardrailSources ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditGuardrailSourceChip),
+    ...(audit.topGuardrailTags ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditGuardrailChip),
+    ...(audit.topGuardrailEntities ?? [])
+      .slice(0, 1)
+      .map(formatNewsServerProfileAuditGuardrailChip),
   ];
   const metrics = [
     { label: "Trained", value: String(audit.trainedSignalCount) },
     { label: "Ignored", value: String(audit.ignoredSignalCount) },
     { label: "Hidden", value: String(audit.negativeSignalCount) },
   ];
+  const lastTrainedAt = formatNewsServerProfileAuditTimestamp(
+    audit.lastTrainedAt,
+  );
+  const lastSignalAt = formatNewsServerProfileAuditTimestamp(
+    audit.lastSignalAt,
+  );
+
+  if (audit.trainedReadCount && audit.trainedReadCount > 0) {
+    metrics.push({
+      label: "Deep reads",
+      value: String(audit.trainedReadCount),
+    });
+  }
+
+  if (audit.shallowReadCount && audit.shallowReadCount > 0) {
+    metrics.push({
+      label: "Shallow reads",
+      value: String(audit.shallowReadCount),
+    });
+  }
+
+  if (lastTrainedAt) {
+    metrics.push({ label: "Last trained", value: lastTrainedAt });
+  }
+
+  if (lastSignalAt) {
+    metrics.push({ label: "Last signal", value: lastSignalAt });
+  }
+
+  if (
+    typeof audit.averageReadPercent === "number" &&
+    Number.isFinite(audit.averageReadPercent)
+  ) {
+    metrics.push({
+      label: "Avg read",
+      value: `${Math.round(audit.averageReadPercent * 100)}%`,
+    });
+  }
 
   if (audit.averageHomeRankSlot !== null) {
     metrics.push({
@@ -4839,7 +5317,7 @@ export const getNewsServerProfileAuditDisplay = (
     chips,
     label: getNewsServerProfileAuditLabel(audit),
     metrics,
-    summary: audit.summary,
+    summary: formatNewsServerProfileAuditSummary(audit),
   };
 };
 
@@ -4986,7 +5464,7 @@ export const getNewsFeedbackTrainingUpdate = ({
         .map((source) =>
           source.trim().toLowerCase() === item.sourceSlug.trim().toLowerCase()
             ? item.sourceName
-            : source,
+            : formatNewsSourceDisplayLabel(source),
         )
         .join(", "),
     });
@@ -5799,7 +6277,7 @@ export const getNewsPreferenceControlPanel = ({
         signals: normalizedProfile.preferredSources.map((source) =>
           toPreferenceControlSignal({
             kind: "source",
-            label: source,
+            label: formatNewsSourceDisplayLabel(source),
             signal: source,
           }),
         ),
@@ -14864,8 +15342,13 @@ export const getNewsFeedbackCoach = ({
   profile: NewsPreferenceProfile;
 }) => {
   const readerSignalSummary = getNewsReaderSignalSummary(profile);
-  const explorationCount = items.filter((item) =>
-    item.matchedSignals.includes("exploration"),
+  const isLessGuardrailStory = (item: RankedNewsItem<NewsHomeItem>) =>
+    item.matchedSignals.includes("negative_feedback") ||
+    item.matchedSignals.includes("collaborative_negative_feedback");
+  const explorationCount = items.filter(
+    (item) =>
+      item.matchedSignals.includes("exploration") &&
+      !isLessGuardrailStory(item),
   ).length;
   const metrics = [
     { label: "Suggestions", value: "0" },
@@ -14917,13 +15400,11 @@ export const getNewsFeedbackCoach = ({
     });
   };
 
-  const isLessGuardrailStory = (item: RankedNewsItem<NewsHomeItem>) =>
-    item.matchedSignals.includes("negative_feedback") ||
-    item.matchedSignals.includes("collaborative_negative_feedback");
   const profileMatchedStory = items.find(
     (item) =>
       hasReaderRecommendationSignal(item) &&
-      !item.matchedSignals.includes("exploration"),
+      !item.matchedSignals.includes("exploration") &&
+      !isLessGuardrailStory(item),
   );
   const sharedEntity = profileMatchedStory
     ? getSharedProfileEntity(profileMatchedStory, profile)
@@ -14943,8 +15424,10 @@ export const getNewsFeedbackCoach = ({
       : "Save a matching story to reinforce the reader profile.",
   });
 
-  const explorationStory = items.find((item) =>
-    item.matchedSignals.includes("exploration"),
+  const explorationStory = items.find(
+    (item) =>
+      item.matchedSignals.includes("exploration") &&
+      !isLessGuardrailStory(item),
   );
 
   addAction({
@@ -14961,7 +15444,10 @@ export const getNewsFeedbackCoach = ({
 
   const lowTrustHighHeatStory = items.find(
     (item) =>
-      !usedIds.has(item.id) && item.sourceScore < 60 && item.trendScore >= 80,
+      !usedIds.has(item.id) &&
+      !isLessGuardrailStory(item) &&
+      item.sourceScore < 60 &&
+      item.trendScore >= 80,
   );
 
   addAction({
@@ -16168,6 +16654,7 @@ type NewsReaderDaypartLaneKey = "explore" | "lead" | "pulse";
 
 const getNewsReaderDaypartConfig = (
   generatedAt: string,
+  readerLocalHour?: number | null,
 ): {
   cadenceMinutes: number;
   intent: string;
@@ -16175,7 +16662,14 @@ const getNewsReaderDaypartConfig = (
   label: string;
 } => {
   const date = new Date(generatedAt);
-  const hour = Number.isNaN(date.getTime()) ? 12 : date.getUTCHours();
+  const generatedHour = Number.isNaN(date.getTime()) ? 12 : date.getUTCHours();
+  const hour =
+    typeof readerLocalHour === "number" &&
+    Number.isInteger(readerLocalHour) &&
+    readerLocalHour >= 0 &&
+    readerLocalHour <= 23
+      ? readerLocalHour
+      : generatedHour;
 
   if (hour >= 5 && hour < 11) {
     return {
@@ -16242,11 +16736,13 @@ export const getNewsReaderDaypartPlan = ({
   generatedAt,
   items,
   profile,
+  readerLocalHour,
 }: {
   formatCategory: (category: string) => string;
   generatedAt: string;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   profile: NewsPreferenceProfile;
+  readerLocalHour?: number | null;
 }) => {
   const signalSummary = getNewsReaderSignalSummary(profile);
 
@@ -16266,7 +16762,7 @@ export const getNewsReaderDaypartPlan = ({
     };
   }
 
-  const config = getNewsReaderDaypartConfig(generatedAt);
+  const config = getNewsReaderDaypartConfig(generatedAt, readerLocalHour);
   const usedIds = new Set<string>();
   const lanes: ReturnType<typeof toNewsReaderDaypartLane>[] = [];
   const addLane = ({
@@ -18921,29 +19417,7 @@ export const selectNewsHomeExposureRecords = ({
     }));
 };
 
-const feedFatigueTopicLabels: Record<string, string> = {
-  agent_product: "Agents",
-  big_tech: "Big Tech",
-  funding: "Funding",
-  market_map: "Market Maps",
-  model_release: "Models",
-  musk_ai: "Musk AI",
-  new_concept: "New Concepts",
-  open_source: "Open Source",
-  product_hunt: "Product Hunt",
-  research: "Research",
-  robotics: "Robotics",
-  social_signal: "Hot Takes",
-  yc_ai: "YC AI",
-};
-
-const formatFeedFatigueTopic = (category: string) =>
-  feedFatigueTopicLabels[category] ??
-  category
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+const formatFeedFatigueTopic = formatNewsCategoryDisplayLabel;
 
 const formatFeedFatigueRepeatCount = (count: number, noun: string) =>
   `${count} ${noun} ${count === 1 ? "repeat" : "repeats"}`;

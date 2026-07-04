@@ -199,6 +199,10 @@ const newsHomeItemWithOriginalUrl = {
   originalUrl: "https://example.com/local?utm=feed",
 } satisfies NewsHomeItem;
 
+type NewsHomeItemWithMatchedSignals = NewsHomeItem & {
+  matchedSignals: string[];
+};
+
 const olderItem = {
   ...localItem,
   id: "older-story",
@@ -761,6 +765,75 @@ describe("selectInitialNewsHomeItems", () => {
     ]);
   });
 
+  it("marks high-quality out-of-profile stories as exploration in the server-rendered front page", () => {
+    const profileLead = {
+      ...localItem,
+      category: "model_release",
+      canonicalUrl: "https://example.com/openai-model-lead",
+      id: "openai-model-lead",
+      matchedSignals: ["category", "source", "entity"],
+      originalUrl: "https://source.example/openai-model-lead",
+      sourceScore: 92,
+      sourceSlug: "openai-news",
+      trendScore: 96,
+    } satisfies NewsHomeItemWithMatchedSignals;
+    const profileFollow = {
+      ...localItem,
+      category: "model_release",
+      canonicalUrl: "https://example.com/openai-model-follow",
+      id: "openai-model-follow",
+      matchedSignals: ["category"],
+      originalUrl: "https://source.example/openai-model-follow",
+      sourceScore: 88,
+      sourceSlug: "openai-news",
+      trendScore: 91,
+    } satisfies NewsHomeItemWithMatchedSignals;
+
+    const rankedItems = selectInitialNewsHomeItems({
+      items: [
+        profileLead,
+        profileFollow,
+        {
+          ...localItem,
+          category: "security",
+          canonicalUrl: "https://example.com/security-agent-supply-chain",
+          entities: ["Supply Chain Risk"],
+          id: "security-agent-supply-chain",
+          originalUrl: "https://source.example/security-agent-supply-chain",
+          sourceScore: 86,
+          sourceSlug: "security-desk",
+          tags: ["security"],
+          trendScore: 89,
+        },
+        {
+          ...olderItem,
+          category: "policy",
+          canonicalUrl: "https://example.com/policy-brief",
+          id: "policy-brief",
+          originalUrl: "https://source.example/policy-brief",
+          sourceScore: 62,
+          sourceSlug: "policy-wire",
+          trendScore: 64,
+        },
+      ],
+      limit: 3,
+    });
+
+    expect(
+      rankedItems.map((item) => ({
+        id: item.id,
+        matchedSignals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "openai-model-lead",
+        matchedSignals: ["category", "source", "entity"],
+      },
+      { id: "openai-model-follow", matchedSignals: ["category"] },
+      { id: "security-agent-supply-chain", matchedSignals: ["exploration"] },
+    ]);
+  });
+
   it("does not let stale stories dominate the server-rendered front page", () => {
     expect(
       selectInitialNewsHomeItems({
@@ -1103,6 +1176,12 @@ describe("buildNewsHomeInteractionMetadata", () => {
       buildNewsHomeInteractionMetadata({
         action: "save",
         feedMode: "for_you",
+        intent: {
+          category: "agent_product",
+          query: "  LangChain agents  ",
+          sourceSlug: " agent-desk ",
+          tag: " workflow automation ",
+        },
         item: {
           ...localItem,
           matchedSignals: ["category", "semantic_feedback", "category"],
@@ -1112,11 +1191,36 @@ describe("buildNewsHomeInteractionMetadata", () => {
       }),
     ).toEqual({
       feedMode: "for_you",
+      intentCategory: "agent_product",
+      intentQuery: "LangChain agents",
+      intentSourceSlug: "agent-desk",
+      intentTag: "workflow automation",
       matchedSignals: ["category", "semantic_feedback"],
       personalizedScore: 147,
       rankSlot: 2,
       surface: "home_feedback",
     });
+  });
+
+  it("does not store unsupported category filters in interaction metadata", () => {
+    expect(
+      buildNewsHomeInteractionMetadata({
+        action: "save",
+        feedMode: "for_you",
+        intent: {
+          category: " MODEL_RELEASE " as never,
+          query: "",
+          sourceSlug: null,
+          tag: null,
+        },
+        item: {
+          ...localItem,
+          matchedSignals: ["category"],
+          personalizedScore: 147,
+        },
+        rankSlot: 2,
+      }),
+    ).not.toHaveProperty("intentCategory");
   });
 
   it("canonicalizes matched signals before storing home interaction metadata", () => {
@@ -1929,6 +2033,52 @@ describe("getNewsReaderDaypartPlan", () => {
       summary:
         "Midday Scan uses 3 lanes across 4 ranked stories with a 15 min refresh cadence.",
     });
+  });
+
+  it("uses the reader local hour when explaining the active daypart plan", () => {
+    expect(
+      getNewsReaderDaypartPlan({
+        formatCategory: (category) => category,
+        generatedAt: "2026-07-01T13:15:00.000Z",
+        items: [
+          {
+            ...localItem,
+            id: "local-evening-lead",
+            matchedSignals: ["category"],
+            personalizedScore: 150,
+            title: "Agent market brief anchors the local evening",
+            trendScore: 82,
+          },
+          {
+            ...serverItem,
+            id: "local-evening-pulse",
+            matchedSignals: [],
+            personalizedScore: 130,
+            title: "Model release heat keeps moving after hours",
+            trendScore: 94,
+          },
+        ],
+        profile: localProfile,
+        readerLocalHour: 20,
+      }),
+    ).toMatchObject({
+      cadenceLabel: "Refresh every 45 min",
+      intent: "Turn the AI day into context, follow-ups, and deeper reads.",
+      label: "Evening Read",
+      summary:
+        "Evening Read uses 2 lanes across 2 ranked stories with a 45 min refresh cadence.",
+    });
+  });
+
+  it("wires the browser local hour into the rendered daypart plan", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /const readerDaypartPlan = getNewsReaderDaypartPlan\(\{[\s\S]*?readerLocalHour,[\s\S]*?\}\);/,
+    );
   });
 
   it("keeps the daypart plan stable before ranked stories arrive", () => {
@@ -4436,7 +4586,7 @@ describe("getNewsSessionIntent", () => {
       intents: [
         {
           candidateCount: 2,
-          evidence: ["Agents", "Open Source", "agent-desk", "LangChain"],
+          evidence: ["Agents", "Open Source", "Agent Desk", "LangChain"],
           guardrailCount: 0,
           label: "Builder Run",
           leadStory: {
@@ -4620,6 +4770,38 @@ describe("getNewsSessionIntent", () => {
       summary:
         "Session intent is Builder Run with 4 signals, 0 candidate stories, and 0 guardrails.",
     });
+  });
+
+  it("uses a readable active source filter as immediate session intent evidence", () => {
+    expect(
+      getNewsSessionIntent({
+        activeIntent: {
+          category: null,
+          query: "",
+          sourceSlug: "agent-desk",
+          tag: null,
+        },
+        formatCategory: (category) => category,
+        historyItems: [],
+        items: [],
+        limit: 3,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }).intents[0],
+    ).toEqual(
+      expect.objectContaining({
+        evidence: ["Agent Desk"],
+        label: "Builder Run",
+        score: 4,
+      }),
+    );
   });
 });
 
@@ -5215,6 +5397,7 @@ describe("getNewsServerProfileAuditDisplay", () => {
     expect(
       getNewsServerProfileAuditDisplay({
         averageHomeRankSlot: 2.3,
+        averageReadPercent: 0.9,
         ignoredSignalCount: 2,
         negativeSignalCount: 1,
         positiveSignalCount: 3,
@@ -5240,6 +5423,11 @@ describe("getNewsServerProfileAuditDisplay", () => {
           { count: 2, key: "category" },
           { count: 1, key: "semantic_feedback" },
         ],
+        topReadMilestones: [{ count: 2, key: "deep_read" }],
+        topIntentCategories: [{ count: 2, key: "agent_product" }],
+        topIntentQueries: [{ count: 2, key: "LangChain agents" }],
+        topIntentSources: [{ count: 2, key: "agent-desk" }],
+        topIntentTags: [{ count: 1, key: "workflow automation" }],
         topSources: [{ count: 2, key: "openai-news" }],
         topSurfaces: [
           { count: 2, key: "home" },
@@ -5249,27 +5437,41 @@ describe("getNewsServerProfileAuditDisplay", () => {
           { count: 2, key: "agents" },
           { count: 1, key: "browser" },
         ],
+        lastSignalAt: "2026-07-01T10:00:00.000Z",
+        lastTrainedAt: "2026-07-01T09:00:00.000Z",
+        shallowReadCount: 2,
+        trainedReadCount: 1,
         trainedSignalCount: 3,
       }),
     ).toEqual({
       chips: [
-        "agent_product 2",
-        "model_release 1",
-        "openai-news 2",
+        "Agents 2",
+        "Models 1",
+        "OpenAI News 2",
         "agents 2",
         "Save 2",
-        "home 2",
-        "category 2",
+        "Home 2",
+        "Topic match 2",
+        "Deep read 2",
+        "Intent Agents 2",
+        "LangChain agents 2",
+        "Agent Desk 2",
+        "workflow automation 1",
       ],
       label: "Server Learned",
       metrics: [
         { label: "Trained", value: "3" },
         { label: "Ignored", value: "2" },
         { label: "Hidden", value: "1" },
+        { label: "Deep reads", value: "1" },
+        { label: "Shallow reads", value: "2" },
+        { label: "Last trained", value: "Jul 1, 09:00 UTC" },
+        { label: "Last signal", value: "Jul 1, 10:00 UTC" },
+        { label: "Avg read", value: "90%" },
         { label: "Avg slot", value: "2.3" },
       ],
       summary:
-        "Profile leans toward agent_product and model_release, led by openai-news and OpenAI.",
+        "Profile leans toward Agents and Models, led by OpenAI News and OpenAI.",
     });
   });
 
@@ -5291,12 +5493,22 @@ describe("getNewsServerProfileAuditDisplay", () => {
         topFeedModes: [],
         topMatchedSignals: [],
         topSources: [],
+        topGuardrailCategories: [{ count: 2, key: "model_release" }],
+        topGuardrailSources: [{ count: 1, key: "venturewire" }],
+        topGuardrailTags: [{ count: 2, key: "prompt injection" }],
         topSurfaces: [{ count: 2, key: "home_read" }],
         topTags: [],
         trainedSignalCount: 0,
       }),
     ).toEqual({
-      chips: ["Read 2", "Less 1", "home_read 2"],
+      chips: [
+        "Read 2",
+        "Less 1",
+        "Home read 2",
+        "Less Models 2",
+        "Less VentureWire 1",
+        "Less prompt injection 2",
+      ],
       label: "Server Guarding",
       metrics: [
         { label: "Trained", value: "0" },
@@ -5306,6 +5518,27 @@ describe("getNewsServerProfileAuditDisplay", () => {
       summary:
         "Profile is guarding against Less feedback while recent exposure or low-depth reads stay out of training.",
     });
+  });
+
+  it("does not rewrite category-key substrings inside ordinary summary words", () => {
+    expect(
+      getNewsServerProfileAuditDisplay({
+        averageHomeRankSlot: null,
+        ignoredSignalCount: 0,
+        negativeSignalCount: 0,
+        positiveSignalCount: 1,
+        summary:
+          "Profile leans toward other while another signal remains unchanged.",
+        topCategories: [{ count: 1, key: "other" }],
+        topEntities: [],
+        topFeedModes: [],
+        topMatchedSignals: [],
+        topSources: [],
+        trainedSignalCount: 1,
+      }).summary,
+    ).toBe(
+      "Profile leans toward Other while another signal remains unchanged.",
+    );
   });
 
   it("keeps the server audit display in a waiting state until an audit is available", () => {
@@ -5466,6 +5699,36 @@ describe("getNewsFeedbackTrainingUpdate", () => {
         },
       }).signals.find((signal) => signal.label === "Source"),
     ).toEqual({ label: "Source", value: "Agent Desk" });
+  });
+
+  it("formats learned source slugs that did not come from the active story", () => {
+    expect(
+      getNewsFeedbackTrainingUpdate({
+        action: "save",
+        afterProfile: {
+          preferredCategories: ["model_release"],
+          preferredSources: ["agent-desk", "openai-news"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1.1,
+          recencyBias: 1.1,
+        },
+        beforeProfile: {
+          preferredCategories: ["model_release"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        item: {
+          ...localItem,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent desk story",
+        },
+      }).signals.find((signal) => signal.label === "Source"),
+    ).toEqual({ label: "Source", value: "Agent Desk, OpenAI News" });
   });
 
   it("marks shared stories as stronger positive feedback", () => {
@@ -6253,7 +6516,7 @@ describe("getNewsPreferenceControlPanel", () => {
           signals: [
             {
               kind: "source",
-              label: "openai-news",
+              label: "OpenAI News",
               signal: "openai-news",
             },
           ],
@@ -20855,6 +21118,102 @@ describe("getNewsFeedbackCoach", () => {
     ]);
   });
 
+  it("does not strengthen reader-matched stories that are also dampened by Less", () => {
+    const coach = getNewsFeedbackCoach({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "guarded-reader-match",
+          matchedSignals: ["category", "negative_feedback"],
+          personalizedScore: 144,
+          sourceScore: 92,
+          title: "Guarded reader match should not train",
+        },
+        {
+          ...serverItem,
+          id: "shareable-source-story",
+          matchedSignals: [],
+          personalizedScore: 112,
+          sourceScore: 88,
+          title: "Source-backed story can still be shared",
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(coach.actions).toEqual([
+      {
+        action: "share",
+        buttonLabel: "Share",
+        label: "Boost signal",
+        reason:
+          "Share this Models story if it should strongly shape future editions.",
+        storyId: "shareable-source-story",
+        storyTitle: "Source-backed story can still be shared",
+      },
+    ]);
+  });
+
+  it("keeps guarded exploration and noise stories out of coach actions", () => {
+    const coach = getNewsFeedbackCoach({
+      formatCategory: (category) =>
+        category === "funding"
+          ? "Funding"
+          : category === "model_release"
+            ? "Models"
+            : category,
+      items: [
+        {
+          ...olderItem,
+          category: "funding",
+          id: "guarded-exploration",
+          matchedSignals: ["exploration", "negative_feedback"],
+          personalizedScore: 118,
+          sourceScore: 86,
+          title: "Guarded exploration should not be saved",
+        },
+        {
+          ...serverItem,
+          id: "guarded-low-trust-heat",
+          matchedSignals: ["collaborative_negative_feedback"],
+          personalizedScore: 92,
+          sourceName: "Rumor Lab",
+          sourceScore: 42,
+          sourceSlug: "rumor-lab",
+          title: "Guarded low-trust heat should not be hidden again",
+          trendScore: 97,
+        },
+        {
+          ...localItem,
+          id: "shareable-model-story",
+          matchedSignals: [],
+          personalizedScore: 112,
+          sourceScore: 88,
+          title: "Source-backed model story can still be shared",
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(coach.actions).toEqual([
+      {
+        action: "share",
+        buttonLabel: "Share",
+        label: "Boost signal",
+        reason:
+          "Share this Models story if it should strongly shape future editions.",
+        storyId: "shareable-model-story",
+        storyTitle: "Source-backed model story can still be shared",
+      },
+    ]);
+    expect(coach.metrics).toContainEqual({
+      label: "Exploration",
+      value: "0",
+    });
+  });
+
   it("uses trimmed shared entities in feedback coaching reasons", () => {
     const coach = getNewsFeedbackCoach({
       formatCategory: (category) =>
@@ -25494,11 +25853,38 @@ describe("getNewsDeskRunYieldLabel", () => {
           duplicate: 1,
           future: 1,
           irrelevant: 3,
+          low_quality: 0,
           stale: 1,
         },
         errorMessage: null,
       }),
-    ).toBe("4 new, 2 updated, 6 skipped");
+    ).toBe(
+      "4 new, 2 updated, 6 skipped (3 non-AI, 1 duplicate, 1 future-dated, 1 stale)",
+    );
+  });
+
+  it("calls out low-quality skips in the latest run yield", () => {
+    expect(
+      getNewsDeskRunYieldLabel({
+        sourceName: "OpenAI",
+        status: "succeeded",
+        runType: "rss",
+        startedAt: "2026-07-01T10:00:00.000Z",
+        finishedAt: "2026-07-01T10:01:00.000Z",
+        itemsSeen: 7,
+        itemsCreated: 3,
+        itemsUpdated: 1,
+        itemsSkipped: 3,
+        skippedByReason: {
+          duplicate: 0,
+          future: 0,
+          irrelevant: 1,
+          low_quality: 2,
+          stale: 0,
+        },
+        errorMessage: null,
+      }),
+    ).toBe("3 new, 1 updated, 3 skipped (2 low-quality, 1 non-AI)");
   });
 
   it("keeps the existing yield label when no stories were skipped", () => {

@@ -49,6 +49,8 @@ import {
   buildNewsHomeReaderInteraction,
   buildNewsHomeSessionIntentFilter,
   createDefaultNewsPreferenceProfile,
+  formatNewsEditionDate,
+  formatNewsTime,
   getNewsAggregationIntake,
   getNewsAlertRouting,
   getNewsAnglePreferenceOptions,
@@ -509,26 +511,12 @@ const toServerProfile = (profile: NewsPreferenceProfile) => {
   };
 };
 
-const formatEditionDate = (date: string) =>
-  new Intl.DateTimeFormat("en", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(date));
-
-const formatTime = (date: string) =>
-  new Intl.DateTimeFormat("en", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(date));
-
 const numberFormatter = new Intl.NumberFormat("en");
 
 const formatCount = (value: number) => numberFormatter.format(value);
 
 const formatOptionalTime = (date: string | null) =>
-  date ? formatTime(date) : "None yet";
+  date ? formatNewsTime(date) : "None yet";
 
 const formatLastRun = (run: NewsDeskStatus["latestRun"]) => {
   if (!run) return "No run yet";
@@ -1135,6 +1123,7 @@ export function NewsHome({
         metadata: buildNewsHomeInteractionMetadata({
           action,
           feedMode,
+          intent: activeFeedIntent,
           item,
           rankSlot,
         }),
@@ -2073,6 +2062,7 @@ export function NewsHome({
     generatedAt,
     items: rankedItems,
     profile,
+    readerLocalHour,
   });
   const readerScorecards = getNewsReaderScorecards({
     formatCategory: getCategoryLabel,
@@ -2384,7 +2374,7 @@ export function NewsHome({
             </h1>
           </div>
           <div className="max-w-xl text-sm leading-6 text-[#4a4a4a] dark:text-[#c8c4ba]">
-            <p>{formatEditionDate(generatedAt)}</p>
+            <p>{formatNewsEditionDate(generatedAt)}</p>
             <p>
               A ranked front page for agent products, frontier models, funding,
               research, and the companies shaping the next software cycle.
@@ -2930,7 +2920,7 @@ export function NewsHome({
                     <span className="text-[#78746c]">/</span>
                     <span>{leadStory.sourceName}</span>
                     <span className="text-[#78746c]">/</span>
-                    <span>{formatTime(leadStory.publishedAt)}</span>
+                    <span>{formatNewsTime(leadStory.publishedAt)}</span>
                   </div>
                   <h2 className="max-w-4xl text-4xl leading-[1.03] font-black tracking-normal sm:text-5xl lg:text-6xl">
                     {leadStory.title}
@@ -3027,7 +3017,7 @@ export function NewsHome({
                       <div className="mt-5">
                         <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
                           {section.lead.sourceName} /{" "}
-                          {formatTime(section.lead.publishedAt)}
+                          {formatNewsTime(section.lead.publishedAt)}
                         </div>
                         <h3 className="mt-2 text-2xl leading-tight font-black">
                           {section.lead.title}
@@ -6993,7 +6983,7 @@ export function NewsHome({
                           {update.signal}
                         </span>
                         <span className="text-[#78746c]">/</span>
-                        <span>{formatTime(update.publishedAt)}</span>
+                        <span>{formatNewsTime(update.publishedAt)}</span>
                         <span className="text-[#78746c]">/</span>
                         <span>{update.categoryLabel}</span>
                       </div>
@@ -7741,7 +7731,9 @@ export function NewsHome({
                       </span>
                       <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
                         {item.sourceName} / saved{" "}
-                        {item.savedAt ? formatTime(item.savedAt) : "recently"}
+                        {item.savedAt
+                          ? formatNewsTime(item.savedAt)
+                          : "recently"}
                       </span>
                     </Link>
                     <Button
@@ -7857,7 +7849,7 @@ export function NewsHome({
                           item.angleLabel,
                           `Less ${
                             item.hiddenAt
-                              ? formatTime(item.hiddenAt)
+                              ? formatNewsTime(item.hiddenAt)
                               : "recently"
                           }`,
                         ]
@@ -7985,7 +7977,9 @@ export function NewsHome({
                     </span>
                     <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
                       {item.sourceName} / read{" "}
-                      {item.viewedAt ? formatTime(item.viewedAt) : "recently"}
+                      {item.viewedAt
+                        ? formatNewsTime(item.viewedAt)
+                        : "recently"}
                     </span>
                   </Link>
                 ))
@@ -8535,7 +8529,7 @@ function StoryRow({
         />
       </div>
       <div className="font-mono text-sm">
-        <div>{formatTime(item.publishedAt)}</div>
+        <div>{formatNewsTime(item.publishedAt)}</div>
         <div className="mt-1 text-[#5b5750] dark:text-[#bbb4aa]">
           Score {item.personalizedScore}
         </div>

@@ -382,6 +382,10 @@ describe("news router input contracts", () => {
         action: "save",
         metadata: {
           feedMode: "for_you",
+          intentCategory: "agent_product",
+          intentQuery: "  LangChain agents  ",
+          intentSourceSlug: " agent-desk ",
+          intentTag: "workflow automation",
           matchedSignals: ["category", "semantic_feedback"],
           personalizedScore: 147,
           rankSlot: 2,
@@ -392,6 +396,10 @@ describe("news router input contracts", () => {
       }).metadata,
     ).toEqual({
       feedMode: "for_you",
+      intentCategory: "agent_product",
+      intentQuery: "LangChain agents",
+      intentSourceSlug: "agent-desk",
+      intentTag: "workflow_automation",
       matchedSignals: ["category", "semantic_feedback"],
       personalizedScore: 147,
       rankSlot: 2,
@@ -1256,6 +1264,22 @@ describe("buildNewsCollaborativeSignalCondition", () => {
     expect(sqlText).toContain("&&");
   });
 
+  it("casts entity and tag cohort recall values as Postgres text arrays", () => {
+    const condition = buildNewsCollaborativeSignalCondition({
+      candidateEntities: ["Agents", "OpenAI"],
+      candidateNewsItemIds: ["candidate-news-item"],
+      candidateTags: ["browser_agent", "model_ops"],
+      currentReaderProfileId: "current-reader-profile",
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("entities");
+    expect(sqlText).toContain("tags");
+    expect(sqlText.match(/array\[/g) ?? []).toHaveLength(2);
+    expect(sqlText.match(/::text\[\]/g) ?? []).toHaveLength(2);
+  });
+
   it("limits cohort recall to meaningful feedback interactions instead of passive exposure", () => {
     const condition = buildNewsCollaborativeSignalCondition({
       candidateNewsItemIds: ["candidate-news-item"],
@@ -1551,11 +1575,14 @@ describe("summarizeNewsReaderProfileSignals", () => {
       }),
     ).toEqual({
       averageHomeRankSlot: null,
+      averageReadPercent: 0.9,
       ignoredSignalCount: 0,
+      lastSignalAt: "2026-07-01T09:00:00.000Z",
+      lastTrainedAt: "2026-07-01T09:00:00.000Z",
       negativeSignalCount: 0,
       positiveSignalCount: 3,
       summary:
-        "Profile leans toward agent_product and model_release, led by openai-news and OpenAI, driven by shares.",
+        "Profile leans toward Agents and Models, led by openai-news and OpenAI, driven by shares.",
       topCategories: [
         { key: "agent_product", count: 2 },
         { key: "model_release", count: 1 },
@@ -1578,6 +1605,7 @@ describe("summarizeNewsReaderProfileSignals", () => {
       topTags: [{ key: "browser", count: 1 }],
       topFeedModes: [],
       topMatchedSignals: [],
+      trainedReadCount: 1,
       trainedSignalCount: 3,
     });
   });
@@ -1593,6 +1621,10 @@ describe("summarizeNewsReaderProfileSignals", () => {
             tags: ["agents"],
             metadata: {
               feedMode: "for_you",
+              intentCategory: "agent_product",
+              intentQuery: "LangChain agents",
+              intentSourceSlug: "agent-desk",
+              intentTag: "workflow_automation",
               matchedSignals: ["category", "semantic_feedback"],
               personalizedScore: 147,
               rankSlot: 0,
@@ -1608,6 +1640,10 @@ describe("summarizeNewsReaderProfileSignals", () => {
             tags: ["agents"],
             metadata: {
               feedMode: "for_you",
+              intentCategory: "agent_product",
+              intentQuery: "LangChain agents",
+              intentSourceSlug: "agent-desk",
+              intentTag: "workflow_automation",
               matchedSignals: ["category"],
               personalizedScore: 141,
               rankSlot: 2,
@@ -1623,6 +1659,10 @@ describe("summarizeNewsReaderProfileSignals", () => {
             tags: ["evals"],
             metadata: {
               feedMode: "latest",
+              intentCategory: "research",
+              intentQuery: "evals",
+              intentSourceSlug: "research-lab",
+              intentTag: "benchmark_evals",
               matchedSignals: ["source"],
               personalizedScore: 128,
               rankSlot: 5,
@@ -1651,7 +1691,241 @@ describe("summarizeNewsReaderProfileSignals", () => {
         { key: "semantic_feedback", count: 1 },
         { key: "source", count: 1 },
       ],
+      topIntentCategories: [
+        { key: "agent_product", count: 2 },
+        { key: "research", count: 1 },
+      ],
+      topIntentQueries: [
+        { key: "LangChain agents", count: 2 },
+        { key: "evals", count: 1 },
+      ],
+      topIntentSources: [
+        { key: "agent-desk", count: 2 },
+        { key: "research-lab", count: 1 },
+      ],
+      topIntentTags: [
+        { key: "workflow automation", count: 2 },
+        { key: "benchmark evals", count: 1 },
+      ],
       trainedSignalCount: 3,
+    });
+  });
+
+  it("tracks the latest reader signal and latest training signal separately", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "view",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: { surface: "home" },
+            occurredAt: "2026-07-01T10:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {},
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "hide",
+            category: "funding",
+            entities: ["Series A"],
+            tags: ["startup"],
+            metadata: {},
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "venturewire",
+          },
+        ],
+        profile: {
+          noveltyBias: 1.5,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.2,
+        },
+      }),
+    ).toMatchObject({
+      ignoredSignalCount: 1,
+      lastSignalAt: "2026-07-01T10:00:00.000Z",
+      lastTrainedAt: "2026-07-01T09:00:00.000Z",
+      negativeSignalCount: 1,
+      trainedSignalCount: 1,
+    });
+  });
+
+  it("summarizes Less feedback guardrail signals separately from positive training signals", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "hide",
+            category: "funding",
+            entities: ["Series A"],
+            tags: ["startup", "prompt_injection"],
+            metadata: {},
+            occurredAt: "2026-07-01T10:00:00.000Z",
+            sourceSlug: "venturewire",
+          },
+          {
+            action: "hide",
+            category: "funding",
+            entities: ["YC"],
+            tags: ["startup", "prompt_injection", "workflow_automation"],
+            metadata: {},
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "venturewire",
+          },
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {},
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+        ],
+        profile: {
+          noveltyBias: 1.5,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.2,
+        },
+      }),
+    ).toMatchObject({
+      negativeSignalCount: 2,
+      positiveSignalCount: 1,
+      topCategories: [{ key: "agent_product", count: 1 }],
+      topGuardrailCategories: [{ key: "funding", count: 2 }],
+      topGuardrailEntities: [
+        { key: "Series A", count: 1 },
+        { key: "YC", count: 1 },
+      ],
+      topGuardrailSources: [{ key: "venturewire", count: 2 }],
+      topGuardrailTags: [
+        { key: "prompt injection", count: 2 },
+        { key: "workflow automation", count: 1 },
+      ],
+      topSources: [{ key: "openai-news", count: 1 }],
+    });
+  });
+
+  it("separates deep article reads that train the profile from shallow reads", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "view",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: { readPercent: 0.85, surface: "article" },
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "view",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: { readPercent: 0.2, surface: "article" },
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "view",
+            category: "research",
+            entities: ["Benchmarks"],
+            tags: ["evals"],
+            metadata: { rankSlot: 1, surface: "home" },
+            occurredAt: "2026-07-01T07:00:00.000Z",
+            sourceSlug: "research-lab",
+          },
+        ],
+        profile: {
+          noveltyBias: 1.5,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.2,
+        },
+      }),
+    ).toMatchObject({
+      averageReadPercent: 0.53,
+      ignoredSignalCount: 2,
+      shallowReadCount: 1,
+      trainedReadCount: 1,
+      trainedSignalCount: 1,
+    });
+  });
+
+  it("summarizes article read milestones from reader interaction metadata", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "view",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {
+              readMilestone: "deep_read",
+              readPercent: 0.9,
+              surface: "article",
+            },
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "view",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {
+              readMilestone: "meaningful_read",
+              readPercent: 0.42,
+              surface: "article",
+            },
+            occurredAt: "2026-07-01T08:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+          {
+            action: "view",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {
+              readMilestone: "opened",
+              readPercent: 0.2,
+              surface: "article",
+            },
+            occurredAt: "2026-07-01T07:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+        ],
+        profile: {
+          noveltyBias: 1.5,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.2,
+        },
+      }),
+    ).toMatchObject({
+      topReadMilestones: [
+        { key: "deep_read", count: 1 },
+        { key: "meaningful_read", count: 1 },
+        { key: "opened", count: 1 },
+      ],
+      trainedReadCount: 2,
     });
   });
 
@@ -1981,6 +2255,8 @@ describe("buildNewsReaderProfileResponse", () => {
       audit: {
         averageHomeRankSlot: null,
         ignoredSignalCount: 0,
+        lastSignalAt: null,
+        lastTrainedAt: null,
         negativeSignalCount: 0,
         positiveSignalCount: 0,
         summary:
@@ -2041,7 +2317,7 @@ describe("buildNewsReaderProfileResponse", () => {
         ignoredSignalCount: 1,
         positiveSignalCount: 1,
         summary:
-          "Profile leans toward agent_product, led by openai-news and OpenAI, driven by saves.",
+          "Profile leans toward Agents, led by openai-news and OpenAI, driven by saves.",
         topActions: [
           { key: "save", count: 1 },
           { key: "view", count: 1 },
@@ -2090,7 +2366,7 @@ describe("buildNewsReaderMutationProfileResponse", () => {
         averageHomeRankSlot: 2,
         positiveSignalCount: 1,
         summary:
-          "Profile leans toward agent_product, led by openai-news and OpenAI, driven by saves.",
+          "Profile leans toward Agents, led by openai-news and OpenAI, driven by saves.",
         topActions: [{ count: 1, key: "save" }],
         topCategories: [{ count: 1, key: "agent_product" }],
         topEntities: [

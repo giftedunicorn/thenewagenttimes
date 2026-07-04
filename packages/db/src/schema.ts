@@ -128,7 +128,7 @@ export const NewsSource = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [uniqueIndex("news_source_slug_idx").on(table.slug)],
 );
@@ -176,7 +176,7 @@ export const NewsItem = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("news_item_canonical_url_idx").on(table.canonicalUrl),
@@ -282,7 +282,7 @@ export const NewsReaderProfile = pgTable(
       .notNull(),
     updatedAt: t
       .timestamp({ mode: "date", withTimezone: true })
-      .$onUpdateFn(() => sql`now()`),
+      .$onUpdateFn(() => new Date()),
   }),
   (table) => [
     uniqueIndex("news_reader_profile_reader_key_idx").on(table.readerKey),

@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,6 +15,18 @@ import {
 const sourceId = "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0";
 
 describe("AI news schema contracts", () => {
+  it("uses Date values for date-mode timestamp update hooks", async () => {
+    const schemaSource = await readFile(
+      new URL("./schema.ts", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(schemaSource).toContain(".$onUpdateFn(() => new Date())");
+    expect(schemaSource).not.toContain(".$onUpdateFn(() => sql`now()`)");
+  });
+
   it("covers the editorial categories from the product brief", () => {
     expect(newsCategoryValues).toEqual(
       expect.arrayContaining([

@@ -1,5 +1,5 @@
+import type { db as dbClient } from "@acme/db/client";
 import { and, eq, inArray } from "@acme/db";
-import { db } from "@acme/db/client";
 import {
   IngestionRun,
   NewsItem,
@@ -13,6 +13,15 @@ import type {
   NewsRepository,
   NewsSourceInput,
 } from "./types";
+
+type DbClient = typeof dbClient;
+
+let cachedDbClient: DbClient | null = null;
+
+const getDbClient = async () => {
+  cachedDbClient ??= (await import("@acme/db/client")).db;
+  return cachedDbClient;
+};
 
 export interface NewsItemRefreshUpdateValues {
   authorName: string | null;
@@ -117,6 +126,7 @@ export const buildEmbeddingQueueCondition = () =>
 
 export const createDbNewsRepository = (): NewsRepository => ({
   async seedSources(sources: NewsSourceInput[]) {
+    const db = await getDbClient();
     let created = 0;
 
     for (const source of sources) {
@@ -141,6 +151,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   },
 
   async findSourceBySlug(slug: string) {
+    const db = await getDbClient();
     const [source] = await db
       .select({
         credibility: NewsSource.credibility,
@@ -156,6 +167,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   },
 
   async startIngestionRun(input) {
+    const db = await getDbClient();
     const [run] = await db
       .insert(IngestionRun)
       .values({
@@ -170,6 +182,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   },
 
   async finishIngestionRun(input) {
+    const db = await getDbClient();
     await db
       .update(IngestionRun)
       .set(getIngestionRunFinishUpdateValues(input))
@@ -177,6 +190,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   },
 
   async upsertNewsItem(item: NewsItemInput) {
+    const db = await getDbClient();
     const updateValues = getNewsItemRefreshUpdateValues(item);
     const [existing] = await db
       .select({
@@ -236,6 +250,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
   },
 
   async findPendingEmbeddingItems(limit: number) {
+    const db = await getDbClient();
     return db
       .select({
         id: NewsItem.id,
@@ -254,10 +269,12 @@ export const createDbNewsRepository = (): NewsRepository => ({
   async insertNewsItemVector(
     vector: NewsItemVectorInput & { newsItemId: string },
   ) {
+    const db = await getDbClient();
     await db.insert(NewsItemVector).values(vector).onConflictDoNothing();
   },
 
   async updateEmbeddingStatus(newsItemId, status) {
+    const db = await getDbClient();
     await db
       .update(NewsItem)
       .set({ embeddingStatus: status })

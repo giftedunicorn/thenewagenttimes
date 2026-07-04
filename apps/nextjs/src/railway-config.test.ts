@@ -105,7 +105,7 @@ describe("Railway Next.js deployment config", () => {
       "pnpm run build:nextjs",
     );
     expect(rootPackage.scripts?.["start:nextjs"]).toBe(
-      "pnpm exec dotenv -e .env -- node apps/nextjs/.next/standalone/apps/nextjs/server.js",
+      "HOSTNAME=0.0.0.0 pnpm exec dotenv -e .env -- node apps/nextjs/.next/standalone/apps/nextjs/server.js",
     );
 
     expect(nextPackage.scripts?.["deploy:nextjs"]).toBe(
@@ -155,6 +155,14 @@ describe("Railway Next.js deployment config", () => {
     expect(syncScript).toContain(".next/standalone/apps/nextjs");
     expect(syncScript).toContain("public");
     expect(syncScript).toContain("await cp(copyJob.from, copyJob.to");
+  });
+
+  test("standalone runtime declares direct Postgres driver dependencies", async () => {
+    const nextPackage = await readJson<PackageManifest>(
+      "apps/nextjs/package.json",
+    );
+
+    expect(nextPackage.dependencies?.pg).toBe("^8.22.0");
   });
 
   test("Next.js build uses local fonts instead of remote Google font fetches", async () => {

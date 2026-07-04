@@ -11,7 +11,17 @@ import superjson from "superjson";
 import { z, ZodError } from "zod/v4";
 
 import type { Auth } from "@acme/auth";
-import { db } from "@acme/db/client";
+import type { db as dbClient } from "@acme/db/client";
+
+type DbClient = typeof dbClient;
+
+let cachedDbClient: DbClient | null = null;
+
+const getDbClient = async () => {
+  cachedDbClient ??= (await import("@acme/db/client")).db;
+
+  return cachedDbClient;
+};
 
 /**
  * 1. CONTEXT
@@ -37,7 +47,7 @@ export const createTRPCContext = async (opts: {
   return {
     authApi,
     session,
-    db,
+    db: await getDbClient(),
   };
 };
 /**

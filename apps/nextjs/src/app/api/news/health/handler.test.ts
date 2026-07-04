@@ -66,6 +66,53 @@ describe("handleNewsHealthRequest", () => {
     expect(getDeskStatus).toHaveBeenCalledOnce();
   });
 
+  it("surfaces the latest refresh yield diagnostics for production checks", async () => {
+    const response = await handleNewsHealthRequest({
+      authSecret: "configured-auth-secret",
+      embeddingApiKey: "configured-openai-key",
+      getDeskStatus: () =>
+        Promise.resolve(
+          buildNewsDeskStatus({
+            activeSources: 8,
+            embeddedStories: 24,
+            latestPublishedAt: "2026-07-01T08:00:00.000Z",
+            latestRun: {
+              errorMessage: null,
+              finishedAt: "2026-07-01T08:05:00.000Z",
+              itemsCreated: 4,
+              itemsSeen: 9,
+              itemsSkipped: 3,
+              itemsUpdated: 1,
+              runType: "rss",
+              skippedByReason: {
+                duplicate: 0,
+                future: 0,
+                irrelevant: 1,
+                low_quality: 2,
+                stale: 0,
+              },
+              sourceName: "OpenAI News",
+              startedAt: "2026-07-01T08:00:00.000Z",
+              status: "succeeded",
+            },
+            publishedStories: 24,
+            totalSources: 12,
+            unembeddedStories: 0,
+          }),
+        ),
+      refreshSecret: "configured-refresh-secret",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      news: {
+        latestRunYield: "4 new, 1 updated, 3 skipped (2 low-quality, 1 non-AI)",
+      },
+      nextStep: "ready",
+      ready: true,
+    });
+  });
+
   it("reports that seeded sources still need a refresh before live news is ready", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",

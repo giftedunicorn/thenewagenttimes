@@ -15,6 +15,7 @@ const refreshResult = {
     duplicate: 1,
     future: 0,
     irrelevant: 2,
+    low_quality: 0,
     stale: 0,
   },
   results: [],

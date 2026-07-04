@@ -32,6 +32,7 @@ const noSkipped = () => ({
     duplicate: 0,
     future: 0,
     irrelevant: 0,
+    low_quality: 0,
     stale: 0,
   },
 });
@@ -220,6 +221,24 @@ const mixedRelevanceRssXml = `<?xml version="1.0"?>
   </channel>
 </rss>`;
 
+const lowQualityRssXml = `<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>OpenAI releases a new agent model</title>
+      <link>https://example.com/openai-agent</link>
+      <description>OpenAI shipped a new model for agentic workflows.</description>
+      <pubDate>Sat, 27 Jun 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>AI</title>
+      <link>https://example.com/thin-ai-item</link>
+      <description></description>
+      <pubDate>Sat, 27 Jun 2026 09:00:00 GMT</pubDate>
+    </item>
+  </channel>
+</rss>`;
+
 const arxivPaper = {
   abstractUrl: "https://arxiv.org/abs/2607.01234v1",
   authors: ["Alice Chen", "Bob Lee", "Maya Patel"],
@@ -263,6 +282,7 @@ describe("ingestRssSource", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -298,6 +318,7 @@ describe("ingestRssSource", () => {
         duplicate: 1,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -315,6 +336,7 @@ describe("ingestRssSource", () => {
           duplicate: 1,
           future: 0,
           irrelevant: 0,
+          low_quality: 0,
           stale: 0,
         },
       },
@@ -342,6 +364,7 @@ describe("ingestRssSource", () => {
         duplicate: 1,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -358,6 +381,7 @@ describe("ingestRssSource", () => {
           duplicate: 1,
           future: 0,
           irrelevant: 0,
+          low_quality: 0,
           stale: 0,
         },
       },
@@ -384,6 +408,7 @@ describe("ingestRssSource", () => {
         duplicate: 0,
         future: 1,
         irrelevant: 0,
+        low_quality: 0,
         stale: 1,
       },
     });
@@ -403,6 +428,7 @@ describe("ingestRssSource", () => {
           duplicate: 0,
           future: 1,
           irrelevant: 0,
+          low_quality: 0,
           stale: 1,
         },
       },
@@ -429,6 +455,36 @@ describe("ingestRssSource", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 1,
+        low_quality: 0,
+        stale: 0,
+      },
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://example.com/openai-agent",
+    ]);
+  });
+
+  it("keeps low-information RSS entries out of the current edition", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestRssSource({
+        repository,
+        sourceSlug: "openai-news",
+        fetchFeed: () => Promise.resolve(lowQualityRssXml),
+        now: new Date("2026-07-01T12:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        low_quality: 1,
         stale: 0,
       },
     });
@@ -444,9 +500,10 @@ describe("getActiveRssSourceSlugs", () => {
     expect(getActiveRssSourceSlugs()).toEqual(
       expect.arrayContaining([
         "openai-news",
-        "anthropic-news",
         "google-ai-blog",
         "deepmind-blog",
+        "microsoft-ai-blog",
+        "langchain-blog",
         "product-hunt-ai",
       ]),
     );
@@ -483,6 +540,7 @@ describe("ingestArxivAiSource", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -539,6 +597,7 @@ describe("ingestHackerNewsAiSource", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -597,6 +656,7 @@ describe("ingestGitHubTrendingAiSource", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -660,6 +720,7 @@ describe("ingestYcAiSource", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });
@@ -693,7 +754,7 @@ describe("ingestActiveRssSources", () => {
       ingestActiveRssSources({
         repository,
         fetchFeed: (url) => {
-          if (url.includes("anthropic-news")) {
+          if (url.includes("openai")) {
             return Promise.reject(new Error("feed unavailable"));
           }
 
@@ -701,17 +762,17 @@ describe("ingestActiveRssSources", () => {
         },
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 20,
-      sourcesSucceeded: 19,
+      sourcesAttempted: 18,
+      sourcesSucceeded: 17,
       sourcesFailed: 1,
-      itemsSeen: 19,
-      itemsCreated: 19,
+      itemsSeen: 17,
+      itemsCreated: 17,
       itemsUpdated: 0,
       itemsSkipped: 0,
     });
 
     expect(repository.requestedSourceSlugs).toEqual(
-      expect.arrayContaining(["openai-news", "anthropic-news"]),
+      expect.arrayContaining(["openai-news", "langchain-blog"]),
     );
   });
 
@@ -721,7 +782,7 @@ describe("ingestActiveRssSources", () => {
     await ingestActiveRssSources({
       repository,
       fetchFeed: (url) => {
-        if (url.includes("anthropic-news")) {
+        if (url.includes("openai")) {
           return Promise.reject(new Error("feed unavailable"));
         }
 
@@ -732,15 +793,15 @@ describe("ingestActiveRssSources", () => {
     const aggregateRun = repository.runsStarted.at(-1);
 
     expect(aggregateRun).toEqual({
-      id: "run-21",
+      id: "run-19",
       runType: "rss",
       sourceId: undefined,
     });
     expect(repository.runsFinished.at(-1)).toEqual({
-      runId: "run-21",
+      runId: "run-19",
       status: "partial",
-      itemsSeen: 19,
-      itemsCreated: 19,
+      itemsSeen: 17,
+      itemsCreated: 17,
       itemsUpdated: 0,
       errorMessage: "1 source failed",
       metadata: {
@@ -749,21 +810,22 @@ describe("ingestActiveRssSources", () => {
           duplicate: 0,
           future: 0,
           irrelevant: 0,
+          low_quality: 0,
           stale: 0,
         },
         sourceHealth: {
           emptySourceSlugs: [],
-          failedSourceSlugs: ["anthropic-news"],
+          failedSourceSlugs: ["openai-news"],
           failureMessages: {
-            "anthropic-news": "feed unavailable",
+            "openai-news": "feed unavailable",
           },
           healthySourceSlugs: getActiveRssSourceSlugs().filter(
-            (slug) => slug !== "anthropic-news",
+            (slug) => slug !== "openai-news",
           ),
         },
-        sourcesAttempted: 20,
+        sourcesAttempted: 18,
         sourcesFailed: 1,
-        sourcesSucceeded: 19,
+        sourcesSucceeded: 17,
       },
     });
   });
@@ -828,11 +890,11 @@ describe("ingestActiveNewsSources", () => {
         now: new Date("2026-07-04T12:00:00.000Z"),
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 24,
-      sourcesSucceeded: 24,
+      sourcesAttempted: 22,
+      sourcesSucceeded: 22,
       sourcesFailed: 0,
-      itemsSeen: 24,
-      itemsCreated: 24,
+      itemsSeen: 22,
+      itemsCreated: 22,
       itemsUpdated: 0,
       itemsSkipped: 0,
     });
@@ -842,12 +904,12 @@ describe("ingestActiveNewsSources", () => {
     expect(repository.requestedSourceSlugs).toContain("github-trending-ai");
     expect(repository.requestedSourceSlugs).toContain("yc-ai");
     expect(repository.runsStarted.at(-1)).toEqual({
-      id: "run-25",
+      id: "run-23",
       runType: "crawler",
       sourceId: undefined,
     });
     expect(repository.runsFinished.at(-1)).toMatchObject({
-      runId: "run-25",
+      runId: "run-23",
       status: "succeeded",
       metadata: {
         sourceHealth: {
@@ -860,9 +922,9 @@ describe("ingestActiveNewsSources", () => {
             "yc-ai",
           ],
         },
-        sourcesAttempted: 24,
+        sourcesAttempted: 22,
         sourcesFailed: 0,
-        sourcesSucceeded: 24,
+        sourcesSucceeded: 22,
       },
     });
   });
@@ -920,10 +982,10 @@ describe("refreshActiveRssSources", () => {
       }),
     ).resolves.toMatchObject({
       sourcesSeeded: 24,
-      sourcesAttempted: 20,
-      sourcesSucceeded: 20,
+      sourcesAttempted: 18,
+      sourcesSucceeded: 18,
       sourcesFailed: 0,
-      itemsCreated: 20,
+      itemsCreated: 18,
       itemsSkipped: 0,
     });
 
@@ -990,10 +1052,10 @@ describe("refreshNewsSources", () => {
           ]),
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 24,
+      sourcesAttempted: 22,
       sourcesFailed: 0,
       sourcesSeeded: 24,
-      sourcesSucceeded: 24,
+      sourcesSucceeded: 22,
     });
 
     expect(repository.sourcesSeeded).toBe(24);

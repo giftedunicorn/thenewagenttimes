@@ -11,9 +11,9 @@ describe("initialNewsSources", () => {
     expect(rssSourceNames).toEqual(
       expect.arrayContaining([
         "OpenAI News",
-        "Anthropic News",
         "Google AI Blog",
         "DeepMind Blog",
+        "Microsoft AI Blog",
         "Hugging Face Blog",
         "LangChain Blog",
       ]),
@@ -34,6 +34,40 @@ describe("initialNewsSources", () => {
       ]),
     );
     expect(deferredSourceSlugs).not.toContain("product-hunt-ai");
+  });
+
+  it("does not attempt vendor sources whose public RSS endpoints are retired", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("anthropic-news")).toMatchObject({
+      feedUrl: null,
+      isActive: false,
+      sourceType: "vendor_blog",
+    });
+    expect(sourcesBySlug.get("meta-ai-blog")).toMatchObject({
+      feedUrl: null,
+      isActive: false,
+      sourceType: "vendor_blog",
+    });
+  });
+
+  it("uses currently resolving vendor RSS endpoints", () => {
+    const sourcesBySlug = new Map(
+      initialNewsSources.map((source) => [source.slug, source]),
+    );
+
+    expect(sourcesBySlug.get("microsoft-ai-blog")).toMatchObject({
+      feedUrl: "https://www.microsoft.com/en-us/ai/blog/feed/",
+      isActive: true,
+      sourceType: "vendor_blog",
+    });
+    expect(sourcesBySlug.get("langchain-blog")).toMatchObject({
+      feedUrl: "https://www.langchain.com/blog/rss.xml",
+      isActive: true,
+      sourceType: "vendor_blog",
+    });
   });
 
   it("covers independent news, research, and builder commentary RSS sources", () => {
@@ -163,7 +197,7 @@ describe("initialNewsSources", () => {
   it("keeps the active RSS catalog broad enough for a live AI front page", () => {
     expect(
       initialNewsSources.filter((source) => source.isActive && source.feedUrl),
-    ).toHaveLength(20);
+    ).toHaveLength(18);
   });
 
   it("uses unique slugs for every source", () => {

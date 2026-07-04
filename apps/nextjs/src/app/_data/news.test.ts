@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildNewsHomeCandidateOrderByExpressions,
   buildRelatedNewsCondition,
+  getNewsDeskStatus,
   getNewsHomeData,
   getNewsRunSkipDiagnosticsFromMetadata,
   shouldReadNewsArticleFromDatabase,
@@ -125,6 +126,24 @@ describe("buildRelatedNewsCondition", () => {
     expect(sqlText).toContain("tags");
     expect(sqlText).toContain("&&");
   });
+
+  it("casts related entity and tag recall values as Postgres text arrays", () => {
+    const condition = buildRelatedNewsCondition({
+      article: {
+        category: "agent_product",
+        entities: ["OpenAI", "Agents"],
+        tags: ["browser_agent", "model_ops"],
+      },
+      articleId: "current-article",
+    });
+
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("entities");
+    expect(sqlText).toContain("tags");
+    expect(sqlText.match(/array\[/g) ?? []).toHaveLength(2);
+    expect(sqlText.match(/::text\[\]/g) ?? []).toHaveLength(2);
+  });
 });
 
 describe("buildNewsHomeCandidateOrderByExpressions", () => {
@@ -217,6 +236,39 @@ describe("getNewsHomeData", () => {
   });
 });
 
+describe("getNewsDeskStatus", () => {
+  it("normalizes raw aggregate timestamp strings returned by the database driver", async () => {
+    newsDbMock.reset();
+    newsDbMock.queueResults(
+      {
+        resolve: [
+          {
+            activeSources: 21,
+            totalSources: 24,
+          },
+        ],
+      },
+      {
+        resolve: [
+          {
+            embeddedStories: 390,
+            latestPublishedAt: "2026-07-04T10:00:00.000Z",
+            publishedStories: 390,
+            unembeddedStories: 0,
+          },
+        ],
+      },
+      { resolve: [] },
+    );
+
+    await expect(getNewsDeskStatus()).resolves.toMatchObject({
+      health: "live",
+      latestPublishedAt: "2026-07-04T10:00:00.000Z",
+      publishedStories: 390,
+    });
+  });
+});
+
 describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
   it("extracts persisted skipped feed diagnostics from run metadata", () => {
     expect(
@@ -226,6 +278,7 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
           duplicate: 1,
           future: 1,
           irrelevant: 2,
+          low_quality: 0,
           stale: 1,
         },
       }),
@@ -235,6 +288,7 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
         duplicate: 1,
         future: 1,
         irrelevant: 2,
+        low_quality: 0,
         stale: 1,
       },
     });
@@ -271,6 +325,7 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
         duplicate: 0,
         future: 0,
         irrelevant: 0,
+        low_quality: 0,
         stale: 0,
       },
     });

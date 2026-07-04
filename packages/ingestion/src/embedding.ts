@@ -2,6 +2,14 @@ import { createHash } from "node:crypto";
 
 import type { EmbeddingProvider, PendingEmbeddingNewsItem } from "./types";
 
+const maxEmbeddingBodyCharacters = 12_000;
+
+const truncateEmbeddingBodyText = (bodyText: string) => {
+  if (bodyText.length <= maxEmbeddingBodyCharacters) return bodyText;
+
+  return `${bodyText.slice(0, maxEmbeddingBodyCharacters)}\n[truncated]`;
+};
+
 export const buildEmbeddingInput = (item: PendingEmbeddingNewsItem): string => {
   const lines = [
     `Title: ${item.title}`,
@@ -12,7 +20,7 @@ export const buildEmbeddingInput = (item: PendingEmbeddingNewsItem): string => {
   ];
 
   if (item.bodyText) {
-    lines.push(`Body: ${item.bodyText}`);
+    lines.push(`Body: ${truncateEmbeddingBodyText(item.bodyText)}`);
   }
 
   return lines.join("\n");

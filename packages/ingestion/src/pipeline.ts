@@ -64,6 +64,7 @@ export type NewsIngestionSkipReason =
   | "duplicate"
   | "future"
   | "irrelevant"
+  | "low_quality"
   | "stale";
 
 export type NewsIngestionSkippedByReason = Record<
@@ -195,6 +196,7 @@ const createSkippedByReason = (): NewsIngestionSkippedByReason => ({
   duplicate: 0,
   future: 0,
   irrelevant: 0,
+  low_quality: 0,
   stale: 0,
 });
 
@@ -256,6 +258,7 @@ const summarizeNewsSourceRefreshResults = (
       duplicate: total.duplicate + result.skippedByReason.duplicate,
       future: total.future + result.skippedByReason.future,
       irrelevant: total.irrelevant + result.skippedByReason.irrelevant,
+      low_quality: total.low_quality + result.skippedByReason.low_quality,
       stale: total.stale + result.skippedByReason.stale,
     }),
     createSkippedByReason(),
@@ -362,16 +365,23 @@ export const ingestRssSource = async (input: {
     const skippedByReason = createSkippedByReason();
 
     for (const item of rawItems) {
-      const normalized = applyIngestionScores({
-        item: normalizeFeedItem({
-          sourceId: source.id,
-          sourceSlug: source.slug,
-          item,
+      let normalized: NewsItemInput;
+
+      try {
+        normalized = applyIngestionScores({
+          item: normalizeFeedItem({
+            sourceId: source.id,
+            sourceSlug: source.slug,
+            item,
+            now,
+          }),
           now,
-        }),
-        now,
-        sourceCredibility: source.credibility,
-      });
+          sourceCredibility: source.credibility,
+        });
+      } catch {
+        countSkippedItem(skippedByReason, "low_quality");
+        continue;
+      }
 
       const editionWindowSkipReason = getNewsEditionWindowSkipReason({
         now,

@@ -1,6 +1,7 @@
 import type { NewsDeskStatus } from "../../../_components/news-home-model";
 import {
   buildNewsDeskStatus,
+  getNewsDeskRunYieldLabel,
   getNewsDeskStatusSummary,
 } from "../../../_components/news-home-model";
 
@@ -247,6 +248,7 @@ export const handleNewsHealthRequest = async ({
       health: status.health,
       latestPublishedAt: status.latestPublishedAt,
       latestRun: status.latestRun,
+      latestRunYield: getNewsDeskRunYieldLabel(status.latestRun),
       liveReady: isNewsLiveReady(status),
       publishedStories: status.publishedStories,
       ready: isNewsSemanticReady(status),

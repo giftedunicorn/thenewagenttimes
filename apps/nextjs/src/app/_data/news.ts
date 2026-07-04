@@ -27,6 +27,14 @@ export interface NewsArticleItem extends NewsHomeItem {
   collectedAt: string;
 }
 
+const textArraySql = (values: readonly string[]) =>
+  values.length > 0
+    ? sql`array[${sql.join(
+        values.map((value) => sql`${value}`),
+        sql`, `,
+      )}]::text[]`
+    : sql`array[]::text[]`;
+
 export const buildRelatedNewsCondition = ({
   article,
   articleId,
@@ -34,7 +42,7 @@ export const buildRelatedNewsCondition = ({
   article: Pick<NewsHomeItem, "category" | "entities" | "tags">;
   articleId: string;
 }) =>
-  sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${articleId} and (${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${article.entities} or ${NewsItem.tags} && ${article.tags})`;
+  sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${articleId} and (${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${textArraySql(article.entities)} or ${NewsItem.tags} && ${textArraySql(article.tags)})`;
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -47,6 +55,18 @@ export const buildNewsHomeCandidateOrderByExpressions = () => [
   desc(NewsItem.trendScore),
   desc(NewsItem.sourceScore),
 ];
+
+const toNullableIsoTimestamp = (
+  value: Date | string | null | undefined,
+): string | null => {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toISOString();
+};
 
 interface NewsHomeData {
   items: NewsHomeItem[];
@@ -123,6 +143,7 @@ const newsRunSkipReasons = [
   "duplicate",
   "future",
   "irrelevant",
+  "low_quality",
   "stale",
 ] as const;
 
@@ -202,6 +223,7 @@ export const getNewsRunSkipDiagnosticsFromMetadata = (metadata: unknown) => {
       duplicate: getMetadataNumber(skippedByReasonMetadata, "duplicate"),
       future: getMetadataNumber(skippedByReasonMetadata, "future"),
       irrelevant: getMetadataNumber(skippedByReasonMetadata, "irrelevant"),
+      low_quality: getMetadataNumber(skippedByReasonMetadata, "low_quality"),
       stale: getMetadataNumber(skippedByReasonMetadata, "stale"),
     },
     ...(sourceHealth ? { sourceHealth } : {}),
@@ -221,7 +243,9 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
         publishedStories: sql<number>`count(*)::int`,
         embeddedStories: sql<number>`count(*) filter (where ${NewsItem.embeddingStatus} = 'embedded')::int`,
         unembeddedStories: sql<number>`count(*) filter (where ${NewsItem.embeddingStatus} <> 'embedded')::int`,
-        latestPublishedAt: sql<Date | null>`max(${NewsItem.publishedAt})`,
+        latestPublishedAt: sql<
+          Date | string | null
+        >`max(${NewsItem.publishedAt})`,
       })
       .from(NewsItem)
       .where(eq(NewsItem.status, "published")),
@@ -253,7 +277,7 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
     totalSources: sourceCount?.totalSources ?? 0,
     publishedStories: itemCount?.publishedStories ?? 0,
     unembeddedStories: itemCount?.unembeddedStories ?? 0,
-    latestPublishedAt: itemCount?.latestPublishedAt?.toISOString() ?? null,
+    latestPublishedAt: toNullableIsoTimestamp(itemCount?.latestPublishedAt),
     latestRun: latestRun
       ? (() => {
           const { metadata, ...run } = latestRun;

@@ -30,6 +30,18 @@ describe("buildEmbeddingInput", () => {
       ].join("\n"),
     );
   });
+
+  it("truncates very long article bodies before embedding", () => {
+    const input = buildEmbeddingInput({
+      ...newsItem,
+      bodyText: "A".repeat(50_000),
+    });
+
+    expect(input.length).toBeLessThanOrEqual(12_500);
+    expect(input).toContain("Body: ");
+    expect(input).toContain("[truncated]");
+    expect(input).not.toContain("A".repeat(50_000));
+  });
 });
 
 describe("hashEmbeddingInput", () => {

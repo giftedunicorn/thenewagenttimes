@@ -3928,6 +3928,62 @@ describe("getNewsReaderJourneyMap", () => {
     });
   });
 
+  it("turns shares into positive reader journey steps", () => {
+    expect(
+      getNewsReaderJourneyMap({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        items: [],
+        limit: 5,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "shared-agent-journey",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Journey Active",
+      metrics: [
+        { label: "Steps", value: "1" },
+        { label: "Profile", value: "0 signals" },
+        { label: "Memory", value: "1" },
+        { label: "Guardrails", value: "0" },
+      ],
+      steps: [
+        {
+          detail:
+            "Shared Agents coverage becomes a positive recommendation signal.",
+          id: "shared-agent-journey",
+          key: "positive_feedback",
+          label: "Shared signal",
+          signalLabel: "Agents",
+          sourceName: "Agent Desk",
+          statusLabel: "Shared",
+          title: "Shared agent workflow story",
+        },
+      ],
+      summary:
+        "1 journey step connects 0 ranked stories, 0 reads, 0 saves, 1 positive interaction, and 0 guardrails.",
+    });
+  });
+
   it("does not describe source corroboration as a reader journey signal", () => {
     const journey = getNewsReaderJourneyMap({
       formatCategory: (category) => category,

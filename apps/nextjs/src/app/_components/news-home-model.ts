@@ -2819,6 +2819,7 @@ export const getNewsReaderMemory = ({
 type NewsReaderJourneyStepKey =
   | "guardrail"
   | "impression"
+  | "positive_feedback"
   | "profile"
   | "read"
   | "save";
@@ -2963,12 +2964,49 @@ const getNewsJourneyGuardrailStep = ({
   };
 };
 
+const getNewsJourneyPositiveFeedbackStep = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: NewsProfilePositiveFeedbackItem | undefined;
+}): NewsReaderJourneyStep | null => {
+  if (!item) return null;
+
+  const categoryLabel = formatCategory(item.category);
+
+  if (item.action === "click_source") {
+    return {
+      detail: `Opening ${item.sourceName} turns ${categoryLabel} coverage into a positive recommendation signal.`,
+      id: item.id,
+      key: "positive_feedback",
+      label: "Source signal",
+      signalLabel: categoryLabel,
+      sourceName: item.sourceName,
+      statusLabel: "Opened",
+      title: item.title,
+    };
+  }
+
+  return {
+    detail: `Shared ${categoryLabel} coverage becomes a positive recommendation signal.`,
+    id: item.id,
+    key: "positive_feedback",
+    label: "Shared signal",
+    signalLabel: categoryLabel,
+    sourceName: item.sourceName,
+    statusLabel: "Shared",
+    title: item.title,
+  };
+};
+
 export const getNewsReaderJourneyMap = ({
   formatCategory,
   historyItems,
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -2977,22 +3015,38 @@ export const getNewsReaderJourneyMap = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
   const signalSummary = getNewsReaderSignalSummary(profile);
+  const positiveJourneyItems = positiveFeedbackItems.filter(
+    (item) => item.action !== "save",
+  );
   const steps = [
     getNewsJourneyProfileStep({ formatCategory, profile }),
     getNewsJourneyImpressionStep(items[0]),
     getNewsJourneyReadStep({ formatCategory, item: historyItems[0] }),
     getNewsJourneySaveStep({ formatCategory, item: savedItems[0] }),
+    getNewsJourneyPositiveFeedbackStep({
+      formatCategory,
+      item: positiveJourneyItems[0],
+    }),
     getNewsJourneyGuardrailStep({
       formatCategory,
       item: negativeFeedbackItems[0],
     }),
   ].filter((step): step is NewsReaderJourneyStep => step !== null);
   const visibleSteps = steps.slice(0, Math.max(0, limit));
-  const memoryCount = historyItems.length + savedItems.length;
+  const positiveInteractionCount = positiveJourneyItems.length;
+  const memoryCount =
+    historyItems.length + savedItems.length + positiveInteractionCount;
+  const positiveInteractionSummary =
+    positiveInteractionCount > 0
+      ? `, ${positiveInteractionCount} positive ${
+          positiveInteractionCount === 1 ? "interaction" : "interactions"
+        }`
+      : "";
 
   return {
     label: visibleSteps.length > 0 ? "Journey Active" : "Journey Waiting",
@@ -3012,13 +3066,15 @@ export const getNewsReaderJourneyMap = ({
       visibleSteps.length > 0
         ? `${visibleSteps.length} journey ${
             visibleSteps.length === 1 ? "step" : "steps"
-          } connect ${items.length} ranked ${
+          } ${visibleSteps.length === 1 ? "connects" : "connect"} ${
+            items.length
+          } ranked ${
             items.length === 1 ? "story" : "stories"
           }, ${historyItems.length} ${
             historyItems.length === 1 ? "read" : "reads"
           }, ${savedItems.length} ${
             savedItems.length === 1 ? "save" : "saves"
-          }, and ${negativeFeedbackItems.length} ${
+          }${positiveInteractionSummary}, and ${negativeFeedbackItems.length} ${
             negativeFeedbackItems.length === 1 ? "guardrail" : "guardrails"
           }.`
         : "Reader journey will appear after profile or behavior signals.",

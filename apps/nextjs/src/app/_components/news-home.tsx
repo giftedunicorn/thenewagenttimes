@@ -1985,6 +1985,7 @@ export function NewsHome({
     items: rankedItems,
     limit: 5,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

@@ -25937,6 +25937,80 @@ describe("getNewsStoryProofStrip", () => {
       });
     },
   );
+
+  it.each([
+    [
+      "semantic_feedback",
+      "Semantic match",
+      "Matched to stories you read, saved, shared, or source-clicked",
+    ],
+    [
+      "collaborative_feedback",
+      "Similar readers",
+      "Lifted by recent saves, shares, and deep reads from similar readers",
+    ],
+    [
+      "session_intent",
+      "Session intent",
+      "Ranked from the topic, source, or search intent active in this session",
+    ],
+    [
+      "daypart",
+      "Daypart",
+      "Timed for this edition from reader local context",
+    ],
+    [
+      "discovery_slot",
+      "Discovery",
+      "Inserted as a discovery slot to keep the feed learning beyond the strongest reader signals",
+    ],
+  ])(
+    "labels %s recommendations with their specific proof reason",
+    (signal, label, reason) => {
+      expect(
+        getNewsStoryProofStrip({
+          item: {
+            ...localItem,
+            matchedSignals: [signal],
+            personalizedScore: 72,
+            sourceScore: 82,
+            trendScore: 73,
+          },
+        }),
+      ).toEqual({
+        metrics: [
+          { label: "Fit", value: label },
+          { label: "Coverage", value: "Single source" },
+          { label: "Trust", value: "82" },
+          { label: "Heat", value: "73" },
+        ],
+        summary: `${reason}, with 82 source trust and 73 story heat.`,
+      });
+    },
+  );
+
+  it("explains source corroboration even without reader preference signals", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["source_corroboration"],
+          personalizedScore: 72,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Coverage lift" },
+        { label: "Coverage", value: "Corroborated" },
+        { label: "Trust", value: "82" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Lifted because independent sources are covering the same development, with 82 source trust and 73 story heat.",
+    });
+  });
 });
 
 describe("getNewsDeskStatusSummary", () => {

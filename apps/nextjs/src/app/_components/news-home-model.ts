@@ -20138,6 +20138,40 @@ const newsStoryProofDiversityGuardrails = [
   },
 ] as const;
 
+const newsStoryProofSpecificSignals = [
+  {
+    label: "Semantic match",
+    reason: "Matched to stories you read, saved, shared, or source-clicked",
+    signal: "semantic_feedback",
+  },
+  {
+    label: "Similar readers",
+    reason: "Lifted by recent saves, shares, and deep reads from similar readers",
+    signal: "collaborative_feedback",
+  },
+  {
+    label: "Session intent",
+    reason: "Ranked from the topic, source, or search intent active in this session",
+    signal: "session_intent",
+  },
+  {
+    label: "Daypart",
+    reason: "Timed for this edition from reader local context",
+    signal: "daypart",
+  },
+  {
+    label: "Discovery",
+    reason:
+      "Inserted as a discovery slot to keep the feed learning beyond the strongest reader signals",
+    signal: "discovery_slot",
+  },
+  {
+    label: "Coverage lift",
+    reason: "Lifted because independent sources are covering the same development",
+    signal: "source_corroboration",
+  },
+] as const;
+
 export const getNewsStoryProofStrip = ({
   item,
 }: {
@@ -20162,6 +20196,12 @@ export const getNewsStoryProofStrip = ({
     "source_corroboration",
   );
   const readerSignalCount = getRecommendationTraceReaderSignalCount(item);
+  const specificProofSignal = newsStoryProofSpecificSignals.find(
+    (proofSignal) =>
+      item.matchedSignals.includes(proofSignal.signal) &&
+      (proofSignal.signal !== "source_corroboration" ||
+        readerSignalCount === 0),
+  );
   const positiveMemoryDetail = getPositiveReaderMemoryActionDetail(item);
   const fitLabel = hasCollaborativeNegativeFeedback
     ? "Crowd guardrail"
@@ -20175,14 +20215,16 @@ export const getNewsStoryProofStrip = ({
             ? "Source review"
             : diversityGuardrail
               ? diversityGuardrail.label
-              : hasExploration
-                ? "Exploration"
-                : readerSignalCount > 0
-                  ? (positiveMemoryDetail?.label ??
-                    `${readerSignalCount} reader ${
-                      readerSignalCount === 1 ? "signal" : "signals"
-                    }`)
-                  : "Learning";
+              : specificProofSignal
+                ? specificProofSignal.label
+                : hasExploration
+                  ? "Exploration"
+                  : readerSignalCount > 0
+                    ? (positiveMemoryDetail?.label ??
+                      `${readerSignalCount} reader ${
+                        readerSignalCount === 1 ? "signal" : "signals"
+                      }`)
+                    : "Learning";
   const coverageLabel = hasSourceCorroboration
     ? "Corroborated"
     : "Single source";
@@ -20232,6 +20274,13 @@ export const getNewsStoryProofStrip = ({
     return {
       metrics,
       summary: `Inserted to keep ${diversityGuardrail.subject} from flooding the edition, while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (specificProofSignal) {
+    return {
+      metrics,
+      summary: `${specificProofSignal.reason}, with ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
     };
   }
 

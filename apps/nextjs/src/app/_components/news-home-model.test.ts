@@ -15794,6 +15794,81 @@ describe("getNewsRecommendationTrace", () => {
     );
   });
 
+  it("surfaces non-profile reader signals in the ranking trace", () => {
+    const readerSignals = [
+      {
+        detail:
+          "Semantic similarity to engaged stories anchors this recommendation.",
+        label: "Semantic match",
+        matchedSignals: ["semantic_feedback"],
+        scoreLabel: "Semantic signal",
+        storyId: "semantic-reader-signal",
+      },
+      {
+        detail: "Similar-reader behavior is lifting this recommendation.",
+        label: "Similar readers",
+        matchedSignals: ["collaborative_feedback"],
+        scoreLabel: "Cohort signal",
+        storyId: "collaborative-reader-signal",
+      },
+      {
+        detail: "Current session intent anchors this recommendation.",
+        label: "Session intent",
+        matchedSignals: ["session_intent"],
+        scoreLabel: "Intent signal",
+        storyId: "session-reader-signal",
+      },
+      {
+        detail: "Deep preference signals anchor this recommendation.",
+        label: "Deep preference",
+        matchedSignals: ["deep_preference"],
+        scoreLabel: "Preference signal",
+        storyId: "deep-reader-signal",
+      },
+    ] as const;
+
+    const steps = readerSignals.map(({ matchedSignals, storyId }) => {
+      const trace = getNewsRecommendationTrace({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        historyItems: [],
+        items: [
+            {
+              ...localItem,
+              id: storyId,
+              title: `${storyId} leads the edition`,
+              category: "model_release",
+              matchedSignals: [...matchedSignals],
+              personalizedScore: 139,
+              sourceName: "Signal Desk",
+              sourceScore: 83,
+              trendScore: 74,
+            },
+          ],
+          limit: 4,
+          negativeFeedbackItems: [],
+          profile: {
+            preferredCategories: [],
+            preferredSources: [],
+            preferredEntities: [],
+            noveltyBias: 1,
+            recencyBias: 1,
+          },
+      });
+
+      return trace.steps[1] ?? null;
+    });
+
+    expect(steps).toEqual(
+      readerSignals.map(({ detail, label, scoreLabel, storyId }) => ({
+        detail,
+        label,
+        scoreLabel,
+        title: `${storyId} leads the edition`,
+      })),
+    );
+  });
+
   it("keeps the trace empty before the feed has ranked stories", () => {
     expect(
       getNewsRecommendationTrace({

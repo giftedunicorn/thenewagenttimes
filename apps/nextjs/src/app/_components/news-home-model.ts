@@ -10907,6 +10907,53 @@ const formatRecommendationTraceList = (values: readonly string[]) => {
 const formatRecommendationTraceSentenceStart = (value: string) =>
   value ? `${value[0]?.toUpperCase() ?? ""}${value.slice(1)}` : value;
 
+const recommendationTraceReaderSignalOrder = [
+  "semantic_feedback",
+  "collaborative_feedback",
+  "session_intent",
+  "deep_preference",
+] as const;
+
+type RecommendationTraceReaderSignal =
+  (typeof recommendationTraceReaderSignalOrder)[number];
+
+const recommendationTraceReaderSignalDetails = {
+  collaborative_feedback: {
+    detail: "Similar-reader behavior is lifting this recommendation.",
+    label: "Similar readers",
+    scoreLabel: "Cohort signal",
+  },
+  deep_preference: {
+    detail: "Deep preference signals anchor this recommendation.",
+    label: "Deep preference",
+    scoreLabel: "Preference signal",
+  },
+  semantic_feedback: {
+    detail:
+      "Semantic similarity to engaged stories anchors this recommendation.",
+    label: "Semantic match",
+    scoreLabel: "Semantic signal",
+  },
+  session_intent: {
+    detail: "Current session intent anchors this recommendation.",
+    label: "Session intent",
+    scoreLabel: "Intent signal",
+  },
+} as const satisfies Record<
+  RecommendationTraceReaderSignal,
+  { detail: string; label: string; scoreLabel: string }
+>;
+
+const getRecommendationTraceReaderSignalDetail = (
+  item: RankedNewsItem<NewsHomeItem>,
+) => {
+  const signal = recommendationTraceReaderSignalOrder.find((candidate) =>
+    item.matchedSignals.includes(candidate),
+  );
+
+  return signal ? recommendationTraceReaderSignalDetails[signal] : undefined;
+};
+
 const getRecommendationTraceProfileSignals = ({
   formatCategory,
   item,
@@ -11097,6 +11144,22 @@ export const getNewsRecommendationTrace = ({
       label: "Reader memory",
       scoreLabel: readerMemoryDetail?.label ?? "Reader-memory signal",
       title: readerMemoryItem.title,
+    });
+  }
+
+  const readerSignalItem = items.find((item) =>
+    getRecommendationTraceReaderSignalDetail(item),
+  );
+  const readerSignalDetail = readerSignalItem
+    ? getRecommendationTraceReaderSignalDetail(readerSignalItem)
+    : undefined;
+
+  if (readerSignalItem && readerSignalDetail) {
+    steps.push({
+      detail: readerSignalDetail.detail,
+      label: readerSignalDetail.label,
+      scoreLabel: readerSignalDetail.scoreLabel,
+      title: readerSignalItem.title,
     });
   }
 

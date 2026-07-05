@@ -2571,6 +2571,11 @@ describe("getNewsRecommendationRotationQueue", () => {
   it("explains reader-match slots with the specific recommendation signal", () => {
     const readerSignals = [
       {
+        matchedSignals: ["positive_feedback"],
+        reason: "Reader-memory signals make this the safest next story.",
+        storyId: "positive-follow-up",
+      },
+      {
         matchedSignals: ["positive_feedback", "positive_save_feedback"],
         reason: "Saved follow-up signals make this the safest next story.",
         storyId: "saved-follow-up",

@@ -10804,6 +10804,10 @@ const getNewsRecommendationRotationReason = ({
     return `${positiveMemoryDetail.label} signals make this the safest next story.`;
   }
 
+  if (item.matchedSignals.includes("positive_feedback")) {
+    return "Reader-memory signals make this the safest next story.";
+  }
+
   if (item.matchedSignals.includes("semantic_feedback")) {
     return "Semantic similarity makes this the safest next story.";
   }

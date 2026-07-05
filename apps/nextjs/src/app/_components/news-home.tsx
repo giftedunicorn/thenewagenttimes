@@ -2620,19 +2620,35 @@ export function NewsHome({
           </div>
 
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
-            <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
-              {forYouControlStrip.metrics.map((metric) => (
-                <div
-                  key={metric.label}
-                  className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
-                >
-                  <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
-                    {metric.label}
-                  </dt>
-                  <dd className="mt-1 text-lg font-black">{metric.value}</dd>
-                </div>
-              ))}
-            </dl>
+            <div className="grid gap-3">
+              <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+                {forYouControlStrip.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+
+              <dl className="flex flex-wrap gap-2 text-xs">
+                {forYouControlStrip.memory.map((memoryItem) => (
+                  <div
+                    key={memoryItem.label}
+                    className="flex items-center gap-2 border border-[#161616]/20 px-2 py-1 dark:border-[#f4f1ea]/20"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {memoryItem.label}
+                    </dt>
+                    <dd className="font-semibold">{memoryItem.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
 
             <div className="flex flex-wrap gap-2">
               {forYouControlStrip.trainingActions.map((action) => (

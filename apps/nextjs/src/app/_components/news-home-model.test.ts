@@ -1245,6 +1245,17 @@ describe("NewsHome For You control strip placement", () => {
       source.indexOf("Channel Rail"),
     );
   });
+
+  it("renders the control strip memory hooks from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("forYouControlStrip.memory.map");
+    expect(source).toContain("{memoryItem.label}");
+    expect(source).toContain("{memoryItem.value}");
+  });
 });
 
 describe("toNewsHomeItemFromPublicFeedItem", () => {

@@ -25837,6 +25837,52 @@ describe("getNewsStoryProofStrip", () => {
         "Dampened by similar-reader Less feedback, but kept visible by 82 source trust and 73 story heat.",
     });
   });
+
+  it("labels repeated home cards as an exposure guardrail", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["home_exposure_cooldown"],
+          personalizedScore: 72,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Recently seen" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "82" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Recently seen on the home feed, so the recommender is looking for a fresher angle while preserving 82 source trust and 73 story heat.",
+    });
+  });
+
+  it("labels repeated article reads as a fresh-angle guardrail", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["exposure_cooldown"],
+          personalizedScore: 72,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Fresh angle" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "82" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Already covered by recent reading, so the recommender is looking for a fresher angle while preserving 82 source trust and 73 story heat.",
+    });
+  });
 });
 
 describe("getNewsDeskStatusSummary", () => {

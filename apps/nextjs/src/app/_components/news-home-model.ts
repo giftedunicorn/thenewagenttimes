@@ -20131,6 +20131,12 @@ export const getNewsStoryProofStrip = ({
 }: {
   item: RankedNewsItem<NewsHomeItem>;
 }) => {
+  const hasExposureCooldown = item.matchedSignals.includes(
+    "exposure_cooldown",
+  );
+  const hasHomeExposureCooldown = item.matchedSignals.includes(
+    "home_exposure_cooldown",
+  );
   const hasNegativeFeedback = item.matchedSignals.includes("negative_feedback");
   const hasCollaborativeNegativeFeedback = item.matchedSignals.includes(
     "collaborative_negative_feedback",
@@ -20145,14 +20151,18 @@ export const getNewsStoryProofStrip = ({
     ? "Crowd guardrail"
     : hasNegativeFeedback
       ? "Guardrail"
-      : hasExploration
-        ? "Exploration"
-        : readerSignalCount > 0
-          ? (positiveMemoryDetail?.label ??
-            `${readerSignalCount} reader ${
-              readerSignalCount === 1 ? "signal" : "signals"
-            }`)
-          : "Learning";
+      : hasHomeExposureCooldown
+        ? "Recently seen"
+        : hasExposureCooldown
+          ? "Fresh angle"
+          : hasExploration
+            ? "Exploration"
+            : readerSignalCount > 0
+              ? (positiveMemoryDetail?.label ??
+                `${readerSignalCount} reader ${
+                  readerSignalCount === 1 ? "signal" : "signals"
+                }`)
+              : "Learning";
   const coverageLabel = hasSourceCorroboration
     ? "Corroborated"
     : "Single source";
@@ -20174,6 +20184,20 @@ export const getNewsStoryProofStrip = ({
     return {
       metrics,
       summary: `Dampened by similar-reader Less feedback, but kept visible by ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (hasHomeExposureCooldown) {
+    return {
+      metrics,
+      summary: `Recently seen on the home feed, so the recommender is looking for a fresher angle while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (hasExposureCooldown) {
+    return {
+      metrics,
+      summary: `Already covered by recent reading, so the recommender is looking for a fresher angle while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
     };
   }
 

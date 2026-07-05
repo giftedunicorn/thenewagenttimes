@@ -91,6 +91,7 @@ import {
   getNewsProductionReadinessChecklist,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
+  getNewsProfileUpdateProposal,
   getNewsRankingPipeline,
   getNewsReaderCohorts,
   getNewsReaderDaypartPlan,
@@ -1339,6 +1340,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsModelTrainingBatch({");
     expect(source).toContain("Model Training Batch");
     expect(source).toContain("modelTrainingBatch.lanes.map");
+  });
+
+  it("renders the profile update proposal from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsProfileUpdateProposal({");
+    expect(source).toContain("Profile Update Proposal");
+    expect(source).toContain("profileUpdateProposal.lanes.map");
   });
 });
 
@@ -24124,6 +24136,325 @@ describe("getNewsModelTrainingBatch", () => {
         { label: "Holdout", value: "0" },
       ],
       summary: "Model training batch will appear after stories are ranked.",
+    });
+  });
+});
+
+describe("getNewsProfileUpdateProposal", () => {
+  it("turns training lanes into profile add, reduce, explore, and hold proposals", () => {
+    expect(
+      getNewsProfileUpdateProposal({
+        formatCategory: (category) =>
+          category === "security"
+            ? "Security"
+            : category === "funding"
+              ? "Funding"
+              : category === "robotics"
+                ? "Robotics"
+                : category === "market_map"
+                  ? "Market Map"
+                  : category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Agent Security"],
+            id: "proposal-add-security",
+            matchedSignals: ["category"],
+            personalizedScore: 148,
+            sourceName: "Security Desk",
+            sourceScore: 90,
+            sourceSlug: "security-desk",
+            title: "Security story should update the profile",
+            trendScore: 84,
+          },
+          {
+            ...serverItem,
+            category: "funding",
+            entities: ["Series A"],
+            id: "proposal-reduce-funding",
+            matchedSignals: ["category"],
+            personalizedScore: 132,
+            sourceName: "VentureWire",
+            sourceScore: 82,
+            sourceSlug: "venturewire",
+            title: "Funding story matches a rejected pattern",
+            trendScore: 89,
+          },
+          {
+            ...olderItem,
+            category: "robotics",
+            entities: ["Figure"],
+            id: "proposal-explore-robotics",
+            matchedSignals: ["exploration"],
+            personalizedScore: 109,
+            sourceName: "Robotics Desk",
+            sourceScore: 84,
+            sourceSlug: "robotics-desk",
+            title: "Robotics story should remain exploratory",
+            trendScore: 80,
+          },
+          {
+            ...localItem,
+            category: "market_map",
+            entities: ["AI Market"],
+            id: "proposal-hold-market",
+            matchedSignals: [],
+            personalizedScore: 88,
+            sourceName: "Market Desk",
+            sourceScore: 76,
+            sourceSlug: "market-desk",
+            title: "Market map story should stay in holdout",
+            trendScore: 70,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            category: "funding",
+            entities: ["Series A"],
+            id: "negative-proposal-funding",
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+          },
+        ],
+        positiveFeedbackItems: [],
+        profile: {
+          preferredCategories: ["funding"],
+          preferredEntities: ["Series A"],
+          preferredSources: ["venturewire"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Profile Proposal Ready",
+      lanes: [
+        {
+          count: 1,
+          key: "add",
+          label: "Add",
+          proposals: [
+            {
+              actionLabel: "Add category",
+              evidenceLabel: "148 score / 84 heat",
+              id: "add:category:security",
+              reason: "Reader signals make this category a profile candidate.",
+              signalKind: "Category",
+              signalLabel: "Security",
+              sourceName: "Security Desk",
+              storyId: "proposal-add-security",
+              storyTitle: "Security story should update the profile",
+            },
+          ],
+          shareLabel: "25%",
+          summary:
+            "Reinforced stories can add durable categories, sources, or entities to the reader profile.",
+        },
+        {
+          count: 1,
+          key: "reduce",
+          label: "Reduce",
+          proposals: [
+            {
+              actionLabel: "Reduce category",
+              evidenceLabel: "132 score / 89 heat",
+              id: "reduce:category:funding",
+              reason:
+                "Guardrail feedback makes this category a dampening candidate.",
+              signalKind: "Category",
+              signalLabel: "Funding",
+              sourceName: "VentureWire",
+              storyId: "proposal-reduce-funding",
+              storyTitle: "Funding story matches a rejected pattern",
+            },
+          ],
+          shareLabel: "25%",
+          summary:
+            "Suppressed stories can remove or dampen stale profile signals.",
+        },
+        {
+          count: 1,
+          key: "explore",
+          label: "Explore",
+          proposals: [
+            {
+              actionLabel: "Explore category",
+              evidenceLabel: "109 score / 80 heat",
+              id: "explore:category:robotics",
+              reason:
+                "Exploration samples should be watched before becoming profile preferences.",
+              signalKind: "Category",
+              signalLabel: "Robotics",
+              sourceName: "Robotics Desk",
+              storyId: "proposal-explore-robotics",
+              storyTitle: "Robotics story should remain exploratory",
+            },
+          ],
+          shareLabel: "25%",
+          summary:
+            "Exploration samples become watch candidates before they change the profile.",
+        },
+        {
+          count: 1,
+          key: "hold",
+          label: "Hold",
+          proposals: [
+            {
+              actionLabel: "Hold profile",
+              evidenceLabel: "88 score / 70 heat",
+              id: "hold:story:proposal-hold-market",
+              reason:
+                "Holdout stories stay in evaluation without changing the profile.",
+              signalKind: "Story",
+              signalLabel: "Market map story should stay in holdout",
+              sourceName: "Market Desk",
+              storyId: "proposal-hold-market",
+              storyTitle: "Market map story should stay in holdout",
+            },
+          ],
+          shareLabel: "25%",
+          summary: "Holdout stories protect the profile from trend-only noise.",
+        },
+      ],
+      metrics: [
+        { label: "Add", value: "1" },
+        { label: "Reduce", value: "1" },
+        { label: "Explore", value: "1" },
+        { label: "Hold", value: "1" },
+      ],
+      summary:
+        "4 profile proposals prepared from training signals: 1 add, 1 reduce, 1 explore, and 1 hold.",
+    });
+  });
+
+  it("uses positive feedback memory to add the strongest missing profile signal", () => {
+    const proposal = getNewsProfileUpdateProposal({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "proposal-positive-security",
+          matchedSignals: [],
+          personalizedScore: 105,
+          sourceName: "Security Desk",
+          sourceScore: 82,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Positive memory should create a profile update",
+          trendScore: 75,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "security",
+          entities: ["Agent Security"],
+          id: "shared-proposal-security",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Shared security story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredEntities: [],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(proposal.lanes[0]?.proposals).toEqual([
+      {
+        actionLabel: "Add category",
+        evidenceLabel: "105 score / 75 heat",
+        id: "add:category:security",
+        reason: "Positive memory makes this category a profile candidate.",
+        signalKind: "Category",
+        signalLabel: "Security",
+        sourceName: "Security Desk",
+        storyId: "proposal-positive-security",
+        storyTitle: "Positive memory should create a profile update",
+      },
+    ]);
+    expect(proposal.metrics).toContainEqual({ label: "Add", value: "1" });
+  });
+
+  it("keeps profile proposals cold before training signals exist", () => {
+    expect(
+      getNewsProfileUpdateProposal({
+        formatCategory: (category) => category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [],
+        limit: 2,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Profile Proposal Waiting",
+      lanes: [
+        {
+          count: 0,
+          key: "add",
+          label: "Add",
+          proposals: [],
+          shareLabel: "0%",
+          summary:
+            "Reinforced stories can add durable categories, sources, or entities to the reader profile.",
+        },
+        {
+          count: 0,
+          key: "reduce",
+          label: "Reduce",
+          proposals: [],
+          shareLabel: "0%",
+          summary:
+            "Suppressed stories can remove or dampen stale profile signals.",
+        },
+        {
+          count: 0,
+          key: "explore",
+          label: "Explore",
+          proposals: [],
+          shareLabel: "0%",
+          summary:
+            "Exploration samples become watch candidates before they change the profile.",
+        },
+        {
+          count: 0,
+          key: "hold",
+          label: "Hold",
+          proposals: [],
+          shareLabel: "0%",
+          summary: "Holdout stories protect the profile from trend-only noise.",
+        },
+      ],
+      metrics: [
+        { label: "Add", value: "0" },
+        { label: "Reduce", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Hold", value: "0" },
+      ],
+      summary: "Profile update proposals will appear after training signals.",
     });
   });
 });

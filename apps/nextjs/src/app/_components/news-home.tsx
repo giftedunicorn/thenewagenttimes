@@ -127,6 +127,7 @@ import {
   getNewsProductionReadinessChecklist,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
+  getNewsProfileUpdateProposal,
   getNewsRankingPipeline,
   getNewsReaderCohorts,
   getNewsReaderDaypartPlan,
@@ -2300,6 +2301,17 @@ export function NewsHome({
     savedItems,
   });
   const modelTrainingBatch = getNewsModelTrainingBatch({
+    formatCategory: getCategoryLabel,
+    hiddenItemIds,
+    historyItems,
+    items: rankedItems,
+    limit: 2,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    profile,
+    savedItems,
+  });
+  const profileUpdateProposal = getNewsProfileUpdateProposal({
     formatCategory: getCategoryLabel,
     hiddenItemIds,
     historyItems,
@@ -5752,6 +5764,92 @@ export function NewsHome({
                     ) : (
                       <p className="border-t border-[#161616]/10 pt-2 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
                         No stories in this training lane.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Profile Update Proposal</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {profileUpdateProposal.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-sm dark:border-[#f4f1ea]">
+                {profileUpdateProposal.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+              {profileUpdateProposal.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] gap-4">
+              {profileUpdateProposal.lanes.map((lane) => (
+                <div
+                  key={lane.key}
+                  className="grid content-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <h3 className="font-semibold">{lane.label}</h3>
+                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                      {lane.count} / {lane.shareLabel}
+                    </span>
+                  </div>
+                  <p className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {lane.summary}
+                  </p>
+                  <div className="grid gap-2">
+                    {lane.proposals.length > 0 ? (
+                      lane.proposals.map((proposal) => {
+                        const proposalBody = (
+                          <>
+                            <span className="leading-5 font-semibold">
+                              {proposal.actionLabel}: {proposal.signalLabel}
+                            </span>
+                            <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {proposal.signalKind} / {proposal.sourceName} /{" "}
+                              {proposal.evidenceLabel}
+                            </span>
+                            <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {proposal.reason}
+                            </span>
+                          </>
+                        );
+
+                        return isPreview ? (
+                          <div
+                            key={proposal.id}
+                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                          >
+                            {proposalBody}
+                          </div>
+                        ) : (
+                          <Link
+                            key={proposal.id}
+                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
+                            href={`/news/${proposal.storyId}`}
+                          >
+                            {proposalBody}
+                          </Link>
+                        );
+                      })
+                    ) : (
+                      <p className="border-t border-[#161616]/10 pt-2 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
+                        No profile proposals in this lane.
                       </p>
                     )}
                   </div>

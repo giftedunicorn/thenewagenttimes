@@ -16967,6 +16967,372 @@ export const getNewsModelTrainingBatch = ({
   };
 };
 
+const newsProfileUpdateProposalDefinitions = [
+  {
+    key: "add",
+    label: "Add",
+    summary:
+      "Reinforced stories can add durable categories, sources, or entities to the reader profile.",
+  },
+  {
+    key: "reduce",
+    label: "Reduce",
+    summary: "Suppressed stories can remove or dampen stale profile signals.",
+  },
+  {
+    key: "explore",
+    label: "Explore",
+    summary:
+      "Exploration samples become watch candidates before they change the profile.",
+  },
+  {
+    key: "hold",
+    label: "Hold",
+    summary: "Holdout stories protect the profile from trend-only noise.",
+  },
+] as const;
+
+type NewsProfileUpdateProposalKey =
+  (typeof newsProfileUpdateProposalDefinitions)[number]["key"];
+
+type NewsProfileUpdateSignalKind = "Category" | "Entity" | "Source" | "Story";
+
+type NewsProfileUpdateSignalType = "category" | "entity" | "source" | "story";
+
+interface NewsProfileUpdateProposalItem {
+  actionLabel: string;
+  evidenceLabel: string;
+  id: string;
+  reason: string;
+  signalKind: NewsProfileUpdateSignalKind;
+  signalLabel: string;
+  sourceName: string;
+  storyId: string;
+  storyTitle: string;
+}
+
+interface NewsProfileUpdateProposalLane {
+  count: number;
+  key: NewsProfileUpdateProposalKey;
+  label: string;
+  proposals: NewsProfileUpdateProposalItem[];
+  shareLabel: string;
+  summary: string;
+}
+
+const hasNewsProfileSignalValue = ({
+  value,
+  values,
+}: {
+  value: string;
+  values: readonly string[];
+}) =>
+  values.some(
+    (candidate) =>
+      normalizePreferenceSignal(candidate) === normalizePreferenceSignal(value),
+  );
+
+const getNewsProfileUpdateSignal = ({
+  formatCategory,
+  item,
+  mode,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  mode: Extract<NewsProfileUpdateProposalKey, "add" | "explore" | "reduce">;
+  profile: NewsPreferenceProfile;
+}): {
+  kind: NewsProfileUpdateSignalKind;
+  label: string;
+  type: NewsProfileUpdateSignalType;
+  value: string;
+} => {
+  const categorySignal = {
+    kind: "Category" as const,
+    label: formatCategory(item.category),
+    type: "category" as const,
+    value: item.category,
+  };
+  const sourceSignal = {
+    kind: "Source" as const,
+    label: item.sourceName,
+    type: "source" as const,
+    value: item.sourceSlug,
+  };
+  const entitySignals = item.entities
+    .map((entity) => entity.trim())
+    .filter((entity) => entity.length > 0)
+    .map((entity) => ({
+      kind: "Entity" as const,
+      label: entity,
+      type: "entity" as const,
+      value: entity,
+    }));
+
+  if (mode === "reduce") {
+    if (
+      hasNewsProfileSignalValue({
+        value: item.category,
+        values: profile.preferredCategories,
+      })
+    ) {
+      return categorySignal;
+    }
+
+    if (
+      hasNewsProfileSignalValue({
+        value: item.sourceSlug,
+        values: profile.preferredSources,
+      })
+    ) {
+      return sourceSignal;
+    }
+
+    const matchingEntity = entitySignals.find((signal) =>
+      hasNewsProfileSignalValue({
+        value: signal.value,
+        values: profile.preferredEntities,
+      }),
+    );
+
+    return matchingEntity ?? categorySignal;
+  }
+
+  if (
+    !hasNewsProfileSignalValue({
+      value: item.category,
+      values: profile.preferredCategories,
+    })
+  ) {
+    return categorySignal;
+  }
+
+  if (
+    !hasNewsProfileSignalValue({
+      value: item.sourceSlug,
+      values: profile.preferredSources,
+    })
+  ) {
+    return sourceSignal;
+  }
+
+  return (
+    entitySignals.find(
+      (signal) =>
+        !hasNewsProfileSignalValue({
+          value: signal.value,
+          values: profile.preferredEntities,
+        }),
+    ) ?? categorySignal
+  );
+};
+
+const getNewsProfileUpdateProposalReason = ({
+  key,
+  placementSignalLabel,
+  signalKind,
+}: {
+  key: NewsProfileUpdateProposalKey;
+  placementSignalLabel: string;
+  signalKind: NewsProfileUpdateSignalKind;
+}) => {
+  const signalLabel = signalKind.toLowerCase();
+
+  if (key === "add" && placementSignalLabel === "positive memory") {
+    return `Positive memory makes this ${signalLabel} a profile candidate.`;
+  }
+
+  if (key === "add") {
+    return `Reader signals make this ${signalLabel} a profile candidate.`;
+  }
+
+  if (key === "reduce") {
+    return `Guardrail feedback makes this ${signalLabel} a dampening candidate.`;
+  }
+
+  if (key === "explore") {
+    return "Exploration samples should be watched before becoming profile preferences.";
+  }
+
+  return "Holdout stories stay in evaluation without changing the profile.";
+};
+
+const toNewsProfileUpdateProposalItem = ({
+  formatCategory,
+  item,
+  key,
+  placementSignalLabel,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  key: NewsProfileUpdateProposalKey;
+  placementSignalLabel: string;
+  profile: NewsPreferenceProfile;
+}): NewsProfileUpdateProposalItem => {
+  if (key === "hold") {
+    return {
+      actionLabel: "Hold profile",
+      evidenceLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+      id: `hold:story:${normalizePreferenceSignal(item.id)}`,
+      reason: getNewsProfileUpdateProposalReason({
+        key,
+        placementSignalLabel,
+        signalKind: "Story",
+      }),
+      signalKind: "Story",
+      signalLabel: item.title,
+      sourceName: item.sourceName,
+      storyId: item.id,
+      storyTitle: item.title,
+    };
+  }
+
+  const signal = getNewsProfileUpdateSignal({
+    formatCategory,
+    item,
+    mode: key,
+    profile,
+  });
+  const actionVerb =
+    key === "add" ? "Add" : key === "reduce" ? "Reduce" : "Explore";
+
+  return {
+    actionLabel: `${actionVerb} ${signal.kind.toLowerCase()}`,
+    evidenceLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+    id: `${key}:${signal.type}:${normalizePreferenceSignal(signal.value)}`,
+    reason: getNewsProfileUpdateProposalReason({
+      key,
+      placementSignalLabel,
+      signalKind: signal.kind,
+    }),
+    signalKind: signal.kind,
+    signalLabel: signal.label,
+    sourceName: item.sourceName,
+    storyId: item.id,
+    storyTitle: item.title,
+  };
+};
+
+export const getNewsProfileUpdateProposal = ({
+  formatCategory,
+  hiddenItemIds,
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  hiddenItemIds: readonly string[];
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const hiddenIds = new Set(hiddenItemIds);
+  const buckets = new Map<
+    NewsProfileUpdateProposalKey,
+    { count: number; proposals: NewsProfileUpdateProposalItem[] }
+  >(
+    newsProfileUpdateProposalDefinitions.map((definition) => [
+      definition.key,
+      { count: 0, proposals: [] },
+    ]),
+  );
+  const seenProposalIds = new Set<string>();
+
+  for (const item of items) {
+    const placement = getNewsModelTrainingBatchPlacement({
+      hiddenItemIds: hiddenIds,
+      historyItems,
+      item,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      profile,
+      savedItems,
+    });
+    const key: NewsProfileUpdateProposalKey =
+      placement.key === "reinforce"
+        ? "add"
+        : placement.key === "suppress"
+          ? "reduce"
+          : placement.key === "explore"
+            ? "explore"
+            : "hold";
+    const proposal = toNewsProfileUpdateProposalItem({
+      formatCategory,
+      item,
+      key,
+      placementSignalLabel: placement.signalLabel,
+      profile,
+    });
+
+    if (seenProposalIds.has(proposal.id)) continue;
+    seenProposalIds.add(proposal.id);
+
+    const bucket = buckets.get(key);
+    if (!bucket) continue;
+
+    bucket.count += 1;
+
+    if (bucket.proposals.length < limit) {
+      bucket.proposals.push(proposal);
+    }
+  }
+
+  const proposalCount = Array.from(buckets.values()).reduce(
+    (total, bucket) => total + bucket.count,
+    0,
+  );
+  const lanes: NewsProfileUpdateProposalLane[] =
+    newsProfileUpdateProposalDefinitions.map((definition) => {
+      const bucket = buckets.get(definition.key);
+      const count = bucket?.count ?? 0;
+
+      return {
+        count,
+        key: definition.key,
+        label: definition.label,
+        proposals: bucket?.proposals ?? [],
+        shareLabel: formatPercentage(count, items.length),
+        summary: definition.summary,
+      };
+    });
+  const getLaneCount = (key: NewsProfileUpdateProposalKey) =>
+    buckets.get(key)?.count ?? 0;
+  const addCount = getLaneCount("add");
+  const reduceCount = getLaneCount("reduce");
+  const exploreCount = getLaneCount("explore");
+  const holdCount = getLaneCount("hold");
+
+  return {
+    label:
+      proposalCount === 0
+        ? "Profile Proposal Waiting"
+        : "Profile Proposal Ready",
+    lanes,
+    metrics: [
+      { label: "Add", value: String(addCount) },
+      { label: "Reduce", value: String(reduceCount) },
+      { label: "Explore", value: String(exploreCount) },
+      { label: "Hold", value: String(holdCount) },
+    ],
+    summary:
+      proposalCount === 0
+        ? "Profile update proposals will appear after training signals."
+        : `${proposalCount} profile ${
+            proposalCount === 1 ? "proposal" : "proposals"
+          } prepared from training signals: ${addCount} add, ${reduceCount} reduce, ${exploreCount} explore, and ${holdCount} hold.`,
+  };
+};
+
 const getDominantChannelCategory = ({
   formatCategory,
   items,

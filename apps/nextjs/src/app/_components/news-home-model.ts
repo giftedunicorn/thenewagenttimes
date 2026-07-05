@@ -13249,12 +13249,14 @@ const getNewsTasteCalibrationAction = ({
   formatCategory,
   item,
   memoryMatchers,
+  memorySignalLabel,
   negativeMatchers,
   profile,
 }: {
   formatCategory: (category: string) => string;
   item: RankedNewsItem<NewsHomeItem>;
   memoryMatchers: ReturnType<typeof getRefreshSimulationMatchers>;
+  memorySignalLabel: string;
   negativeMatchers: ReturnType<typeof getRefreshSimulationMatchers>;
   profile: NewsPreferenceProfile;
 }) => {
@@ -13273,7 +13275,7 @@ const getNewsTasteCalibrationAction = ({
   if (hasProfileFit && hasMemoryHit && !hasFriction) {
     return {
       actionLabel: "Keep signal",
-      detail: `${item.title} reinforces saved/read behavior and explicit preferences.`,
+      detail: `${item.title} reinforces ${memorySignalLabel} and explicit preferences.`,
       key: `aligned-${item.id}`,
       label: `Strengthen ${categoryLabel}`,
       signal: categoryLabel,
@@ -13315,6 +13317,7 @@ export const getNewsTasteCalibration = ({
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -13323,6 +13326,7 @@ export const getNewsTasteCalibration = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -13341,10 +13345,15 @@ export const getNewsTasteCalibration = ({
   }
 
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
-  const memoryMatchers = getRefreshSimulationMatchers([
-    ...historyItems,
-    ...savedItems,
-  ]);
+  const explicitPositiveItems = positiveFeedbackItems.filter(
+    (item) => item.action !== "save",
+  );
+  const memoryItems = [...historyItems, ...savedItems, ...explicitPositiveItems];
+  const memorySignalLabel =
+    explicitPositiveItems.length > 0
+      ? "positive behavior"
+      : "saved/read behavior";
+  const memoryMatchers = getRefreshSimulationMatchers(memoryItems);
   const negativeMatchers = getRefreshSimulationMatchers(negativeFeedbackItems);
   const profileFitCount = items.filter((item) =>
     hasRefreshSimulationProfileMatch({ item, profile: normalizedProfile }),
@@ -13364,6 +13373,7 @@ export const getNewsTasteCalibration = ({
         formatCategory,
         item,
         memoryMatchers,
+        memorySignalLabel,
         negativeMatchers,
         profile: normalizedProfile,
       }),

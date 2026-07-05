@@ -18951,6 +18951,84 @@ describe("getNewsTasteCalibration", () => {
     });
   });
 
+  it("uses shares and source clicks as positive calibration memory", () => {
+    expect(
+      getNewsTasteCalibration({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "calibrate-agent-positive",
+            matchedSignals: ["category"],
+            personalizedScore: 142,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent workflow calibration story",
+            trendScore: 88,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "shared-agent-calibration",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+          {
+            ...olderItem,
+            action: "click_source",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "source-click-agent-calibration",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Source-clicked agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: ["agent_product"],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          actionLabel: "Keep signal",
+          detail:
+            "Agent workflow calibration story reinforces positive behavior and explicit preferences.",
+          key: "aligned-calibrate-agent-positive",
+          label: "Strengthen Agents",
+          signal: "Agents",
+          statusLabel: "Aligned",
+          storyTitle: "Agent workflow calibration story",
+        },
+      ],
+      label: "Taste Calibration Ready",
+      metrics: [
+        { label: "Stories", value: "1" },
+        { label: "Profile fit", value: "1/1" },
+        { label: "Memory hits", value: "1" },
+        { label: "Friction", value: "0" },
+      ],
+      summary:
+        "1 story calibrates this taste model: 1 profile fit, 0 explorations, and 0 friction signals.",
+    });
+  });
+
   it("keeps calibration stable before ranked stories exist", () => {
     expect(
       getNewsTasteCalibration({

@@ -9001,12 +9001,16 @@ const nonReaderRecommendationSignals = new Set([
   "category_quota",
   "collaborative_negative_feedback",
   "daypart",
+  "discovery_slot",
   "entity_quota",
+  "exposure_cooldown",
   "exploration",
   "freshness_quota",
+  "home_exposure_cooldown",
   "negative_feedback",
   "source_corroboration",
   "source_quota",
+  "source_trust",
 ]);
 
 const positiveReaderMemoryActionSignals = [

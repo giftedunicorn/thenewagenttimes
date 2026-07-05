@@ -9401,6 +9401,49 @@ describe("getNewsLiveWire", () => {
       }).updates[0]?.signal,
     ).toBe("Newswire");
   });
+
+  it("does not label trust, exposure, or discovery safeguards as For You updates", () => {
+    const safeguardSignals = [
+      "source_trust",
+      "home_exposure_cooldown",
+      "exposure_cooldown",
+      "discovery_slot",
+    ] as const;
+
+    const updates = safeguardSignals.map((signal, index) =>
+      getNewsLiveWire({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: `${signal}-wire`,
+            category: "agent_product",
+            matchedSignals: [signal],
+            personalizedScore: 120 - index,
+            sourceName: "Agent Desk",
+            sourceScore: 88,
+            sourceSlug: "agent-desk",
+            title: `${signal} keeps the live wire balanced`,
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).updates[0],
+    );
+
+    expect(
+      updates.map((update) => ({
+        id: update?.id,
+        signal: update?.signal,
+      })),
+    ).toEqual([
+      { id: "source_trust-wire", signal: "Newswire" },
+      { id: "home_exposure_cooldown-wire", signal: "Newswire" },
+      { id: "exposure_cooldown-wire", signal: "Newswire" },
+      { id: "discovery_slot-wire", signal: "Newswire" },
+    ]);
+  });
 });
 
 describe("getNewsHotBoard", () => {
@@ -9808,6 +9851,71 @@ describe("getNewsHotBoard", () => {
       label: "Newswire Hot",
       reason: "Newswire momentum keeps this story on the board.",
     });
+  });
+
+  it("does not treat trust, exposure, or discovery safeguards as reader-matched heat", () => {
+    const safeguardSignals = [
+      "source_trust",
+      "home_exposure_cooldown",
+      "exposure_cooldown",
+      "discovery_slot",
+    ] as const;
+
+    const entries = safeguardSignals.map((signal, index) =>
+      getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: `${signal}-hot`,
+            category: "agent_product",
+            matchedSignals: [signal],
+            personalizedScore: 120 - index,
+            sourceName: "Agent Desk",
+            sourceScore: 88,
+            sourceSlug: "agent-desk",
+            title: `${signal} keeps the hot board balanced`,
+            trendScore: 82,
+          },
+        ],
+        limit: 1,
+      }).entries[0],
+    );
+
+    expect(
+      entries.map((entry) => ({
+        heatScore: entry?.heatScore,
+        id: entry?.id,
+        label: entry?.label,
+        reason: entry?.reason,
+      })),
+    ).toEqual([
+      {
+        heatScore: 115,
+        id: "source_trust-hot",
+        label: "Newswire Hot",
+        reason: "Newswire momentum keeps this story on the board.",
+      },
+      {
+        heatScore: 115,
+        id: "home_exposure_cooldown-hot",
+        label: "Newswire Hot",
+        reason: "Newswire momentum keeps this story on the board.",
+      },
+      {
+        heatScore: 115,
+        id: "exposure_cooldown-hot",
+        label: "Newswire Hot",
+        reason: "Newswire momentum keeps this story on the board.",
+      },
+      {
+        heatScore: 114,
+        id: "discovery_slot-hot",
+        label: "Newswire Hot",
+        reason: "Newswire momentum keeps this story on the board.",
+      },
+    ]);
   });
 });
 
@@ -21961,6 +22069,58 @@ describe("getNewsChannelComparison", () => {
       },
       reason: "Personalized score",
     });
+  });
+
+  it("does not describe trust, exposure, or discovery safeguards as channel reader signals", () => {
+    const safeguardSignals = [
+      "source_trust",
+      "home_exposure_cooldown",
+      "exposure_cooldown",
+      "discovery_slot",
+    ] as const;
+
+    const reasons = safeguardSignals.map((signal) => {
+      const comparison = getNewsChannelComparison({
+        items: [
+          {
+            ...olderItem,
+            id: `${signal}-lead`,
+            matchedSignals: [signal],
+            personalizedScore: 155,
+            publishedAt: "2026-06-30T08:00:00.000Z",
+            sourceName: "Model Desk",
+            title: `${signal} leads by score`,
+            trendScore: 70,
+          },
+          {
+            ...localItem,
+            id: "latest-lead",
+            matchedSignals: [],
+            personalizedScore: 90,
+            publishedAt: "2026-07-01T12:00:00.000Z",
+            sourceName: "Launch Feed",
+            title: "Fresh launch leads Latest",
+            trendScore: 65,
+          },
+        ],
+        limit: 2,
+      });
+
+      return {
+        leadId: comparison.channels[0]?.lead.id,
+        reason: comparison.channels[0]?.reason,
+      };
+    });
+
+    expect(reasons).toEqual([
+      { leadId: "source_trust-lead", reason: "Personalized score" },
+      {
+        leadId: "home_exposure_cooldown-lead",
+        reason: "Personalized score",
+      },
+      { leadId: "exposure_cooldown-lead", reason: "Personalized score" },
+      { leadId: "discovery_slot-lead", reason: "Personalized score" },
+    ]);
   });
 
   it("returns a stable empty comparison before stories load", () => {

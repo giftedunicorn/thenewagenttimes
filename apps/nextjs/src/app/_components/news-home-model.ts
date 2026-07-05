@@ -12088,12 +12088,14 @@ export const getNewsRankingPipeline = ({
   historyItems,
   items,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
   historyItems: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -12110,7 +12112,15 @@ export const getNewsRankingPipeline = ({
   );
   const adjacentSourceRepeats = countAdjacentSourceRepeats(items);
   const adjacentEntityRepeats = countAdjacentEntityRepeats(items);
-  const positiveItems = [...savedItems, ...historyItems];
+  const positiveItems = [
+    ...positiveFeedbackItems.filter((item) => item.action !== "save"),
+    ...getReaderLearningExplicitSaveFeedbackItems({
+      positiveFeedbackItems,
+      savedItems,
+    }),
+    ...savedItems,
+    ...historyItems,
+  ];
   const guardrailCount =
     negativeFeedbackItems.length +
     adjacentSourceRepeats +

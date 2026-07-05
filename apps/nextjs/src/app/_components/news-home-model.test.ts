@@ -17479,6 +17479,63 @@ describe("getNewsRankingPipeline", () => {
     );
   });
 
+  it("counts shares and source clicks as ranking feedback training events", () => {
+    const pipeline = getNewsRankingPipeline({
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "ranking-agent-story",
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent category fit leads the feed",
+          trendScore: 76,
+        },
+      ],
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          id: "shared-agent-ranking-pipeline",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent ranking story",
+        },
+        {
+          ...olderItem,
+          action: "click_source",
+          category: "agent_product",
+          id: "source-click-agent-ranking-pipeline",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Source-clicked agent ranking story",
+        },
+      ],
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(pipeline.stages[3]).toEqual({
+      detail: "Uses 2 positive events and 0 hidden stories to update the next pass.",
+      label: "Feedback training",
+      signals: [
+        "Shared agent ranking story",
+        "Source-clicked agent ranking story",
+      ],
+      value: "+2 / -0",
+    });
+  });
+
   it("keeps the ranking pipeline visible for an empty feed", () => {
     expect(
       getNewsRankingPipeline({

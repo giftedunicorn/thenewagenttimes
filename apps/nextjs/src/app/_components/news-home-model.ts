@@ -17333,6 +17333,264 @@ export const getNewsProfileUpdateProposal = ({
   };
 };
 
+type NewsReaderProfileSnapshotCardKey =
+  | "guardrails"
+  | "memory"
+  | "next_update"
+  | "profile";
+
+interface NewsReaderProfileSnapshotCard {
+  detail: string;
+  key: NewsReaderProfileSnapshotCardKey;
+  label: string;
+  signals: string[];
+  statusLabel: string;
+  value: string;
+}
+
+const getNewsReaderProfileSnapshotProfileSignals = ({
+  formatCategory,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+}) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return getUniqueSignals(
+    [
+      ...normalizedProfile.preferredCategories.map(formatCategory),
+      ...normalizedProfile.preferredSources,
+      ...normalizedProfile.preferredEntities.map((entity) =>
+        isNewsReaderAngleSignal(entity) ? formatNewsAngleQuery(entity) : entity,
+      ),
+    ],
+    4,
+  );
+};
+
+const getNewsReaderProfileSnapshotProfileDetail = (
+  signals: readonly string[],
+) => {
+  if (signals.length === 0) {
+    return "No followed topics, sources, or entities are steering the feed.";
+  }
+
+  const coreSignals = signals.slice(0, 3);
+
+  return `${formatProfileLedgerList(coreSignals)} ${
+    coreSignals.length === 1 ? "defines" : "define"
+  } the current reader core.`;
+};
+
+const getNewsReaderProfileSnapshotMemoryDetail = ({
+  historyCount,
+  positiveFeedbackCount,
+  savedCount,
+}: {
+  historyCount: number;
+  positiveFeedbackCount: number;
+  savedCount: number;
+}) => {
+  const memoryCount = historyCount + savedCount + positiveFeedbackCount;
+
+  if (memoryCount === 0) {
+    return "Reads, saves, shares, and source clicks have not created behavior memory yet.";
+  }
+
+  const parts = [
+    historyCount > 0
+      ? `${historyCount} ${historyCount === 1 ? "read" : "reads"}`
+      : null,
+    savedCount > 0
+      ? `${savedCount} saved ${savedCount === 1 ? "story" : "stories"}`
+      : null,
+    positiveFeedbackCount > 0
+      ? `${positiveFeedbackCount} positive feedback ${
+          positiveFeedbackCount === 1 ? "item" : "items"
+        }`
+      : null,
+  ].filter((part): part is string => part !== null);
+
+  return `${formatProfileLedgerList(parts)} ${
+    memoryCount === 1 ? "is" : "are"
+  } shaping related coverage.`;
+};
+
+const getNewsReaderProfileSnapshotMemorySignals = ({
+  historyCount,
+  positiveFeedbackCount,
+  savedCount,
+}: {
+  historyCount: number;
+  positiveFeedbackCount: number;
+  savedCount: number;
+}) =>
+  [
+    historyCount > 0 ? "Read history" : null,
+    savedCount > 0 ? "Saved stories" : null,
+    positiveFeedbackCount > 0 ? "Positive feedback" : null,
+  ].filter((signal): signal is string => signal !== null);
+
+const getNewsReaderProfileSnapshotNextUpdateCard = (
+  proposal: ReturnType<typeof getNewsProfileUpdateProposal>,
+): NewsReaderProfileSnapshotCard => {
+  const proposalCount = proposal.lanes.reduce(
+    (total, lane) => total + lane.count,
+    0,
+  );
+  const nextProposal = proposal.lanes.flatMap((lane) => lane.proposals).at(0);
+
+  if (!nextProposal) {
+    return {
+      detail: "Profile update proposals will appear after stories are ranked.",
+      key: "next_update",
+      label: "Next Update",
+      signals: [],
+      statusLabel: "Waiting",
+      value: "0 proposals",
+    };
+  }
+
+  const [actionVerb = "Update"] = nextProposal.actionLabel.split(" ");
+
+  return {
+    detail: `Next profile patch wants to ${actionVerb.toLowerCase()} ${
+      nextProposal.signalLabel
+    } from the ranked edition.`,
+    key: "next_update",
+    label: "Next Update",
+    signals: [`${nextProposal.actionLabel}: ${nextProposal.signalLabel}`],
+    statusLabel: actionVerb,
+    value: `${proposalCount} ${proposalCount === 1 ? "proposal" : "proposals"}`,
+  };
+};
+
+export const getNewsReaderProfileSnapshot = ({
+  formatCategory,
+  hiddenItemIds,
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  hiddenItemIds: readonly string[];
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const profileSignals = getNewsReaderProfileSnapshotProfileSignals({
+    formatCategory,
+    profile,
+  });
+  const profileCount = getProfileSignalCount(profile);
+  const historyCount = historyItems.length;
+  const savedCount = savedItems.length;
+  const positiveFeedbackCount = positiveFeedbackItems.length;
+  const behaviorCount = historyCount + savedCount + positiveFeedbackCount;
+  const guardrailCount = negativeFeedbackItems.length;
+  const proposal = getNewsProfileUpdateProposal({
+    formatCategory,
+    hiddenItemIds,
+    historyItems,
+    items,
+    limit,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    profile,
+    savedItems,
+  });
+  const proposalCount = proposal.lanes.reduce(
+    (total, lane) => total + lane.count,
+    0,
+  );
+  const hasSnapshot =
+    profileCount > 0 ||
+    behaviorCount > 0 ||
+    guardrailCount > 0 ||
+    proposalCount > 0;
+
+  return {
+    cards: [
+      {
+        detail: getNewsReaderProfileSnapshotProfileDetail(profileSignals),
+        key: "profile" as const,
+        label: "Profile Core",
+        signals: profileSignals.slice(0, 3),
+        statusLabel: profileCount > 0 ? "Active" : "Cold",
+        value: `${profileCount} ${profileCount === 1 ? "signal" : "signals"}`,
+      },
+      {
+        detail: getNewsReaderProfileSnapshotMemoryDetail({
+          historyCount,
+          positiveFeedbackCount,
+          savedCount,
+        }),
+        key: "memory" as const,
+        label: "Behavior Memory",
+        signals: getNewsReaderProfileSnapshotMemorySignals({
+          historyCount,
+          positiveFeedbackCount,
+          savedCount,
+        }),
+        statusLabel: behaviorCount > 0 ? "Learning" : "Waiting",
+        value: `${behaviorCount} ${
+          behaviorCount === 1 ? "memory" : "memories"
+        }`,
+      },
+      {
+        detail:
+          guardrailCount > 0
+            ? "Less feedback is dampening similar stories before the next ranking pass."
+            : "No Less feedback is dampening the current edition.",
+        key: "guardrails" as const,
+        label: "Guardrails",
+        signals: getUniqueSignals(
+          negativeFeedbackItems.map((item) => item.title),
+          3,
+        ),
+        statusLabel: guardrailCount > 0 ? "Guarded" : "Open",
+        value: `${guardrailCount} ${
+          guardrailCount === 1 ? "guardrail" : "guardrails"
+        }`,
+      },
+      getNewsReaderProfileSnapshotNextUpdateCard(proposal),
+    ],
+    label: !hasSnapshot
+      ? "Profile Snapshot Waiting"
+      : guardrailCount > 0
+        ? "Profile Snapshot Guarded"
+        : proposalCount > 0
+          ? "Profile Snapshot Learning"
+          : "Profile Snapshot Stable",
+    metrics: [
+      { label: "Profile", value: String(profileCount) },
+      { label: "Behavior", value: String(behaviorCount) },
+      { label: "Guardrails", value: String(guardrailCount) },
+      { label: "Proposals", value: String(proposalCount) },
+    ],
+    summary: hasSnapshot
+      ? `Reader profile snapshot is using ${profileCount} profile ${
+          profileCount === 1 ? "signal" : "signals"
+        }, ${behaviorCount} behavior ${
+          behaviorCount === 1 ? "memory" : "memories"
+        }, ${guardrailCount} ${
+          guardrailCount === 1 ? "guardrail" : "guardrails"
+        }, and ${proposalCount} pending profile ${
+          proposalCount === 1 ? "proposal" : "proposals"
+        }.`
+      : "Reader profile snapshot will appear after preferences, behavior, or guardrails exist.",
+  };
+};
+
 const getDominantChannelCategory = ({
   formatCategory,
   items,

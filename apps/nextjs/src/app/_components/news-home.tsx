@@ -137,6 +137,7 @@ import {
   getNewsReaderMemory,
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
+  getNewsReaderProfileSnapshot,
   getNewsReaderRankingFactors,
   getNewsReaderRetentionPlan,
   getNewsReaderSatisfactionBrief,
@@ -2322,6 +2323,17 @@ export function NewsHome({
     profile,
     savedItems,
   });
+  const readerProfileSnapshot = getNewsReaderProfileSnapshot({
+    formatCategory: getCategoryLabel,
+    hiddenItemIds,
+    historyItems,
+    items: rankedItems,
+    limit: 2,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    profile,
+    savedItems,
+  });
   const fatigueReport = getNewsFeedFatigueReport({ items: rankedItems });
   const preferenceStarter = getNewsPreferenceStarter({
     formatCategory: getCategoryLabel,
@@ -3836,6 +3848,70 @@ export function NewsHome({
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">
+                    Reader Profile Snapshot
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {readerProfileSnapshot.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {readerProfileSnapshot.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {readerProfileSnapshot.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                {readerProfileSnapshot.cards.map((card) => (
+                  <div
+                    key={card.key}
+                    className="grid content-start gap-2 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                  >
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
+                      <span className="font-semibold">{card.label}</span>
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {card.statusLabel}
+                      </span>
+                    </div>
+                    <div className="font-mono text-sm">{card.value}</div>
+                    <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {card.detail}
+                    </p>
+                    {card.signals.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {card.signals.map((signal) => (
+                          <span
+                            key={`${card.key}-${signal}`}
+                            className="border border-[#161616]/20 px-2 py-1 font-mono text-[11px] dark:border-[#f4f1ea]/20"
+                          >
+                            {signal}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        No active signals in this snapshot.
+                      </p>
+                    )}
+                  </div>
+                ))}
               </div>
             </div>
 

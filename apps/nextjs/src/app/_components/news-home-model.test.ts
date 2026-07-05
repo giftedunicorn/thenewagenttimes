@@ -101,6 +101,7 @@ import {
   getNewsReaderMemory,
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
+  getNewsReaderProfileSnapshot,
   getNewsReaderRankingFactors,
   getNewsReaderRetentionPlan,
   getNewsReaderSatisfactionBrief,
@@ -1351,6 +1352,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsProfileUpdateProposal({");
     expect(source).toContain("Profile Update Proposal");
     expect(source).toContain("profileUpdateProposal.lanes.map");
+  });
+
+  it("renders the reader profile snapshot from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsReaderProfileSnapshot({");
+    expect(source).toContain("Reader Profile Snapshot");
+    expect(source).toContain("readerProfileSnapshot.cards.map");
   });
 });
 
@@ -24455,6 +24467,206 @@ describe("getNewsProfileUpdateProposal", () => {
         { label: "Hold", value: "0" },
       ],
       summary: "Profile update proposals will appear after training signals.",
+    });
+  });
+});
+
+describe("getNewsReaderProfileSnapshot", () => {
+  it("summarizes active profile, behavior memory, guardrails, and pending proposals", () => {
+    expect(
+      getNewsReaderProfileSnapshot({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "security"
+              ? "Security"
+              : category === "funding"
+                ? "Funding"
+                : category,
+        hiddenItemIds: [],
+        historyItems: [
+          {
+            ...localItem,
+            id: "snapshot-read-model",
+            title: "Read model release",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Agent Security"],
+            id: "snapshot-add-security",
+            matchedSignals: ["category"],
+            personalizedScore: 146,
+            sourceName: "Security Desk",
+            sourceScore: 90,
+            sourceSlug: "security-desk",
+            title: "Security story should enter the profile",
+            trendScore: 83,
+          },
+          {
+            ...serverItem,
+            category: "funding",
+            entities: ["Series A"],
+            id: "snapshot-reduce-funding",
+            matchedSignals: ["category"],
+            personalizedScore: 131,
+            sourceName: "VentureWire",
+            sourceScore: 80,
+            sourceSlug: "venturewire",
+            title: "Funding story should be guarded",
+            trendScore: 86,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...serverItem,
+            category: "funding",
+            entities: ["Series A"],
+            id: "snapshot-negative-funding",
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+            title: "Hidden funding story",
+          },
+        ],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            id: "snapshot-share-model",
+            occurredAt: "2026-07-02T10:00:00.000Z",
+            title: "Shared model release",
+          },
+        ],
+        profile: localProfile,
+        savedItems: [
+          {
+            ...localItem,
+            id: "snapshot-saved-model",
+            savedAt: "2026-07-02T09:00:00.000Z",
+            title: "Saved model release",
+          },
+        ],
+      }),
+    ).toEqual({
+      cards: [
+        {
+          detail:
+            "Models, local-source, and OpenAI define the current reader core.",
+          key: "profile",
+          label: "Profile Core",
+          signals: ["Models", "local-source", "OpenAI"],
+          statusLabel: "Active",
+          value: "3 signals",
+        },
+        {
+          detail:
+            "1 read, 1 saved story, and 1 positive feedback item are shaping related coverage.",
+          key: "memory",
+          label: "Behavior Memory",
+          signals: ["Read history", "Saved stories", "Positive feedback"],
+          statusLabel: "Learning",
+          value: "3 memories",
+        },
+        {
+          detail:
+            "Less feedback is dampening similar stories before the next ranking pass.",
+          key: "guardrails",
+          label: "Guardrails",
+          signals: ["Hidden funding story"],
+          statusLabel: "Guarded",
+          value: "1 guardrail",
+        },
+        {
+          detail:
+            "Next profile patch wants to add Security from the ranked edition.",
+          key: "next_update",
+          label: "Next Update",
+          signals: ["Add category: Security"],
+          statusLabel: "Add",
+          value: "2 proposals",
+        },
+      ],
+      label: "Profile Snapshot Guarded",
+      metrics: [
+        { label: "Profile", value: "3" },
+        { label: "Behavior", value: "3" },
+        { label: "Guardrails", value: "1" },
+        { label: "Proposals", value: "2" },
+      ],
+      summary:
+        "Reader profile snapshot is using 3 profile signals, 3 behavior memories, 1 guardrail, and 2 pending profile proposals.",
+    });
+  });
+
+  it("keeps the reader profile snapshot cold before reader signals exist", () => {
+    expect(
+      getNewsReaderProfileSnapshot({
+        formatCategory: (category) => category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [],
+        limit: 2,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      cards: [
+        {
+          detail:
+            "No followed topics, sources, or entities are steering the feed.",
+          key: "profile",
+          label: "Profile Core",
+          signals: [],
+          statusLabel: "Cold",
+          value: "0 signals",
+        },
+        {
+          detail:
+            "Reads, saves, shares, and source clicks have not created behavior memory yet.",
+          key: "memory",
+          label: "Behavior Memory",
+          signals: [],
+          statusLabel: "Waiting",
+          value: "0 memories",
+        },
+        {
+          detail: "No Less feedback is dampening the current edition.",
+          key: "guardrails",
+          label: "Guardrails",
+          signals: [],
+          statusLabel: "Open",
+          value: "0 guardrails",
+        },
+        {
+          detail:
+            "Profile update proposals will appear after stories are ranked.",
+          key: "next_update",
+          label: "Next Update",
+          signals: [],
+          statusLabel: "Waiting",
+          value: "0 proposals",
+        },
+      ],
+      label: "Profile Snapshot Waiting",
+      metrics: [
+        { label: "Profile", value: "0" },
+        { label: "Behavior", value: "0" },
+        { label: "Guardrails", value: "0" },
+        { label: "Proposals", value: "0" },
+      ],
+      summary:
+        "Reader profile snapshot will appear after preferences, behavior, or guardrails exist.",
     });
   });
 });

@@ -2233,6 +2233,7 @@ export function NewsHome({
     items: rankedItems,
     limit: 2,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

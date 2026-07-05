@@ -22096,6 +22096,108 @@ describe("getNewsPersonalizedPushQueue", () => {
     });
   });
 
+  it("uses shares and source clicks as personalized push memory", () => {
+    const queue = getNewsPersonalizedPushQueue({
+      formatCategory: (category) =>
+        category === "agent_product"
+          ? "Agents"
+          : category === "security"
+            ? "Security"
+            : "Models",
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "digest-shared-agent",
+          matchedSignals: [],
+          personalizedScore: 112,
+          sourceName: "Agent Desk",
+          sourceScore: 81,
+          sourceSlug: "agent-desk",
+          title: "Shared agent follow-up waits for digest",
+          trendScore: 79,
+        },
+        {
+          ...localItem,
+          category: "security",
+          entities: [],
+          id: "digest-source-security",
+          matchedSignals: [],
+          personalizedScore: 108,
+          sourceName: "Security Desk",
+          sourceScore: 82,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Source-click security follow-up waits for digest",
+          trendScore: 78,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "shared-agent-push",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent push story",
+        },
+        {
+          ...localItem,
+          action: "click_source",
+          category: "security",
+          entities: [],
+          id: "source-click-security-push",
+          occurredAt: "2026-07-02T10:05:00.000Z",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Source-click security push story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(queue.lanes[1]?.stories).toEqual([
+      {
+        categoryLabel: "Agents",
+        deliveryLabel: "Next digest",
+        id: "digest-shared-agent",
+        reason: "Matches positive feedback memory",
+        scoreLabel: "112 score / 79 heat",
+        sourceName: "Agent Desk",
+        title: "Shared agent follow-up waits for digest",
+        triggerLabel: "positive memory",
+      },
+      {
+        categoryLabel: "Security",
+        deliveryLabel: "Next digest",
+        id: "digest-source-security",
+        reason: "Matches positive feedback memory",
+        scoreLabel: "108 score / 78 heat",
+        sourceName: "Security Desk",
+        title: "Source-click security follow-up waits for digest",
+        triggerLabel: "positive memory",
+      },
+    ]);
+    expect(queue.metrics).toContainEqual({ label: "Digest", value: "2" });
+    expect(queue.metrics).toContainEqual({ label: "Watch", value: "0" });
+  });
+
   it("explains current session intent pushes separately from durable profile matches", () => {
     expect(
       getNewsPersonalizedPushQueue({

@@ -15134,6 +15134,25 @@ const hasNewsMemoryMatch = ({
   );
 };
 
+const hasNewsPositiveFeedbackMemoryMatch = ({
+  item,
+  positiveFeedbackItems,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+}) => {
+  const matchers = getNewsMemoryMatchers(positiveFeedbackItems);
+  const category = normalizePreferenceSignal(item.category);
+  const source = normalizePreferenceSignal(item.sourceSlug);
+  const entities = item.entities.map(normalizePreferenceSignal);
+
+  return (
+    matchers.categories.has(category) ||
+    matchers.sources.has(source) ||
+    entities.some((entity) => matchers.entities.has(entity))
+  );
+};
+
 const getProfileSignalCount = (profile: NewsPreferenceProfile) =>
   profile.preferredCategories.length +
   profile.preferredEntities.length +
@@ -15145,6 +15164,7 @@ const getNewsPersonalizedPushPlacement = ({
   historyItems,
   item,
   negativeFeedbackItems,
+  positiveFeedbackItems,
   profile,
   savedItems,
 }: {
@@ -15153,6 +15173,7 @@ const getNewsPersonalizedPushPlacement = ({
   historyItems: readonly NewsReaderMemoryItem[];
   item: RankedNewsItem<NewsHomeItem>;
   negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }): {
@@ -15177,6 +15198,10 @@ const getNewsPersonalizedPushPlacement = ({
   }
 
   const memoryMatch = hasNewsMemoryMatch({ historyItems, item, savedItems });
+  const positiveMemoryMatch = hasNewsPositiveFeedbackMemoryMatch({
+    item,
+    positiveFeedbackItems,
+  });
   const profileSignalCount = getProfileSignalCount(profile);
   const readerSignalCount = getReaderRecommendationSignalCount(item);
   const hasSessionIntent = item.matchedSignals.includes("session_intent");
@@ -15226,6 +15251,15 @@ const getNewsPersonalizedPushPlacement = ({
       key: "digest",
       reason: "Matches saved or reading memory",
       triggerLabel: "memory match",
+    };
+  }
+
+  if (positiveMemoryMatch) {
+    return {
+      deliveryLabel: "Next digest",
+      key: "digest",
+      reason: "Matches positive feedback memory",
+      triggerLabel: "positive memory",
     };
   }
 
@@ -15288,6 +15322,7 @@ export const getNewsPersonalizedPushQueue = ({
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -15297,6 +15332,7 @@ export const getNewsPersonalizedPushQueue = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -15322,6 +15358,7 @@ export const getNewsPersonalizedPushQueue = ({
       historyItems,
       item,
       negativeFeedbackItems,
+      positiveFeedbackItems,
       profile,
       savedItems,
     });

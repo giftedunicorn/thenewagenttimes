@@ -25883,6 +25883,60 @@ describe("getNewsStoryProofStrip", () => {
         "Already covered by recent reading, so the recommender is looking for a fresher angle while preserving 82 source trust and 73 story heat.",
     });
   });
+
+  it("labels source trust guardrails as editorial review", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["source_trust"],
+          personalizedScore: 72,
+          sourceScore: 45,
+          trendScore: 96,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Source review" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "45" },
+        { label: "Heat", value: "96" },
+      ],
+      summary:
+        "Moved behind trusted alternatives because this high-heat story needs source review, while preserving 45 source trust and 96 story heat.",
+    });
+  });
+
+  it.each([
+    ["source_quota", "Source diversity", "one source"],
+    ["entity_quota", "Entity diversity", "one entity"],
+    ["category_quota", "Topic diversity", "one topic"],
+    ["angle_quota", "Angle diversity", "one angle"],
+    ["freshness_quota", "Freshness mix", "older stories"],
+  ])(
+    "labels %s guardrails as recommendation diversity controls",
+    (signal, label, subject) => {
+      expect(
+        getNewsStoryProofStrip({
+          item: {
+            ...localItem,
+            matchedSignals: [signal],
+            personalizedScore: 72,
+            sourceScore: 82,
+            trendScore: 73,
+          },
+        }),
+      ).toEqual({
+        metrics: [
+          { label: "Fit", value: label },
+          { label: "Coverage", value: "Single source" },
+          { label: "Trust", value: "82" },
+          { label: "Heat", value: "73" },
+        ],
+        summary: `Inserted to keep ${subject} from flooding the edition, while preserving 82 source trust and 73 story heat.`,
+      });
+    },
+  );
 });
 
 describe("getNewsDeskStatusSummary", () => {

@@ -20126,6 +20126,18 @@ export const getNewsHomeReaderMemoryResetCacheScopes = () =>
 
 export const getNewsRecommendationReasons = getSharedNewsRecommendationReasons;
 
+const newsStoryProofDiversityGuardrails = [
+  { label: "Source diversity", signal: "source_quota", subject: "one source" },
+  { label: "Entity diversity", signal: "entity_quota", subject: "one entity" },
+  { label: "Topic diversity", signal: "category_quota", subject: "one topic" },
+  { label: "Angle diversity", signal: "angle_quota", subject: "one angle" },
+  {
+    label: "Freshness mix",
+    signal: "freshness_quota",
+    subject: "older stories",
+  },
+] as const;
+
 export const getNewsStoryProofStrip = ({
   item,
 }: {
@@ -20141,6 +20153,10 @@ export const getNewsStoryProofStrip = ({
   const hasCollaborativeNegativeFeedback = item.matchedSignals.includes(
     "collaborative_negative_feedback",
   );
+  const hasSourceTrustGuardrail = item.matchedSignals.includes("source_trust");
+  const diversityGuardrail = newsStoryProofDiversityGuardrails.find(
+    (guardrail) => item.matchedSignals.includes(guardrail.signal),
+  );
   const hasExploration = item.matchedSignals.includes("exploration");
   const hasSourceCorroboration = item.matchedSignals.includes(
     "source_corroboration",
@@ -20155,14 +20171,18 @@ export const getNewsStoryProofStrip = ({
         ? "Recently seen"
         : hasExposureCooldown
           ? "Fresh angle"
-          : hasExploration
-            ? "Exploration"
-            : readerSignalCount > 0
-              ? (positiveMemoryDetail?.label ??
-                `${readerSignalCount} reader ${
-                  readerSignalCount === 1 ? "signal" : "signals"
-                }`)
-              : "Learning";
+          : hasSourceTrustGuardrail
+            ? "Source review"
+            : diversityGuardrail
+              ? diversityGuardrail.label
+              : hasExploration
+                ? "Exploration"
+                : readerSignalCount > 0
+                  ? (positiveMemoryDetail?.label ??
+                    `${readerSignalCount} reader ${
+                      readerSignalCount === 1 ? "signal" : "signals"
+                    }`)
+                  : "Learning";
   const coverageLabel = hasSourceCorroboration
     ? "Corroborated"
     : "Single source";
@@ -20198,6 +20218,20 @@ export const getNewsStoryProofStrip = ({
     return {
       metrics,
       summary: `Already covered by recent reading, so the recommender is looking for a fresher angle while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (hasSourceTrustGuardrail) {
+    return {
+      metrics,
+      summary: `Moved behind trusted alternatives because this high-heat story needs source review, while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (diversityGuardrail) {
+    return {
+      metrics,
+      summary: `Inserted to keep ${diversityGuardrail.subject} from flooding the edition, while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
     };
   }
 

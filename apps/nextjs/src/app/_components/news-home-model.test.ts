@@ -9217,6 +9217,105 @@ describe("getNewsProfileImpactPreview", () => {
     });
   });
 
+  it("previews positive feedback impact even before explicit profile signals exist", () => {
+    const preview = getNewsProfileImpactPreview({
+        formatCategory: (category) =>
+          category === "agent_product"
+            ? "Agents"
+            : category === "security"
+              ? "Security"
+              : "Models",
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Devin"],
+            id: "positive-agent-impact",
+            matchedSignals: [],
+            personalizedScore: 124,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent story lifted by shared feedback",
+          },
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "positive-security-impact",
+            matchedSignals: [],
+            personalizedScore: 118,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Security story lifted by opened source",
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Devin"],
+            id: "shared-agent-impact",
+            occurredAt: "2026-07-02T10:00:00.000Z",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent impact story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "model_release",
+            entities: [],
+            id: "source-click-security-impact",
+            occurredAt: "2026-07-02T10:05:00.000Z",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["prompt_injection"],
+            title: "Opened prompt injection story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      });
+
+    expect(preview.label).toBe("Profile Impact");
+    expect(preview.lanes[0]).toEqual(
+      expect.objectContaining({
+          count: 2,
+          key: "boosted",
+          label: "Boosted",
+          stories: [
+            {
+              id: "positive-agent-impact",
+              reason: "Matches positive feedback memory.",
+              sourceName: "Agent Desk",
+              title: "Agent story lifted by shared feedback",
+            },
+            {
+              id: "positive-security-impact",
+              reason: "Matches positive feedback memory.",
+              sourceName: "Security Desk",
+              title: "Security story lifted by opened source",
+            },
+          ],
+      }),
+    );
+    expect(preview.metrics).toEqual([
+        { label: "Active signals", value: "2" },
+        { label: "Boosted", value: "2" },
+        { label: "Explore", value: "0" },
+        { label: "Dampened", value: "0" },
+    ]);
+  });
+
   it("explains active and hidden angle matches in profile impact lanes", () => {
     expect(
       getNewsProfileImpactPreview({

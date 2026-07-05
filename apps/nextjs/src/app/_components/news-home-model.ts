@@ -8625,19 +8625,26 @@ export const getNewsProfileImpactPreview = ({
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
 }: {
   formatCategory: (category: string) => string;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
 }) => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const positiveMemoryMatchers = getRefreshSimulationMatchers(
+    positiveFeedbackItems,
+  );
+  const positiveSignalCount = positiveFeedbackItems.length;
   const activeSignalCount =
     normalizedProfile.preferredCategories.length +
     normalizedProfile.preferredSources.length +
-    normalizedProfile.preferredEntities.length;
+    normalizedProfile.preferredEntities.length +
+    positiveSignalCount;
   const storyLimit = Math.max(0, limit);
 
   if (items.length === 0 && activeSignalCount === 0) {
@@ -8685,14 +8692,21 @@ export const getNewsProfileImpactPreview = ({
       item,
       profile: normalizedProfile,
     });
+    const hasPositiveMemoryMatch = hasRefreshSimulationMatch({
+      item,
+      matchers: positiveMemoryMatchers,
+    });
 
-    if (profileMatches.length > 0) {
+    if (profileMatches.length > 0 || hasPositiveMemoryMatch) {
       boostedCount += 1;
       if (boostedStories.length < storyLimit) {
         boostedStories.push(
           toNewsProfileImpactStory({
             item,
-            reason: `Matches ${joinProfileImpactSignals(profileMatches)}.`,
+            reason:
+              profileMatches.length > 0
+                ? `Matches ${joinProfileImpactSignals(profileMatches)}.`
+                : "Matches positive feedback memory.",
           }),
         );
       }

@@ -14268,6 +14268,102 @@ describe("getNewsContinuationRail", () => {
     ]);
   });
 
+  it("uses shares and source clicks as continuation anchors when reading history is empty", () => {
+    expect(
+      getNewsContinuationRail({
+        formatCategory: (category) =>
+          category === "agent_product"
+            ? "Agents"
+            : category === "security"
+              ? "Security"
+              : "Models",
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "agent-shared-follow",
+            category: "agent_product",
+            entities: ["Devin"],
+            matchedSignals: [],
+            personalizedScore: 136,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent follow-up continues the shared thread",
+          },
+          {
+            ...localItem,
+            id: "security-source-follow",
+            category: "security",
+            entities: [],
+            matchedSignals: [],
+            personalizedScore: 128,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Security follow-up continues the opened source angle",
+          },
+        ],
+        limit: 2,
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "click_source",
+            category: "model_release",
+            entities: [],
+            id: "source-click-continuation",
+            occurredAt: "2026-07-02T10:00:00.000Z",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["prompt_injection"],
+            title: "Source-click prompt injection story",
+          },
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Devin"],
+            id: "shared-agent-continuation",
+            occurredAt: "2026-07-02T10:05:00.000Z",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent continuation story",
+          },
+        ],
+      }),
+    ).toEqual({
+      anchor: {
+        categoryLabel: "Agents",
+        id: "shared-agent-continuation",
+        sourceName: "Agent Desk",
+        title: "Shared agent continuation story",
+      },
+      followUps: [
+        {
+          id: "agent-shared-follow",
+          reason: "Devin thread",
+          scoreLabel: "6 signals / 136 score",
+          sourceName: "Agent Desk",
+          title: "Agent follow-up continues the shared thread",
+        },
+      ],
+      label: "Active Trail",
+      metrics: [
+        { label: "Read anchors", value: "2" },
+        { label: "Follow-ups", value: "1" },
+        { label: "Top thread", value: "Devin" },
+      ],
+      notices: [
+        {
+          detail:
+            "Devin thread has the strongest overlap with your latest positive signal.",
+          label: "Thread match",
+        },
+      ],
+      summary:
+        "1 follow-up continues your latest positive signal: Shared agent continuation story.",
+    });
+  });
+
   it("keeps the continuation rail empty before reading history exists", () => {
     expect(
       getNewsContinuationRail({

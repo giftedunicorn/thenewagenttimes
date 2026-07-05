@@ -2318,6 +2318,7 @@ export function NewsHome({
     historyItems,
     items: rankedItems,
     limit: 3,
+    positiveFeedbackItems,
   });
   const missedCoverage = getNewsMissedCoverageShelf({
     frontPageCount: 4,

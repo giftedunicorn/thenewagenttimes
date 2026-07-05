@@ -19078,18 +19078,39 @@ export const getNewsMissedCoverageShelf = ({
   };
 };
 
+const continuationPositiveFeedbackPriority = {
+  share: 0,
+  save: 1,
+  click_source: 2,
+} as const satisfies Record<NewsProfilePositiveFeedbackAction, number>;
+
 export const getNewsContinuationRail = ({
   formatCategory,
   historyItems,
   items,
   limit,
+  positiveFeedbackItems = [],
 }: {
   formatCategory: (category: string) => string;
   historyItems: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
 }) => {
-  const anchor = historyItems[0];
+  const positiveAnchors = [...positiveFeedbackItems].sort((left, right) => {
+    const priorityDiff =
+      continuationPositiveFeedbackPriority[left.action] -
+      continuationPositiveFeedbackPriority[right.action];
+
+    if (priorityDiff !== 0) return priorityDiff;
+
+    return (
+      getNewsReaderMemoryTimestamp(right) - getNewsReaderMemoryTimestamp(left)
+    );
+  });
+  const anchor = historyItems[0] ?? positiveAnchors[0];
+  const anchorSourceLabel =
+    historyItems.length > 0 ? "your latest read" : "your latest positive signal";
 
   if (!anchor) {
     return {
@@ -19111,7 +19132,9 @@ export const getNewsContinuationRail = ({
     };
   }
 
-  const readItemIds = new Set(historyItems.map((item) => item.id));
+  const readItemIds = new Set(
+    [...historyItems, ...positiveAnchors].map((item) => item.id),
+  );
   const anchorEntityKeys = new Set(
     getNewsAlertRoutingSpecificEntities(anchor).map((entity) => entity.key),
   );
@@ -19212,7 +19235,10 @@ export const getNewsContinuationRail = ({
     followUps,
     label: followUps.length > 0 ? "Active Trail" : "No Match",
     metrics: [
-      { label: "Read anchors", value: String(historyItems.length) },
+      {
+        label: "Read anchors",
+        value: String(historyItems.length + positiveAnchors.length),
+      },
       { label: "Follow-ups", value: String(followUps.length) },
       {
         label: "Top thread",
@@ -19223,7 +19249,7 @@ export const getNewsContinuationRail = ({
     notices: [
       followUps.length > 0 && topFollowUp
         ? {
-            detail: `${topFollowUp.reason} has the strongest overlap with your latest read.`,
+            detail: `${topFollowUp.reason} has the strongest overlap with ${anchorSourceLabel}.`,
             label: "Thread match",
           }
         : {
@@ -19238,7 +19264,7 @@ export const getNewsContinuationRail = ({
             followUps.length === 1
               ? "follow-up continues"
               : "follow-ups continue"
-          } your latest read: ${anchor.title}.`
+          } ${anchorSourceLabel}: ${anchor.title}.`
         : `No follow-ups currently match your latest read: ${anchor.title}.`,
   };
 };

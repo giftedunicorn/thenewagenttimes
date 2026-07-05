@@ -84,6 +84,7 @@ import {
   getNewsFeedGovernorControlTrainingAction,
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
+  getNewsForYouControlStrip,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
   getNewsGuardrailRestoreTrainingUpdate,
@@ -2233,6 +2234,13 @@ export function NewsHome({
     formatCategory: getCategoryLabel,
     profile,
   });
+  const forYouControlStrip = getNewsForYouControlStrip({
+    formatCategory: getCategoryLabel,
+    guardrailItems,
+    profile,
+    rankedItems,
+    savedItems,
+  });
   const preferencePresets = getNewsPreferencePresets({
     formatCategory: getCategoryLabel,
     items: rankedItems,
@@ -2585,6 +2593,66 @@ export function NewsHome({
           ) : null}
         </section>
       </header>
+
+      <section className="border-b border-[#161616]/25 bg-[#fffdf7] dark:border-[#f4f1ea]/25 dark:bg-[#181818]">
+        <div className="container grid gap-3 py-4">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div className="min-w-0">
+              <p className="font-mono text-xs tracking-[0.18em] uppercase">
+                For You Control Strip
+              </p>
+              <h2 className="mt-1 text-xl font-black">
+                {forYouControlStrip.label}
+              </h2>
+              <p className="mt-1 max-w-4xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                {forYouControlStrip.summary}
+              </p>
+            </div>
+            <Button
+              className="rounded-none whitespace-nowrap"
+              disabled={resetReaderMemory.isPending}
+              type="button"
+              variant="outline"
+              onClick={resetProfile}
+            >
+              Reset memory
+            </Button>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
+            <dl className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-5">
+              {forYouControlStrip.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <div className="flex flex-wrap gap-2">
+              {forYouControlStrip.trainingActions.map((action) => (
+                <Button
+                  key={action.signals
+                    .map((signal) => signal.signal)
+                    .join(":")}
+                  className="h-9 rounded-none px-3 text-xs whitespace-nowrap"
+                  disabled={action.active}
+                  type="button"
+                  variant={action.active ? "default" : "outline"}
+                  onClick={() => applyPreferenceProfileAction(action)}
+                >
+                  {action.actionLabel}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <section className="border-b border-[#161616]/25 bg-[#fffdf7] dark:border-[#f4f1ea]/25 dark:bg-[#181818]">
         <div className="container grid gap-4 py-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">

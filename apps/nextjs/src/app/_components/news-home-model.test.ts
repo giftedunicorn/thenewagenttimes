@@ -1230,6 +1230,23 @@ describe("getNewsHomePrimaryQueryRoute", () => {
   });
 });
 
+describe("NewsHome For You control strip placement", () => {
+  it("renders the trainable For You control strip before Channel Rail", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsForYouControlStrip({");
+    expect(source).toContain("For You Control Strip");
+    expect(source).toContain("applyPreferenceProfileAction(action)");
+    expect(source).toContain("onClick={resetProfile}");
+    expect(source.indexOf("For You Control Strip")).toBeLessThan(
+      source.indexOf("Channel Rail"),
+    );
+  });
+});
+
 describe("toNewsHomeItemFromPublicFeedItem", () => {
   it("maps public feed source metadata into the home story shape", () => {
     expect(

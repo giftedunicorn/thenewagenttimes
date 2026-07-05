@@ -102,6 +102,7 @@ import {
   getNewsInterestGraph,
   getNewsLiveWire,
   getNewsMissedCoverageShelf,
+  getNewsNewsletterPlan,
   getNewsNextRefreshPlan,
   getNewsPersonalizationDataVault,
   getNewsPersonalizationMix,
@@ -2264,6 +2265,17 @@ export function NewsHome({
     negativeFeedbackItems,
   });
   const personalizedPushQueue = getNewsPersonalizedPushQueue({
+    formatCategory: getCategoryLabel,
+    hiddenItemIds,
+    historyItems,
+    items: rankedItems,
+    limit: 2,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    profile,
+    savedItems,
+  });
+  const newsletterPlan = getNewsNewsletterPlan({
     formatCategory: getCategoryLabel,
     hiddenItemIds,
     historyItems,
@@ -5458,6 +5470,92 @@ export function NewsHome({
                     ) : (
                       <p className="border-t border-[#161616]/10 pt-2 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
                         No stories in this push lane.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Newsletter Studio</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {newsletterPlan.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-sm dark:border-[#f4f1ea]">
+                {newsletterPlan.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+              {newsletterPlan.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(12rem,1fr))] gap-4">
+              {newsletterPlan.lanes.map((lane) => (
+                <div
+                  key={lane.key}
+                  className="grid content-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <h3 className="font-semibold">{lane.label}</h3>
+                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                      {lane.count} / {lane.shareLabel}
+                    </span>
+                  </div>
+                  <p className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {lane.summary}
+                  </p>
+                  <div className="grid gap-2">
+                    {lane.stories.length > 0 ? (
+                      lane.stories.map((story) => {
+                        const storyBody = (
+                          <>
+                            <span className="leading-5 font-semibold">
+                              {story.cadenceLabel}: {story.title}
+                            </span>
+                            <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {story.sourceName} / {story.categoryLabel} /{" "}
+                              {story.scoreLabel}
+                            </span>
+                            <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {story.reason} / {story.triggerLabel}
+                            </span>
+                          </>
+                        );
+
+                        return isPreview ? (
+                          <div
+                            key={story.id}
+                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                          >
+                            {storyBody}
+                          </div>
+                        ) : (
+                          <Link
+                            key={story.id}
+                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
+                            href={`/news/${story.id}`}
+                          >
+                            {storyBody}
+                          </Link>
+                        );
+                      })
+                    ) : (
+                      <p className="border-t border-[#161616]/10 pt-2 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
+                        No stories in this newsletter lane.
                       </p>
                     )}
                   </div>

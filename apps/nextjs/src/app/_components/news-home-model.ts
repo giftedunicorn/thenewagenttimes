@@ -16085,6 +16085,298 @@ export const getNewsPersonalizedPushQueue = ({
   };
 };
 
+const newsNewsletterPlanDefinitions = [
+  {
+    key: "breaking_note",
+    label: "Breaking note",
+    summary: "Urgent, high-trust reader matches can become a one-story email.",
+  },
+  {
+    key: "daily_brief",
+    label: "Daily brief",
+    summary: "Durable reader matches are held for the next daily newsletter.",
+  },
+  {
+    key: "weekly_recap",
+    label: "Weekly recap",
+    summary: "Exploration and slower-burn stories are saved for broader recap.",
+  },
+  {
+    key: "muted",
+    label: "Muted",
+    summary:
+      "Hidden or negatively matched stories are excluded from newsletters.",
+  },
+] as const;
+
+type NewsNewsletterPlanKey =
+  (typeof newsNewsletterPlanDefinitions)[number]["key"];
+
+interface NewsNewsletterPlanStory {
+  cadenceLabel: string;
+  categoryLabel: string;
+  id: string;
+  reason: string;
+  scoreLabel: string;
+  sourceName: string;
+  title: string;
+  triggerLabel: string;
+}
+
+interface NewsNewsletterPlanLane {
+  count: number;
+  key: NewsNewsletterPlanKey;
+  label: string;
+  shareLabel: string;
+  stories: NewsNewsletterPlanStory[];
+  summary: string;
+}
+
+const getNewsNewsletterPlacement = ({
+  hiddenItemIds,
+  historyItems,
+  item,
+  negativeFeedbackItems,
+  positiveFeedbackItems,
+  profile,
+  savedItems,
+}: {
+  hiddenItemIds: ReadonlySet<string>;
+  historyItems: readonly NewsReaderMemoryItem[];
+  item: RankedNewsItem<NewsHomeItem>;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}): {
+  cadenceLabel: string;
+  key: NewsNewsletterPlanKey;
+  reason: string;
+  triggerLabel: string;
+} => {
+  const suppressReason = getNewsDistributionSuppressReason({
+    hiddenItemIds,
+    item,
+    negativeFeedbackItems,
+  });
+
+  if (suppressReason) {
+    return {
+      cadenceLabel: "Do not email",
+      key: "muted",
+      reason: suppressReason,
+      triggerLabel: "suppressed",
+    };
+  }
+
+  const readerSignalCount = getReaderRecommendationSignalCount(item);
+  const memoryMatch = hasNewsMemoryMatch({ historyItems, item, savedItems });
+  const positiveMemoryMatch = hasNewsPositiveFeedbackMemoryMatch({
+    item,
+    positiveFeedbackItems,
+  });
+  const profileSignalCount = getProfileSignalCount(profile);
+  const hasSessionIntent = item.matchedSignals.includes("session_intent");
+
+  if (
+    item.sourceScore >= 82 &&
+    item.trendScore >= 88 &&
+    item.personalizedScore >= 140 &&
+    readerSignalCount > 0 &&
+    !item.matchedSignals.includes("exploration")
+  ) {
+    return {
+      cadenceLabel: "Instant email",
+      key: "breaking_note",
+      reason: hasSessionIntent
+        ? "High-trust current session match"
+        : "High-trust profile match",
+      triggerLabel: hasSessionIntent
+        ? "session intent"
+        : `${readerSignalCount} reader ${
+            readerSignalCount === 1 ? "signal" : "signals"
+          }`,
+    };
+  }
+
+  if (memoryMatch) {
+    return {
+      cadenceLabel: "Daily newsletter",
+      key: "daily_brief",
+      reason: "Matches saved or reading memory",
+      triggerLabel: "memory match",
+    };
+  }
+
+  if (positiveMemoryMatch) {
+    return {
+      cadenceLabel: "Daily newsletter",
+      key: "daily_brief",
+      reason: "Matches positive feedback memory",
+      triggerLabel: "positive memory",
+    };
+  }
+
+  if (item.matchedSignals.includes("exploration")) {
+    return {
+      cadenceLabel: "Weekly recap",
+      key: "weekly_recap",
+      reason: "Exploration sample for weekly recap",
+      triggerLabel: "exploration test",
+    };
+  }
+
+  if (readerSignalCount > 0 || item.personalizedScore >= 115) {
+    return {
+      cadenceLabel: "Daily newsletter",
+      key: "daily_brief",
+      reason: hasSessionIntent
+        ? "Current session interest can wait for the daily brief"
+        : readerSignalCount > 0
+          ? "Profile match can wait for the daily brief"
+          : "High-score recommendation can wait for the daily brief",
+      triggerLabel: hasSessionIntent
+        ? "session intent"
+        : readerSignalCount > 0
+          ? profileSignalCount > 0
+            ? `${profileSignalCount} profile signals`
+            : "profile match"
+          : "recommendation score",
+    };
+  }
+
+  return {
+    cadenceLabel: "Weekly recap",
+    key: "weekly_recap",
+    reason: "Low reader intent",
+    triggerLabel: "recap candidate",
+  };
+};
+
+const toNewsNewsletterPlanStory = ({
+  cadenceLabel,
+  formatCategory,
+  item,
+  reason,
+  triggerLabel,
+}: {
+  cadenceLabel: string;
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  reason: string;
+  triggerLabel: string;
+}): NewsNewsletterPlanStory => ({
+  cadenceLabel,
+  categoryLabel: formatCategory(item.category),
+  id: item.id,
+  reason,
+  scoreLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+  sourceName: item.sourceName,
+  title: item.title,
+  triggerLabel,
+});
+
+export const getNewsNewsletterPlan = ({
+  formatCategory,
+  hiddenItemIds,
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  hiddenItemIds: readonly string[];
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const hiddenIds = new Set(hiddenItemIds);
+  const buckets = new Map<
+    NewsNewsletterPlanKey,
+    { count: number; stories: NewsNewsletterPlanStory[] }
+  >(
+    newsNewsletterPlanDefinitions.map((definition) => [
+      definition.key,
+      { count: 0, stories: [] },
+    ]),
+  );
+
+  for (const item of items) {
+    const placement = getNewsNewsletterPlacement({
+      hiddenItemIds: hiddenIds,
+      historyItems,
+      item,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      profile,
+      savedItems,
+    });
+    const bucket = buckets.get(placement.key);
+
+    if (!bucket) continue;
+
+    bucket.count += 1;
+
+    if (bucket.stories.length < limit) {
+      bucket.stories.push(
+        toNewsNewsletterPlanStory({
+          cadenceLabel: placement.cadenceLabel,
+          formatCategory,
+          item,
+          reason: placement.reason,
+          triggerLabel: placement.triggerLabel,
+        }),
+      );
+    }
+  }
+
+  const lanes: NewsNewsletterPlanLane[] = newsNewsletterPlanDefinitions.map(
+    (definition) => {
+      const bucket = buckets.get(definition.key);
+      const count = bucket?.count ?? 0;
+
+      return {
+        count,
+        key: definition.key,
+        label: definition.label,
+        shareLabel: formatPercentage(count, items.length),
+        stories: bucket?.stories ?? [],
+        summary: definition.summary,
+      };
+    },
+  );
+  const getLaneCount = (key: NewsNewsletterPlanKey) =>
+    buckets.get(key)?.count ?? 0;
+  const breakingCount = getLaneCount("breaking_note");
+  const dailyCount = getLaneCount("daily_brief");
+  const weeklyCount = getLaneCount("weekly_recap");
+  const mutedCount = getLaneCount("muted");
+
+  return {
+    label: items.length === 0 ? "Newsletter Waiting" : "Newsletter Ready",
+    lanes,
+    metrics: [
+      { label: "Breaking", value: String(breakingCount) },
+      { label: "Daily", value: String(dailyCount) },
+      { label: "Weekly", value: String(weeklyCount) },
+      { label: "Muted", value: String(mutedCount) },
+    ],
+    summary:
+      items.length === 0
+        ? "Newsletter packaging will appear after stories are ranked."
+        : `${items.length} ${
+            items.length === 1 ? "story" : "stories"
+          } packaged for newsletter delivery: ${breakingCount} breaking, ${dailyCount} daily, ${weeklyCount} weekly, and ${mutedCount} muted.`,
+  };
+};
+
 const getDominantChannelCategory = ({
   formatCategory,
   items,

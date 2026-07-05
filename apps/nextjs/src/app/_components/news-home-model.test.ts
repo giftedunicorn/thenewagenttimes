@@ -66,6 +66,7 @@ import {
   getNewsInterestGraph,
   getNewsLiveWire,
   getNewsMissedCoverageShelf,
+  getNewsNewsletterPlan,
   getNewsNextRefreshPlan,
   getNewsPersonalizationDataVault,
   getNewsPersonalizationMix,
@@ -1303,6 +1304,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsGuardrailRecoveryPlan({");
     expect(source).toContain("Guardrail Recovery");
     expect(source).toContain("guardrailRecoveryPlan.candidates.map");
+  });
+
+  it("renders the newsletter studio from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsNewsletterPlan({");
+    expect(source).toContain("Newsletter Studio");
+    expect(source).toContain("newsletterPlan.lanes.map");
   });
 });
 
@@ -23053,6 +23065,356 @@ describe("getNewsPersonalizedPushQueue", () => {
         { label: "Muted", value: "0" },
       ],
       summary: "Personalized push queue will appear after stories are ranked.",
+    });
+  });
+});
+
+describe("getNewsNewsletterPlan", () => {
+  it("packages ranked stories into breaking, daily, weekly, and muted newsletter lanes", () => {
+    expect(
+      getNewsNewsletterPlan({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "agent_product"
+              ? "Agents"
+              : category === "robotics"
+                ? "Robotics"
+                : category === "funding"
+                  ? "Funding"
+                  : category,
+        hiddenItemIds: [],
+        historyItems: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "read-agent-newsletter",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "newsletter-breaking-model",
+            category: "model_release",
+            entities: ["OpenAI", "Agents"],
+            matchedSignals: ["category", "entity"],
+            personalizedScore: 168,
+            sourceName: "OpenAI News",
+            sourceScore: 94,
+            sourceSlug: "openai-news",
+            title: "OpenAI ships a major agent runtime",
+            trendScore: 96,
+          },
+          {
+            ...localItem,
+            id: "newsletter-daily-agent",
+            category: "agent_product",
+            entities: ["Agents"],
+            matchedSignals: [],
+            personalizedScore: 118,
+            sourceName: "Agent Desk",
+            sourceScore: 84,
+            sourceSlug: "agent-desk",
+            title: "Agent teams add workflow memory",
+            trendScore: 76,
+          },
+          {
+            ...olderItem,
+            id: "newsletter-weekly-robotics",
+            category: "robotics",
+            entities: ["Figure"],
+            matchedSignals: ["exploration"],
+            personalizedScore: 115,
+            sourceName: "Robotics Desk",
+            sourceScore: 82,
+            sourceSlug: "robotics-desk",
+            title: "Robotics agents enter factory pilots",
+            trendScore: 84,
+          },
+          {
+            ...serverItem,
+            id: "newsletter-muted-funding",
+            category: "funding",
+            entities: ["YC"],
+            matchedSignals: ["category"],
+            personalizedScore: 151,
+            sourceName: "VentureWire",
+            sourceScore: 88,
+            sourceSlug: "venturewire",
+            title: "Funding rumor repeats a hidden thread",
+            trendScore: 89,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "negative-newsletter-funding",
+            category: "funding",
+            entities: ["YC"],
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+          },
+        ],
+        positiveFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "saved-agent-newsletter",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Newsletter Ready",
+      lanes: [
+        {
+          count: 1,
+          key: "breaking_note",
+          label: "Breaking note",
+          shareLabel: "25%",
+          stories: [
+            {
+              cadenceLabel: "Instant email",
+              categoryLabel: "Models",
+              id: "newsletter-breaking-model",
+              reason: "High-trust profile match",
+              scoreLabel: "168 score / 96 heat",
+              sourceName: "OpenAI News",
+              title: "OpenAI ships a major agent runtime",
+              triggerLabel: "2 reader signals",
+            },
+          ],
+          summary:
+            "Urgent, high-trust reader matches can become a one-story email.",
+        },
+        {
+          count: 1,
+          key: "daily_brief",
+          label: "Daily brief",
+          shareLabel: "25%",
+          stories: [
+            {
+              cadenceLabel: "Daily newsletter",
+              categoryLabel: "Agents",
+              id: "newsletter-daily-agent",
+              reason: "Matches saved or reading memory",
+              scoreLabel: "118 score / 76 heat",
+              sourceName: "Agent Desk",
+              title: "Agent teams add workflow memory",
+              triggerLabel: "memory match",
+            },
+          ],
+          summary:
+            "Durable reader matches are held for the next daily newsletter.",
+        },
+        {
+          count: 1,
+          key: "weekly_recap",
+          label: "Weekly recap",
+          shareLabel: "25%",
+          stories: [
+            {
+              cadenceLabel: "Weekly recap",
+              categoryLabel: "Robotics",
+              id: "newsletter-weekly-robotics",
+              reason: "Exploration sample for weekly recap",
+              scoreLabel: "115 score / 84 heat",
+              sourceName: "Robotics Desk",
+              title: "Robotics agents enter factory pilots",
+              triggerLabel: "exploration test",
+            },
+          ],
+          summary:
+            "Exploration and slower-burn stories are saved for broader recap.",
+        },
+        {
+          count: 1,
+          key: "muted",
+          label: "Muted",
+          shareLabel: "25%",
+          stories: [
+            {
+              cadenceLabel: "Do not email",
+              categoryLabel: "Funding",
+              id: "newsletter-muted-funding",
+              reason: "Negative feedback match",
+              scoreLabel: "151 score / 89 heat",
+              sourceName: "VentureWire",
+              title: "Funding rumor repeats a hidden thread",
+              triggerLabel: "suppressed",
+            },
+          ],
+          summary:
+            "Hidden or negatively matched stories are excluded from newsletters.",
+        },
+      ],
+      metrics: [
+        { label: "Breaking", value: "1" },
+        { label: "Daily", value: "1" },
+        { label: "Weekly", value: "1" },
+        { label: "Muted", value: "1" },
+      ],
+      summary:
+        "4 stories packaged for newsletter delivery: 1 breaking, 1 daily, 1 weekly, and 1 muted.",
+    });
+  });
+
+  it("uses positive feedback memory for daily newsletters before falling back to weekly recap", () => {
+    const plan = getNewsNewsletterPlan({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : "Agents",
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "newsletter-positive-security",
+          matchedSignals: [],
+          personalizedScore: 106,
+          sourceName: "Security Desk",
+          sourceScore: 82,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Security follow-up lands in the daily brief",
+          trendScore: 74,
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "newsletter-low-intent-agent",
+          matchedSignals: [],
+          personalizedScore: 92,
+          sourceName: "Agent Desk",
+          sourceScore: 80,
+          sourceSlug: "agent-desk",
+          title: "Low-intent agent trend waits for recap",
+          trendScore: 65,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "click_source",
+          category: "security",
+          entities: ["Agent Security"],
+          id: "source-click-security-newsletter",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Security source click",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(plan.lanes[1]?.stories).toEqual([
+      {
+        cadenceLabel: "Daily newsletter",
+        categoryLabel: "Security",
+        id: "newsletter-positive-security",
+        reason: "Matches positive feedback memory",
+        scoreLabel: "106 score / 74 heat",
+        sourceName: "Security Desk",
+        title: "Security follow-up lands in the daily brief",
+        triggerLabel: "positive memory",
+      },
+    ]);
+    expect(plan.lanes[2]?.stories).toEqual([
+      {
+        cadenceLabel: "Weekly recap",
+        categoryLabel: "Agents",
+        id: "newsletter-low-intent-agent",
+        reason: "Low reader intent",
+        scoreLabel: "92 score / 65 heat",
+        sourceName: "Agent Desk",
+        title: "Low-intent agent trend waits for recap",
+        triggerLabel: "recap candidate",
+      },
+    ]);
+    expect(plan.metrics).toContainEqual({ label: "Daily", value: "1" });
+    expect(plan.metrics).toContainEqual({ label: "Weekly", value: "1" });
+  });
+
+  it("keeps newsletter packaging cold before stories are ranked", () => {
+    expect(
+      getNewsNewsletterPlan({
+        formatCategory: (category) => category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Newsletter Waiting",
+      lanes: [
+        {
+          count: 0,
+          key: "breaking_note",
+          label: "Breaking note",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Urgent, high-trust reader matches can become a one-story email.",
+        },
+        {
+          count: 0,
+          key: "daily_brief",
+          label: "Daily brief",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Durable reader matches are held for the next daily newsletter.",
+        },
+        {
+          count: 0,
+          key: "weekly_recap",
+          label: "Weekly recap",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Exploration and slower-burn stories are saved for broader recap.",
+        },
+        {
+          count: 0,
+          key: "muted",
+          label: "Muted",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Hidden or negatively matched stories are excluded from newsletters.",
+        },
+      ],
+      metrics: [
+        { label: "Breaking", value: "0" },
+        { label: "Daily", value: "0" },
+        { label: "Weekly", value: "0" },
+        { label: "Muted", value: "0" },
+      ],
+      summary: "Newsletter packaging will appear after stories are ranked.",
     });
   });
 });

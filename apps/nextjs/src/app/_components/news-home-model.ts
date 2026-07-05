@@ -11208,6 +11208,90 @@ const getRecommendationTraceGuardSignals = ({
   return signals;
 };
 
+const recommendationTracePositiveFeedbackSignals = {
+  click_source: "positive_source_click_feedback",
+  save: "positive_save_feedback",
+  share: "positive_share_feedback",
+} as const satisfies Record<
+  NewsProfilePositiveFeedbackAction,
+  PositiveReaderMemoryActionSignal
+>;
+
+const recommendationTracePositiveFeedbackPriority = {
+  share: 0,
+  save: 1,
+  click_source: 2,
+} as const satisfies Record<NewsProfilePositiveFeedbackAction, number>;
+
+const hasRecommendationTracePositiveFeedbackMatch = ({
+  feedbackItem,
+  item,
+}: {
+  feedbackItem: NewsProfilePositiveFeedbackItem;
+  item: RankedNewsItem<NewsHomeItem>;
+}) => {
+  const itemCategory = normalizePreferenceSignal(item.category);
+  const itemSource = normalizePreferenceSignal(item.sourceSlug);
+  const itemEntities = item.entities.map(normalizePreferenceSignal);
+  const itemAngles = item.tags
+    .filter(isSpecificNewsAngleTag)
+    .map((tag) => getNewsAngleSignalKey(tag));
+  const feedbackCategory = normalizePreferenceSignal(feedbackItem.category);
+  const feedbackSource = normalizePreferenceSignal(feedbackItem.sourceSlug);
+  const feedbackEntities = feedbackItem.entities.map(normalizePreferenceSignal);
+  const feedbackAngles = (feedbackItem.tags ?? [])
+    .filter(isSpecificNewsAngleTag)
+    .map((tag) => getNewsAngleSignalKey(tag));
+
+  return (
+    itemCategory === feedbackCategory ||
+    itemSource === feedbackSource ||
+    itemEntities.some((entity) => feedbackEntities.includes(entity)) ||
+    itemAngles.some((angle) => feedbackAngles.includes(angle))
+  );
+};
+
+const getRecommendationTracePositiveFeedbackMatch = ({
+  items,
+  positiveFeedbackItems,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+}) => {
+  const rankedFeedbackItems = [...positiveFeedbackItems].sort((left, right) => {
+    const priorityDiff =
+      recommendationTracePositiveFeedbackPriority[left.action] -
+      recommendationTracePositiveFeedbackPriority[right.action];
+
+    if (priorityDiff !== 0) return priorityDiff;
+
+    return (
+      getNewsReaderMemoryTimestamp(right) - getNewsReaderMemoryTimestamp(left)
+    );
+  });
+
+  for (const item of items) {
+    const feedbackItem = rankedFeedbackItems.find((candidate) =>
+      hasRecommendationTracePositiveFeedbackMatch({
+        feedbackItem: candidate,
+        item,
+      }),
+    );
+
+    if (!feedbackItem) continue;
+
+    return {
+      detail:
+        positiveReaderMemoryActionDetails[
+          recommendationTracePositiveFeedbackSignals[feedbackItem.action]
+        ],
+      item,
+    };
+  }
+
+  return null;
+};
+
 const getRecommendationTraceReaderSignalCount =
   getReaderRecommendationSignalCount;
 
@@ -11217,6 +11301,7 @@ export const getNewsRecommendationTrace = ({
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
 }: {
   formatCategory: (category: string) => string;
@@ -11224,6 +11309,7 @@ export const getNewsRecommendationTrace = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
 }) => {
   const [leadItem] = items;
@@ -11315,12 +11401,20 @@ export const getNewsRecommendationTrace = ({
     });
   }
 
-  const readerMemoryItem = items.find((item) =>
+  const signalBackedReaderMemoryItem = items.find((item) =>
     item.matchedSignals.includes("positive_feedback"),
   );
-  const readerMemoryDetail = readerMemoryItem
-    ? getPositiveReaderMemoryActionDetail(readerMemoryItem)
-    : undefined;
+  const positiveFeedbackMemoryMatch = getRecommendationTracePositiveFeedbackMatch(
+    {
+      items,
+      positiveFeedbackItems,
+    },
+  );
+  const readerMemoryItem =
+    signalBackedReaderMemoryItem ?? positiveFeedbackMemoryMatch?.item;
+  const readerMemoryDetail = signalBackedReaderMemoryItem
+    ? getPositiveReaderMemoryActionDetail(signalBackedReaderMemoryItem)
+    : positiveFeedbackMemoryMatch?.detail;
 
   if (readerMemoryItem) {
     steps.push({

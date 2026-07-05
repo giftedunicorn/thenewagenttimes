@@ -16287,6 +16287,73 @@ describe("getNewsRecommendationTrace", () => {
     );
   });
 
+  it("surfaces positive feedback memory anchors in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "agent-positive-trace",
+          matchedSignals: [],
+          personalizedScore: 134,
+          sourceName: "Agent Desk",
+          sourceScore: 83,
+          sourceSlug: "agent-desk",
+          title: "Agent positive trace candidate",
+          trendScore: 78,
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "click_source",
+          category: "model_release",
+          entities: [],
+          id: "source-click-trace",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          tags: ["prompt_injection"],
+          title: "Source-clicked prompt story",
+        },
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "shared-agent-trace",
+          occurredAt: "2026-07-02T10:05:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.steps).toContainEqual({
+      detail: "Stories you shared anchor this recommendation.",
+      label: "Reader memory",
+      scoreLabel: "Shared follow-up",
+      title: "Agent positive trace candidate",
+    });
+    expect(trace.summary).toBe(
+      "Trace explains 2 ranking decisions across 1 story.",
+    );
+  });
+
   it("surfaces base reader-memory anchors in the ranking trace", () => {
     const trace = getNewsRecommendationTrace({
       formatCategory: (category) =>

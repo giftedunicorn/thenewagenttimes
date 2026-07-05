@@ -2116,6 +2116,7 @@ export function NewsHome({
     items: rankedItems,
     limit: 4,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
   });
   const editorialGuardrails = getNewsEditorialGuardrails({

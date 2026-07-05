@@ -998,6 +998,51 @@ describe("selectNewsRecommendationRotationSlots", () => {
       "trusted-analysis",
     ]);
   });
+
+  test("treats reader-memory, semantic, collaborative, and session signals as reader-match slots", () => {
+    const readerSignals = [
+      "positive_feedback",
+      "positive_read_feedback",
+      "positive_save_feedback",
+      "positive_share_feedback",
+      "positive_source_click_feedback",
+      "semantic_feedback",
+      "collaborative_feedback",
+      "session_intent",
+      "deep_preference",
+    ] as const;
+
+    expect(
+      readerSignals.map((signal, index) => {
+        const slots = selectNewsRecommendationRotationSlots({
+          items: [
+            {
+              ...items[0],
+              id: `${signal}-slot`,
+              matchedSignals: [signal],
+              personalizedScore: 150 - index,
+              sourceScore: 84,
+              sourceSlug: `${signal}-source`,
+              trendScore: 78,
+            },
+          ],
+          limit: 1,
+        });
+
+        return {
+          id: slots[0]?.item.id,
+          objective: slots[0]?.objective,
+          signal,
+        };
+      }),
+    ).toEqual(
+      readerSignals.map((signal) => ({
+        id: `${signal}-slot`,
+        objective: "reader_match",
+        signal,
+      })),
+    );
+  });
 });
 
 describe("summarizeNewsRecommendation", () => {

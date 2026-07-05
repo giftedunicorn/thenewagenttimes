@@ -1036,12 +1036,6 @@ export interface NewsRecommendationRotationSlot<
 
 const newsRecommendationRotationMinimumFeedSize = 4;
 const newsRecommendationRotationMinimumSourceScore = 70;
-const newsRecommendationRotationReaderSignals = new Set([
-  "category",
-  "entity",
-  "source",
-  "tag",
-]);
 const newsRecommendationRotationProtectedSignals = new Set([
   "breaking_news",
   "collaborative_feedback",
@@ -1063,6 +1057,7 @@ const newsRecommendationRotationProtectedSignals = new Set([
 interface NewsRecommendationRotationDefinition<
   TItem extends RecommendableNewsItem,
 > {
+  allowProtectedSignals?: boolean;
   getScore: (item: RankedNewsItem<TItem>) => number;
   isMatch: (item: RankedNewsItem<TItem>) => boolean;
   objective: NewsRecommendationRotationObjective;
@@ -1080,19 +1075,24 @@ const hasNewsRecommendationRotationProtectedSignal = <
 
 const canUseNewsRecommendationRotationCandidate = <
   TItem extends RecommendableNewsItem,
->(
-  item: RankedNewsItem<TItem>,
-) =>
+>({
+  allowProtectedSignals = false,
+  item,
+}: {
+  allowProtectedSignals?: boolean;
+  item: RankedNewsItem<TItem>;
+}) =>
   item.sourceScore >= newsRecommendationRotationMinimumSourceScore &&
-  !hasNewsRecommendationRotationProtectedSignal(item);
+  (allowProtectedSignals || !hasNewsRecommendationRotationProtectedSignal(item));
 
 const getNewsRecommendationRotationReaderSignalCount = <
   TItem extends RecommendableNewsItem,
 >(
   item: RankedNewsItem<TItem>,
 ) =>
-  item.matchedSignals.filter((signal) =>
-    newsRecommendationRotationReaderSignals.has(signal),
+  item.matchedSignals.filter(
+    (signal) =>
+      readerPreferenceSignals.has(signal) || signal === "session_intent",
   ).length;
 
 const createNewsRecommendationRotationDefinitions = <
@@ -1100,6 +1100,7 @@ const createNewsRecommendationRotationDefinitions = <
 >(): readonly NewsRecommendationRotationDefinition<TItem>[] =>
   [
     {
+      allowProtectedSignals: true,
       getScore: (item) => item.personalizedScore,
       isMatch: (item) =>
         getNewsRecommendationRotationReaderSignalCount(item) > 0,
@@ -1150,7 +1151,10 @@ const selectNewsRecommendationRotationCandidate = <
     .filter(
       (item) =>
         !usedIds.has(item.id) &&
-        canUseNewsRecommendationRotationCandidate(item) &&
+        canUseNewsRecommendationRotationCandidate({
+          allowProtectedSignals: definition.allowProtectedSignals,
+          item,
+        }) &&
         definition.isMatch(item),
     )
     .sort((left, right) => {

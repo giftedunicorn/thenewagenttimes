@@ -4542,6 +4542,71 @@ describe("getNewsCollaborativeSignals", () => {
     ]);
   });
 
+  it("uses shares and source clicks for collaborative ranking lift", () => {
+    expect(
+      getNewsHomeCollaborativeRankingSignals({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "agent-positive-lift",
+            matchedSignals: ["exploration"],
+            personalizedScore: 126,
+            sourceName: "Agent Desk",
+            sourceScore: 82,
+            sourceSlug: "agent-desk",
+            title: "Agent teams test shared memory",
+            trendScore: 88,
+          },
+        ],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "shared-agent-ranking",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "source-click-agent-ranking",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Source-clicked agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual([
+      {
+        category: "agent_product",
+        entities: ["Agents"],
+        newsItemId: "agent-positive-lift",
+        score: 11,
+        sourceSlug: "agent-desk",
+        tags: ["model"],
+      },
+    ]);
+  });
+
   it("does not give guardrail and edition signals reader-match collaborative lift", () => {
     const signals = getNewsHomeCollaborativeRankingSignals({
       formatCategory: (category) =>
@@ -4733,6 +4798,90 @@ describe("getNewsCollaborativeSignals", () => {
       ],
       summary:
         "2 cohort signals can lift 2 stories; Lab Watch leads with 17 lift.",
+    });
+  });
+
+  it("shows collaborative lift from share and source-click cohorts", () => {
+    expect(
+      getNewsCollaborativeSignals({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "agent-positive-display",
+            matchedSignals: ["exploration"],
+            personalizedScore: 126,
+            sourceName: "Agent Desk",
+            sourceScore: 82,
+            sourceSlug: "agent-desk",
+            title: "Agent teams test shared memory",
+            trendScore: 88,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "shared-agent-collab",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "source-click-agent-collab",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Source-clicked agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Cohort Lift",
+      metrics: [
+        { label: "Active cohorts", value: "1" },
+        { label: "Candidate stories", value: "1" },
+        { label: "Crowd heat", value: "1" },
+        { label: "Guardrails", value: "0" },
+      ],
+      signals: [
+        {
+          action: "Keep builder coverage high and test one adjacent lab story.",
+          detail: "Builder Watch can lift 1 ranked story from similar readers.",
+          label: "Builder Watch",
+          liftLabel: "Medium lift",
+          stories: [
+            {
+              id: "agent-positive-display",
+              reason: "Cohort match on Agents with 88 trend.",
+              scoreLabel: "11 lift",
+              sourceName: "Agent Desk",
+              title: "Agent teams test shared memory",
+            },
+          ],
+        },
+      ],
+      summary:
+        "1 cohort signal can lift 1 story; Builder Watch leads with 11 lift.",
     });
   });
 

@@ -3665,6 +3665,7 @@ export const getNewsHomeCollaborativeRankingSignals = ({
   historyItems,
   items,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -3672,6 +3673,7 @@ export const getNewsHomeCollaborativeRankingSignals = ({
   historyItems: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }): NewsCollaborativeSignal[] => {
@@ -3680,6 +3682,7 @@ export const getNewsHomeCollaborativeRankingSignals = ({
     historyItems,
     limit: newsReaderCohortDefinitions.length,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });
@@ -3733,6 +3736,7 @@ export const getNewsCollaborativeSignals = ({
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -3741,6 +3745,7 @@ export const getNewsCollaborativeSignals = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -3750,6 +3755,7 @@ export const getNewsCollaborativeSignals = ({
     historyItems,
     limit: newsReaderCohortDefinitions.length,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

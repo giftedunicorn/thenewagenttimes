@@ -1798,6 +1798,7 @@ export function NewsHome({
         historyItems,
         items: personalizedItems,
         negativeFeedbackItems: negativeFeedbackMemoryItems,
+        positiveFeedbackItems,
         profile,
         savedItems,
       }),
@@ -1805,6 +1806,7 @@ export function NewsHome({
       historyItems,
       negativeFeedbackMemoryItems,
       personalizedItems,
+      positiveFeedbackItems,
       profile,
       savedItems,
     ],
@@ -2019,6 +2021,7 @@ export function NewsHome({
     items: rankedItems,
     limit: 2,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

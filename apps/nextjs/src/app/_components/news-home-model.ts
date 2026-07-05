@@ -16377,6 +16377,310 @@ export const getNewsNewsletterPlan = ({
   };
 };
 
+const newsMembershipMeterDefinitions = [
+  {
+    key: "meter_value",
+    label: "Meter value",
+    summary:
+      "High-trust reader matches can prove paid-news value without blocking the feed.",
+  },
+  {
+    key: "trial_offer",
+    label: "Trial offer",
+    summary:
+      "Durable reader intent can carry a soft trial prompt after the story.",
+  },
+  {
+    key: "newsletter_nurture",
+    label: "Newsletter nurture",
+    summary:
+      "Exploration and low-intent stories build habit before a paid ask.",
+  },
+  {
+    key: "no_ask",
+    label: "No ask",
+    summary:
+      "Hidden, negatively matched, or low-trust stories suppress subscription prompts.",
+  },
+] as const;
+
+type NewsMembershipMeterKey =
+  (typeof newsMembershipMeterDefinitions)[number]["key"];
+
+interface NewsMembershipMeterStory {
+  categoryLabel: string;
+  id: string;
+  offerLabel: string;
+  reason: string;
+  scoreLabel: string;
+  sourceName: string;
+  title: string;
+  triggerLabel: string;
+}
+
+interface NewsMembershipMeterLane {
+  count: number;
+  key: NewsMembershipMeterKey;
+  label: string;
+  shareLabel: string;
+  stories: NewsMembershipMeterStory[];
+  summary: string;
+}
+
+const getNewsMembershipMeterPlacement = ({
+  hiddenItemIds,
+  historyItems,
+  item,
+  negativeFeedbackItems,
+  positiveFeedbackItems,
+  profile,
+  savedItems,
+}: {
+  hiddenItemIds: ReadonlySet<string>;
+  historyItems: readonly NewsReaderMemoryItem[];
+  item: RankedNewsItem<NewsHomeItem>;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}): {
+  key: NewsMembershipMeterKey;
+  offerLabel: string;
+  reason: string;
+  triggerLabel: string;
+} => {
+  const suppressReason = getNewsDistributionSuppressReason({
+    hiddenItemIds,
+    item,
+    negativeFeedbackItems,
+  });
+
+  if (suppressReason) {
+    return {
+      key: "no_ask",
+      offerLabel: "No ask",
+      reason: suppressReason,
+      triggerLabel: "suppressed",
+    };
+  }
+
+  if (item.sourceScore < 65 && item.trendScore >= 80) {
+    return {
+      key: "no_ask",
+      offerLabel: "No ask",
+      reason: "High heat needs trust before a paid ask",
+      triggerLabel: "trust guard",
+    };
+  }
+
+  const readerSignalCount = getReaderRecommendationSignalCount(item);
+  const memoryMatch = hasNewsMemoryMatch({ historyItems, item, savedItems });
+  const positiveMemoryMatch = hasNewsPositiveFeedbackMemoryMatch({
+    item,
+    positiveFeedbackItems,
+  });
+  const profileSignalCount = getProfileSignalCount(profile);
+  const hasSessionIntent = item.matchedSignals.includes("session_intent");
+
+  if (
+    item.sourceScore >= 82 &&
+    item.trendScore >= 85 &&
+    item.personalizedScore >= 140 &&
+    readerSignalCount > 0 &&
+    !item.matchedSignals.includes("exploration")
+  ) {
+    return {
+      key: "meter_value",
+      offerLabel: "Metered value",
+      reason: hasSessionIntent
+        ? "High-trust current session match"
+        : "High-trust profile match",
+      triggerLabel: hasSessionIntent
+        ? "session intent"
+        : `${readerSignalCount} reader ${
+            readerSignalCount === 1 ? "signal" : "signals"
+          }`,
+    };
+  }
+
+  if (memoryMatch) {
+    return {
+      key: "trial_offer",
+      offerLabel: "Soft trial",
+      reason: "Matches saved or reading memory",
+      triggerLabel: "memory match",
+    };
+  }
+
+  if (positiveMemoryMatch) {
+    return {
+      key: "trial_offer",
+      offerLabel: "Soft trial",
+      reason: "Matches positive feedback memory",
+      triggerLabel: "positive memory",
+    };
+  }
+
+  if (item.matchedSignals.includes("exploration")) {
+    return {
+      key: "newsletter_nurture",
+      offerLabel: "Nurture first",
+      reason: "Exploration should build habit before the paid ask",
+      triggerLabel: "exploration test",
+    };
+  }
+
+  if (readerSignalCount > 0 || item.personalizedScore >= 115) {
+    return {
+      key: "trial_offer",
+      offerLabel: "Soft trial",
+      reason: hasSessionIntent
+        ? "Current session interest can carry a soft trial prompt"
+        : readerSignalCount > 0
+          ? "Profile match can carry a soft trial prompt"
+          : "High-score recommendation can carry a soft trial prompt",
+      triggerLabel: hasSessionIntent
+        ? "session intent"
+        : readerSignalCount > 0
+          ? profileSignalCount > 0
+            ? `${profileSignalCount} profile signals`
+            : "profile match"
+          : "recommendation score",
+    };
+  }
+
+  return {
+    key: "newsletter_nurture",
+    offerLabel: "Nurture first",
+    reason: "Low reader intent",
+    triggerLabel: "nurture first",
+  };
+};
+
+const toNewsMembershipMeterStory = ({
+  formatCategory,
+  item,
+  offerLabel,
+  reason,
+  triggerLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  offerLabel: string;
+  reason: string;
+  triggerLabel: string;
+}): NewsMembershipMeterStory => ({
+  categoryLabel: formatCategory(item.category),
+  id: item.id,
+  offerLabel,
+  reason,
+  scoreLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+  sourceName: item.sourceName,
+  title: item.title,
+  triggerLabel,
+});
+
+export const getNewsMembershipMeter = ({
+  formatCategory,
+  hiddenItemIds,
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  hiddenItemIds: readonly string[];
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const hiddenIds = new Set(hiddenItemIds);
+  const buckets = new Map<
+    NewsMembershipMeterKey,
+    { count: number; stories: NewsMembershipMeterStory[] }
+  >(
+    newsMembershipMeterDefinitions.map((definition) => [
+      definition.key,
+      { count: 0, stories: [] },
+    ]),
+  );
+
+  for (const item of items) {
+    const placement = getNewsMembershipMeterPlacement({
+      hiddenItemIds: hiddenIds,
+      historyItems,
+      item,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      profile,
+      savedItems,
+    });
+    const bucket = buckets.get(placement.key);
+
+    if (!bucket) continue;
+
+    bucket.count += 1;
+
+    if (bucket.stories.length < limit) {
+      bucket.stories.push(
+        toNewsMembershipMeterStory({
+          formatCategory,
+          item,
+          offerLabel: placement.offerLabel,
+          reason: placement.reason,
+          triggerLabel: placement.triggerLabel,
+        }),
+      );
+    }
+  }
+
+  const lanes: NewsMembershipMeterLane[] = newsMembershipMeterDefinitions.map(
+    (definition) => {
+      const bucket = buckets.get(definition.key);
+      const count = bucket?.count ?? 0;
+
+      return {
+        count,
+        key: definition.key,
+        label: definition.label,
+        shareLabel: formatPercentage(count, items.length),
+        stories: bucket?.stories ?? [],
+        summary: definition.summary,
+      };
+    },
+  );
+  const getLaneCount = (key: NewsMembershipMeterKey) =>
+    buckets.get(key)?.count ?? 0;
+  const meterCount = getLaneCount("meter_value");
+  const trialCount = getLaneCount("trial_offer");
+  const nurtureCount = getLaneCount("newsletter_nurture");
+  const noAskCount = getLaneCount("no_ask");
+
+  return {
+    label: items.length === 0 ? "Membership Waiting" : "Membership Ready",
+    lanes,
+    metrics: [
+      { label: "Meter", value: String(meterCount) },
+      { label: "Trial", value: String(trialCount) },
+      { label: "Nurture", value: String(nurtureCount) },
+      { label: "No ask", value: String(noAskCount) },
+    ],
+    summary:
+      items.length === 0
+        ? "Membership meter will appear after stories are ranked."
+        : `${items.length} ${
+            items.length === 1 ? "story" : "stories"
+          } routed through membership meter: ${meterCount} meter, ${trialCount} trial, ${nurtureCount} nurture, and ${noAskCount} no ask.`,
+  };
+};
+
 const getDominantChannelCategory = ({
   formatCategory,
   items,

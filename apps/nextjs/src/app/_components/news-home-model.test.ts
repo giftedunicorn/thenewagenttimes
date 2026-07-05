@@ -65,6 +65,7 @@ import {
   getNewsInterestDrift,
   getNewsInterestGraph,
   getNewsLiveWire,
+  getNewsMembershipMeter,
   getNewsMissedCoverageShelf,
   getNewsNewsletterPlan,
   getNewsNextRefreshPlan,
@@ -1315,6 +1316,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsNewsletterPlan({");
     expect(source).toContain("Newsletter Studio");
     expect(source).toContain("newsletterPlan.lanes.map");
+  });
+
+  it("renders the membership meter from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsMembershipMeter({");
+    expect(source).toContain("Membership Meter");
+    expect(source).toContain("membershipMeter.lanes.map");
   });
 });
 
@@ -23415,6 +23427,356 @@ describe("getNewsNewsletterPlan", () => {
         { label: "Muted", value: "0" },
       ],
       summary: "Newsletter packaging will appear after stories are ranked.",
+    });
+  });
+});
+
+describe("getNewsMembershipMeter", () => {
+  it("routes ranked stories into meter value, trial, nurture, and no-ask lanes", () => {
+    expect(
+      getNewsMembershipMeter({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "agent_product"
+              ? "Agents"
+              : category === "robotics"
+                ? "Robotics"
+                : category === "funding"
+                  ? "Funding"
+                  : category,
+        hiddenItemIds: [],
+        historyItems: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "read-agent-membership",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "membership-meter-model",
+            category: "model_release",
+            entities: ["OpenAI", "Agents"],
+            matchedSignals: ["category", "entity"],
+            personalizedScore: 168,
+            sourceName: "OpenAI News",
+            sourceScore: 94,
+            sourceSlug: "openai-news",
+            title: "OpenAI ships a paid-value agent runtime",
+            trendScore: 96,
+          },
+          {
+            ...localItem,
+            id: "membership-trial-agent",
+            category: "agent_product",
+            entities: ["Agents"],
+            matchedSignals: [],
+            personalizedScore: 118,
+            sourceName: "Agent Desk",
+            sourceScore: 84,
+            sourceSlug: "agent-desk",
+            title: "Agent teams add workflow memory",
+            trendScore: 76,
+          },
+          {
+            ...olderItem,
+            id: "membership-nurture-robotics",
+            category: "robotics",
+            entities: ["Figure"],
+            matchedSignals: ["exploration"],
+            personalizedScore: 115,
+            sourceName: "Robotics Desk",
+            sourceScore: 82,
+            sourceSlug: "robotics-desk",
+            title: "Robotics agents enter factory pilots",
+            trendScore: 84,
+          },
+          {
+            ...serverItem,
+            id: "membership-noask-funding",
+            category: "funding",
+            entities: ["YC"],
+            matchedSignals: ["category"],
+            personalizedScore: 151,
+            sourceName: "VentureWire",
+            sourceScore: 88,
+            sourceSlug: "venturewire",
+            title: "Funding rumor repeats a hidden thread",
+            trendScore: 89,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "negative-membership-funding",
+            category: "funding",
+            entities: ["YC"],
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+          },
+        ],
+        positiveFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "saved-agent-membership",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Membership Ready",
+      lanes: [
+        {
+          count: 1,
+          key: "meter_value",
+          label: "Meter value",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Models",
+              id: "membership-meter-model",
+              offerLabel: "Metered value",
+              reason: "High-trust profile match",
+              scoreLabel: "168 score / 96 heat",
+              sourceName: "OpenAI News",
+              title: "OpenAI ships a paid-value agent runtime",
+              triggerLabel: "2 reader signals",
+            },
+          ],
+          summary:
+            "High-trust reader matches can prove paid-news value without blocking the feed.",
+        },
+        {
+          count: 1,
+          key: "trial_offer",
+          label: "Trial offer",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Agents",
+              id: "membership-trial-agent",
+              offerLabel: "Soft trial",
+              reason: "Matches saved or reading memory",
+              scoreLabel: "118 score / 76 heat",
+              sourceName: "Agent Desk",
+              title: "Agent teams add workflow memory",
+              triggerLabel: "memory match",
+            },
+          ],
+          summary:
+            "Durable reader intent can carry a soft trial prompt after the story.",
+        },
+        {
+          count: 1,
+          key: "newsletter_nurture",
+          label: "Newsletter nurture",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Robotics",
+              id: "membership-nurture-robotics",
+              offerLabel: "Nurture first",
+              reason: "Exploration should build habit before the paid ask",
+              scoreLabel: "115 score / 84 heat",
+              sourceName: "Robotics Desk",
+              title: "Robotics agents enter factory pilots",
+              triggerLabel: "exploration test",
+            },
+          ],
+          summary:
+            "Exploration and low-intent stories build habit before a paid ask.",
+        },
+        {
+          count: 1,
+          key: "no_ask",
+          label: "No ask",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Funding",
+              id: "membership-noask-funding",
+              offerLabel: "No ask",
+              reason: "Negative feedback match",
+              scoreLabel: "151 score / 89 heat",
+              sourceName: "VentureWire",
+              title: "Funding rumor repeats a hidden thread",
+              triggerLabel: "suppressed",
+            },
+          ],
+          summary:
+            "Hidden, negatively matched, or low-trust stories suppress subscription prompts.",
+        },
+      ],
+      metrics: [
+        { label: "Meter", value: "1" },
+        { label: "Trial", value: "1" },
+        { label: "Nurture", value: "1" },
+        { label: "No ask", value: "1" },
+      ],
+      summary:
+        "4 stories routed through membership meter: 1 meter, 1 trial, 1 nurture, and 1 no ask.",
+    });
+  });
+
+  it("uses positive feedback memory for soft trials before falling back to nurture", () => {
+    const meter = getNewsMembershipMeter({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : "Agents",
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "membership-positive-security",
+          matchedSignals: [],
+          personalizedScore: 106,
+          sourceName: "Security Desk",
+          sourceScore: 82,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Security follow-up can carry a trial offer",
+          trendScore: 74,
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "membership-low-intent-agent",
+          matchedSignals: [],
+          personalizedScore: 92,
+          sourceName: "Agent Desk",
+          sourceScore: 80,
+          sourceSlug: "agent-desk",
+          title: "Low-intent agent trend waits for habit building",
+          trendScore: 65,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "security",
+          entities: ["Agent Security"],
+          id: "shared-security-membership",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Shared security story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(meter.lanes[1]?.stories).toEqual([
+      {
+        categoryLabel: "Security",
+        id: "membership-positive-security",
+        offerLabel: "Soft trial",
+        reason: "Matches positive feedback memory",
+        scoreLabel: "106 score / 74 heat",
+        sourceName: "Security Desk",
+        title: "Security follow-up can carry a trial offer",
+        triggerLabel: "positive memory",
+      },
+    ]);
+    expect(meter.lanes[2]?.stories).toEqual([
+      {
+        categoryLabel: "Agents",
+        id: "membership-low-intent-agent",
+        offerLabel: "Nurture first",
+        reason: "Low reader intent",
+        scoreLabel: "92 score / 65 heat",
+        sourceName: "Agent Desk",
+        title: "Low-intent agent trend waits for habit building",
+        triggerLabel: "nurture first",
+      },
+    ]);
+    expect(meter.metrics).toContainEqual({ label: "Trial", value: "1" });
+    expect(meter.metrics).toContainEqual({ label: "Nurture", value: "1" });
+  });
+
+  it("keeps membership prompts cold before stories are ranked", () => {
+    expect(
+      getNewsMembershipMeter({
+        formatCategory: (category) => category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Membership Waiting",
+      lanes: [
+        {
+          count: 0,
+          key: "meter_value",
+          label: "Meter value",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "High-trust reader matches can prove paid-news value without blocking the feed.",
+        },
+        {
+          count: 0,
+          key: "trial_offer",
+          label: "Trial offer",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Durable reader intent can carry a soft trial prompt after the story.",
+        },
+        {
+          count: 0,
+          key: "newsletter_nurture",
+          label: "Newsletter nurture",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Exploration and low-intent stories build habit before a paid ask.",
+        },
+        {
+          count: 0,
+          key: "no_ask",
+          label: "No ask",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Hidden, negatively matched, or low-trust stories suppress subscription prompts.",
+        },
+      ],
+      metrics: [
+        { label: "Meter", value: "0" },
+        { label: "Trial", value: "0" },
+        { label: "Nurture", value: "0" },
+        { label: "No ask", value: "0" },
+      ],
+      summary: "Membership meter will appear after stories are ranked.",
     });
   });
 });

@@ -4390,6 +4390,71 @@ describe("getNewsReaderCohorts", () => {
         "Reader cohorts will appear after preferences or behavior arrive.",
     });
   });
+
+  it("counts shares and source clicks as positive cohort behavior", () => {
+    expect(
+      getNewsReaderCohorts({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        limit: 3,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "shared-agent-cohort",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "source-click-agent-cohort",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Source-clicked agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      cohorts: [
+        {
+          confidenceLabel: "2 signals",
+          detail:
+            "Agent products, open-source tools, and builder platforms are leading the profile.",
+          evidence: ["Agent Desk"],
+          guardrailCount: 0,
+          label: "Builder Watch",
+          nextAction:
+            "Keep builder coverage high and test one adjacent lab story.",
+          score: 2,
+        },
+      ],
+      label: "1 Cohort",
+      metrics: [
+        { label: "Top cohort", value: "Builder Watch" },
+        { label: "Weighted signals", value: "2" },
+        { label: "Guardrails", value: "0" },
+        { label: "Bias", value: "Balanced" },
+      ],
+      summary:
+        "Reader profile leans Builder Watch with 2 weighted signals across 1 active cohort.",
+    });
+  });
 });
 
 describe("getNewsCollaborativeSignals", () => {

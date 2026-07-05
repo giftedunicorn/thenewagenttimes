@@ -3460,6 +3460,7 @@ export const getNewsReaderCohorts = ({
   historyItems,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -3467,6 +3468,7 @@ export const getNewsReaderCohorts = ({
   historyItems: readonly NewsReaderMemoryItem[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -3510,6 +3512,31 @@ export const getNewsReaderCohorts = ({
   for (const item of historyItems) {
     const definition = findNewsReaderCohortForItem(item);
     incrementNewsReaderCohortScore({ accumulators, amount: 1, definition });
+
+    const accumulator = definition ? accumulators.get(definition.label) : null;
+    if (accumulator) addNewsReaderCohortEvidence(accumulator, item.sourceName);
+  }
+
+  const savedItemIds = new Set(savedItems.map((item) => item.id));
+  const savedItemUrlKeys = new Set(savedItems.flatMap(getNewsDedupeUrlKeys));
+
+  for (const item of positiveFeedbackItems) {
+    if (
+      item.action === "save" &&
+      (savedItemIds.has(item.id) ||
+        getNewsDedupeUrlKeys(item).some((urlKey) =>
+          savedItemUrlKeys.has(urlKey),
+        ))
+    ) {
+      continue;
+    }
+
+    const definition = findNewsReaderCohortForItem(item);
+    incrementNewsReaderCohortScore({
+      accumulators,
+      amount: item.action === "save" ? 2 : 1,
+      definition,
+    });
 
     const accumulator = definition ? accumulators.get(definition.label) : null;
     if (accumulator) addNewsReaderCohortEvidence(accumulator, item.sourceName);

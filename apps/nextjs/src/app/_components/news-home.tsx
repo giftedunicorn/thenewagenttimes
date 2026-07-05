@@ -2009,6 +2009,7 @@ export function NewsHome({
     historyItems,
     limit: 3,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

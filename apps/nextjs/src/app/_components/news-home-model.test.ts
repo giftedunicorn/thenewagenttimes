@@ -67,6 +67,7 @@ import {
   getNewsLiveWire,
   getNewsMembershipMeter,
   getNewsMissedCoverageShelf,
+  getNewsModelTrainingBatch,
   getNewsNewsletterPlan,
   getNewsNextRefreshPlan,
   getNewsPersonalizationDataVault,
@@ -1327,6 +1328,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsMembershipMeter({");
     expect(source).toContain("Membership Meter");
     expect(source).toContain("membershipMeter.lanes.map");
+  });
+
+  it("renders the model training batch from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsModelTrainingBatch({");
+    expect(source).toContain("Model Training Batch");
+    expect(source).toContain("modelTrainingBatch.lanes.map");
   });
 });
 
@@ -23777,6 +23789,341 @@ describe("getNewsMembershipMeter", () => {
         { label: "No ask", value: "0" },
       ],
       summary: "Membership meter will appear after stories are ranked.",
+    });
+  });
+});
+
+describe("getNewsModelTrainingBatch", () => {
+  it("routes ranked stories into reinforce, suppress, explore, and holdout training lanes", () => {
+    expect(
+      getNewsModelTrainingBatch({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "robotics"
+              ? "Robotics"
+              : category === "funding"
+                ? "Funding"
+                : category === "market_map"
+                  ? "Market Map"
+                  : category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "training-reinforce-model",
+            category: "model_release",
+            entities: ["OpenAI", "Agents"],
+            matchedSignals: ["category", "entity"],
+            personalizedScore: 164,
+            sourceName: "OpenAI News",
+            sourceScore: 94,
+            sourceSlug: "openai-news",
+            title: "OpenAI model story should train stronger matches",
+            trendScore: 93,
+          },
+          {
+            ...serverItem,
+            id: "training-suppress-funding",
+            category: "funding",
+            entities: ["YC"],
+            matchedSignals: ["category"],
+            personalizedScore: 138,
+            sourceName: "VentureWire",
+            sourceScore: 82,
+            sourceSlug: "venturewire",
+            title: "Funding story matches a rejected pattern",
+            trendScore: 88,
+          },
+          {
+            ...olderItem,
+            id: "training-explore-robotics",
+            category: "robotics",
+            entities: ["Figure"],
+            matchedSignals: ["exploration"],
+            personalizedScore: 111,
+            sourceName: "Robotics Desk",
+            sourceScore: 84,
+            sourceSlug: "robotics-desk",
+            title: "Robotics story stays as an exploration sample",
+            trendScore: 82,
+          },
+          {
+            ...localItem,
+            id: "training-holdout-market",
+            category: "market_map",
+            entities: ["AI Market"],
+            matchedSignals: [],
+            personalizedScore: 96,
+            sourceName: "Market Desk",
+            sourceScore: 78,
+            sourceSlug: "market-desk",
+            title: "Market map story remains a holdout",
+            trendScore: 71,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            id: "negative-training-funding",
+            category: "funding",
+            entities: ["YC"],
+            sourceName: "VentureWire",
+            sourceSlug: "venturewire",
+          },
+        ],
+        positiveFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Training Batch Ready",
+      lanes: [
+        {
+          count: 1,
+          key: "reinforce",
+          label: "Reinforce",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Models",
+              id: "training-reinforce-model",
+              outcomeLabel: "Lift",
+              reason: "Reader signals should raise similar stories",
+              scoreLabel: "164 score / 93 heat",
+              signalLabel: "2 reader signals",
+              sourceName: "OpenAI News",
+              title: "OpenAI model story should train stronger matches",
+            },
+          ],
+          summary:
+            "Positive reader, memory, or profile matches should strengthen similar recommendations.",
+        },
+        {
+          count: 1,
+          key: "suppress",
+          label: "Suppress",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Funding",
+              id: "training-suppress-funding",
+              outcomeLabel: "Down-rank",
+              reason: "Negative feedback match",
+              scoreLabel: "138 score / 88 heat",
+              signalLabel: "guardrail",
+              sourceName: "VentureWire",
+              title: "Funding story matches a rejected pattern",
+            },
+          ],
+          summary:
+            "Hidden, Less, low-trust, or negative-memory stories should dampen similar recommendations.",
+        },
+        {
+          count: 1,
+          key: "explore",
+          label: "Explore",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Robotics",
+              id: "training-explore-robotics",
+              outcomeLabel: "Sample",
+              reason:
+                "Exploration sample should stay in training without becoming a permanent preference",
+              scoreLabel: "111 score / 82 heat",
+              signalLabel: "exploration test",
+              sourceName: "Robotics Desk",
+              title: "Robotics story stays as an exploration sample",
+            },
+          ],
+          summary:
+            "Exploration stories stay in a sample lane until the reader gives a stronger signal.",
+        },
+        {
+          count: 1,
+          key: "holdout",
+          label: "Holdout",
+          shareLabel: "25%",
+          stories: [
+            {
+              categoryLabel: "Market Map",
+              id: "training-holdout-market",
+              outcomeLabel: "Hold",
+              reason:
+                "Trend-led candidate stays in evaluation without training the profile",
+              scoreLabel: "96 score / 71 heat",
+              signalLabel: "control sample",
+              sourceName: "Market Desk",
+              title: "Market map story remains a holdout",
+            },
+          ],
+          summary:
+            "Low-intent or trend-led stories stay as controls before changing the reader profile.",
+        },
+      ],
+      metrics: [
+        { label: "Reinforce", value: "1" },
+        { label: "Suppress", value: "1" },
+        { label: "Explore", value: "1" },
+        { label: "Holdout", value: "1" },
+      ],
+      summary:
+        "4 stories batched for recommendation training: 1 reinforce, 1 suppress, 1 explore, and 1 holdout.",
+    });
+  });
+
+  it("uses positive feedback memory as reinforcement before holdout", () => {
+    const batch = getNewsModelTrainingBatch({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : "Agents",
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "training-positive-security",
+          matchedSignals: [],
+          personalizedScore: 104,
+          sourceName: "Security Desk",
+          sourceScore: 82,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Security follow-up should reinforce positive memory",
+          trendScore: 76,
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "training-holdout-agent",
+          matchedSignals: [],
+          personalizedScore: 91,
+          sourceName: "Agent Desk",
+          sourceScore: 80,
+          sourceSlug: "agent-desk",
+          title: "Agent story waits as a control sample",
+          trendScore: 64,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "security",
+          entities: ["Agent Security"],
+          id: "shared-training-security",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Shared security story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(batch.lanes[0]?.stories).toEqual([
+      {
+        categoryLabel: "Security",
+        id: "training-positive-security",
+        outcomeLabel: "Lift",
+        reason: "Positive feedback memory should strengthen this pattern",
+        scoreLabel: "104 score / 76 heat",
+        signalLabel: "positive memory",
+        sourceName: "Security Desk",
+        title: "Security follow-up should reinforce positive memory",
+      },
+    ]);
+    expect(batch.lanes[3]?.stories).toEqual([
+      {
+        categoryLabel: "Agents",
+        id: "training-holdout-agent",
+        outcomeLabel: "Hold",
+        reason:
+          "Trend-led candidate stays in evaluation without training the profile",
+        scoreLabel: "91 score / 64 heat",
+        signalLabel: "control sample",
+        sourceName: "Agent Desk",
+        title: "Agent story waits as a control sample",
+      },
+    ]);
+    expect(batch.metrics).toContainEqual({ label: "Reinforce", value: "1" });
+    expect(batch.metrics).toContainEqual({ label: "Holdout", value: "1" });
+  });
+
+  it("keeps the training batch cold before stories are ranked", () => {
+    expect(
+      getNewsModelTrainingBatch({
+        formatCategory: (category) => category,
+        hiddenItemIds: [],
+        historyItems: [],
+        items: [],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: localProfile,
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Training Batch Waiting",
+      lanes: [
+        {
+          count: 0,
+          key: "reinforce",
+          label: "Reinforce",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Positive reader, memory, or profile matches should strengthen similar recommendations.",
+        },
+        {
+          count: 0,
+          key: "suppress",
+          label: "Suppress",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Hidden, Less, low-trust, or negative-memory stories should dampen similar recommendations.",
+        },
+        {
+          count: 0,
+          key: "explore",
+          label: "Explore",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Exploration stories stay in a sample lane until the reader gives a stronger signal.",
+        },
+        {
+          count: 0,
+          key: "holdout",
+          label: "Holdout",
+          shareLabel: "0%",
+          stories: [],
+          summary:
+            "Low-intent or trend-led stories stay as controls before changing the reader profile.",
+        },
+      ],
+      metrics: [
+        { label: "Reinforce", value: "0" },
+        { label: "Suppress", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Holdout", value: "0" },
+      ],
+      summary: "Model training batch will appear after stories are ranked.",
     });
   });
 });

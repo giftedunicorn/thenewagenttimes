@@ -16681,6 +16681,292 @@ export const getNewsMembershipMeter = ({
   };
 };
 
+const newsModelTrainingBatchDefinitions = [
+  {
+    key: "reinforce",
+    label: "Reinforce",
+    summary:
+      "Positive reader, memory, or profile matches should strengthen similar recommendations.",
+  },
+  {
+    key: "suppress",
+    label: "Suppress",
+    summary:
+      "Hidden, Less, low-trust, or negative-memory stories should dampen similar recommendations.",
+  },
+  {
+    key: "explore",
+    label: "Explore",
+    summary:
+      "Exploration stories stay in a sample lane until the reader gives a stronger signal.",
+  },
+  {
+    key: "holdout",
+    label: "Holdout",
+    summary:
+      "Low-intent or trend-led stories stay as controls before changing the reader profile.",
+  },
+] as const;
+
+type NewsModelTrainingBatchKey =
+  (typeof newsModelTrainingBatchDefinitions)[number]["key"];
+
+interface NewsModelTrainingBatchStory {
+  categoryLabel: string;
+  id: string;
+  outcomeLabel: string;
+  reason: string;
+  scoreLabel: string;
+  signalLabel: string;
+  sourceName: string;
+  title: string;
+}
+
+interface NewsModelTrainingBatchLane {
+  count: number;
+  key: NewsModelTrainingBatchKey;
+  label: string;
+  shareLabel: string;
+  stories: NewsModelTrainingBatchStory[];
+  summary: string;
+}
+
+const getNewsModelTrainingBatchPlacement = ({
+  hiddenItemIds,
+  historyItems,
+  item,
+  negativeFeedbackItems,
+  positiveFeedbackItems,
+  profile,
+  savedItems,
+}: {
+  hiddenItemIds: ReadonlySet<string>;
+  historyItems: readonly NewsReaderMemoryItem[];
+  item: RankedNewsItem<NewsHomeItem>;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}): {
+  key: NewsModelTrainingBatchKey;
+  outcomeLabel: string;
+  reason: string;
+  signalLabel: string;
+} => {
+  const suppressReason = getNewsDistributionSuppressReason({
+    hiddenItemIds,
+    item,
+    negativeFeedbackItems,
+  });
+
+  if (suppressReason) {
+    return {
+      key: "suppress",
+      outcomeLabel: "Down-rank",
+      reason: suppressReason,
+      signalLabel: "guardrail",
+    };
+  }
+
+  if (item.sourceScore < 65 && item.trendScore >= 80) {
+    return {
+      key: "suppress",
+      outcomeLabel: "Down-rank",
+      reason: "Low-trust high-heat story needs review",
+      signalLabel: "trust guard",
+    };
+  }
+
+  if (hasNewsMemoryMatch({ historyItems, item, savedItems })) {
+    return {
+      key: "reinforce",
+      outcomeLabel: "Lift",
+      reason: "Saved or reading memory should strengthen this pattern",
+      signalLabel: "memory match",
+    };
+  }
+
+  if (hasNewsPositiveFeedbackMemoryMatch({ item, positiveFeedbackItems })) {
+    return {
+      key: "reinforce",
+      outcomeLabel: "Lift",
+      reason: "Positive feedback memory should strengthen this pattern",
+      signalLabel: "positive memory",
+    };
+  }
+
+  if (item.matchedSignals.includes("exploration")) {
+    return {
+      key: "explore",
+      outcomeLabel: "Sample",
+      reason:
+        "Exploration sample should stay in training without becoming a permanent preference",
+      signalLabel: "exploration test",
+    };
+  }
+
+  const readerSignalCount = getReaderRecommendationSignalCount(item);
+
+  if (readerSignalCount > 0) {
+    return {
+      key: "reinforce",
+      outcomeLabel: "Lift",
+      reason: "Reader signals should raise similar stories",
+      signalLabel: `${readerSignalCount} reader ${
+        readerSignalCount === 1 ? "signal" : "signals"
+      }`,
+    };
+  }
+
+  if (item.personalizedScore >= 130) {
+    const profileSignalCount = getProfileSignalCount(profile);
+
+    return {
+      key: "reinforce",
+      outcomeLabel: "Lift",
+      reason: "High recommendation score should raise similar stories",
+      signalLabel:
+        profileSignalCount > 0
+          ? `${profileSignalCount} profile ${
+              profileSignalCount === 1 ? "signal" : "signals"
+            }`
+          : "recommendation score",
+    };
+  }
+
+  return {
+    key: "holdout",
+    outcomeLabel: "Hold",
+    reason:
+      "Trend-led candidate stays in evaluation without training the profile",
+    signalLabel: "control sample",
+  };
+};
+
+const toNewsModelTrainingBatchStory = ({
+  formatCategory,
+  item,
+  outcomeLabel,
+  reason,
+  signalLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  outcomeLabel: string;
+  reason: string;
+  signalLabel: string;
+}): NewsModelTrainingBatchStory => ({
+  categoryLabel: formatCategory(item.category),
+  id: item.id,
+  outcomeLabel,
+  reason,
+  scoreLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+  signalLabel,
+  sourceName: item.sourceName,
+  title: item.title,
+});
+
+export const getNewsModelTrainingBatch = ({
+  formatCategory,
+  hiddenItemIds,
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  hiddenItemIds: readonly string[];
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsHomeItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const hiddenIds = new Set(hiddenItemIds);
+  const buckets = new Map<
+    NewsModelTrainingBatchKey,
+    { count: number; stories: NewsModelTrainingBatchStory[] }
+  >(
+    newsModelTrainingBatchDefinitions.map((definition) => [
+      definition.key,
+      { count: 0, stories: [] },
+    ]),
+  );
+
+  for (const item of items) {
+    const placement = getNewsModelTrainingBatchPlacement({
+      hiddenItemIds: hiddenIds,
+      historyItems,
+      item,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      profile,
+      savedItems,
+    });
+    const bucket = buckets.get(placement.key);
+
+    if (!bucket) continue;
+
+    bucket.count += 1;
+
+    if (bucket.stories.length < limit) {
+      bucket.stories.push(
+        toNewsModelTrainingBatchStory({
+          formatCategory,
+          item,
+          outcomeLabel: placement.outcomeLabel,
+          reason: placement.reason,
+          signalLabel: placement.signalLabel,
+        }),
+      );
+    }
+  }
+
+  const lanes: NewsModelTrainingBatchLane[] =
+    newsModelTrainingBatchDefinitions.map((definition) => {
+      const bucket = buckets.get(definition.key);
+      const count = bucket?.count ?? 0;
+
+      return {
+        count,
+        key: definition.key,
+        label: definition.label,
+        shareLabel: formatPercentage(count, items.length),
+        stories: bucket?.stories ?? [],
+        summary: definition.summary,
+      };
+    });
+  const getLaneCount = (key: NewsModelTrainingBatchKey) =>
+    buckets.get(key)?.count ?? 0;
+  const reinforceCount = getLaneCount("reinforce");
+  const suppressCount = getLaneCount("suppress");
+  const exploreCount = getLaneCount("explore");
+  const holdoutCount = getLaneCount("holdout");
+
+  return {
+    label:
+      items.length === 0 ? "Training Batch Waiting" : "Training Batch Ready",
+    lanes,
+    metrics: [
+      { label: "Reinforce", value: String(reinforceCount) },
+      { label: "Suppress", value: String(suppressCount) },
+      { label: "Explore", value: String(exploreCount) },
+      { label: "Holdout", value: String(holdoutCount) },
+    ],
+    summary:
+      items.length === 0
+        ? "Model training batch will appear after stories are ranked."
+        : `${items.length} ${
+            items.length === 1 ? "story" : "stories"
+          } batched for recommendation training: ${reinforceCount} reinforce, ${suppressCount} suppress, ${exploreCount} explore, and ${holdoutCount} holdout.`,
+  };
+};
+
 const getDominantChannelCategory = ({
   formatCategory,
   items,

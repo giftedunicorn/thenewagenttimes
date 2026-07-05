@@ -5574,6 +5574,66 @@ describe("getNewsReaderLearningLoop", () => {
     });
   });
 
+  it("feeds shares and source clicks into the learning loop", () => {
+    expect(
+      getNewsReaderLearningLoop({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        historyItems: [],
+        items: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            id: "shared-agent",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "agent_product",
+            id: "source-click-agent",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Source-clicked agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail: "2 positive interactions are teaching the feed to lift Agents.",
+          key: "reinforce",
+          label: "Reinforce",
+          signalLabel: "2 positive signals",
+          statusLabel: "Lift",
+          title: "Agents",
+        },
+      ],
+      label: "Learning Loop Active",
+      metrics: [
+        { label: "Positive", value: "2" },
+        { label: "Guardrails", value: "0" },
+        { label: "Explore", value: "0" },
+        { label: "Profile", value: "0 signals" },
+      ],
+      summary:
+        "1 learning action combines 2 positive signals, 0 guardrails, and 0 exploration candidates.",
+    });
+  });
+
   it("keeps the learning loop empty before behavior or ranked stories arrive", () => {
     expect(
       getNewsReaderLearningLoop({

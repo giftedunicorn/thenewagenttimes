@@ -1991,6 +1991,7 @@ export function NewsHome({
     historyItems,
     items: rankedItems,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

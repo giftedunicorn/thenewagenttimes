@@ -4745,9 +4745,11 @@ const getReaderLearningExplorationCandidate = (
 
 const getReaderLearningReinforceAction = ({
   formatCategory,
+  hasExplicitPositiveFeedback,
   positiveItems,
 }: {
   formatCategory: (category: string) => string;
+  hasExplicitPositiveFeedback: boolean;
   positiveItems: readonly NewsReaderMemoryItem[];
 }): NewsReaderLearningLoopAction | null => {
   const topTopic = getTopMemorySignal(
@@ -4757,9 +4759,14 @@ const getReaderLearningReinforceAction = ({
   if (!topTopic) return null;
 
   const topicLabel = formatCategory(topTopic.value);
+  const positiveSignalSubject = hasExplicitPositiveFeedback
+    ? `${topTopic.count} positive ${
+        topTopic.count === 1 ? "interaction is" : "interactions are"
+      }`
+    : `${topTopic.count} reads/saves are`;
 
   return {
-    detail: `${topTopic.count} reads/saves are teaching the feed to lift ${topicLabel}.`,
+    detail: `${positiveSignalSubject} teaching the feed to lift ${topicLabel}.`,
     key: "reinforce",
     label: "Reinforce",
     signalLabel: `${topTopic.count} positive ${
@@ -4769,6 +4776,44 @@ const getReaderLearningReinforceAction = ({
     title: topicLabel,
   };
 };
+
+const getReaderLearningExplicitSaveFeedbackItems = ({
+  positiveFeedbackItems,
+  savedItems,
+}: {
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const savedItemIds = new Set(savedItems.map((item) => item.id));
+  const savedItemUrlKeys = new Set(savedItems.flatMap(getNewsDedupeUrlKeys));
+
+  return positiveFeedbackItems.filter(
+    (item) =>
+      item.action === "save" &&
+      !savedItemIds.has(item.id) &&
+      !getNewsDedupeUrlKeys(item).some((urlKey) =>
+        savedItemUrlKeys.has(urlKey),
+      ),
+  );
+};
+
+const getReaderLearningPositiveItems = ({
+  historyItems,
+  positiveFeedbackItems,
+  savedItems,
+}: {
+  historyItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => [
+  ...positiveFeedbackItems.filter((item) => item.action !== "save"),
+  ...getReaderLearningExplicitSaveFeedbackItems({
+    positiveFeedbackItems,
+    savedItems,
+  }),
+  ...historyItems,
+  ...savedItems,
+];
 
 const getReaderLearningExploreAction = ({
   formatCategory,
@@ -4836,6 +4881,7 @@ export const getNewsReaderLearningLoop = ({
   historyItems,
   items,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -4843,16 +4889,28 @@ export const getNewsReaderLearningLoop = ({
   historyItems: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
-  const positiveItems = [...historyItems, ...savedItems];
+  const positiveItems = getReaderLearningPositiveItems({
+    historyItems,
+    positiveFeedbackItems,
+    savedItems,
+  });
+  const hasExplicitPositiveFeedback = positiveFeedbackItems.some(
+    (item) => item.action !== "save",
+  );
   const explorationItems = items.filter((item) =>
     item.matchedSignals.includes("exploration"),
   );
   const profileSignalCount = getReaderLearningProfileSignalCount(profile);
   const actions = [
-    getReaderLearningReinforceAction({ formatCategory, positiveItems }),
+    getReaderLearningReinforceAction({
+      formatCategory,
+      hasExplicitPositiveFeedback,
+      positiveItems,
+    }),
     getReaderLearningExploreAction({
       formatCategory,
       item: getReaderLearningExplorationCandidate(items),
@@ -4879,8 +4937,8 @@ export const getNewsReaderLearningLoop = ({
     summary:
       actions.length > 0
         ? `${actions.length} learning ${
-            actions.length === 1 ? "action" : "actions"
-          } combine ${positiveItems.length} positive ${
+            actions.length === 1 ? "action combines" : "actions combine"
+          } ${positiveItems.length} positive ${
             positiveItems.length === 1 ? "signal" : "signals"
           }, ${negativeFeedbackItems.length} ${
             negativeFeedbackItems.length === 1 ? "guardrail" : "guardrails"

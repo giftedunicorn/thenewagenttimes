@@ -15169,6 +15169,71 @@ describe("getNewsExperimentAllocation", () => {
     });
   });
 
+  it("uses shares and source clicks to activate collaborative lift experiments", () => {
+    const allocation = getNewsExperimentAllocation({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "agent-collab-experiment",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "Agent Desk",
+          sourceScore: 84,
+          sourceSlug: "agent-desk",
+          title: "Agent story for positive experiment lift",
+          trendScore: 86,
+        },
+      ],
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "shared-agent-experiment",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent experiment story",
+        },
+        {
+          ...olderItem,
+          action: "click_source",
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "source-click-agent-experiment",
+          occurredAt: "2026-07-02T10:05:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Source-clicked agent experiment story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(allocation.arms).toContainEqual(
+      expect.objectContaining({
+        key: "collaborative_lift",
+        label: "Collaborative Lift",
+        storyCount: 1,
+        trigger: "1 cohort candidate is available.",
+      }),
+    );
+  });
+
   it("does not activate reader-match experiments for guardrail and edition signals", () => {
     const allocation = getNewsExperimentAllocation({
       formatCategory: (category) =>

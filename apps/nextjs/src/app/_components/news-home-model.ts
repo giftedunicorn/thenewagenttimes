@@ -10619,6 +10619,7 @@ export const getNewsExperimentAllocation = ({
   historyItems,
   items,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -10626,6 +10627,7 @@ export const getNewsExperimentAllocation = ({
   historyItems: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -10644,6 +10646,7 @@ export const getNewsExperimentAllocation = ({
     items,
     limit: 2,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile: normalizedProfile,
     savedItems,
   });

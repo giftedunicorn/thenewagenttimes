@@ -5426,6 +5426,67 @@ describe("getNewsInterestDrift", () => {
     });
   });
 
+  it("counts shares and source clicks as positive interest drift", () => {
+    expect(
+      getNewsInterestDrift({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        historyItems: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            id: "shared-agent-drift",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "agent_product",
+            id: "source-click-agent-drift",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Source-clicked agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Learning",
+      metrics: [
+        { label: "Active signals", value: "0" },
+        { label: "Positive drift", value: "2" },
+        { label: "Guarded signals", value: "0" },
+        { label: "Direction", value: "Agents" },
+      ],
+      notices: [
+        {
+          detail:
+            "Agents leads recent positive interactions with 2 weighted signals.",
+          label: "Topic drift",
+        },
+        {
+          detail:
+            "Agent Desk is gaining weight from 2 positive interactions.",
+          label: "Source drift",
+        },
+      ],
+      summary:
+        "Recent behavior is pulling the profile toward Agents while guarding 0 negative signals.",
+    });
+  });
+
   it("keeps cold-start drift explicit before behavior arrives", () => {
     expect(
       getNewsInterestDrift({

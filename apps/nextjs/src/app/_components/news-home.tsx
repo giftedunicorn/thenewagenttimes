@@ -2043,6 +2043,7 @@ export function NewsHome({
     formatCategory: getCategoryLabel,
     historyItems,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     profile,
     savedItems,
   });

@@ -4607,12 +4607,14 @@ export const getNewsInterestDrift = ({
   formatCategory,
   historyItems,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
   formatCategory: (category: string) => string;
   historyItems: readonly NewsReaderMemoryItem[];
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -4621,7 +4623,31 @@ export const getNewsInterestDrift = ({
     normalizedProfile.preferredCategories.length +
     normalizedProfile.preferredSources.length +
     normalizedProfile.preferredEntities.length;
-  const positiveItems = [...savedItems, ...historyItems];
+  const savedItemIds = new Set(savedItems.map((item) => item.id));
+  const savedItemUrlKeys = new Set(savedItems.flatMap(getNewsDedupeUrlKeys));
+  const explicitSaveFeedbackItems = positiveFeedbackItems.filter(
+    (item) =>
+      item.action === "save" &&
+      !savedItemIds.has(item.id) &&
+      !getNewsDedupeUrlKeys(item).some((urlKey) =>
+        savedItemUrlKeys.has(urlKey),
+      ),
+  );
+  const positiveItems = [
+    ...positiveFeedbackItems.filter((item) => item.action !== "save"),
+    ...explicitSaveFeedbackItems,
+    ...savedItems,
+    ...historyItems,
+  ];
+  const hasExplicitPositiveInteractions = positiveFeedbackItems.some(
+    (item) => item.action !== "save",
+  );
+  const positiveTopicSignalLabel = hasExplicitPositiveInteractions
+    ? "positive interactions"
+    : "saves and reads";
+  const positiveSourceSignalLabel = hasExplicitPositiveInteractions
+    ? "positive interactions"
+    : "saved/read interactions";
   const positiveDriftCount = positiveItems.length;
   const hasNegativeTopics = negativeFeedbackItems.length > 0;
   const hasNegativeSources = negativeFeedbackItems.length > 0;
@@ -4667,14 +4693,14 @@ export const getNewsInterestDrift = ({
 
   if (topPositiveTopic) {
     notices.push({
-      detail: `${formatCategory(topPositiveTopic.value)} leads recent saves and reads with ${topPositiveTopic.count} weighted signals.`,
+      detail: `${formatCategory(topPositiveTopic.value)} leads recent ${positiveTopicSignalLabel} with ${topPositiveTopic.count} weighted signals.`,
       label: "Topic drift",
     });
   }
 
   if (topPositiveSource) {
     notices.push({
-      detail: `${topPositiveSource.value} is gaining weight from ${topPositiveSource.count} saved/read interactions.`,
+      detail: `${topPositiveSource.value} is gaining weight from ${topPositiveSource.count} ${positiveSourceSignalLabel}.`,
       label: "Source drift",
     });
   }

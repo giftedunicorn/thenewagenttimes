@@ -6323,6 +6323,116 @@ export const getNewsPreferenceControlPanel = ({
   };
 };
 
+type NewsForYouControlStripTrainingAction =
+  NewsPreferenceProfileTrainingAction & {
+    active: boolean;
+  };
+
+const forYouControlStripTopics = [
+  {
+    actionLabel: "More Agents",
+    activeActionLabel: "Following Agents",
+    category: "agent_product",
+  },
+  {
+    actionLabel: "More Models",
+    activeActionLabel: "Following Models",
+    category: "model_release",
+  },
+  {
+    actionLabel: "More Funding",
+    activeActionLabel: "Following Funding",
+    category: "funding",
+  },
+] as const;
+
+const formatForYouControlStripBias = (value: number) =>
+  `${Math.round(value * 10) / 10}/2`;
+
+const formatForYouControlStripStoryCount = (count: number) =>
+  `${count} ranked ${count === 1 ? "story" : "stories"}`;
+
+export const getNewsForYouControlStrip = ({
+  formatCategory,
+  guardrailItems,
+  profile,
+  rankedItems,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  guardrailItems: readonly NewsReaderMemoryItem[];
+  profile: NewsPreferenceProfile;
+  rankedItems: readonly RankedNewsItem<NewsHomeItem>[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const topicCount = normalizedProfile.preferredCategories.length;
+  const sourceCount = normalizedProfile.preferredSources.length;
+  const entityCount = normalizedProfile.preferredEntities.length;
+  const freshLabel = formatForYouControlStripBias(
+    normalizedProfile.recencyBias,
+  );
+  const novelLabel = formatForYouControlStripBias(
+    normalizedProfile.noveltyBias,
+  );
+  const trainingActions: NewsForYouControlStripTrainingAction[] =
+    forYouControlStripTopics.map((topic) => {
+      const active = hasPreferenceSignal(
+        normalizedProfile.preferredCategories,
+        topic.category,
+      );
+      const label = formatCategory(topic.category);
+
+      return {
+        active,
+        actionLabel: active ? topic.activeActionLabel : topic.actionLabel,
+        effect: "add",
+        label,
+        signals: [
+          {
+            kind: "category",
+            label,
+            signal: topic.category,
+          },
+        ],
+        source: "control",
+      };
+    });
+
+  return {
+    label: "Train For You",
+    memory: [
+      {
+        label: "Saved",
+        value: `${savedItems.length} saved`,
+      },
+      {
+        label: "Less",
+        value: `${guardrailItems.length} less`,
+      },
+      {
+        label: "Reset",
+        value: "Reset memory",
+      },
+    ],
+    metrics: [
+      { label: "Topics", value: String(topicCount) },
+      { label: "Sources", value: String(sourceCount) },
+      { label: "Entities", value: String(entityCount) },
+      { label: "Saved", value: String(savedItems.length) },
+      { label: "Less", value: String(guardrailItems.length) },
+    ],
+    summary: `For You is using ${topicCount} ${
+      topicCount === 1 ? "topic" : "topics"
+    }, ${sourceCount} ${sourceCount === 1 ? "source" : "sources"}, ${entityCount} ${
+      entityCount === 1 ? "entity" : "entities"
+    }, Fresh ${freshLabel}, Novel ${novelLabel} across ${formatForYouControlStripStoryCount(
+      rankedItems.length,
+    )}.`,
+    trainingActions,
+  };
+};
+
 export type NewsPreferenceBiasKey = "noveltyBias" | "recencyBias";
 
 export interface NewsPreferenceBiasAction {

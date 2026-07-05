@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type {
   NewsHomeItem,
   NewsPositiveFeedbackMemoryItem,
+  NewsReaderMemoryItem,
 } from "./news-home-model";
 import {
   applyNewsStoryQuickTuneAction,
@@ -47,6 +48,7 @@ import {
   getNewsFeedGovernorControlTrainingAction,
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
+  getNewsForYouControlStrip,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
   getNewsGuardrailRestoreTrainingUpdate,
@@ -259,6 +261,119 @@ describe("createDefaultNewsPreferenceProfile", () => {
     expect(firstProfile.preferredEntities).not.toBe(
       secondProfile.preferredEntities,
     );
+  });
+});
+
+describe("getNewsForYouControlStrip", () => {
+  const rankedLocalItem = {
+    ...localItem,
+    matchedSignals: ["category"],
+    personalizedScore: 120,
+  };
+  const savedMemoryItem = {
+    ...localItem,
+    savedAt: "2026-07-01T09:00:00.000Z",
+  } satisfies NewsReaderMemoryItem;
+  const guardrailMemoryItem = {
+    ...localItem,
+    hiddenAt: "2026-07-01T09:30:00.000Z",
+    id: "guardrail-story",
+  } satisfies NewsReaderMemoryItem;
+
+  it("summarizes the default For You profile with compact metrics", () => {
+    const strip = getNewsForYouControlStrip({
+      formatCategory: (category) =>
+        category === "agent_product"
+          ? "Agents"
+          : category === "model_release"
+            ? "Models"
+            : category === "funding"
+              ? "Funding"
+              : category,
+      guardrailItems: [],
+      profile: createDefaultNewsPreferenceProfile(),
+      rankedItems: [rankedLocalItem],
+      savedItems: [],
+    });
+
+    expect(strip.label).toBe("Train For You");
+    expect(strip.summary).toBe(
+      "For You is using 3 topics, 0 sources, 0 entities, Fresh 1/2, Novel 1/2 across 1 ranked story.",
+    );
+    expect(strip.metrics).toEqual([
+      { label: "Topics", value: "3" },
+      { label: "Sources", value: "0" },
+      { label: "Entities", value: "0" },
+      { label: "Saved", value: "0" },
+      { label: "Less", value: "0" },
+    ]);
+  });
+
+  it("exposes high-value one-click training actions with active state", () => {
+    const strip = getNewsForYouControlStrip({
+      formatCategory: (category) =>
+        category === "agent_product"
+          ? "Agents"
+          : category === "model_release"
+            ? "Models"
+            : category === "funding"
+              ? "Funding"
+              : category,
+      guardrailItems: [],
+      profile: {
+        preferredCategories: ["funding"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      rankedItems: [rankedLocalItem],
+      savedItems: [],
+    });
+
+    expect(
+      strip.trainingActions.map((action) => ({
+        active: action.active,
+        actionLabel: action.actionLabel,
+        label: action.label,
+        signal: action.signals[0]?.signal,
+      })),
+    ).toEqual([
+      {
+        active: false,
+        actionLabel: "More Agents",
+        label: "Agents",
+        signal: "agent_product",
+      },
+      {
+        active: false,
+        actionLabel: "More Models",
+        label: "Models",
+        signal: "model_release",
+      },
+      {
+        active: true,
+        actionLabel: "Following Funding",
+        label: "Funding",
+        signal: "funding",
+      },
+    ]);
+  });
+
+  it("reports Saved and Less memory counts from merged memory arrays", () => {
+    const strip = getNewsForYouControlStrip({
+      formatCategory: (category) => category,
+      guardrailItems: [guardrailMemoryItem],
+      profile: createDefaultNewsPreferenceProfile(),
+      rankedItems: [rankedLocalItem],
+      savedItems: [savedMemoryItem],
+    });
+
+    expect(strip.memory).toEqual([
+      { label: "Saved", value: "1 saved" },
+      { label: "Less", value: "1 less" },
+      { label: "Reset", value: "Reset memory" },
+    ]);
   });
 });
 

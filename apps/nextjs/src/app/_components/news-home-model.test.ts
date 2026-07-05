@@ -3630,6 +3630,83 @@ describe("getNewsGuardrailShelf", () => {
     );
   });
 
+  it("uses shares and source clicks to calibrate Less guardrails", () => {
+    expect(
+      getNewsGuardrailShelf({
+        formatCategory: () => "Security",
+        guardrailItems: [
+          {
+            ...localItem,
+            category: "security",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-prompt-injection",
+            sourceName: "Security Lab",
+            sourceSlug: "security-lab",
+            tags: ["prompt_injection"],
+            title: "Hidden prompt injection story",
+          },
+        ],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "security",
+            id: "shared-prompt-injection",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt-injection"],
+            title: "Shared prompt injection story",
+          },
+          {
+            ...olderItem,
+            action: "click_source",
+            category: "security",
+            id: "source-click-prompt-injection",
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Source-clicked prompt injection story",
+          },
+        ],
+      }),
+    ).toEqual({
+      calibrationPromptLabel: undefined,
+      calibrationPrompts: [
+        {
+          actionLabel: "Search angle",
+          actionQuery: "prompt injection",
+          detail:
+            "prompt injection has 1 Less guardrail and 2 positive behavior signals.",
+          includeHiddenItems: true,
+          label: "Review angle",
+          priorityLabel: "High conflict",
+          resetFilters: true,
+          targetFeedMode: "for_you",
+        },
+      ],
+      items: [
+        {
+          angleLabel: "prompt injection",
+          categoryLabel: "Security",
+          hiddenAt: "2026-07-01T11:00:00.000Z",
+          id: "hidden-prompt-injection",
+          sourceName: "Security Lab",
+          title: "Hidden prompt injection story",
+        },
+      ],
+      label: "1 active",
+      metrics: [
+        { label: "Guardrails", value: "1" },
+        { label: "Review", value: "1" },
+        { label: "Top topic", value: "Security" },
+        { label: "Top source", value: "Security Lab" },
+        { label: "Top angle", value: "prompt injection" },
+      ],
+      summary:
+        "Less feedback is damping 1 recent story, led by Security from Security Lab with prompt injection angle guardrails. 1 angle needs review against positive behavior.",
+    });
+  });
+
   it("prioritizes guardrail review prompts by saved and read conflict strength", () => {
     expect(
       getNewsGuardrailShelf({

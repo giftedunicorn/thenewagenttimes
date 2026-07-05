@@ -1967,6 +1967,7 @@ export function NewsHome({
   const guardrailShelf = getNewsGuardrailShelf({
     formatCategory: getCategoryLabel,
     guardrailItems,
+    positiveFeedbackItems,
     positiveItems: [...savedItems, ...historyItems],
   });
   const selectSavedItemForStory = (item: NewsReaderMemoryItem) =>

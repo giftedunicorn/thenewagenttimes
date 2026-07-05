@@ -2544,11 +2544,13 @@ export const getNewsGuardrailShelf = ({
   formatCategory,
   guardrailItems,
   limit = 3,
+  positiveFeedbackItems = [],
   positiveItems = [],
 }: {
   formatCategory: (category: string) => string;
   guardrailItems: readonly NewsReaderMemoryItem[];
   limit?: number;
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   positiveItems?: readonly NewsReaderMemoryItem[];
 }) => {
   const sortedItems = [...guardrailItems].sort((left, right) => {
@@ -2574,8 +2576,18 @@ export const getNewsGuardrailShelf = ({
   const summaryLead = `Less feedback is damping ${sortedItems.length} recent ${
     sortedItems.length === 1 ? "story" : "stories"
   }, led by ${topTopicLabel} from ${topSourceLabel}`;
+  const explicitPositiveItems = positiveFeedbackItems.filter(
+    (item) => item.action !== "save",
+  );
+  const positiveBehaviorItems = [...positiveItems, ...explicitPositiveItems];
+  const positiveSignalLabel =
+    explicitPositiveItems.length > 0 ? "positive behavior" : "saved/read";
+  const positiveReviewLabel =
+    explicitPositiveItems.length > 0
+      ? "positive behavior"
+      : "saved/read behavior";
   const positiveAngleCounts = new Map(
-    countNewsGuardrailShelfAngles(positiveItems).map((angle) => [
+    countNewsGuardrailShelfAngles(positiveBehaviorItems).map((angle) => [
       angle.value.toLowerCase(),
       angle,
     ]),
@@ -2594,7 +2606,7 @@ export const getNewsGuardrailShelf = ({
           actionQuery: hiddenAngle.value,
           detail: `${hiddenAngle.value} has ${hiddenAngle.count} Less ${
             hiddenAngle.count === 1 ? "guardrail" : "guardrails"
-          } and ${positiveAngle.count} saved/read ${
+          } and ${positiveAngle.count} ${positiveSignalLabel} ${
             positiveAngle.count === 1 ? "signal" : "signals"
           }.`,
           hiddenCount: hiddenAngle.count,
@@ -2649,7 +2661,7 @@ export const getNewsGuardrailShelf = ({
     reviewableAngleCount > 0
       ? ` ${reviewableAngleCount} ${
           reviewableAngleCount === 1 ? "angle needs" : "angles need"
-        } review against saved/read behavior.`
+        } review against ${positiveReviewLabel}.`
       : "";
 
   if (sortedItems.length === 0) {

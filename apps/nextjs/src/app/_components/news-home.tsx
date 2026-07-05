@@ -132,6 +132,7 @@ import {
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
+  getNewsReaderSatisfactionBrief,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
@@ -1999,6 +2000,13 @@ export function NewsHome({
     profile,
     savedItems,
   });
+  const readerSatisfactionBrief = getNewsReaderSatisfactionBrief({
+    historyItems,
+    items: rankedItems,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    savedItems,
+  });
   const serverProfileAudit = getNewsServerProfileAuditDisplay(
     profileQuery.data?.audit,
   );
@@ -2670,9 +2678,7 @@ export function NewsHome({
             <div className="flex flex-wrap gap-2">
               {forYouControlStrip.trainingActions.map((action) => (
                 <Button
-                  key={action.signals
-                    .map((signal) => signal.signal)
-                    .join(":")}
+                  key={action.signals.map((signal) => signal.signal).join(":")}
                   className="h-9 rounded-none px-3 text-xs whitespace-nowrap"
                   disabled={action.active}
                   type="button"
@@ -3753,6 +3759,46 @@ export function NewsHome({
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Reader Satisfaction</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {readerSatisfactionBrief.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {readerSatisfactionBrief.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {readerSatisfactionBrief.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {readerSatisfactionBrief.actions.map((action) => (
+                  <div
+                    key={action.label}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-semibold">{action.label}</span>
+                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {action.detail}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
 

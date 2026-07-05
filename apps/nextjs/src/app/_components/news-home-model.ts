@@ -10569,6 +10569,169 @@ export const getNewsPersonalizationMix = ({
   };
 };
 
+type NewsReaderSatisfactionLabel =
+  | "At Risk"
+  | "Learning"
+  | "Satisfied"
+  | "Waiting";
+
+const getNewsReaderSatisfactionScore = ({
+  explorationShare,
+  guardrailCount,
+  positiveSignalCount,
+  totalCount,
+}: {
+  explorationShare: number;
+  guardrailCount: number;
+  positiveSignalCount: number;
+  totalCount: number;
+}) => {
+  if (totalCount === 0 && positiveSignalCount === 0 && guardrailCount === 0) {
+    return 0;
+  }
+
+  const baseScore = totalCount > 0 ? 60 : 40;
+  const positiveBoost = Math.min(positiveSignalCount * 8, 24);
+  const guardrailPenalty = Math.min(guardrailCount * 6, 24);
+  const explorationBalanceBonus =
+    explorationShare >= 0.15 && explorationShare <= 0.35 ? 6 : 0;
+  const explorationRiskPenalty =
+    totalCount > 0 && explorationShare === 0 ? 6 : 0;
+
+  return Math.max(
+    0,
+    Math.min(
+      100,
+      baseScore +
+        positiveBoost +
+        explorationBalanceBonus -
+        guardrailPenalty -
+        explorationRiskPenalty,
+    ),
+  );
+};
+
+const getNewsReaderSatisfactionLabel = (
+  score: number,
+): NewsReaderSatisfactionLabel => {
+  if (score === 0) return "Waiting";
+  if (score >= 75) return "Satisfied";
+  if (score >= 50) return "Learning";
+  return "At Risk";
+};
+
+const getNewsReaderSatisfactionSessionLabel = (
+  label: NewsReaderSatisfactionLabel,
+) => {
+  if (label === "Satisfied") return "a healthy recommendation session";
+  if (label === "Learning")
+    return "an actively learning recommendation session";
+  return "a recommendation session that needs tuning";
+};
+
+const getNewsReaderSatisfactionActions = ({
+  explorationShare,
+  guardrailCount,
+  positiveSignalCount,
+  totalCount,
+}: {
+  explorationShare: number;
+  guardrailCount: number;
+  positiveSignalCount: number;
+  totalCount: number;
+}) => {
+  if (totalCount === 0 && positiveSignalCount === 0 && guardrailCount === 0) {
+    return [
+      {
+        detail:
+          "Show the reader a balanced first page and wait for saves, reads, shares, or Less feedback.",
+        label: "Collect signals",
+      },
+    ];
+  }
+
+  return [
+    {
+      detail:
+        positiveSignalCount > 0
+          ? "Keep lifting stories tied to saves, reads, shares, and source clicks."
+          : "Ask for one explicit save, share, source click, or Less action to calibrate the session.",
+      label: positiveSignalCount > 0 ? "Reinforce fit" : "Request feedback",
+    },
+    {
+      detail:
+        explorationShare >= 0.1
+          ? "Keep a measured exploration lane so the feed can learn adjacent interests."
+          : "Add one trusted outside-profile story to avoid a narrow session.",
+      label: explorationShare >= 0.1 ? "Preserve discovery" : "Open discovery",
+    },
+    {
+      detail:
+        guardrailCount > 0
+          ? "Use Less feedback as a cooldown, not a permanent block, unless the topic repeats."
+          : "Watch repeated topics and sources before asking for stronger negative feedback.",
+      label: guardrailCount > 0 ? "Review guardrails" : "Watch fatigue",
+    },
+  ];
+};
+
+export const getNewsReaderSatisfactionBrief = ({
+  historyItems,
+  items,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  savedItems,
+}: {
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const totalCount = items.length;
+  const explorationCount = items.filter((item) =>
+    item.matchedSignals.includes("exploration"),
+  ).length;
+  const explorationShare = totalCount > 0 ? explorationCount / totalCount : 0;
+  const explorationPercent = formatPercentage(explorationCount, totalCount);
+  const positiveSignalCount =
+    historyItems.length + positiveFeedbackItems.length + savedItems.length;
+  const guardrailCount = negativeFeedbackItems.length;
+  const score = getNewsReaderSatisfactionScore({
+    explorationShare,
+    guardrailCount,
+    positiveSignalCount,
+    totalCount,
+  });
+  const label = getNewsReaderSatisfactionLabel(score);
+
+  return {
+    actions: getNewsReaderSatisfactionActions({
+      explorationShare,
+      guardrailCount,
+      positiveSignalCount,
+      totalCount,
+    }),
+    label,
+    metrics: [
+      { label: "Score", value: String(score) },
+      { label: "Positive", value: String(positiveSignalCount) },
+      { label: "Guardrails", value: String(guardrailCount) },
+      { label: "Explore", value: explorationPercent },
+    ],
+    summary:
+      label === "Waiting"
+        ? "Reader satisfaction will appear after ranked stories or behavior arrives."
+        : `${positiveSignalCount} positive ${
+            positiveSignalCount === 1 ? "signal" : "signals"
+          }, ${guardrailCount} ${
+            guardrailCount === 1 ? "guardrail" : "guardrails"
+          }, and ${explorationPercent} exploration coverage indicate ${getNewsReaderSatisfactionSessionLabel(
+            label,
+          )}.`,
+  };
+};
+
 type NewsExperimentAllocationArmKey =
   | "collaborative_lift"
   | "exploration"
@@ -11418,12 +11581,11 @@ export const getNewsRecommendationTrace = ({
   const signalBackedReaderMemoryItem = items.find((item) =>
     item.matchedSignals.includes("positive_feedback"),
   );
-  const positiveFeedbackMemoryMatch = getRecommendationTracePositiveFeedbackMatch(
-    {
+  const positiveFeedbackMemoryMatch =
+    getRecommendationTracePositiveFeedbackMatch({
       items,
       positiveFeedbackItems,
-    },
-  );
+    });
   const readerMemoryItem =
     signalBackedReaderMemoryItem ?? positiveFeedbackMemoryMatch?.item;
   const readerMemoryDetail = signalBackedReaderMemoryItem
@@ -13486,7 +13648,11 @@ export const getNewsTasteCalibration = ({
   const explicitPositiveItems = positiveFeedbackItems.filter(
     (item) => item.action !== "save",
   );
-  const memoryItems = [...historyItems, ...savedItems, ...explicitPositiveItems];
+  const memoryItems = [
+    ...historyItems,
+    ...savedItems,
+    ...explicitPositiveItems,
+  ];
   const memorySignalLabel =
     explicitPositiveItems.length > 0
       ? "positive behavior"
@@ -19161,7 +19327,9 @@ export const getNewsContinuationRail = ({
   });
   const anchor = historyItems[0] ?? positiveAnchors[0];
   const anchorSourceLabel =
-    historyItems.length > 0 ? "your latest read" : "your latest positive signal";
+    historyItems.length > 0
+      ? "your latest read"
+      : "your latest positive signal";
 
   if (!anchor) {
     return {
@@ -20670,12 +20838,14 @@ const newsStoryProofSpecificSignals = [
   },
   {
     label: "Similar readers",
-    reason: "Lifted by recent saves, shares, and deep reads from similar readers",
+    reason:
+      "Lifted by recent saves, shares, and deep reads from similar readers",
     signal: "collaborative_feedback",
   },
   {
     label: "Session intent",
-    reason: "Ranked from the topic, source, or search intent active in this session",
+    reason:
+      "Ranked from the topic, source, or search intent active in this session",
     signal: "session_intent",
   },
   {
@@ -20691,7 +20861,8 @@ const newsStoryProofSpecificSignals = [
   },
   {
     label: "Coverage lift",
-    reason: "Lifted because independent sources are covering the same development",
+    reason:
+      "Lifted because independent sources are covering the same development",
     signal: "source_corroboration",
   },
 ] as const;
@@ -20701,9 +20872,7 @@ export const getNewsStoryProofStrip = ({
 }: {
   item: RankedNewsItem<NewsHomeItem>;
 }) => {
-  const hasExposureCooldown = item.matchedSignals.includes(
-    "exposure_cooldown",
-  );
+  const hasExposureCooldown = item.matchedSignals.includes("exposure_cooldown");
   const hasHomeExposureCooldown = item.matchedSignals.includes(
     "home_exposure_cooldown",
   );

@@ -96,6 +96,7 @@ import {
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
+  getNewsReaderSatisfactionBrief,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
@@ -1255,6 +1256,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("forYouControlStrip.memory.map");
     expect(source).toContain("{memoryItem.label}");
     expect(source).toContain("{memoryItem.value}");
+  });
+
+  it("renders the reader satisfaction brief from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsReaderSatisfactionBrief({");
+    expect(source).toContain("Reader Satisfaction");
+    expect(source).toContain("readerSatisfactionBrief.actions.map");
   });
 });
 
@@ -5824,8 +5836,7 @@ describe("getNewsInterestDrift", () => {
           label: "Topic drift",
         },
         {
-          detail:
-            "Agent Desk is gaining weight from 2 positive interactions.",
+          detail: "Agent Desk is gaining weight from 2 positive interactions.",
           label: "Source drift",
         },
       ],
@@ -6022,7 +6033,8 @@ describe("getNewsReaderLearningLoop", () => {
     ).toEqual({
       actions: [
         {
-          detail: "2 positive interactions are teaching the feed to lift Agents.",
+          detail:
+            "2 positive interactions are teaching the feed to lift Agents.",
           key: "reinforce",
           label: "Reinforce",
           signalLabel: "2 positive signals",
@@ -9219,100 +9231,100 @@ describe("getNewsProfileImpactPreview", () => {
 
   it("previews positive feedback impact even before explicit profile signals exist", () => {
     const preview = getNewsProfileImpactPreview({
-        formatCategory: (category) =>
-          category === "agent_product"
-            ? "Agents"
-            : category === "security"
-              ? "Security"
-              : "Models",
-        items: [
-          {
-            ...localItem,
-            category: "agent_product",
-            entities: ["Devin"],
-            id: "positive-agent-impact",
-            matchedSignals: [],
-            personalizedScore: 124,
-            sourceName: "Agent Desk",
-            sourceSlug: "agent-desk",
-            title: "Agent story lifted by shared feedback",
-          },
-          {
-            ...localItem,
-            category: "security",
-            entities: [],
-            id: "positive-security-impact",
-            matchedSignals: [],
-            personalizedScore: 118,
-            sourceName: "Security Desk",
-            sourceSlug: "security-desk",
-            tags: ["prompt_injection"],
-            title: "Security story lifted by opened source",
-          },
-        ],
-        limit: 2,
-        negativeFeedbackItems: [],
-        positiveFeedbackItems: [
-          {
-            ...localItem,
-            action: "share",
-            category: "agent_product",
-            entities: ["Devin"],
-            id: "shared-agent-impact",
-            occurredAt: "2026-07-02T10:00:00.000Z",
-            sourceName: "Agent Desk",
-            sourceSlug: "agent-desk",
-            title: "Shared agent impact story",
-          },
-          {
-            ...localItem,
-            action: "click_source",
-            category: "model_release",
-            entities: [],
-            id: "source-click-security-impact",
-            occurredAt: "2026-07-02T10:05:00.000Z",
-            sourceName: "Model Wire",
-            sourceSlug: "model-wire",
-            tags: ["prompt_injection"],
-            title: "Opened prompt injection story",
-          },
-        ],
-        profile: {
-          preferredCategories: [],
-          preferredSources: [],
-          preferredEntities: [],
-          noveltyBias: 1,
-          recencyBias: 1,
+      formatCategory: (category) =>
+        category === "agent_product"
+          ? "Agents"
+          : category === "security"
+            ? "Security"
+            : "Models",
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "positive-agent-impact",
+          matchedSignals: [],
+          personalizedScore: 124,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent story lifted by shared feedback",
         },
-      });
+        {
+          ...localItem,
+          category: "security",
+          entities: [],
+          id: "positive-security-impact",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Security story lifted by opened source",
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "shared-agent-impact",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent impact story",
+        },
+        {
+          ...localItem,
+          action: "click_source",
+          category: "model_release",
+          entities: [],
+          id: "source-click-security-impact",
+          occurredAt: "2026-07-02T10:05:00.000Z",
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          tags: ["prompt_injection"],
+          title: "Opened prompt injection story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
 
     expect(preview.label).toBe("Profile Impact");
     expect(preview.lanes[0]).toEqual(
       expect.objectContaining({
-          count: 2,
-          key: "boosted",
-          label: "Boosted",
-          stories: [
-            {
-              id: "positive-agent-impact",
-              reason: "Matches positive feedback memory.",
-              sourceName: "Agent Desk",
-              title: "Agent story lifted by shared feedback",
-            },
-            {
-              id: "positive-security-impact",
-              reason: "Matches positive feedback memory.",
-              sourceName: "Security Desk",
-              title: "Security story lifted by opened source",
-            },
-          ],
+        count: 2,
+        key: "boosted",
+        label: "Boosted",
+        stories: [
+          {
+            id: "positive-agent-impact",
+            reason: "Matches positive feedback memory.",
+            sourceName: "Agent Desk",
+            title: "Agent story lifted by shared feedback",
+          },
+          {
+            id: "positive-security-impact",
+            reason: "Matches positive feedback memory.",
+            sourceName: "Security Desk",
+            title: "Security story lifted by opened source",
+          },
+        ],
       }),
     );
     expect(preview.metrics).toEqual([
-        { label: "Active signals", value: "2" },
-        { label: "Boosted", value: "2" },
-        { label: "Explore", value: "0" },
-        { label: "Dampened", value: "0" },
+      { label: "Active signals", value: "2" },
+      { label: "Boosted", value: "2" },
+      { label: "Explore", value: "0" },
+      { label: "Dampened", value: "0" },
     ]);
   });
 
@@ -10047,26 +10059,27 @@ describe("getNewsLiveWire", () => {
       "discovery_slot",
     ] as const;
 
-    const updates = safeguardSignals.map((signal, index) =>
-      getNewsLiveWire({
-        formatCategory: (category) =>
-          category === "agent_product" ? "Agents" : "Models",
-        items: [
-          {
-            ...localItem,
-            id: `${signal}-wire`,
-            category: "agent_product",
-            matchedSignals: [signal],
-            personalizedScore: 120 - index,
-            sourceName: "Agent Desk",
-            sourceScore: 88,
-            sourceSlug: "agent-desk",
-            title: `${signal} keeps the live wire balanced`,
-            trendScore: 82,
-          },
-        ],
-        limit: 1,
-      }).updates[0],
+    const updates = safeguardSignals.map(
+      (signal, index) =>
+        getNewsLiveWire({
+          formatCategory: (category) =>
+            category === "agent_product" ? "Agents" : "Models",
+          items: [
+            {
+              ...localItem,
+              id: `${signal}-wire`,
+              category: "agent_product",
+              matchedSignals: [signal],
+              personalizedScore: 120 - index,
+              sourceName: "Agent Desk",
+              sourceScore: 88,
+              sourceSlug: "agent-desk",
+              title: `${signal} keeps the live wire balanced`,
+              trendScore: 82,
+            },
+          ],
+          limit: 1,
+        }).updates[0],
     );
 
     expect(
@@ -10498,26 +10511,27 @@ describe("getNewsHotBoard", () => {
       "discovery_slot",
     ] as const;
 
-    const entries = safeguardSignals.map((signal, index) =>
-      getNewsHotBoard({
-        formatCategory: (category) =>
-          category === "agent_product" ? "Agents" : "Models",
-        items: [
-          {
-            ...localItem,
-            id: `${signal}-hot`,
-            category: "agent_product",
-            matchedSignals: [signal],
-            personalizedScore: 120 - index,
-            sourceName: "Agent Desk",
-            sourceScore: 88,
-            sourceSlug: "agent-desk",
-            title: `${signal} keeps the hot board balanced`,
-            trendScore: 82,
-          },
-        ],
-        limit: 1,
-      }).entries[0],
+    const entries = safeguardSignals.map(
+      (signal, index) =>
+        getNewsHotBoard({
+          formatCategory: (category) =>
+            category === "agent_product" ? "Agents" : "Models",
+          items: [
+            {
+              ...localItem,
+              id: `${signal}-hot`,
+              category: "agent_product",
+              matchedSignals: [signal],
+              personalizedScore: 120 - index,
+              sourceName: "Agent Desk",
+              sourceScore: 88,
+              sourceSlug: "agent-desk",
+              title: `${signal} keeps the hot board balanced`,
+              trendScore: 82,
+            },
+          ],
+          limit: 1,
+        }).entries[0],
     );
 
     expect(
@@ -15267,6 +15281,147 @@ describe("getNewsPersonalizationMix", () => {
   });
 });
 
+describe("getNewsReaderSatisfactionBrief", () => {
+  it("turns positive feedback, guardrails, and feed balance into a satisfaction brief", () => {
+    expect(
+      getNewsReaderSatisfactionBrief({
+        historyItems: [
+          {
+            ...localItem,
+            id: "satisfaction-read-agent",
+            category: "agent_product",
+            entities: ["Devin"],
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "satisfaction-reader-match",
+            matchedSignals: ["category"],
+            personalizedScore: 146,
+            sourceScore: 84,
+            trendScore: 82,
+          },
+          {
+            ...localItem,
+            id: "satisfaction-positive-memory",
+            matchedSignals: ["positive_feedback"],
+            personalizedScore: 139,
+            sourceScore: 82,
+            trendScore: 80,
+          },
+          {
+            ...localItem,
+            id: "satisfaction-explore",
+            matchedSignals: ["exploration"],
+            personalizedScore: 118,
+            sourceName: "Robotics Desk",
+            sourceScore: 90,
+            sourceSlug: "robotics-desk",
+            trendScore: 89,
+          },
+          {
+            ...localItem,
+            id: "satisfaction-trust",
+            matchedSignals: [],
+            personalizedScore: 103,
+            sourceName: "Primary Lab",
+            sourceScore: 94,
+            sourceSlug: "primary-lab",
+            trendScore: 70,
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...olderItem,
+            id: "satisfaction-less-funding",
+            category: "funding",
+            sourceName: "Funding Wire",
+            sourceSlug: "funding-wire",
+          },
+        ],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            id: "satisfaction-shared-agent",
+            category: "agent_product",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            id: "satisfaction-saved-model",
+            category: "model_release",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+          },
+        ],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "Keep lifting stories tied to saves, reads, shares, and source clicks.",
+          label: "Reinforce fit",
+        },
+        {
+          detail:
+            "Keep a measured exploration lane so the feed can learn adjacent interests.",
+          label: "Preserve discovery",
+        },
+        {
+          detail:
+            "Use Less feedback as a cooldown, not a permanent block, unless the topic repeats.",
+          label: "Review guardrails",
+        },
+      ],
+      label: "Satisfied",
+      metrics: [
+        { label: "Score", value: "84" },
+        { label: "Positive", value: "3" },
+        { label: "Guardrails", value: "1" },
+        { label: "Explore", value: "25%" },
+      ],
+      summary:
+        "3 positive signals, 1 guardrail, and 25% exploration coverage indicate a healthy recommendation session.",
+    });
+  });
+
+  it("keeps reader satisfaction explicit before behavior or ranked stories exist", () => {
+    expect(
+      getNewsReaderSatisfactionBrief({
+        historyItems: [],
+        items: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "Show the reader a balanced first page and wait for saves, reads, shares, or Less feedback.",
+          label: "Collect signals",
+        },
+      ],
+      label: "Waiting",
+      metrics: [
+        { label: "Score", value: "0" },
+        { label: "Positive", value: "0" },
+        { label: "Guardrails", value: "0" },
+        { label: "Explore", value: "0%" },
+      ],
+      summary:
+        "Reader satisfaction will appear after ranked stories or behavior arrives.",
+    });
+  });
+});
+
 describe("getNewsExperimentAllocation", () => {
   it("allocates For You traffic across reader, cohort, exploration, freshness, and trust experiments", () => {
     expect(
@@ -16721,27 +16876,27 @@ describe("getNewsRecommendationTrace", () => {
           category === "model_release" ? "Models" : category,
         historyItems: [],
         items: [
-            {
-              ...localItem,
-              id: storyId,
-              title: `${storyId} leads the edition`,
-              category: "model_release",
-              matchedSignals: [...matchedSignals],
-              personalizedScore: 139,
-              sourceName: "Signal Desk",
-              sourceScore: 83,
-              trendScore: 74,
-            },
-          ],
-          limit: 4,
-          negativeFeedbackItems: [],
-          profile: {
-            preferredCategories: [],
-            preferredSources: [],
-            preferredEntities: [],
-            noveltyBias: 1,
-            recencyBias: 1,
+          {
+            ...localItem,
+            id: storyId,
+            title: `${storyId} leads the edition`,
+            category: "model_release",
+            matchedSignals: [...matchedSignals],
+            personalizedScore: 139,
+            sourceName: "Signal Desk",
+            sourceScore: 83,
+            trendScore: 74,
           },
+        ],
+        limit: 4,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
       });
 
       return trace.steps[1] ?? null;
@@ -17946,7 +18101,8 @@ describe("getNewsRankingPipeline", () => {
     });
 
     expect(pipeline.stages[3]).toEqual({
-      detail: "Uses 2 positive events and 0 hidden stories to update the next pass.",
+      detail:
+        "Uses 2 positive events and 0 hidden stories to update the next pass.",
       label: "Feedback training",
       signals: [
         "Shared agent ranking story",
@@ -27540,11 +27696,7 @@ describe("getNewsStoryProofStrip", () => {
       "Session intent",
       "Ranked from the topic, source, or search intent active in this session",
     ],
-    [
-      "daypart",
-      "Daypart",
-      "Timed for this edition from reader local context",
-    ],
+    ["daypart", "Daypart", "Timed for this edition from reader local context"],
     [
       "discovery_slot",
       "Discovery",

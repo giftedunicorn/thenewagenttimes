@@ -2828,6 +2828,98 @@ export const getNewsReaderMemory = ({
   };
 };
 
+export interface NewsPersonalizationDataVaultControl {
+  detail: string;
+  label: string;
+}
+
+export const getNewsPersonalizationDataVault = ({
+  historyItems,
+  negativeFeedbackItems,
+  persisted = false,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  historyItems: readonly NewsReaderMemoryItem[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  persisted?: boolean;
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const profileSignalCount = getNewsReaderSignalSummary(
+    normalizeNewsPreferenceProfile(profile),
+  ).signalCount;
+  const behaviorMemoryCount =
+    historyItems.length + savedItems.length + positiveFeedbackItems.length;
+  const guardrailCount = negativeFeedbackItems.length;
+  const hasVaultData =
+    profileSignalCount > 0 || behaviorMemoryCount > 0 || guardrailCount > 0;
+
+  if (!hasVaultData) {
+    return {
+      controls: [
+        {
+          detail:
+            "Follow a topic, read a story, save, share, source-click, or press Less to create reviewable data.",
+          label: "Start training",
+        },
+      ],
+      label: "Data Vault Empty",
+      metrics: [
+        { label: "Profile", value: "0" },
+        { label: "Behavior", value: "0" },
+        { label: "Guardrails", value: "0" },
+        { label: "Persistence", value: "Local" },
+      ],
+      summary:
+        "The reader data vault will appear after profile or behavior signals exist.",
+    };
+  }
+
+  return {
+    controls: [
+      {
+        detail:
+          "Package followed topics, sources, entities, and bias settings for review.",
+        label: "Export profile",
+      },
+      {
+        detail: `Package ${behaviorMemoryCount} saved, read, shared, or source-clicked ${
+          behaviorMemoryCount === 1 ? "memory" : "memories"
+        }.`,
+        label: "Export behavior",
+      },
+      {
+        detail: `Review ${guardrailCount} Less feedback ${
+          guardrailCount === 1 ? "item" : "items"
+        } before resetting personalization.`,
+        label: "Review guardrails",
+      },
+      {
+        detail:
+          "Clear local reads, saves, positive feedback, and Less guardrails before retraining.",
+        label: "Reset memory",
+      },
+    ],
+    label: "Data Vault Ready",
+    metrics: [
+      { label: "Profile", value: String(profileSignalCount) },
+      { label: "Behavior", value: String(behaviorMemoryCount) },
+      { label: "Guardrails", value: String(guardrailCount) },
+      { label: "Persistence", value: persisted ? "Synced" : "Local" },
+    ],
+    summary: `The reader data vault is tracking ${profileSignalCount} profile ${
+      profileSignalCount === 1 ? "signal" : "signals"
+    }, ${behaviorMemoryCount} behavior ${
+      behaviorMemoryCount === 1 ? "memory" : "memories"
+    }, and ${guardrailCount} ${
+      guardrailCount === 1 ? "guardrail" : "guardrails"
+    }.`,
+  };
+};
+
 type NewsReaderJourneyStepKey =
   | "guardrail"
   | "impression"

@@ -102,6 +102,7 @@ import {
   getNewsLiveWire,
   getNewsMissedCoverageShelf,
   getNewsNextRefreshPlan,
+  getNewsPersonalizationDataVault,
   getNewsPersonalizationMix,
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
@@ -2050,6 +2051,14 @@ export function NewsHome({
     formatCategory: getCategoryLabel,
     historyItems,
     negativeFeedbackItems,
+    positiveFeedbackItems,
+    profile,
+    savedItems,
+  });
+  const personalizationDataVault = getNewsPersonalizationDataVault({
+    historyItems,
+    negativeFeedbackItems,
+    persisted: Boolean(profileQuery.data?.persisted),
     positiveFeedbackItems,
     profile,
     savedItems,
@@ -5121,6 +5130,46 @@ export function NewsHome({
                   })
                 }
               />
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Data Vault</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {personalizationDataVault.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {personalizationDataVault.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+              {personalizationDataVault.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {personalizationDataVault.controls.map((control) => (
+                <div
+                  key={control.label}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="font-semibold">{control.label}</div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {control.detail}
+                  </p>
+                </div>
+              ))}
             </div>
           </section>
 

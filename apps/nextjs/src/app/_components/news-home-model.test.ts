@@ -66,6 +66,7 @@ import {
   getNewsLiveWire,
   getNewsMissedCoverageShelf,
   getNewsNextRefreshPlan,
+  getNewsPersonalizationDataVault,
   getNewsPersonalizationMix,
   getNewsPersonalizedPushQueue,
   getNewsPersonalizedReadingQueue,
@@ -1279,6 +1280,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsReaderRetentionPlan({");
     expect(source).toContain("Reader Retention");
     expect(source).toContain("readerRetentionPlan.slots.map");
+  });
+
+  it("renders the personalization data vault from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsPersonalizationDataVault({");
+    expect(source).toContain("Data Vault");
+    expect(source).toContain("personalizationDataVault.controls.map");
   });
 });
 
@@ -15599,6 +15611,119 @@ describe("getNewsReaderRetentionPlan", () => {
       slots: [],
       summary:
         "Reader retention plan will appear after ranked stories or behavior arrives.",
+    });
+  });
+});
+
+describe("getNewsPersonalizationDataVault", () => {
+  it("summarizes profile, behavior, guardrail, and server persistence controls", () => {
+    expect(
+      getNewsPersonalizationDataVault({
+        historyItems: [
+          {
+            ...localItem,
+            id: "vault-read-model",
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...olderItem,
+            id: "vault-less-funding",
+          },
+          {
+            ...olderItem,
+            id: "vault-less-hot-take",
+            category: "hot_take",
+          },
+        ],
+        persisted: true,
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            id: "vault-shared-agent",
+          },
+        ],
+        profile: {
+          preferredCategories: ["agent_product", "model_release"],
+          preferredSources: ["agent-desk"],
+          preferredEntities: ["OpenAI"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [
+          {
+            ...localItem,
+            id: "vault-saved-agent",
+          },
+        ],
+      }),
+    ).toEqual({
+      controls: [
+        {
+          detail:
+            "Package followed topics, sources, entities, and bias settings for review.",
+          label: "Export profile",
+        },
+        {
+          detail: "Package 3 saved, read, shared, or source-clicked memories.",
+          label: "Export behavior",
+        },
+        {
+          detail:
+            "Review 2 Less feedback items before resetting personalization.",
+          label: "Review guardrails",
+        },
+        {
+          detail:
+            "Clear local reads, saves, positive feedback, and Less guardrails before retraining.",
+          label: "Reset memory",
+        },
+      ],
+      label: "Data Vault Ready",
+      metrics: [
+        { label: "Profile", value: "4" },
+        { label: "Behavior", value: "3" },
+        { label: "Guardrails", value: "2" },
+        { label: "Persistence", value: "Synced" },
+      ],
+      summary:
+        "The reader data vault is tracking 4 profile signals, 3 behavior memories, and 2 guardrails.",
+    });
+  });
+
+  it("keeps the data vault explicit before personalization data exists", () => {
+    expect(
+      getNewsPersonalizationDataVault({
+        historyItems: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      controls: [
+        {
+          detail:
+            "Follow a topic, read a story, save, share, source-click, or press Less to create reviewable data.",
+          label: "Start training",
+        },
+      ],
+      label: "Data Vault Empty",
+      metrics: [
+        { label: "Profile", value: "0" },
+        { label: "Behavior", value: "0" },
+        { label: "Guardrails", value: "0" },
+        { label: "Persistence", value: "Local" },
+      ],
+      summary:
+        "The reader data vault will appear after profile or behavior signals exist.",
     });
   });
 });

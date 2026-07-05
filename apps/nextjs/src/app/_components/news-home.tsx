@@ -132,6 +132,7 @@ import {
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
+  getNewsReaderRetentionPlan,
   getNewsReaderSatisfactionBrief,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
@@ -2081,6 +2082,15 @@ export function NewsHome({
     profile,
     readerLocalHour,
   });
+  const readerRetentionPlan = getNewsReaderRetentionPlan({
+    generatedAt,
+    historyItems,
+    items: rankedItems,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    readerLocalHour,
+    savedItems,
+  });
   const readerScorecards = getNewsReaderScorecards({
     formatCategory: getCategoryLabel,
     items: rankedItems,
@@ -3759,6 +3769,69 @@ export function NewsHome({
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Reader Retention</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {readerRetentionPlan.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {readerRetentionPlan.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {readerRetentionPlan.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-2">
+                {readerRetentionPlan.actions.map((action) => (
+                  <div
+                    key={action.label}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-2 text-xs sm:grid-cols-[7rem_1fr] dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-semibold">{action.label}</span>
+                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {action.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 grid gap-3">
+                {readerRetentionPlan.slots.length > 0 ? (
+                  readerRetentionPlan.slots.map((slot) => (
+                    <Link
+                      key={`${slot.label}-${slot.id}`}
+                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                      href={`/news/${slot.id}`}
+                    >
+                      <span className="font-semibold">
+                        {slot.label} / {slot.title}
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {slot.sourceName} / {slot.reason}
+                      </span>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    Return slots will appear after ranked stories or behavior
+                    arrive.
+                  </div>
+                )}
               </div>
             </div>
 

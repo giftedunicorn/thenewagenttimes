@@ -96,6 +96,7 @@ import {
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderRankingFactors,
+  getNewsReaderRetentionPlan,
   getNewsReaderSatisfactionBrief,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
@@ -1267,6 +1268,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsReaderSatisfactionBrief({");
     expect(source).toContain("Reader Satisfaction");
     expect(source).toContain("readerSatisfactionBrief.actions.map");
+  });
+
+  it("renders the reader retention plan from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsReaderRetentionPlan({");
+    expect(source).toContain("Reader Retention");
+    expect(source).toContain("readerRetentionPlan.slots.map");
   });
 });
 
@@ -15418,6 +15430,175 @@ describe("getNewsReaderSatisfactionBrief", () => {
       ],
       summary:
         "Reader satisfaction will appear after ranked stories or behavior arrives.",
+    });
+  });
+});
+
+describe("getNewsReaderRetentionPlan", () => {
+  it("turns behavior, guardrails, and ranked stories into a return plan", () => {
+    expect(
+      getNewsReaderRetentionPlan({
+        generatedAt: "2026-07-05T13:00:00.000Z",
+        historyItems: [
+          {
+            ...localItem,
+            id: "retention-read-agent",
+            category: "agent_product",
+            entities: ["Devin"],
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "retention-reader-lead",
+            category: "agent_product",
+            matchedSignals: ["category", "positive_feedback"],
+            personalizedScore: 148,
+            sourceName: "Agent Desk",
+            sourceScore: 84,
+            sourceSlug: "agent-desk",
+            title: "Agent workflow story brings the reader back",
+            trendScore: 83,
+          },
+          {
+            ...localItem,
+            id: "retention-explore",
+            category: "robotics",
+            matchedSignals: ["exploration"],
+            personalizedScore: 118,
+            sourceName: "Robotics Desk",
+            sourceScore: 91,
+            sourceSlug: "robotics-desk",
+            title: "Robotics exploration waits for the next visit",
+            trendScore: 89,
+          },
+          {
+            ...olderItem,
+            id: "retention-trust",
+            category: "security",
+            matchedSignals: [],
+            personalizedScore: 108,
+            sourceName: "Security Desk",
+            sourceScore: 95,
+            sourceSlug: "security-desk",
+            title: "Trusted security fallback stays in the return queue",
+            trendScore: 74,
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...olderItem,
+            id: "retention-less-funding",
+            category: "funding",
+            sourceName: "Funding Wire",
+            sourceSlug: "funding-wire",
+          },
+        ],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            id: "retention-share-agent",
+            category: "agent_product",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+          },
+        ],
+        readerLocalHour: 8,
+        savedItems: [
+          {
+            ...localItem,
+            id: "retention-saved-model",
+            category: "model_release",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+          },
+        ],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "Bring the reader back for a Morning Brief every 30 minutes while the queue stays active.",
+          label: "Schedule return",
+        },
+        {
+          detail:
+            "Lead the next visit with Agent workflow story brings the reader back from Agent Desk.",
+          label: "Anchor next visit",
+        },
+        {
+          detail:
+            "Keep 1 Less guardrail in review so the return loop does not repeat rejected coverage.",
+          label: "Repair fatigue",
+        },
+      ],
+      label: "Return Loop Active",
+      metrics: [
+        { label: "Habit", value: "3" },
+        { label: "Window", value: "Morning Brief" },
+        { label: "Queue", value: "3" },
+        { label: "Risk", value: "Low" },
+      ],
+      slots: [
+        {
+          id: "retention-reader-lead",
+          label: "Return Lead",
+          reason: "Strongest reader-fit story anchors the next visit.",
+          sourceName: "Agent Desk",
+          title: "Agent workflow story brings the reader back",
+        },
+        {
+          id: "retention-explore",
+          label: "Discovery Return",
+          reason: "Exploration keeps the next visit from becoming repetitive.",
+          sourceName: "Robotics Desk",
+          title: "Robotics exploration waits for the next visit",
+        },
+        {
+          id: "retention-trust",
+          label: "Trust Fallback",
+          reason: "High-trust source gives the return loop a safe fallback.",
+          sourceName: "Security Desk",
+          title: "Trusted security fallback stays in the return queue",
+        },
+      ],
+      summary:
+        "Return loop uses 3 habit signals, 1 guardrail, and 3 ranked stories for the Morning Brief window.",
+    });
+  });
+
+  it("keeps the return plan explicit before stories or behavior arrive", () => {
+    expect(
+      getNewsReaderRetentionPlan({
+        generatedAt: "2026-07-05T13:00:00.000Z",
+        historyItems: [],
+        items: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        readerLocalHour: null,
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "Collect one read, save, share, source click, or Less action before scheduling a return loop.",
+          label: "Collect return signals",
+        },
+      ],
+      label: "Return Loop Waiting",
+      metrics: [
+        { label: "Habit", value: "0" },
+        { label: "Window", value: "First visit" },
+        { label: "Queue", value: "0" },
+        { label: "Risk", value: "Unknown" },
+      ],
+      slots: [],
+      summary:
+        "Reader retention plan will appear after ranked stories or behavior arrives.",
     });
   });
 });

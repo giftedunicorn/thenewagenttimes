@@ -10732,6 +10732,166 @@ export const getNewsReaderSatisfactionBrief = ({
   };
 };
 
+type NewsReaderRetentionRisk = "High" | "Low" | "Medium" | "Unknown";
+
+const getNewsReaderRetentionRisk = ({
+  guardrailCount,
+  habitSignalCount,
+  queueCount,
+}: {
+  guardrailCount: number;
+  habitSignalCount: number;
+  queueCount: number;
+}): NewsReaderRetentionRisk => {
+  if (habitSignalCount === 0 && queueCount === 0) return "Unknown";
+  if (guardrailCount > habitSignalCount) return "High";
+  if (guardrailCount > 0 && queueCount <= 1) return "Medium";
+  return "Low";
+};
+
+const toNewsReaderRetentionSlot = ({
+  item,
+  label,
+  reason,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  label: string;
+  reason: string;
+}) => ({
+  id: item.id,
+  label,
+  reason,
+  sourceName: item.sourceName,
+  title: item.title,
+});
+
+export const getNewsReaderRetentionPlan = ({
+  generatedAt,
+  historyItems,
+  items,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  readerLocalHour,
+  savedItems,
+}: {
+  generatedAt: string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  readerLocalHour?: number | null;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const habitSignalCount =
+    historyItems.length + positiveFeedbackItems.length + savedItems.length;
+
+  if (items.length === 0 && habitSignalCount === 0) {
+    return {
+      actions: [
+        {
+          detail:
+            "Collect one read, save, share, source click, or Less action before scheduling a return loop.",
+          label: "Collect return signals",
+        },
+      ],
+      label: "Return Loop Waiting",
+      metrics: [
+        { label: "Habit", value: "0" },
+        { label: "Window", value: "First visit" },
+        { label: "Queue", value: "0" },
+        { label: "Risk", value: "Unknown" },
+      ],
+      slots: [],
+      summary:
+        "Reader retention plan will appear after ranked stories or behavior arrives.",
+    };
+  }
+
+  const config = getNewsReaderDaypartConfig(generatedAt, readerLocalHour);
+  const usedIds = new Set<string>();
+  const slots: ReturnType<typeof toNewsReaderRetentionSlot>[] = [];
+  const addSlot = ({
+    item,
+    label,
+    reason,
+  }: {
+    item: RankedNewsItem<NewsHomeItem> | undefined;
+    label: string;
+    reason: string;
+  }) => {
+    if (!item || usedIds.has(item.id)) return;
+
+    usedIds.add(item.id);
+    slots.push(toNewsReaderRetentionSlot({ item, label, reason }));
+  };
+
+  addSlot({
+    item: items.find(hasReaderRecommendationSignal) ?? items[0],
+    label: "Return Lead",
+    reason: "Strongest reader-fit story anchors the next visit.",
+  });
+  addSlot({
+    item: items.find((item) => item.matchedSignals.includes("exploration")),
+    label: "Discovery Return",
+    reason: "Exploration keeps the next visit from becoming repetitive.",
+  });
+  addSlot({
+    item: items.find((item) => item.sourceScore >= 90 && !usedIds.has(item.id)),
+    label: "Trust Fallback",
+    reason: "High-trust source gives the return loop a safe fallback.",
+  });
+
+  const risk = getNewsReaderRetentionRisk({
+    guardrailCount: negativeFeedbackItems.length,
+    habitSignalCount,
+    queueCount: slots.length,
+  });
+  const leadSlot = slots[0];
+  const guardrailLabel = `${negativeFeedbackItems.length} ${
+    negativeFeedbackItems.length === 1 ? "Less guardrail" : "Less guardrails"
+  }`;
+
+  return {
+    actions: [
+      {
+        detail: `Bring the reader back for a ${config.label} every ${config.cadenceMinutes} minutes while the queue stays active.`,
+        label: "Schedule return",
+      },
+      {
+        detail: leadSlot
+          ? `Lead the next visit with ${leadSlot.title} from ${leadSlot.sourceName}.`
+          : "Wait for a ranked story before anchoring the next visit.",
+        label: "Anchor next visit",
+      },
+      {
+        detail:
+          negativeFeedbackItems.length > 0
+            ? `Keep ${guardrailLabel} in review so the return loop does not repeat rejected coverage.`
+            : "Watch repeated topics and sources before adding stronger return-loop guardrails.",
+        label: "Repair fatigue",
+      },
+    ],
+    label:
+      slots.length > 0 || habitSignalCount > 0
+        ? "Return Loop Active"
+        : "Return Loop Waiting",
+    metrics: [
+      { label: "Habit", value: String(habitSignalCount) },
+      { label: "Window", value: config.label },
+      { label: "Queue", value: String(slots.length) },
+      { label: "Risk", value: risk },
+    ],
+    slots,
+    summary: `Return loop uses ${habitSignalCount} habit ${
+      habitSignalCount === 1 ? "signal" : "signals"
+    }, ${negativeFeedbackItems.length} ${
+      negativeFeedbackItems.length === 1 ? "guardrail" : "guardrails"
+    }, and ${items.length} ranked ${
+      items.length === 1 ? "story" : "stories"
+    } for the ${config.label} window.`,
+  };
+};
+
 type NewsExperimentAllocationArmKey =
   | "collaborative_lift"
   | "exploration"

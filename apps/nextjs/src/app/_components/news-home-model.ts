@@ -11080,22 +11080,22 @@ export const getNewsRecommendationTrace = ({
     });
   }
 
-  const readerMemoryItem = items.find(
-    (item) =>
-      item.matchedSignals.includes("positive_feedback") &&
-      getPositiveReaderMemoryActionDetail(item),
+  const readerMemoryItem = items.find((item) =>
+    item.matchedSignals.includes("positive_feedback"),
   );
   const readerMemoryDetail = readerMemoryItem
     ? getPositiveReaderMemoryActionDetail(readerMemoryItem)
     : undefined;
 
-  if (readerMemoryItem && readerMemoryDetail) {
+  if (readerMemoryItem) {
     steps.push({
-      detail: `${formatRecommendationTraceSentenceStart(
-        readerMemoryDetail.subject,
-      )} anchor this recommendation.`,
+      detail: readerMemoryDetail
+        ? `${formatRecommendationTraceSentenceStart(
+            readerMemoryDetail.subject,
+          )} anchor this recommendation.`
+        : "Reader-memory signals anchor this recommendation.",
       label: "Reader memory",
-      scoreLabel: readerMemoryDetail.label,
+      scoreLabel: readerMemoryDetail?.label ?? "Reader-memory signal",
       title: readerMemoryItem.title,
     });
   }

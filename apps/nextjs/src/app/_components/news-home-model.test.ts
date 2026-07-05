@@ -15754,6 +15754,46 @@ describe("getNewsRecommendationTrace", () => {
     );
   });
 
+  it("surfaces base reader-memory anchors in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "reader-memory-follow-up",
+          title: "Reader memory follow-up leads the edition",
+          category: "model_release",
+          matchedSignals: ["positive_feedback"],
+          personalizedScore: 140,
+          sourceName: "Model Desk",
+          sourceScore: 84,
+          trendScore: 75,
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.steps).toContainEqual({
+      detail: "Reader-memory signals anchor this recommendation.",
+      label: "Reader memory",
+      scoreLabel: "Reader-memory signal",
+      title: "Reader memory follow-up leads the edition",
+    });
+    expect(trace.summary).toBe(
+      "Trace explains 2 ranking decisions across 1 story.",
+    );
+  });
+
   it("keeps the trace empty before the feed has ranked stories", () => {
     expect(
       getNewsRecommendationTrace({

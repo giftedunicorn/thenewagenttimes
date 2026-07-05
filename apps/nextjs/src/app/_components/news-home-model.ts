@@ -13019,6 +13019,7 @@ const getNewsRefreshSimulationMove = ({
   historyMatchers,
   item,
   negativeMatchers,
+  positiveMatchers,
   profile,
   savedMatchers,
 }: {
@@ -13026,6 +13027,7 @@ const getNewsRefreshSimulationMove = ({
   historyMatchers: ReturnType<typeof getRefreshSimulationMatchers>;
   item: RankedNewsItem<NewsHomeItem>;
   negativeMatchers: ReturnType<typeof getRefreshSimulationMatchers>;
+  positiveMatchers: ReturnType<typeof getRefreshSimulationMatchers>;
   profile: NewsPreferenceProfile;
   savedMatchers: ReturnType<typeof getRefreshSimulationMatchers>;
 }) => {
@@ -13048,6 +13050,10 @@ const getNewsRefreshSimulationMove = ({
   const hasHistoryMatch = hasRefreshSimulationMatch({
     item,
     matchers: historyMatchers,
+  });
+  const hasPositiveMatch = hasRefreshSimulationMatch({
+    item,
+    matchers: positiveMatchers,
   });
   const hasProfileMatch = hasRefreshSimulationProfileMatch({ item, profile });
   const hasExplorationMatch = item.matchedSignals.includes("exploration");
@@ -13075,7 +13081,7 @@ const getNewsRefreshSimulationMove = ({
     };
   }
 
-  if (hasSavedMatch || hasHistoryMatch) {
+  if (hasPositiveMatch || hasSavedMatch || hasHistoryMatch) {
     return {
       actionLabel: "Raise weight",
       category: item.category,
@@ -13083,8 +13089,9 @@ const getNewsRefreshSimulationMove = ({
       delta: 36,
       id: item.id,
       label: `Boost ${categoryLabel}`,
-      reason:
-        "Saved or read signals reinforce this story for the next refresh.",
+      reason: hasPositiveMatch
+        ? "Positive feedback reinforces this story for the next refresh."
+        : "Saved or read signals reinforce this story for the next refresh.",
       sourceName: item.sourceName,
       statusLabel: "Boost" as const,
       title: item.title,
@@ -13133,6 +13140,7 @@ export const getNewsRefreshSimulation = ({
   items,
   limit,
   negativeFeedbackItems,
+  positiveFeedbackItems = [],
   profile,
   savedItems,
 }: {
@@ -13141,6 +13149,7 @@ export const getNewsRefreshSimulation = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
 }) => {
@@ -13161,6 +13170,13 @@ export const getNewsRefreshSimulation = ({
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
   const historyMatchers = getRefreshSimulationMatchers(historyItems);
   const negativeMatchers = getRefreshSimulationMatchers(negativeFeedbackItems);
+  const positiveMatchers = getRefreshSimulationMatchers([
+    ...positiveFeedbackItems.filter((item) => item.action !== "save"),
+    ...getReaderLearningExplicitSaveFeedbackItems({
+      positiveFeedbackItems,
+      savedItems,
+    }),
+  ]);
   const savedMatchers = getRefreshSimulationMatchers(savedItems);
   const moves = items
     .map((item, index) => ({
@@ -13171,6 +13187,7 @@ export const getNewsRefreshSimulation = ({
         historyMatchers,
         item,
         negativeMatchers,
+        positiveMatchers,
         profile: normalizedProfile,
         savedMatchers,
       }),

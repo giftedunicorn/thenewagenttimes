@@ -18740,6 +18740,122 @@ describe("getNewsRefreshSimulation", () => {
     });
   });
 
+  it("uses shares and source clicks as refresh boost memory", () => {
+    expect(
+      getNewsRefreshSimulation({
+        formatCategory: (category) =>
+          category === "agent_product"
+            ? "Agents"
+            : category === "security"
+              ? "Security"
+              : "Models",
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Devin"],
+            id: "refresh-agent-feedback",
+            matchedSignals: [],
+            personalizedScore: 129,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Agent feedback refresh candidate",
+            trendScore: 82,
+          },
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "refresh-security-feedback",
+            matchedSignals: [],
+            personalizedScore: 124,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt_injection"],
+            title: "Security feedback refresh candidate",
+            trendScore: 84,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Devin"],
+            id: "shared-agent-feedback",
+            occurredAt: "2026-07-02T10:00:00.000Z",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent feedback story",
+          },
+          {
+            ...localItem,
+            action: "click_source",
+            category: "model_release",
+            entities: [],
+            id: "source-click-security-feedback",
+            occurredAt: "2026-07-02T10:05:00.000Z",
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            tags: ["prompt_injection"],
+            title: "Source-click prompt injection story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 0.8,
+          recencyBias: 1.2,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      label: "Refresh Simulation Ready",
+      metrics: [
+        { label: "Moves", value: "2" },
+        { label: "Boosts", value: "2" },
+        { label: "Explore", value: "0" },
+        { label: "Dampers", value: "0" },
+      ],
+      moves: [
+        {
+          actionLabel: "Raise weight",
+          category: "agent_product",
+          categoryLabel: "Agents",
+          deltaLabel: "+36 next",
+          id: "refresh-agent-feedback",
+          key: "boost-refresh-agent-feedback",
+          label: "Boost Agents",
+          reason:
+            "Positive feedback reinforces this story for the next refresh.",
+          sourceName: "Agent Desk",
+          statusLabel: "Boost",
+          title: "Agent feedback refresh candidate",
+        },
+        {
+          actionLabel: "Raise weight",
+          category: "security",
+          categoryLabel: "Security",
+          deltaLabel: "+36 next",
+          id: "refresh-security-feedback",
+          key: "boost-refresh-security-feedback",
+          label: "Boost Security",
+          reason:
+            "Positive feedback reinforces this story for the next refresh.",
+          sourceName: "Security Desk",
+          statusLabel: "Boost",
+          title: "Security feedback refresh candidate",
+        },
+      ],
+      summary:
+        "2 simulated refresh moves: 2 boosts, 0 explorations, and 0 dampens.",
+    });
+  });
+
   it("keeps refresh simulation empty before stories are ranked", () => {
     expect(
       getNewsRefreshSimulation({

@@ -19248,12 +19248,14 @@ export const getNewsPersonalizedReadingQueue = ({
   historyItems = [],
   items,
   negativeFeedbackItems = [],
+  positiveFeedbackItems = [],
   savedItems = [],
 }: {
   formatCategory?: (category: string) => string;
   historyItems?: readonly NewsReaderMemoryItem[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
   negativeFeedbackItems?: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   savedItems?: readonly NewsReaderMemoryItem[];
 }) => {
   if (items.length === 0) {
@@ -19323,7 +19325,26 @@ export const getNewsPersonalizedReadingQueue = ({
     reason: "Highest-ranked story in this edition.",
   });
 
+  const positiveFeedbackAnchors = [
+    ...positiveFeedbackItems.filter((item) => item.action !== "save"),
+    ...getReaderLearningExplicitSaveFeedbackItems({
+      positiveFeedbackItems,
+      savedItems,
+    }),
+  ];
+  const getPositiveFeedbackAnchorSourceLabel = (
+    action: NewsProfilePositiveFeedbackAction,
+  ) => {
+    if (action === "share") return "shared stories";
+    if (action === "click_source") return "opened sources";
+
+    return "saved stories";
+  };
   const memoryAnchors = [
+    ...positiveFeedbackAnchors.map((item) => ({
+      item,
+      sourceLabel: getPositiveFeedbackAnchorSourceLabel(item.action),
+    })),
     ...savedItems.map((item) => ({
       item,
       sourceLabel: "saved stories",

@@ -13202,6 +13202,99 @@ describe("getNewsPersonalizedReadingQueue", () => {
     });
   });
 
+  it("uses shares and source clicks as reading queue follow-up anchors", () => {
+    const queue = getNewsPersonalizedReadingQueue({
+      formatCategory: (category) =>
+        category === "agent_product"
+          ? "Agents"
+          : category === "security"
+            ? "Security"
+            : "Models",
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "model-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["category"],
+          personalizedScore: 170,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "Model launch leads the briefing",
+          trendScore: 96,
+        },
+        {
+          ...localItem,
+          id: "agent-positive-follow-up",
+          category: "agent_product",
+          entities: ["Devin"],
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Agent Desk",
+          sourceScore: 82,
+          sourceSlug: "agent-desk",
+          tags: ["agent"],
+          title: "Agent story follows shared interest",
+          trendScore: 82,
+        },
+        {
+          ...localItem,
+          id: "security-source-follow-up",
+          category: "security",
+          entities: [],
+          matchedSignals: [],
+          personalizedScore: 124,
+          sourceName: "Security Desk",
+          sourceScore: 84,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Security story follows source-clicked angle",
+          trendScore: 81,
+        },
+      ],
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "click_source",
+          category: "model_release",
+          entities: [],
+          id: "source-click-security-queue",
+          occurredAt: "2026-07-02T10:00:00.000Z",
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          tags: ["prompt_injection"],
+          title: "Source-click prompt injection story",
+        },
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          entities: ["Devin"],
+          id: "shared-agent-queue",
+          occurredAt: "2026-07-02T10:05:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent queue story",
+        },
+      ],
+      savedItems: [],
+    });
+
+    expect(queue.slots[1]).toEqual({
+      intent: "Follow Interest",
+      label: "Continue thread",
+      reason: "Devin from your shared stories anchors this follow-up.",
+      story: {
+        id: "agent-positive-follow-up",
+        personalizedScore: 126,
+        sourceName: "Agent Desk",
+        title: "Agent story follows shared interest",
+      },
+    });
+  });
+
   it("keeps stories matching Less feedback out of the reading queue", () => {
     const queue = getNewsPersonalizedReadingQueue({
       items: [

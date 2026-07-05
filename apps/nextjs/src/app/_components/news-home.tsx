@@ -2330,6 +2330,7 @@ export function NewsHome({
     historyItems,
     items: rankedItems,
     negativeFeedbackItems,
+    positiveFeedbackItems,
     savedItems,
   });
   const editionSchedule = getNewsEditionSchedule({ items: rankedItems });

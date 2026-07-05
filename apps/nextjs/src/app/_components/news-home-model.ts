@@ -2712,6 +2712,235 @@ export const getNewsGuardrailShelf = ({
   };
 };
 
+const getNewsGuardrailRecoverySignalKeys = (item: NewsReaderMemoryItem) =>
+  new Set([
+    `category:${normalizePreferenceSignal(item.category)}`,
+    `source:${normalizePreferenceSignal(item.sourceSlug)}`,
+    ...item.entities.map(
+      (entity) => `entity:${normalizePreferenceSignal(entity)}`,
+    ),
+    ...(item.tags ?? [])
+      .filter(isSpecificNewsAngleTag)
+      .map((tag) => `angle:${getNewsAngleSignalKey(tag)}`),
+  ]);
+
+const hasSharedGuardrailRecoverySignal = (
+  left: NewsReaderMemoryItem,
+  right: NewsReaderMemoryItem,
+) => {
+  const leftKeys = getNewsGuardrailRecoverySignalKeys(left);
+
+  return Array.from(getNewsGuardrailRecoverySignalKeys(right)).some((key) =>
+    leftKeys.has(key),
+  );
+};
+
+const getNewsGuardrailRecoveryRiskLabel = ({
+  conflictCount,
+  candidateCount,
+  restoredCount,
+}: {
+  conflictCount: number;
+  candidateCount: number;
+  restoredCount: number;
+}) => {
+  if (conflictCount === 0 && restoredCount === 0 && candidateCount === 0) {
+    return "Unknown";
+  }
+
+  if (conflictCount > restoredCount + candidateCount) return "High";
+  if (conflictCount > 0 || restoredCount > 0) return "Medium";
+  return "Low";
+};
+
+const toNewsGuardrailRecoveryCandidate = ({
+  conflictItems,
+  item,
+  restoredItems,
+}: {
+  conflictItems: readonly NewsReaderMemoryItem[];
+  item: RankedNewsItem<NewsHomeItem>;
+  restoredItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const restoredMatch = restoredItems.find((restoredItem) =>
+    hasSharedGuardrailRecoverySignal(item, restoredItem),
+  );
+  const conflictMatch = conflictItems.find((conflictItem) =>
+    hasSharedGuardrailRecoverySignal(item, conflictItem),
+  );
+  const hasPositiveFeedbackSignal =
+    item.matchedSignals.includes("positive_feedback");
+
+  if (restoredMatch && hasPositiveFeedbackSignal) {
+    return {
+      score: item.personalizedScore + 120,
+      value: {
+        id: item.id,
+        label: "Restored follow-up",
+        reason: `Matches restored Less feedback from ${restoredMatch.sourceName}.`,
+        sourceName: item.sourceName,
+        title: item.title,
+      },
+    };
+  }
+
+  if (conflictMatch) {
+    return {
+      score: item.personalizedScore + 90,
+      value: {
+        id: item.id,
+        label: "Conflict test",
+        reason:
+          "Tests a positive behavior signal against an active Less guardrail.",
+        sourceName: item.sourceName,
+        title: item.title,
+      },
+    };
+  }
+
+  if (restoredMatch) {
+    return {
+      score: item.personalizedScore + 70,
+      value: {
+        id: item.id,
+        label: "Restored follow-up",
+        reason: `Matches restored Less feedback from ${restoredMatch.sourceName}.`,
+        sourceName: item.sourceName,
+        title: item.title,
+      },
+    };
+  }
+
+  return null;
+};
+
+export const getNewsGuardrailRecoveryPlan = ({
+  historyItems,
+  items,
+  limit = 3,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  restoredGuardrailItems = [],
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit?: number;
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  restoredGuardrailItems?: readonly NewsReaderMemoryItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const positiveBehaviorItems = [
+    ...historyItems,
+    ...savedItems,
+    ...positiveFeedbackItems,
+  ];
+  const conflictItems = negativeFeedbackItems.filter((negativeItem) =>
+    positiveBehaviorItems.some((positiveItem) =>
+      hasSharedGuardrailRecoverySignal(negativeItem, positiveItem),
+    ),
+  );
+  const candidates = items
+    .map((item) =>
+      toNewsGuardrailRecoveryCandidate({
+        conflictItems,
+        item,
+        restoredItems: restoredGuardrailItems,
+      }),
+    )
+    .filter(
+      (candidate): candidate is NonNullable<typeof candidate> =>
+        candidate !== null,
+    )
+    .sort((left, right) => right.score - left.score)
+    .map((candidate) => candidate.value)
+    .slice(0, Math.max(0, limit));
+  const conflictCount = conflictItems.length;
+  const restoredCount = restoredGuardrailItems.length;
+  const candidateCount = candidates.length;
+  const riskLabel = getNewsGuardrailRecoveryRiskLabel({
+    candidateCount,
+    conflictCount,
+    restoredCount,
+  });
+
+  if (conflictCount === 0 && restoredCount === 0 && candidateCount === 0) {
+    return {
+      actions: [
+        {
+          detail:
+            "Use Less, Restore, save, share, read, or source clicks to create a recovery plan.",
+          label: "Collect recovery signals",
+        },
+      ],
+      candidates: [],
+      label: "Recovery Waiting",
+      metrics: [
+        { label: "Conflicts", value: "0" },
+        { label: "Restored", value: "0" },
+        { label: "Candidates", value: "0" },
+        { label: "Risk", value: "Unknown" },
+      ],
+      summary:
+        "Guardrail recovery will appear after Less feedback, restored stories, or positive behavior create reviewable conflicts.",
+    };
+  }
+
+  return {
+    actions: [
+      ...(conflictCount > 0
+        ? [
+            {
+              detail: `${conflictCount} Less ${
+                conflictCount === 1
+                  ? "guardrail overlaps"
+                  : "guardrails overlap"
+              } positive behavior; restore, narrow, or keep the cooldown before the next ranking pass.`,
+              label: "Review conflict",
+            },
+          ]
+        : []),
+      ...(candidateCount > 0
+        ? [
+            {
+              detail: `Use ${candidateCount} candidate ${
+                candidateCount === 1 ? "story" : "stories"
+              } to verify restored and conflicted signals before fully lifting cooldowns.`,
+              label: "Test recovery lane",
+            },
+          ]
+        : []),
+      ...(negativeFeedbackItems.length > 0
+        ? [
+            {
+              detail: `Keep ${negativeFeedbackItems.length} Less ${
+                negativeFeedbackItems.length === 1 ? "guardrail" : "guardrails"
+              } active until positive recovery evidence is stronger.`,
+              label: "Keep cooldown",
+            },
+          ]
+        : []),
+    ],
+    candidates,
+    label: "Recovery Active",
+    metrics: [
+      { label: "Conflicts", value: String(conflictCount) },
+      { label: "Restored", value: String(restoredCount) },
+      { label: "Candidates", value: String(candidateCount) },
+      { label: "Risk", value: riskLabel },
+    ],
+    summary: `Guardrail recovery is reviewing ${conflictCount} conflicted Less ${
+      conflictCount === 1 ? "signal" : "signals"
+    }, ${restoredCount} restored ${
+      restoredCount === 1 ? "item" : "items"
+    }, and ${candidateCount} recovery ${
+      candidateCount === 1 ? "candidate" : "candidates"
+    }.`,
+  };
+};
+
 export const getNewsReaderMemory = ({
   formatCategory,
   historyItems,

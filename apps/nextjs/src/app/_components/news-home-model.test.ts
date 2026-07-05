@@ -51,6 +51,7 @@ import {
   getNewsForYouControlStrip,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsGuardrailRecoveryPlan,
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeCollaborativeRankingSignals,
@@ -1291,6 +1292,17 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsPersonalizationDataVault({");
     expect(source).toContain("Data Vault");
     expect(source).toContain("personalizationDataVault.controls.map");
+  });
+
+  it("renders the guardrail recovery plan from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsGuardrailRecoveryPlan({");
+    expect(source).toContain("Guardrail Recovery");
+    expect(source).toContain("guardrailRecoveryPlan.candidates.map");
   });
 });
 
@@ -3883,6 +3895,185 @@ describe("getNewsGuardrailShelf", () => {
       ],
       summary:
         "Press Less on stories to hide them and dampen similar topics, sources, and entities.",
+    });
+  });
+});
+
+describe("getNewsGuardrailRecoveryPlan", () => {
+  it("turns restored guardrails and positive conflicts into a recovery lane", () => {
+    expect(
+      getNewsGuardrailRecoveryPlan({
+        formatCategory: (category) =>
+          category === "agent_product"
+            ? "Agents"
+            : category === "hot_take"
+              ? "Hot Takes"
+              : category,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["OpenAI"],
+            id: "recovery-restored-follow-up",
+            matchedSignals: ["positive_feedback"],
+            personalizedScore: 132,
+            sourceName: "Agent Desk",
+            sourceScore: 84,
+            sourceSlug: "agent-desk",
+            title: "Agent workflow follow-up returns",
+            trendScore: 82,
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["OpenAI"],
+            id: "recovery-conflict-test",
+            matchedSignals: ["category"],
+            personalizedScore: 128,
+            sourceName: "Agent Desk",
+            sourceScore: 82,
+            sourceSlug: "agent-desk",
+            title: "Agent profile story still matches",
+            trendScore: 81,
+          },
+          {
+            ...olderItem,
+            category: "funding",
+            id: "recovery-unrelated",
+            matchedSignals: [],
+            personalizedScore: 102,
+            sourceName: "Funding Wire",
+            sourceScore: 80,
+            sourceSlug: "funding-wire",
+            trendScore: 79,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [
+          {
+            ...olderItem,
+            category: "agent_product",
+            entities: ["OpenAI"],
+            id: "active-less-agent",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            tags: ["agent"],
+            title: "Active Less agent story",
+          },
+          {
+            ...olderItem,
+            category: "hot_take",
+            entities: ["StealthAI"],
+            id: "active-less-rumor",
+            sourceName: "Rumor Feed",
+            sourceSlug: "rumor-feed",
+            tags: ["rumor"],
+            title: "Active Less rumor story",
+          },
+        ],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            id: "positive-share-agent",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            tags: ["agent"],
+          },
+        ],
+        restoredGuardrailItems: [
+          {
+            ...olderItem,
+            category: "agent_product",
+            entities: ["OpenAI"],
+            id: "restored-agent-guardrail",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            tags: ["agent"],
+            title: "Restored agent guardrail",
+          },
+        ],
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "1 Less guardrail overlaps positive behavior; restore, narrow, or keep the cooldown before the next ranking pass.",
+          label: "Review conflict",
+        },
+        {
+          detail:
+            "Use 2 candidate stories to verify restored and conflicted signals before fully lifting cooldowns.",
+          label: "Test recovery lane",
+        },
+        {
+          detail:
+            "Keep 2 Less guardrails active until positive recovery evidence is stronger.",
+          label: "Keep cooldown",
+        },
+      ],
+      candidates: [
+        {
+          id: "recovery-restored-follow-up",
+          label: "Restored follow-up",
+          reason: "Matches restored Less feedback from Agent Desk.",
+          sourceName: "Agent Desk",
+          title: "Agent workflow follow-up returns",
+        },
+        {
+          id: "recovery-conflict-test",
+          label: "Conflict test",
+          reason:
+            "Tests a positive behavior signal against an active Less guardrail.",
+          sourceName: "Agent Desk",
+          title: "Agent profile story still matches",
+        },
+      ],
+      label: "Recovery Active",
+      metrics: [
+        { label: "Conflicts", value: "1" },
+        { label: "Restored", value: "1" },
+        { label: "Candidates", value: "2" },
+        { label: "Risk", value: "Medium" },
+      ],
+      summary:
+        "Guardrail recovery is reviewing 1 conflicted Less signal, 1 restored item, and 2 recovery candidates.",
+    });
+  });
+
+  it("keeps guardrail recovery explicit before conflicts exist", () => {
+    expect(
+      getNewsGuardrailRecoveryPlan({
+        formatCategory: (category) => category,
+        historyItems: [],
+        items: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        restoredGuardrailItems: [],
+        savedItems: [],
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "Use Less, Restore, save, share, read, or source clicks to create a recovery plan.",
+          label: "Collect recovery signals",
+        },
+      ],
+      candidates: [],
+      label: "Recovery Waiting",
+      metrics: [
+        { label: "Conflicts", value: "0" },
+        { label: "Restored", value: "0" },
+        { label: "Candidates", value: "0" },
+        { label: "Risk", value: "Unknown" },
+      ],
+      summary:
+        "Guardrail recovery will appear after Less feedback, restored stories, or positive behavior create reviewable conflicts.",
     });
   });
 });

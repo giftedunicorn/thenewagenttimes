@@ -87,6 +87,7 @@ import {
   getNewsForYouControlStrip,
   getNewsFrontPageLayout,
   getNewsFrontPageSlotMix,
+  getNewsGuardrailRecoveryPlan,
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeCollaborativeRankingSignals,
@@ -1972,6 +1973,15 @@ export function NewsHome({
     guardrailItems,
     positiveFeedbackItems,
     positiveItems: [...savedItems, ...historyItems],
+  });
+  const guardrailRecoveryPlan = getNewsGuardrailRecoveryPlan({
+    formatCategory: getCategoryLabel,
+    historyItems,
+    items: rankedItems,
+    negativeFeedbackItems: negativeFeedbackMemoryItems,
+    positiveFeedbackItems,
+    restoredGuardrailItems,
+    savedItems,
   });
   const selectSavedItemForStory = (item: NewsReaderMemoryItem) =>
     selectActiveNewsReaderMemoryItem({
@@ -5130,6 +5140,72 @@ export function NewsHome({
                   })
                 }
               />
+            </div>
+          </section>
+
+          <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Guardrail Recovery</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {guardrailRecoveryPlan.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {guardrailRecoveryPlan.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+              {guardrailRecoveryPlan.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {guardrailRecoveryPlan.actions.map((action) => (
+                <div
+                  key={action.label}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="font-semibold">{action.label}</div>
+                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {action.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-3">
+              {guardrailRecoveryPlan.candidates.length > 0 ? (
+                guardrailRecoveryPlan.candidates.map((candidate) => (
+                  <Link
+                    key={candidate.id}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                    href={`/news/${candidate.id}`}
+                  >
+                    <span className="font-mono text-[11px] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {candidate.label} / {candidate.sourceName}
+                    </span>
+                    <span className="leading-5 font-semibold">
+                      {candidate.title}
+                    </span>
+                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {candidate.reason}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Recovery candidates will appear after restored or conflicted
+                  guardrails match current ranked stories.
+                </p>
+              )}
             </div>
           </section>
 

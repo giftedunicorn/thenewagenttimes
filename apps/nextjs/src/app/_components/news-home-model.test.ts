@@ -2568,6 +2568,71 @@ describe("getNewsRecommendationRotationQueue", () => {
     });
   });
 
+  it("explains reader-match slots with the specific recommendation signal", () => {
+    const readerSignals = [
+      {
+        matchedSignals: ["positive_feedback", "positive_save_feedback"],
+        reason: "Saved follow-up signals make this the safest next story.",
+        storyId: "saved-follow-up",
+      },
+      {
+        matchedSignals: ["semantic_feedback"],
+        reason: "Semantic similarity makes this the safest next story.",
+        storyId: "semantic-follow-up",
+      },
+      {
+        matchedSignals: ["collaborative_feedback"],
+        reason: "Similar readers make this the safest next story.",
+        storyId: "collaborative-follow-up",
+      },
+      {
+        matchedSignals: ["session_intent"],
+        reason: "Current session intent makes this the safest next story.",
+        storyId: "session-follow-up",
+      },
+      {
+        matchedSignals: ["deep_preference"],
+        reason: "Deep preference signals make this the safest next story.",
+        storyId: "deep-follow-up",
+      },
+    ] as const;
+
+    const reasons = readerSignals.map(({ matchedSignals, storyId }) => {
+      const queue = getNewsRecommendationRotationQueue({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: storyId,
+            category: "model_release",
+            matchedSignals: [...matchedSignals],
+            personalizedScore: 150,
+            sourceName: "Model Desk",
+            sourceScore: 84,
+            sourceSlug: `${storyId}-source`,
+            title: `${storyId} belongs in reader rotation`,
+            trendScore: 78,
+          },
+        ],
+        limit: 1,
+        profile: createDefaultNewsPreferenceProfile(),
+      });
+
+      return {
+        id: queue.entries[0]?.id,
+        reason: queue.entries[0]?.reason,
+      };
+    });
+
+    expect(reasons).toEqual(
+      readerSignals.map(({ reason, storyId }) => ({
+        id: storyId,
+        reason,
+      })),
+    );
+  });
+
   it("keeps the queue explicit while ranked stories are unavailable", () => {
     expect(
       getNewsRecommendationRotationQueue({

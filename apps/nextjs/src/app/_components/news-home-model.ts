@@ -10787,6 +10787,42 @@ const formatNewsRecommendationRotationScore = ({
   scoreKind: NewsRecommendationRotationScoreKind;
 }) => `${score} ${scoreKind}`;
 
+const getNewsRecommendationRotationReason = ({
+  item,
+  objective,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  objective: NewsRecommendationRotationObjective;
+}) => {
+  if (objective !== "reader_match") {
+    return newsRecommendationRotationDisplay[objective].reason;
+  }
+
+  const positiveMemoryDetail = getPositiveReaderMemoryActionDetail(item);
+
+  if (positiveMemoryDetail) {
+    return `${positiveMemoryDetail.label} signals make this the safest next story.`;
+  }
+
+  if (item.matchedSignals.includes("semantic_feedback")) {
+    return "Semantic similarity makes this the safest next story.";
+  }
+
+  if (item.matchedSignals.includes("collaborative_feedback")) {
+    return "Similar readers make this the safest next story.";
+  }
+
+  if (item.matchedSignals.includes("session_intent")) {
+    return "Current session intent makes this the safest next story.";
+  }
+
+  if (item.matchedSignals.includes("deep_preference")) {
+    return "Deep preference signals make this the safest next story.";
+  }
+
+  return newsRecommendationRotationDisplay.reader_match.reason;
+};
+
 export const getNewsRecommendationRotationQueue = ({
   formatCategory,
   items,
@@ -10807,7 +10843,7 @@ export const getNewsRecommendationRotationQueue = ({
       categoryLabel: formatCategory(item.category),
       id: item.id,
       label: display.label,
-      reason: display.reason,
+      reason: getNewsRecommendationRotationReason({ item, objective }),
       scoreLabel: formatNewsRecommendationRotationScore({
         score,
         scoreKind,

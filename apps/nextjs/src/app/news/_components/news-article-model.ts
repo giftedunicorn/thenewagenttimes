@@ -6,6 +6,7 @@ import type {
 } from "@acme/validators";
 import {
   getNewsDedupeUrlKeys,
+  normalizeNewsPreferenceProfile,
   shouldTrainReaderProfileFromInteraction,
   updateReaderProfileWithInteraction,
 } from "@acme/validators";
@@ -22,6 +23,30 @@ import {
 } from "../../_components/news-home-model";
 
 const normalizeValue = (value: string) => value.trim().toLowerCase();
+
+const getOptionalArticleClusterKey = ({
+  clusterKey,
+}: {
+  clusterKey?: string | null;
+}) => {
+  const normalizedClusterKey = clusterKey?.trim().toLowerCase();
+
+  if (!normalizedClusterKey) return null;
+
+  return normalizedClusterKey;
+};
+
+const hasSameArticleClusterKey = (
+  left: { clusterKey?: string | null },
+  right: { clusterKey?: string | null },
+) => {
+  const leftClusterKey = getOptionalArticleClusterKey(left);
+
+  return (
+    leftClusterKey !== null &&
+    leftClusterKey === getOptionalArticleClusterKey(right)
+  );
+};
 
 const hasSameNormalizedValue = (left: string, right: string) => {
   const normalizedLeft = normalizeValue(left);
@@ -244,6 +269,47 @@ export const getNewsArticleReadDepthCheckpoints = () =>
 export const getNewsArticleSourceUrl = (
   article: Pick<NewsArticleItem, "canonicalUrl" | "originalUrl">,
 ) => getNewsStorySourceUrl(article);
+
+export const getNewsArticleSourceFollowState = ({
+  article,
+  profile,
+}: {
+  article: Pick<NewsArticleItem, "sourceName" | "sourceSlug">;
+  profile: NewsPreferenceProfile;
+}) => {
+  const followedSources = getNormalizedSet(profile.preferredSources);
+  const isFollowing = followedSources.has(normalizeValue(article.sourceSlug));
+
+  return {
+    isFollowing,
+    label: isFollowing ? "Following Source" : "Follow Source",
+    summary: isFollowing
+      ? `${article.sourceName} is already a durable For You signal.`
+      : `Follow ${article.sourceName} to make it a durable For You signal.`,
+  };
+};
+
+export const getNewsArticleSourceFollowProfile = ({
+  article,
+  profile,
+}: {
+  article: Pick<NewsArticleItem, "sourceSlug">;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfile => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const articleSourceSlug = normalizeValue(article.sourceSlug);
+  const preferredSources = [
+    ...normalizedProfile.preferredSources
+      .map(normalizeValue)
+      .filter((sourceSlug) => sourceSlug && sourceSlug !== articleSourceSlug),
+    articleSourceSlug,
+  ];
+
+  return normalizeNewsPreferenceProfile({
+    ...normalizedProfile,
+    preferredSources,
+  });
+};
 
 const newsArticleReadMilestoneRank = new Map<NewsArticleReadMilestone, number>(
   newsArticleReadMilestones.map((milestone, index) => [milestone.key, index]),
@@ -709,17 +775,176 @@ export const getNewsArticleSourceLens = ({
   };
 };
 
+const formatArticleCorroborationList = (values: readonly string[]) => {
+  if (values.length === 0) return "shared signals";
+  if (values.length === 1) return values[0] ?? "shared signals";
+  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+};
+
+const getArticleCorroborationSourceKey = ({
+  sourceName,
+  sourceSlug,
+}: {
+  sourceName: string;
+  sourceSlug: string;
+}) => normalizeValue(sourceSlug) || normalizeValue(sourceName);
+
+const compareArticleCorroborationCandidates = (
+  left: {
+    item: RankedNewsItem<NewsHomeItem>;
+    signalCount: number;
+  },
+  right: {
+    item: RankedNewsItem<NewsHomeItem>;
+    signalCount: number;
+  },
+) => {
+  if (right.signalCount !== left.signalCount) {
+    return right.signalCount - left.signalCount;
+  }
+
+  if (right.item.sourceScore !== left.item.sourceScore) {
+    return right.item.sourceScore - left.item.sourceScore;
+  }
+
+  if (right.item.personalizedScore !== left.item.personalizedScore) {
+    return right.item.personalizedScore - left.item.personalizedScore;
+  }
+
+  return right.item.trendScore - left.item.trendScore;
+};
+
+export const getNewsArticleCorroboration = ({
+  article,
+  formatCategory,
+  limit,
+  relatedItems,
+}: {
+  article: NewsArticleItem;
+  formatCategory: (category: string) => string;
+  limit: number;
+  relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+}) => {
+  const articleSourceKey = getArticleCorroborationSourceKey(article);
+  const candidates = relatedItems
+    .map((item) => {
+      const sourceKey = getArticleCorroborationSourceKey(item);
+      const sharedEntities = getSharedValues(article.entities, item.entities);
+      const sharedTags = getSharedValues(
+        article.tags,
+        item.tags,
+        normalizeTagValue,
+        formatTagValue,
+      );
+      const sameCluster = hasSameArticleClusterKey(article, item);
+      const evidence = getUniqueValues(
+        [sameCluster ? "same event" : "", ...sharedEntities, ...sharedTags],
+        4,
+      );
+
+      return {
+        evidence,
+        item,
+        signalCount: evidence.length,
+        sourceKey,
+      };
+    })
+    .filter(
+      (candidate) =>
+        candidate.signalCount > 0 &&
+        candidate.sourceKey &&
+        candidate.sourceKey !== articleSourceKey,
+    )
+    .sort(compareArticleCorroborationCandidates);
+  const bestCandidateBySource = new Map<string, (typeof candidates)[number]>();
+
+  for (const candidate of candidates) {
+    if (bestCandidateBySource.has(candidate.sourceKey)) continue;
+
+    bestCandidateBySource.set(candidate.sourceKey, candidate);
+  }
+
+  const selectedCandidates = Array.from(bestCandidateBySource.values()).slice(
+    0,
+    Math.max(0, limit),
+  );
+  const independentSourceCount = selectedCandidates.length;
+  const sourceCount = independentSourceCount + 1;
+  const signalCount = selectedCandidates.reduce(
+    (total, candidate) => total + candidate.signalCount,
+    0,
+  );
+  const averageTrust =
+    sourceCount > 0
+      ? Math.round(
+          (article.sourceScore +
+            selectedCandidates.reduce(
+              (total, candidate) => total + candidate.item.sourceScore,
+              0,
+            )) /
+            sourceCount,
+        )
+      : 0;
+  const evidenceSignals = getUniqueValues(
+    selectedCandidates.flatMap((candidate) => candidate.evidence),
+    4,
+  );
+
+  return {
+    label:
+      independentSourceCount > 1
+        ? "Corroborated"
+        : independentSourceCount === 1
+          ? "Developing"
+          : "Single Source",
+    metrics: [
+      { label: "Sources", value: String(sourceCount) },
+      { label: "Matches", value: String(selectedCandidates.length) },
+      { label: "Signals", value: String(signalCount) },
+      { label: "Avg trust", value: String(averageTrust) },
+    ],
+    sources: selectedCandidates.map((candidate) => ({
+      categoryLabel: formatCategory(candidate.item.category),
+      evidenceLabel: candidate.evidence.join(", "),
+      id: candidate.item.id,
+      scoreLabel: `${candidate.signalCount} ${
+        candidate.signalCount === 1 ? "signal" : "signals"
+      } / ${candidate.item.sourceScore} trust`,
+      sourceName: candidate.item.sourceName,
+      title: candidate.item.title,
+    })),
+    summary:
+      selectedCandidates.length > 0
+        ? `${selectedCandidates.length} independent ${
+            selectedCandidates.length === 1 ? "story" : "stories"
+          } from ${independentSourceCount} ${
+            independentSourceCount === 1 ? "source" : "sources"
+          } ${
+            selectedCandidates.length === 1 ? "corroborates" : "corroborate"
+          } this article around ${formatArticleCorroborationList(
+            evidenceSignals,
+          )}.`
+        : "No independent related source corroborates this article yet.",
+  };
+};
+
 const getRecommendationReason = ({
+  sameCluster,
   sameCategory,
   sameSource,
   sharedEntities,
   sharedTags,
 }: {
+  sameCluster?: boolean;
   sameCategory: boolean;
   sameSource: boolean;
   sharedEntities: readonly string[];
   sharedTags: readonly string[];
 }) => {
+  if (sameCluster) return "Same event";
+
   const [entity] = sharedEntities;
   if (entity) return `${entity} thread`;
 
@@ -773,9 +998,11 @@ export const getNewsArticleReadingPath = ({
         item.sourceSlug,
         article.sourceSlug,
       );
+      const sameCluster = hasSameArticleClusterKey(article, item);
       const signalCount =
         sharedEntities.length +
         sharedTags.length +
+        (sameCluster ? 1 : 0) +
         (sameCategory ? 1 : 0) +
         (sameSource ? 1 : 0);
 
@@ -784,6 +1011,7 @@ export const getNewsArticleReadingPath = ({
         personalizedScore: item.personalizedScore,
         publishedAt: item.publishedAt,
         reason: getRecommendationReason({
+          sameCluster,
           sameCategory,
           sameSource,
           sharedEntities,
@@ -842,11 +1070,13 @@ const getArticleNextReadStatus = ({
   article,
   item,
   profile,
+  sameCluster,
   signalCount,
 }: {
   article: NewsArticleItem;
   item: RankedNewsItem<NewsHomeItem>;
   profile: NewsPreferenceProfile;
+  sameCluster?: boolean;
   signalCount: number;
 }): ArticleNextReadStatus => {
   const needsVerification =
@@ -857,6 +1087,7 @@ const getArticleNextReadStatus = ({
   if (needsVerification) return "Verify";
 
   if (
+    sameCluster ||
     signalCount >= 2 ||
     hasSameNormalizedValue(item.category, article.category) ||
     hasSameNormalizedValue(item.sourceSlug, article.sourceSlug)
@@ -877,6 +1108,7 @@ const getArticleNextReadStatus = ({
 
 const getArticleNextReadReason = ({
   item,
+  sameCluster,
   sameCategory,
   sameSource,
   sharedEntities,
@@ -884,6 +1116,7 @@ const getArticleNextReadReason = ({
   status,
 }: {
   item: RankedNewsItem<NewsHomeItem>;
+  sameCluster?: boolean;
   sameCategory: boolean;
   sameSource: boolean;
   sharedEntities: readonly string[];
@@ -900,6 +1133,7 @@ const getArticleNextReadReason = ({
   if (status === "Explore") return "Broaden reader graph";
 
   return getRecommendationReason({
+    sameCluster,
     sameCategory,
     sameSource,
     sharedEntities,
@@ -1003,9 +1237,11 @@ export const getNewsArticleNextReads = ({
         item.sourceSlug,
         article.sourceSlug,
       );
+      const sameCluster = hasSameArticleClusterKey(article, item);
       const overlapSignalCount =
         sharedEntities.length +
         sharedTags.length +
+        (sameCluster ? 1 : 0) +
         (sameCategory ? 1 : 0) +
         (sameSource ? 1 : 0);
       const signalCount = Math.max(
@@ -1017,6 +1253,7 @@ export const getNewsArticleNextReads = ({
         article,
         item,
         profile,
+        sameCluster,
         signalCount,
       });
 
@@ -1027,6 +1264,7 @@ export const getNewsArticleNextReads = ({
         publishedAt: item.publishedAt,
         reason: getArticleNextReadReason({
           item,
+          sameCluster,
           sameCategory,
           sameSource,
           sharedEntities,
@@ -1106,6 +1344,7 @@ const getReaderBiasLabel = (profile: NewsPreferenceProfile) => {
 };
 
 const getNextStepLabel = (reason: string) => {
+  if (reason === "Same event") return "Continue Event";
   if (reason.includes("thread")) return "Continue Thread";
   if (reason === "Same topic") return "Broaden Topic";
   if (reason === "Same source") return "Source Follow-Up";
@@ -1168,6 +1407,7 @@ export const getNewsArticleReaderFit = ({
   });
   const [nextRecommendation] = readingPath.recommendations;
   const followUpCount = readingPath.recommendations.length;
+  const hasSameEventFollowUp = nextRecommendation?.reason === "Same event";
 
   return {
     label:
@@ -1206,7 +1446,13 @@ export const getNewsArticleReaderFit = ({
           } this article; ${followUpCount} ${
             followUpCount === 1 ? "follow-up keeps" : "follow-ups keep"
           } the thread moving.`
-        : "No saved reader signals match this article yet.",
+        : followUpCount > 0
+          ? `No saved reader signals match this article yet; ${followUpCount} ${
+              hasSameEventFollowUp ? "same-event " : ""
+            }${followUpCount === 1 ? "follow-up keeps" : "follow-ups keep"} the ${
+              hasSameEventFollowUp ? "story" : "thread"
+            } moving.`
+          : "No saved reader signals match this article yet.",
   };
 };
 

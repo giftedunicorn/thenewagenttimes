@@ -63,6 +63,7 @@ const isNewsHomeInteractionIntentCategory = (
 export interface NewsHomeItem extends RecommendableNewsItem {
   summary: string;
   canonicalUrl: string | null;
+  clusterKey?: string;
   imageUrl: string | null;
   originalUrl?: string | null;
   recommendation?: NewsRecommendationExplanation;
@@ -941,6 +942,14 @@ export const hasNewsHomeExploreFilters = ({
     (value) => Boolean(value),
   );
 };
+
+export const shouldFetchNewsHomeLiveSearchCandidates = ({
+  query,
+  status,
+}: {
+  query: string;
+  status: NewsHomeStatus;
+}) => query.trim().length >= 2 && status !== "unavailable";
 
 const initialNewsExplorationTrendThreshold = 80;
 const initialNewsExplorationSourceThreshold = 75;
@@ -6324,6 +6333,488 @@ const getPreferenceProfileMetrics = (profile: NewsPreferenceProfile) => {
   ];
 };
 
+type NewsPreferenceCoverageDebtKind = "category" | "entity" | "source";
+
+type NewsPreferenceCoverageDebtAction =
+  | {
+      category: string;
+      feedMode: "for_you";
+      type: "category_filter";
+    }
+  | {
+      feedMode: "for_you";
+      sourceSlug: string;
+      type: "source_filter";
+    }
+  | {
+      feedMode: "for_you";
+      query: string;
+      type: "search";
+    };
+
+const getPreferenceCoverageDebtMetrics = ({
+  activeSignalCount,
+  coveredSignalCount,
+  itemCount,
+  missingSignalCount,
+}: {
+  activeSignalCount: number;
+  coveredSignalCount: number;
+  itemCount: number;
+  missingSignalCount: number;
+}) => [
+  { label: "Signals", value: String(activeSignalCount) },
+  { label: "Covered", value: String(coveredSignalCount) },
+  { label: "Missing", value: String(missingSignalCount) },
+  { label: "Stories", value: String(itemCount) },
+];
+
+const getPreferenceCoverageDebtReason = ({
+  kind,
+  label,
+}: {
+  kind: NewsPreferenceCoverageDebtKind;
+  label: string;
+}) => {
+  if (kind === "category") {
+    return `No ranked story covers ${label} in this edition.`;
+  }
+
+  if (kind === "source") {
+    return `No ranked story comes from ${label}.`;
+  }
+
+  return `No ranked story mentions ${label}.`;
+};
+
+const getPreferenceCoverageDebtActionLabel = (
+  kind: NewsPreferenceCoverageDebtKind,
+) => {
+  if (kind === "category") return "Add topic coverage";
+  if (kind === "source") return "Find source coverage";
+
+  return "Broaden entity coverage";
+};
+
+const getPreferenceCoverageDebtAction = ({
+  kind,
+  signal,
+}: {
+  kind: NewsPreferenceCoverageDebtKind;
+  signal: string;
+}): NewsPreferenceCoverageDebtAction => {
+  if (kind === "category") {
+    return {
+      category: signal,
+      feedMode: "for_you",
+      type: "category_filter",
+    };
+  }
+
+  if (kind === "source") {
+    return {
+      feedMode: "for_you",
+      sourceSlug: signal,
+      type: "source_filter",
+    };
+  }
+
+  return {
+    feedMode: "for_you",
+    query: isSpecificNewsAngleTag(signal)
+      ? formatNewsAngleQuery(signal)
+      : signal,
+    type: "search",
+  };
+};
+
+const newsPreferenceCoverageDebtKindPriority = {
+  source: 0,
+  entity: 1,
+  category: 2,
+} satisfies Record<NewsPreferenceCoverageDebtKind, number>;
+
+export const getNewsPreferenceCoverageDebt = ({
+  formatCategory,
+  items,
+  limit,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  profile: NewsPreferenceProfile;
+}) => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const signals = [
+    ...normalizedProfile.preferredCategories.map((signal) => ({
+      covered: items.some((item) =>
+        hasPreferenceSignal([signal], item.category),
+      ),
+      kind: "category" as const,
+      label: formatCategory(signal),
+      signal,
+    })),
+    ...normalizedProfile.preferredSources.map((signal) => ({
+      covered: items.some((item) =>
+        hasPreferenceSignal([signal], item.sourceSlug),
+      ),
+      kind: "source" as const,
+      label: signal,
+      signal,
+    })),
+    ...normalizedProfile.preferredEntities.map((signal) => ({
+      covered: items.some(
+        (item) =>
+          item.entities.some((entity) =>
+            hasPreferenceSignal([signal], entity),
+          ) || item.tags.some((tag) => hasNewsReaderAngleSignal([signal], tag)),
+      ),
+      kind: "entity" as const,
+      label: isSpecificNewsAngleTag(signal)
+        ? formatNewsAngleQuery(signal)
+        : signal,
+      signal,
+    })),
+  ];
+  const activeSignalCount = signals.length;
+
+  if (items.length === 0) {
+    return {
+      debts: [],
+      label: "Coverage Waiting",
+      metrics: getPreferenceCoverageDebtMetrics({
+        activeSignalCount,
+        coveredSignalCount: 0,
+        itemCount: 0,
+        missingSignalCount: 0,
+      }),
+      summary: "Preference coverage will appear after stories are ranked.",
+    };
+  }
+
+  const missingSignals = signals
+    .filter((signal) => !signal.covered)
+    .sort((left, right) => {
+      const priorityDifference =
+        newsPreferenceCoverageDebtKindPriority[left.kind] -
+        newsPreferenceCoverageDebtKindPriority[right.kind];
+
+      if (priorityDifference !== 0) {
+        return priorityDifference;
+      }
+
+      return left.label.localeCompare(right.label);
+    });
+  const coveredSignalCount = activeSignalCount - missingSignals.length;
+  const debts = missingSignals.slice(0, Math.max(0, limit)).map((signal) => ({
+    action: getPreferenceCoverageDebtAction({
+      kind: signal.kind,
+      signal: signal.signal,
+    }),
+    actionLabel: getPreferenceCoverageDebtActionLabel(signal.kind),
+    kind: signal.kind,
+    label: signal.label,
+    reason: getPreferenceCoverageDebtReason({
+      kind: signal.kind,
+      label: signal.label,
+    }),
+    signal: signal.signal,
+  }));
+
+  return {
+    debts,
+    label: missingSignals.length > 0 ? "Coverage Debt" : "Profile Covered",
+    metrics: getPreferenceCoverageDebtMetrics({
+      activeSignalCount,
+      coveredSignalCount,
+      itemCount: items.length,
+      missingSignalCount: missingSignals.length,
+    }),
+    summary:
+      missingSignals.length > 0
+        ? `${missingSignals.length} of ${activeSignalCount} active profile ${
+            activeSignalCount === 1 ? "signal is" : "signals are"
+          } missing from the current ranked feed.`
+        : `All ${activeSignalCount} active profile ${
+            activeSignalCount === 1 ? "signal is" : "signals are"
+          } covered by the current ranked feed.`,
+  };
+};
+
+interface NewsPreferenceDecaySignal {
+  kind: NewsPreferenceCoverageDebtKind;
+  label: string;
+  signal: string;
+}
+
+interface NewsPreferenceDecayMatchableItem {
+  category: string;
+  entities: readonly string[];
+  sourceName: string;
+  sourceSlug: string;
+  tags?: readonly string[];
+}
+
+const newsPreferenceDecayDayMs = 24 * 60 * 60 * 1000;
+const newsPreferenceDecayRecentWindowDays = 14;
+const newsPreferenceDecayStaleWindowDays = 30;
+
+const getPreferenceDecayActionLabel = ({
+  kind,
+  warm,
+}: {
+  kind: NewsPreferenceCoverageDebtKind;
+  warm: boolean;
+}) => {
+  if (kind === "category") {
+    return warm ? "Keep topic warm" : "Cool topic weight";
+  }
+
+  if (kind === "source") {
+    return warm ? "Keep source warm" : "Cool source weight";
+  }
+
+  return warm ? "Keep entity warm" : "Cool entity weight";
+};
+
+const getPreferenceDecaySignals = ({
+  formatCategory,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceDecaySignal[] => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return [
+    ...normalizedProfile.preferredCategories.map((signal) => ({
+      kind: "category" as const,
+      label: formatCategory(signal),
+      signal,
+    })),
+    ...normalizedProfile.preferredSources.map((signal) => ({
+      kind: "source" as const,
+      label: signal,
+      signal,
+    })),
+    ...normalizedProfile.preferredEntities.map((signal) => ({
+      kind: "entity" as const,
+      label: isSpecificNewsAngleTag(signal)
+        ? formatNewsAngleQuery(signal)
+        : signal,
+      signal,
+    })),
+  ];
+};
+
+const preferenceDecaySignalMatchesItem = (
+  signal: NewsPreferenceDecaySignal,
+  item: NewsPreferenceDecayMatchableItem,
+) => {
+  if (signal.kind === "category") {
+    return hasPreferenceSignal([signal.signal], item.category);
+  }
+
+  if (signal.kind === "source") {
+    return (
+      hasPreferenceSignal([signal.signal], item.sourceSlug) ||
+      hasPreferenceSignal([signal.signal], item.sourceName)
+    );
+  }
+
+  return (
+    item.entities.some((entity) =>
+      hasPreferenceSignal([signal.signal], entity),
+    ) ||
+    (item.tags ?? []).some((tag) =>
+      hasNewsReaderAngleSignal([signal.signal], tag),
+    )
+  );
+};
+
+const getPreferenceDecayLatestTimestamp = (
+  items: readonly NewsReaderMemoryItem[],
+) =>
+  items.reduce(
+    (latest, item) => Math.max(latest, getNewsReaderMemoryTimestamp(item)),
+    0,
+  );
+
+const getPreferenceDecayDaysAgo = (timestamp: number, now: number) =>
+  Math.max(0, Math.floor((now - timestamp) / newsPreferenceDecayDayMs));
+
+const getPreferenceDecayStoryCountLabel = (count: number) =>
+  `${count} ranked ${count === 1 ? "story" : "stories"}`;
+
+export const getNewsPreferenceDecayQueue = ({
+  formatCategory,
+  generatedAt,
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  generatedAt: string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const signals = getPreferenceDecaySignals({ formatCategory, profile });
+  const activeSignalCount = signals.length;
+  const displayLimit = Math.max(0, Math.floor(limit));
+
+  if (items.length === 0) {
+    return {
+      decays: [],
+      label: "Decay Waiting",
+      metrics: [
+        { label: "Profile", value: String(activeSignalCount) },
+        { label: "Recent", value: "0" },
+        { label: "Decay", value: "0" },
+        { label: "Revive", value: "0" },
+      ],
+      revivals: [],
+      summary: "Preference decay will appear after stories are ranked.",
+    };
+  }
+
+  const now = Date.parse(generatedAt);
+  const safeNow = Number.isFinite(now) ? now : Date.now();
+  const positiveItems: NewsReaderMemoryItem[] = [
+    ...historyItems,
+    ...savedItems,
+    ...positiveFeedbackItems,
+  ];
+  const signalStates = signals.map((signal) => {
+    const rankedMatches = items.filter((item) =>
+      preferenceDecaySignalMatchesItem(signal, item),
+    );
+    const positiveMatches = positiveItems.filter((item) =>
+      preferenceDecaySignalMatchesItem(signal, item),
+    );
+    const negativeMatches = negativeFeedbackItems.filter((item) =>
+      preferenceDecaySignalMatchesItem(signal, item),
+    );
+    const lastPositiveTimestamp =
+      getPreferenceDecayLatestTimestamp(positiveMatches);
+    const lastNegativeTimestamp =
+      getPreferenceDecayLatestTimestamp(negativeMatches);
+    const positiveDaysAgo =
+      lastPositiveTimestamp > 0
+        ? getPreferenceDecayDaysAgo(lastPositiveTimestamp, safeNow)
+        : null;
+    const negativeIsNewer =
+      lastNegativeTimestamp > 0 &&
+      lastNegativeTimestamp >= lastPositiveTimestamp;
+    const hasRecentPositive =
+      positiveDaysAgo !== null &&
+      positiveDaysAgo <= newsPreferenceDecayRecentWindowDays &&
+      !negativeIsNewer;
+    const isStale =
+      rankedMatches.length > 0 &&
+      !hasRecentPositive &&
+      (lastPositiveTimestamp === 0 ||
+        negativeIsNewer ||
+        (positiveDaysAgo !== null &&
+          positiveDaysAgo >= newsPreferenceDecayStaleWindowDays));
+
+    return {
+      hasRecentPositive,
+      isStale,
+      lastPositiveTimestamp,
+      negativeIsNewer,
+      positiveDaysAgo,
+      rankedMatches,
+      signal,
+    };
+  });
+  const decayCandidates = signalStates.filter((state) => state.isStale);
+  const revivalCandidates = signalStates.filter(
+    (state) => state.rankedMatches.length > 0 && state.hasRecentPositive,
+  );
+  const decays = decayCandidates.slice(0, displayLimit).map((state) => {
+    const rankedStoryCountLabel = getPreferenceDecayStoryCountLabel(
+      state.rankedMatches.length,
+    );
+    const reason = state.negativeIsNewer
+      ? `Recent Less feedback conflicts with ${rankedStoryCountLabel} matching this profile signal.`
+      : state.lastPositiveTimestamp > 0 && state.positiveDaysAgo !== null
+        ? `Last positive reinforcement was ${state.positiveDaysAgo} days ago while ${rankedStoryCountLabel} still matches this profile signal.`
+        : `No positive reinforcement has been recorded while ${rankedStoryCountLabel} still matches this profile signal.`;
+
+    return {
+      actionLabel: getPreferenceDecayActionLabel({
+        kind: state.signal.kind,
+        warm: false,
+      }),
+      kind: state.signal.kind,
+      label: state.signal.label,
+      reason,
+      signal: state.signal.signal,
+      statusLabel: state.negativeIsNewer ? "Guarded" : "Stale",
+    };
+  });
+  const revivals = revivalCandidates.slice(0, displayLimit).map((state) => {
+    const positiveDaysAgo = state.positiveDaysAgo ?? 0;
+
+    return {
+      actionLabel: getPreferenceDecayActionLabel({
+        kind: state.signal.kind,
+        warm: true,
+      }),
+      kind: state.signal.kind,
+      label: state.signal.label,
+      reason: `Positive behavior ${positiveDaysAgo} ${
+        positiveDaysAgo === 1 ? "day" : "days"
+      } ago reinforces ${getPreferenceDecayStoryCountLabel(
+        state.rankedMatches.length,
+      )} matching this profile signal.`,
+      signal: state.signal.signal,
+      statusLabel: "Warm",
+    };
+  });
+  const decayCount = decayCandidates.length;
+  const revivalCount = revivalCandidates.length;
+
+  return {
+    decays,
+    label:
+      decayCount > 0
+        ? "Decay Queue Active"
+        : revivalCount > 0
+          ? "Decay Queue Warm"
+          : "Decay Queue Clear",
+    metrics: [
+      { label: "Profile", value: String(activeSignalCount) },
+      { label: "Recent", value: String(revivalCount) },
+      { label: "Decay", value: String(decayCount) },
+      { label: "Revive", value: String(revivalCount) },
+    ],
+    revivals,
+    summary:
+      decayCount > 0
+        ? `${decayCount} profile ${
+            decayCount === 1 ? "signal needs" : "signals need"
+          } cooling, while ${revivalCount} recent ${
+            revivalCount === 1 ? "signal stays" : "signals stay"
+          } warm.`
+        : revivalCount > 0
+          ? `${revivalCount} recent profile ${
+              revivalCount === 1 ? "signal is" : "signals are"
+            } still reinforced by reader behavior.`
+          : "Profile signals are either fresh or absent from the ranked feed.",
+  };
+};
+
 export const getNewsPreferenceProfileTrainingUpdate = ({
   action,
   afterProfile,
@@ -9732,6 +10223,255 @@ export const getNewsLiveWire = ({
   };
 };
 
+type NewsBreakingEscalationLaneKey = "banner" | "live" | "watch";
+
+interface NewsBreakingEscalationLaneDefinition {
+  key: NewsBreakingEscalationLaneKey;
+  label: string;
+  summary: string;
+}
+
+const newsBreakingEscalationLaneDefinitions = [
+  {
+    key: "banner",
+    label: "Banner",
+    summary:
+      "Confirmed, fresh, high-heat stories that can interrupt the front page.",
+  },
+  {
+    key: "live",
+    label: "Live",
+    summary:
+      "Fast-moving stories that belong in live coverage without replacing the lead.",
+  },
+  {
+    key: "watch",
+    label: "Watch",
+    summary: "Hot stories held for corroboration, freshness, or source checks.",
+  },
+] as const satisfies readonly NewsBreakingEscalationLaneDefinition[];
+
+const getNewsBreakingEscalationAgeMinutes = ({
+  item,
+  now,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  now: Date;
+}) =>
+  Math.max(
+    0,
+    Math.round((now.getTime() - new Date(item.publishedAt).getTime()) / 60000),
+  );
+
+const getNewsBreakingEscalationScore = ({
+  ageMinutes,
+  item,
+}: {
+  ageMinutes: number;
+  item: RankedNewsItem<NewsHomeItem>;
+}) => {
+  const readerSignalLift =
+    getReaderRecommendationSignalCount(item) > 0
+      ? Math.min(getReaderRecommendationSignalCount(item) * 9 + 12, 30)
+      : 0;
+  const freshnessPenalty =
+    ageMinutes <= 20 ? 3 : ageMinutes <= 60 ? 5 : Math.round(ageMinutes / 11);
+  const lowTrustPenalty = item.sourceScore < 70 ? 14 : 0;
+
+  return (
+    item.trendScore +
+    Math.round(item.personalizedScore / 4) +
+    Math.round(item.sourceScore / 3) +
+    readerSignalLift -
+    freshnessPenalty -
+    lowTrustPenalty
+  );
+};
+
+const getNewsBreakingEscalationLaneKey = ({
+  ageMinutes,
+  item,
+}: {
+  ageMinutes: number;
+  item: RankedNewsItem<NewsHomeItem>;
+}): NewsBreakingEscalationLaneKey => {
+  const hasReaderSignal = hasReaderRecommendationSignal(item);
+  const isFresh = ageMinutes <= 60;
+  const isLive = ageMinutes <= 180;
+
+  if (
+    item.trendScore >= 95 &&
+    item.sourceScore >= 85 &&
+    hasReaderSignal &&
+    isFresh
+  ) {
+    return "banner";
+  }
+
+  if (item.trendScore >= 90 && item.sourceScore >= 80 && isLive) {
+    return "live";
+  }
+
+  return "watch";
+};
+
+const getNewsBreakingEscalationReason = ({
+  ageMinutes,
+  laneKey,
+  item,
+}: {
+  ageMinutes: number;
+  laneKey: NewsBreakingEscalationLaneKey;
+  item: RankedNewsItem<NewsHomeItem>;
+}) => {
+  if (laneKey === "banner") {
+    return "High-trust, high-heat update with reader relevance and fresh timing.";
+  }
+
+  if (laneKey === "live") {
+    return "Strong live update, but below the front-page interruption threshold.";
+  }
+
+  if (item.sourceScore < 70) {
+    return "High heat needs source confirmation before escalation.";
+  }
+
+  if (ageMinutes > 180) {
+    return "Older update needs a fresh confirmation before escalation.";
+  }
+
+  return "Hot update needs another signal before escalation.";
+};
+
+const toNewsBreakingEscalationStory = ({
+  ageMinutes,
+  escalationScore,
+  formatCategory,
+  item,
+  laneKey,
+}: {
+  ageMinutes: number;
+  escalationScore: number;
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  laneKey: NewsBreakingEscalationLaneKey;
+}) => ({
+  categoryLabel: formatCategory(item.category),
+  escalationScore,
+  id: item.id,
+  reason: getNewsBreakingEscalationReason({ ageMinutes, item, laneKey }),
+  scoreLabel: `${item.trendScore} heat / ${item.personalizedScore} score / ${item.sourceScore} trust`,
+  sourceName: item.sourceName,
+  title: item.title,
+  urgencyLabel: `${ageMinutes} min old`,
+});
+
+export const getNewsBreakingEscalationQueue = ({
+  formatCategory,
+  items,
+  limit,
+  now,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  now: Date;
+}) => {
+  const storyLimit = Math.max(0, limit);
+  const candidates = items
+    .filter((item) => item.trendScore >= 88 || item.personalizedScore >= 150)
+    .map((item) => {
+      const ageMinutes = getNewsBreakingEscalationAgeMinutes({ item, now });
+      const laneKey = getNewsBreakingEscalationLaneKey({ ageMinutes, item });
+      const escalationScore = getNewsBreakingEscalationScore({
+        ageMinutes,
+        item,
+      });
+
+      return {
+        ageMinutes,
+        escalationScore,
+        item,
+        laneKey,
+      };
+    });
+  const candidateCount = candidates.length;
+
+  const lanes = newsBreakingEscalationLaneDefinitions.map((definition) => {
+    const laneCandidates = candidates
+      .filter((candidate) => candidate.laneKey === definition.key)
+      .sort((left, right) => {
+        if (definition.key === "watch") {
+          if (right.item.trendScore !== left.item.trendScore) {
+            return right.item.trendScore - left.item.trendScore;
+          }
+
+          return left.ageMinutes - right.ageMinutes;
+        }
+
+        if (right.escalationScore !== left.escalationScore) {
+          return right.escalationScore - left.escalationScore;
+        }
+
+        return left.ageMinutes - right.ageMinutes;
+      });
+
+    return {
+      count: laneCandidates.length,
+      key: definition.key,
+      label: definition.label,
+      shareLabel: formatPercentage(laneCandidates.length, candidateCount),
+      stories: laneCandidates.slice(0, storyLimit).map((candidate) =>
+        toNewsBreakingEscalationStory({
+          ageMinutes: candidate.ageMinutes,
+          escalationScore: candidate.escalationScore,
+          formatCategory,
+          item: candidate.item,
+          laneKey: candidate.laneKey,
+        }),
+      ),
+      summary: definition.summary,
+    };
+  });
+  const bannerCount = lanes.find((lane) => lane.key === "banner")?.count ?? 0;
+  const liveCount = lanes.find((lane) => lane.key === "live")?.count ?? 0;
+  const watchCount = lanes.find((lane) => lane.key === "watch")?.count ?? 0;
+
+  if (candidateCount === 0) {
+    return {
+      label: "Breaking Escalation Waiting",
+      lanes,
+      metrics: [
+        { label: "Candidates", value: "0" },
+        { label: "Banner", value: "0" },
+        { label: "Live", value: "0" },
+        { label: "Watch", value: "0" },
+      ],
+      summary:
+        "Breaking escalation will appear after urgent live candidates are ranked.",
+    };
+  }
+
+  return {
+    label:
+      bannerCount > 0
+        ? "Breaking Escalation Ready"
+        : "Breaking Escalation Watch",
+    lanes,
+    metrics: [
+      { label: "Candidates", value: String(candidateCount) },
+      { label: "Banner", value: String(bannerCount) },
+      { label: "Live", value: String(liveCount) },
+      { label: "Watch", value: String(watchCount) },
+    ],
+    summary: `${candidateCount} breaking ${
+      candidateCount === 1 ? "candidate" : "candidates"
+    } reviewed: ${bannerCount} banner, ${liveCount} live ${
+      liveCount === 1 ? "update" : "updates"
+    }, and ${watchCount} watch ${watchCount === 1 ? "item" : "items"}.`,
+  };
+};
+
 type NewsHotBoardLabel =
   | "Explore Hot"
   | "For You Hot"
@@ -10203,6 +10943,142 @@ export const getNewsSearchTrends = ({
           } across reader, rising, and market demand.`
         : "Search trends will appear after stories are ranked.",
     trends: searchTrends,
+  };
+};
+
+const getNewsSearchCandidateKey = (item: NewsHomeItem) =>
+  `${item.title.trim().toLowerCase()}::${item.sourceSlug.trim().toLowerCase()}`;
+
+const getNewsSearchCandidateTopicLabel = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: NewsHomeItem;
+}) => {
+  const topicSignals = getUniqueSignals(
+    [
+      ...item.entities,
+      ...item.tags.filter(isSpecificNewsAngleTag).map(formatNewsAngleQuery),
+      formatCategory(item.category),
+    ],
+    2,
+  );
+
+  return topicSignals.length > 0
+    ? topicSignals.join(" / ")
+    : formatCategory(item.category);
+};
+
+export const selectNewsHomeLiveSearchCandidateItems = ({
+  activeCategory,
+  activeSourceSlug,
+  activeTag,
+  localItems,
+  query,
+  serverItems,
+}: {
+  activeCategory: string | null;
+  activeSourceSlug: string | null;
+  activeTag: string | null;
+  localItems: readonly NewsHomeItem[];
+  query: string;
+  serverItems: readonly NewsHomeItem[];
+}) => {
+  const liveQuery = query.trim();
+
+  if (!liveQuery) return [];
+  if (serverItems.length > 0) return [...serverItems];
+
+  return selectNewsHomeSessionScopedItems({
+    intent: buildNewsHomeSessionIntentFilter({
+      category: activeCategory,
+      query: liveQuery,
+      sourceSlug: activeSourceSlug,
+      tag: activeTag,
+    }),
+    items: localItems,
+  });
+};
+
+export const getNewsSearchCandidateRail = ({
+  candidates,
+  formatCategory,
+  limit,
+  query,
+}: {
+  candidates: readonly NewsHomeItem[];
+  formatCategory: (category: string) => string;
+  limit: number;
+  query: string;
+}) => {
+  const normalizedQuery = query.trim();
+
+  if (!normalizedQuery) {
+    return {
+      label: "Live Search Idle",
+      metrics: [
+        { label: "Leads", value: "0" },
+        { label: "Sources", value: "0" },
+      ],
+      summary: "Type a search query to preview matching story leads.",
+      leads: [],
+    };
+  }
+
+  const seenCandidateKeys = new Set<string>();
+  const leads = [...candidates]
+    .sort((left, right) => {
+      if (right.trendScore !== left.trendScore) {
+        return right.trendScore - left.trendScore;
+      }
+
+      return (
+        new Date(right.publishedAt).getTime() -
+        new Date(left.publishedAt).getTime()
+      );
+    })
+    .flatMap((item) => {
+      const candidateKey = getNewsSearchCandidateKey(item);
+      if (seenCandidateKeys.has(candidateKey)) return [];
+
+      seenCandidateKeys.add(candidateKey);
+
+      return [
+        {
+          categoryLabel: formatCategory(item.category),
+          id: item.id,
+          query: normalizedQuery,
+          sourceName: item.sourceName,
+          title: item.title,
+          topicLabel: getNewsSearchCandidateTopicLabel({
+            formatCategory,
+            item,
+          }),
+        },
+      ];
+    })
+    .slice(0, limit);
+
+  const sourceCount = new Set(
+    leads.map((lead) => lead.sourceName.trim().toLowerCase()),
+  ).size;
+
+  return {
+    label: leads.length > 0 ? "Live Search Leads" : "Live Search Empty",
+    metrics: [
+      { label: "Leads", value: String(leads.length) },
+      { label: "Sources", value: String(sourceCount) },
+    ],
+    summary:
+      leads.length > 0
+        ? `${leads.length} live story ${
+            leads.length === 1 ? "lead matches" : "leads match"
+          } "${normalizedQuery}" across ${sourceCount} ${
+            sourceCount === 1 ? "source" : "sources"
+          }.`
+        : `No live story leads match "${normalizedQuery}" yet.`,
+    leads,
   };
 };
 
@@ -11739,6 +12615,816 @@ export const getNewsRecommendationRotationQueue = ({
     } reader fit, exploration, market heat, and source trust across ${sourceCount} ${
       sourceCount === 1 ? "source" : "sources"
     }.`,
+  };
+};
+
+const getNewsRecommendationSourceSaturationKey = (
+  item: Pick<NewsHomeItem, "sourceName" | "sourceSlug">,
+) =>
+  normalizePreferenceSignal(item.sourceSlug) ||
+  normalizePreferenceSignal(item.sourceName);
+
+export const getNewsRecommendationSourceSaturation = ({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => {
+  const slots = items.slice(0, Math.max(0, limit));
+  const slotCount = slots.length;
+
+  if (slotCount === 0) {
+    return {
+      actions: [
+        {
+          detail:
+            "Wait for ranked stories before checking whether one source dominates the recommendation queue.",
+          label: "Wait for ranking",
+        },
+      ],
+      label: "Saturation Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Sources", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Source saturation will appear after recommendation slots are ranked.",
+    };
+  }
+
+  const sourceCounts = new Map<
+    string,
+    { count: number; name: string; slug: string }
+  >();
+
+  for (const item of slots) {
+    const sourceSlug = getNewsRecommendationSourceSaturationKey(item);
+    const current = sourceCounts.get(sourceSlug);
+
+    sourceCounts.set(sourceSlug, {
+      count: current ? current.count + 1 : 1,
+      name: current?.name ?? item.sourceName,
+      slug: sourceSlug,
+    });
+  }
+
+  const sources = Array.from(sourceCounts.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.name.localeCompare(right.name);
+  });
+  const dominantSource = sources[0];
+
+  if (!dominantSource) {
+    return {
+      actions: [
+        {
+          detail:
+            "Wait for ranked stories before checking whether one source dominates the recommendation queue.",
+          label: "Wait for ranking",
+        },
+      ],
+      label: "Saturation Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Sources", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Source saturation will appear after recommendation slots are ranked.",
+    };
+  }
+
+  const dominantShare = formatPercentage(dominantSource.count, slotCount);
+  const sourceCount = sources.length;
+  const isSaturated =
+    sourceCount === 1 || dominantSource.count / slotCount > 0.5;
+  const alternativeSource = sources.find(
+    (source) => source.slug !== dominantSource.slug,
+  );
+
+  return {
+    actions: isSaturated
+      ? [
+          {
+            detail: `${dominantSource.name} owns ${dominantSource.count} of ${slotCount} recommendation slots; bring in independent sources before the next ranking pass.`,
+            label: "Expand source mix",
+          },
+          ...(alternativeSource
+            ? [
+                {
+                  detail: `${alternativeSource.name} is available as the strongest alternative source in this queue.`,
+                  label: "Candidate source",
+                },
+              ]
+            : [
+                {
+                  detail:
+                    "No alternative source is present in this queue, so ingestion needs more independent coverage.",
+                  label: "Need more sources",
+                },
+              ]),
+        ]
+      : [
+          {
+            detail: `${sourceCount} sources share ${slotCount} recommendation slots; no source owns more than half of this queue.`,
+            label: "Keep source spread",
+          },
+        ],
+    label: isSaturated ? "Source Saturated" : "Source Diverse",
+    metrics: [
+      { label: "Slots", value: String(slotCount) },
+      { label: "Sources", value: String(sourceCount) },
+      { label: "Dominant share", value: dominantShare },
+      { label: "Repeat slots", value: String(dominantSource.count) },
+    ],
+    summary: isSaturated
+      ? `${dominantSource.name} owns ${dominantShare} of the next ${slotCount} recommendation slots across ${sourceCount} ${
+          sourceCount === 1 ? "source" : "sources"
+        }.`
+      : `${sourceCount} ${
+          sourceCount === 1 ? "source shares" : "sources share"
+        } the next ${slotCount} recommendation slots; ${dominantSource.name} leads with ${dominantShare}.`,
+  };
+};
+
+export const getNewsRecommendationTopicSaturation = ({
+  formatCategory,
+  items,
+  limit,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => {
+  const slots = items.slice(0, Math.max(0, limit));
+  const slotCount = slots.length;
+
+  if (slotCount === 0) {
+    return {
+      actions: [
+        {
+          detail:
+            "Wait for ranked stories before checking whether one topic dominates the recommendation queue.",
+          label: "Wait for ranking",
+        },
+      ],
+      label: "Topic Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Topics", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Topic saturation will appear after recommendation slots are ranked.",
+    };
+  }
+
+  const topicCounts = new Map<
+    string,
+    { count: number; label: string; slug: string }
+  >();
+
+  for (const item of slots) {
+    const topicSlug = normalizePreferenceSignal(item.category);
+    if (!topicSlug) continue;
+
+    const current = topicCounts.get(topicSlug);
+    topicCounts.set(topicSlug, {
+      count: current ? current.count + 1 : 1,
+      label: current?.label ?? formatCategory(item.category.trim()),
+      slug: topicSlug,
+    });
+  }
+
+  const topics = Array.from(topicCounts.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.label.localeCompare(right.label);
+  });
+  const dominantTopic = topics[0];
+
+  if (!dominantTopic) {
+    return {
+      actions: [
+        {
+          detail:
+            "Ranked stories need topic metadata before topic saturation can be checked.",
+          label: "Add topic metadata",
+        },
+      ],
+      label: "Topic Waiting",
+      metrics: [
+        { label: "Slots", value: String(slotCount) },
+        { label: "Topics", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Topic saturation will appear after ranked stories include topics.",
+    };
+  }
+
+  const dominantShare = formatPercentage(dominantTopic.count, slotCount);
+  const topicCount = topics.length;
+  const isSaturated = topicCount === 1 || dominantTopic.count / slotCount > 0.5;
+  const alternativeTopic = topics.find(
+    (topic) => topic.slug !== dominantTopic.slug,
+  );
+
+  return {
+    actions: isSaturated
+      ? [
+          {
+            detail: `${dominantTopic.label} occupies ${dominantTopic.count} of ${slotCount} recommendation slots; add adjacent topics before the next ranking pass.`,
+            label: "Expand topic mix",
+          },
+          ...(alternativeTopic
+            ? [
+                {
+                  detail: `${alternativeTopic.label} is available as the strongest alternative topic in this queue.`,
+                  label: "Candidate topic",
+                },
+              ]
+            : [
+                {
+                  detail:
+                    "No alternative topic is present in this queue, so ingestion needs broader category coverage.",
+                  label: "Need more topics",
+                },
+              ]),
+        ]
+      : [
+          {
+            detail: `${topicCount} topics share ${slotCount} recommendation slots; no topic occupies more than half of this queue.`,
+            label: "Keep topic spread",
+          },
+        ],
+    label: isSaturated ? "Topic Saturated" : "Topic Diverse",
+    metrics: [
+      { label: "Slots", value: String(slotCount) },
+      { label: "Topics", value: String(topicCount) },
+      { label: "Dominant share", value: dominantShare },
+      { label: "Repeat slots", value: String(dominantTopic.count) },
+    ],
+    summary: isSaturated
+      ? `${dominantTopic.label} occupies ${dominantShare} of the next ${slotCount} recommendation slots across ${topicCount} ${
+          topicCount === 1 ? "topic" : "topics"
+        }.`
+      : `${topicCount} ${
+          topicCount === 1 ? "topic appears" : "topics appear"
+        } across the next ${slotCount} recommendation slots; ${dominantTopic.label} leads with ${dominantShare}.`,
+  };
+};
+
+export const getNewsRecommendationEntitySaturation = ({
+  items,
+  limit,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => {
+  const slots = items.slice(0, Math.max(0, limit));
+  const slotCount = slots.length;
+
+  if (slotCount === 0) {
+    return {
+      actions: [
+        {
+          detail:
+            "Wait for ranked stories before checking whether one entity dominates the recommendation queue.",
+          label: "Wait for ranking",
+        },
+      ],
+      label: "Entity Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Entities", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Entity saturation will appear after recommendation slots are ranked.",
+    };
+  }
+
+  const entityCounts = new Map<
+    string,
+    { count: number; name: string; slug: string }
+  >();
+
+  for (const item of slots) {
+    for (const entity of getUniqueSignals(item.entities, 24)) {
+      const entitySlug = normalizePreferenceSignal(entity);
+      if (!entitySlug) continue;
+
+      const current = entityCounts.get(entitySlug);
+      entityCounts.set(entitySlug, {
+        count: current ? current.count + 1 : 1,
+        name: current?.name ?? entity,
+        slug: entitySlug,
+      });
+    }
+  }
+
+  const entities = Array.from(entityCounts.values()).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.name.localeCompare(right.name);
+  });
+  const dominantEntity = entities[0];
+
+  if (!dominantEntity) {
+    return {
+      actions: [
+        {
+          detail:
+            "Ranked stories need entity metadata before entity saturation can be checked.",
+          label: "Add entity metadata",
+        },
+      ],
+      label: "Entity Waiting",
+      metrics: [
+        { label: "Slots", value: String(slotCount) },
+        { label: "Entities", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Entity saturation will appear after ranked stories include entities.",
+    };
+  }
+
+  const dominantShare = formatPercentage(dominantEntity.count, slotCount);
+  const entityCount = entities.length;
+  const isSaturated =
+    entityCount === 1 || dominantEntity.count / slotCount > 0.5;
+  const alternativeEntity = entities.find(
+    (entity) => entity.slug !== dominantEntity.slug,
+  );
+
+  return {
+    actions: isSaturated
+      ? [
+          {
+            detail: `${dominantEntity.name} appears in ${dominantEntity.count} of ${slotCount} recommendation slots; add adjacent entities before the next ranking pass.`,
+            label: "Expand entity mix",
+          },
+          ...(alternativeEntity
+            ? [
+                {
+                  detail: `${alternativeEntity.name} is available as the strongest alternative entity in this queue.`,
+                  label: "Candidate entity",
+                },
+              ]
+            : [
+                {
+                  detail:
+                    "No alternative entity is present in this queue, so ingestion needs broader company and topic coverage.",
+                  label: "Need more entities",
+                },
+              ]),
+        ]
+      : [
+          {
+            detail: `${entityCount} entities share ${slotCount} recommendation slots; no entity appears in more than half of this queue.`,
+            label: "Keep entity spread",
+          },
+        ],
+    label: isSaturated ? "Entity Saturated" : "Entity Diverse",
+    metrics: [
+      { label: "Slots", value: String(slotCount) },
+      { label: "Entities", value: String(entityCount) },
+      { label: "Dominant share", value: dominantShare },
+      { label: "Repeat slots", value: String(dominantEntity.count) },
+    ],
+    summary: isSaturated
+      ? `${dominantEntity.name} appears in ${dominantShare} of the next ${slotCount} recommendation slots across ${entityCount} ${
+          entityCount === 1 ? "entity" : "entities"
+        }.`
+      : `${entityCount} ${
+          entityCount === 1 ? "entity appears" : "entities appear"
+        } across the next ${slotCount} recommendation slots; ${dominantEntity.name} leads with ${dominantShare}.`,
+  };
+};
+
+type NewsRecommendationDiversityDimension = "Entity" | "Source" | "Topic";
+
+const newsRecommendationDiversityDimensionPriority = {
+  Source: 0,
+  Topic: 1,
+  Entity: 2,
+} satisfies Record<NewsRecommendationDiversityDimension, number>;
+
+const getRecommendationDiversityMetricValue = (
+  metrics: readonly { label: string; value: string }[],
+  label: string,
+) => metrics.find((metric) => metric.label === label)?.value ?? "0";
+
+const getRecommendationDiversityShareScore = (shareLabel: string) =>
+  Number.parseInt(shareLabel.replace("%", ""), 10) || 0;
+
+export const getNewsRecommendationDiversityGovernor = ({
+  formatCategory,
+  items,
+  limit,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => {
+  const slotCount = Math.max(0, Math.min(items.length, limit));
+
+  if (slotCount === 0) {
+    return {
+      controls: [
+        {
+          detail:
+            "Wait for ranked stories before applying recommendation diversity controls.",
+          dimension: "All",
+          label: "Wait for ranking",
+          shareLabel: "0%",
+          statusLabel: "Diversity Waiting",
+        },
+      ],
+      label: "Diversity Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Risks", value: "0" },
+        { label: "Highest share", value: "0%" },
+        { label: "Controls", value: "1" },
+      ],
+      summary:
+        "Diversity governor will appear after recommendation slots are ranked.",
+    };
+  }
+
+  const reports = [
+    {
+      dimension: "Source" as const,
+      report: getNewsRecommendationSourceSaturation({ items, limit }),
+    },
+    {
+      dimension: "Topic" as const,
+      report: getNewsRecommendationTopicSaturation({
+        formatCategory,
+        items,
+        limit,
+      }),
+    },
+    {
+      dimension: "Entity" as const,
+      report: getNewsRecommendationEntitySaturation({ items, limit }),
+    },
+  ];
+  const highestShareLabel =
+    reports
+      .map(({ report }) =>
+        getRecommendationDiversityMetricValue(report.metrics, "Dominant share"),
+      )
+      .sort(
+        (left, right) =>
+          getRecommendationDiversityShareScore(right) -
+          getRecommendationDiversityShareScore(left),
+      )[0] ?? "0%";
+  const controls = reports
+    .filter(({ report }) => report.label.includes("Saturated"))
+    .map(({ dimension, report }) => {
+      const action = report.actions[0] ?? {
+        detail: report.summary,
+        label: "Review diversity",
+      };
+
+      return {
+        detail: action.detail,
+        dimension,
+        label: action.label,
+        shareLabel: getRecommendationDiversityMetricValue(
+          report.metrics,
+          "Dominant share",
+        ),
+        statusLabel: report.label,
+      };
+    })
+    .sort((left, right) => {
+      const shareDifference =
+        getRecommendationDiversityShareScore(right.shareLabel) -
+        getRecommendationDiversityShareScore(left.shareLabel);
+
+      if (shareDifference !== 0) return shareDifference;
+
+      return (
+        newsRecommendationDiversityDimensionPriority[left.dimension] -
+        newsRecommendationDiversityDimensionPriority[right.dimension]
+      );
+    });
+  const riskCount = controls.length;
+  const visibleControls =
+    riskCount > 0
+      ? controls
+      : [
+          {
+            detail:
+              "Source, topic, and entity spread are all under the saturation threshold.",
+            dimension: "All" as const,
+            label: "Keep diversity mix",
+            shareLabel: highestShareLabel,
+            statusLabel: "Diversity Healthy",
+          },
+        ];
+
+  return {
+    controls: visibleControls,
+    label: riskCount > 0 ? "Diversity At Risk" : "Diversity Healthy",
+    metrics: [
+      { label: "Slots", value: String(slotCount) },
+      { label: "Risks", value: String(riskCount) },
+      { label: "Highest share", value: highestShareLabel },
+      { label: "Controls", value: String(visibleControls.length) },
+    ],
+    summary:
+      riskCount > 0
+        ? `${riskCount} diversity ${
+            riskCount === 1 ? "control needs" : "controls need"
+          } attention across the next ${slotCount} recommendation slots; highest concentration is ${highestShareLabel}.`
+        : `The next ${slotCount} recommendation slots stay below saturation thresholds across source, topic, and entity.`,
+  };
+};
+
+const isNewsRecommendationDiversityDimension = (
+  dimension: string,
+): dimension is NewsRecommendationDiversityDimension =>
+  dimension === "Source" || dimension === "Topic" || dimension === "Entity";
+
+const toDiversityRepairStory = (item: RankedNewsItem<NewsHomeItem>) => ({
+  id: item.id,
+  personalizedScore: item.personalizedScore,
+  sourceName: item.sourceName,
+  title: item.title,
+});
+
+interface NewsRecommendationDiversityRepair {
+  candidate: ReturnType<typeof toDiversityRepairStory>;
+  dimension: NewsRecommendationDiversityDimension;
+  label: string;
+  reason: string;
+  replaceStory: ReturnType<typeof toDiversityRepairStory>;
+  shareLabel: string;
+}
+
+const getDominantRecommendationBucket = (
+  values: readonly { key: string; label: string }[],
+) =>
+  Array.from(
+    values
+      .filter((value) => value.key)
+      .reduce((buckets, value) => {
+        const current = buckets.get(value.key);
+        buckets.set(value.key, {
+          count: current ? current.count + 1 : 1,
+          key: value.key,
+          label: current?.label ?? value.label,
+        });
+
+        return buckets;
+      }, new Map<string, { count: number; key: string; label: string }>())
+      .values(),
+  ).sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.label.localeCompare(right.label);
+  })[0];
+
+const getRecommendationSourceKey = (item: RankedNewsItem<NewsHomeItem>) =>
+  normalizePreferenceSignal(item.sourceSlug || item.sourceName);
+
+const getRecommendationTopicKey = (item: RankedNewsItem<NewsHomeItem>) =>
+  normalizePreferenceSignal(item.category);
+
+const getRecommendationEntityKeys = (item: RankedNewsItem<NewsHomeItem>) =>
+  new Set(
+    getUniqueSignals(item.entities, 24)
+      .map((entity) => normalizePreferenceSignal(entity))
+      .filter(Boolean),
+  );
+
+const findLowestScoredRecommendationStory = (
+  items: readonly RankedNewsItem<NewsHomeItem>[],
+  predicate: (item: RankedNewsItem<NewsHomeItem>) => boolean,
+) =>
+  items.filter(predicate).sort((left, right) => {
+    if (left.personalizedScore !== right.personalizedScore) {
+      return left.personalizedScore - right.personalizedScore;
+    }
+
+    return left.id.localeCompare(right.id);
+  })[0];
+
+const findDiversityRepairCandidate = ({
+  items,
+  startIndex,
+  usedCandidateIds,
+  predicate,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  startIndex: number;
+  usedCandidateIds: ReadonlySet<string>;
+  predicate: (item: RankedNewsItem<NewsHomeItem>) => boolean;
+}) =>
+  items
+    .slice(startIndex)
+    .find((item) => !usedCandidateIds.has(item.id) && predicate(item));
+
+export const getNewsRecommendationDiversityRepairQueue = ({
+  formatCategory,
+  items,
+  limit,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+}) => {
+  const slotCount = Math.max(0, Math.min(items.length, limit));
+
+  if (slotCount === 0) {
+    return {
+      label: "Repair Queue Waiting",
+      metrics: [
+        { label: "Slots", value: "0" },
+        { label: "Risks", value: "0" },
+        { label: "Candidates", value: "0" },
+        { label: "Repairs", value: "0" },
+      ],
+      repairs: [],
+      summary:
+        "Diversity repair queue will appear after recommendation slots are ranked.",
+    };
+  }
+
+  const governor = getNewsRecommendationDiversityGovernor({
+    formatCategory,
+    items,
+    limit,
+  });
+  const riskCount =
+    Number.parseInt(
+      getRecommendationDiversityMetricValue(governor.metrics, "Risks"),
+      10,
+    ) || 0;
+
+  if (riskCount === 0) {
+    return {
+      label: "Repair Queue Healthy",
+      metrics: [
+        { label: "Slots", value: String(slotCount) },
+        { label: "Risks", value: "0" },
+        { label: "Candidates", value: "0" },
+        { label: "Repairs", value: "0" },
+      ],
+      repairs: [],
+      summary: `No diversity repairs are needed across the next ${slotCount} recommendation slots.`,
+    };
+  }
+
+  const slots = items.slice(0, slotCount);
+  const dominantSource = getDominantRecommendationBucket(
+    slots.map((item) => ({
+      key: getRecommendationSourceKey(item),
+      label: item.sourceName,
+    })),
+  );
+  const dominantTopic = getDominantRecommendationBucket(
+    slots.map((item) => ({
+      key: getRecommendationTopicKey(item),
+      label: formatCategory(item.category),
+    })),
+  );
+  const dominantEntity = getDominantRecommendationBucket(
+    slots.flatMap((item) =>
+      getUniqueSignals(item.entities, 24).map((entity) => ({
+        key: normalizePreferenceSignal(entity),
+        label: entity,
+      })),
+    ),
+  );
+  const usedCandidateIds = new Set<string>();
+  const repairs = governor.controls.flatMap<NewsRecommendationDiversityRepair>(
+    (control) => {
+      if (!isNewsRecommendationDiversityDimension(control.dimension)) return [];
+
+      if (control.dimension === "Source" && dominantSource) {
+        const candidate = findDiversityRepairCandidate({
+          items,
+          predicate: (item) =>
+            getRecommendationSourceKey(item) !== dominantSource.key,
+          startIndex: slotCount,
+          usedCandidateIds,
+        });
+        const replaceStory = findLowestScoredRecommendationStory(
+          slots,
+          (item) => getRecommendationSourceKey(item) === dominantSource.key,
+        );
+
+        if (!candidate || !replaceStory) return [];
+
+        usedCandidateIds.add(candidate.id);
+
+        return [
+          {
+            candidate: toDiversityRepairStory(candidate),
+            dimension: "Source" as const,
+            label: "Replace source-heavy slot",
+            reason: `${candidate.sourceName} gives the saturated source mix an independent source.`,
+            replaceStory: toDiversityRepairStory(replaceStory),
+            shareLabel: control.shareLabel,
+          },
+        ];
+      }
+
+      if (control.dimension === "Topic" && dominantTopic) {
+        const candidate = findDiversityRepairCandidate({
+          items,
+          predicate: (item) =>
+            getRecommendationTopicKey(item) !== dominantTopic.key,
+          startIndex: slotCount,
+          usedCandidateIds,
+        });
+        const replaceStory = findLowestScoredRecommendationStory(
+          slots,
+          (item) => getRecommendationTopicKey(item) === dominantTopic.key,
+        );
+
+        if (!candidate || !replaceStory) return [];
+
+        usedCandidateIds.add(candidate.id);
+
+        return [
+          {
+            candidate: toDiversityRepairStory(candidate),
+            dimension: "Topic" as const,
+            label: "Replace topic-heavy slot",
+            reason: `${formatCategory(
+              candidate.category,
+            )} gives the saturated topic mix an adjacent topic.`,
+            replaceStory: toDiversityRepairStory(replaceStory),
+            shareLabel: control.shareLabel,
+          },
+        ];
+      }
+
+      if (control.dimension === "Entity" && dominantEntity) {
+        const candidate = findDiversityRepairCandidate({
+          items,
+          predicate: (item) =>
+            !getRecommendationEntityKeys(item).has(dominantEntity.key),
+          startIndex: slotCount,
+          usedCandidateIds,
+        });
+        const replaceStory = findLowestScoredRecommendationStory(
+          slots,
+          (item) => getRecommendationEntityKeys(item).has(dominantEntity.key),
+        );
+
+        if (!candidate || !replaceStory) return [];
+
+        usedCandidateIds.add(candidate.id);
+
+        return [
+          {
+            candidate: toDiversityRepairStory(candidate),
+            dimension: "Entity" as const,
+            label: "Replace entity-heavy slot",
+            reason: `${candidate.title} avoids the saturated ${dominantEntity.label} entity cluster.`,
+            replaceStory: toDiversityRepairStory(replaceStory),
+            shareLabel: control.shareLabel,
+          },
+        ];
+      }
+
+      return [];
+    },
+  );
+  const repairCount = repairs.length;
+
+  return {
+    label:
+      repairCount > 0 ? "Repair Queue Ready" : "Repair Queue Needs Candidates",
+    metrics: [
+      { label: "Slots", value: String(slotCount) },
+      { label: "Risks", value: String(riskCount) },
+      { label: "Candidates", value: String(repairCount) },
+      { label: "Repairs", value: String(repairCount) },
+    ],
+    repairs,
+    summary:
+      repairCount > 0
+        ? `${repairCount} repair ${
+            repairCount === 1 ? "candidate can" : "candidates can"
+          } reduce diversity risk across the next ${slotCount} recommendation slots.`
+        : `${riskCount} diversity ${
+            riskCount === 1 ? "risk needs" : "risks need"
+          } more candidate stories beyond the next ${slotCount} recommendation slots.`,
   };
 };
 
@@ -18638,6 +20324,168 @@ export const getNewsAggregationIntake = ({
   };
 };
 
+interface NewsAggregationRecoveryStory {
+  id: string;
+  scoreLabel: string;
+  sourceName: string;
+  title: string;
+}
+
+interface NewsAggregationRecoveryAction {
+  actionLabel: string;
+  laneLabel: string;
+  priorityLabel: string;
+  reason: string;
+  story: NewsAggregationRecoveryStory;
+}
+
+const getNewsAggregationLaneLabel = (key: NewsAggregationIntakeLaneKey) =>
+  newsAggregationIntakeLaneDefinitions.find(
+    (definition) => definition.key === key,
+  )?.label ?? "Desk Notes";
+
+const toNewsAggregationRecoveryStory = (
+  item: NewsHomeItem,
+): NewsAggregationRecoveryStory => ({
+  id: item.id,
+  scoreLabel: `${item.sourceScore} trust / ${item.trendScore} trend`,
+  sourceName: item.sourceName,
+  title: item.title,
+});
+
+const sortNewsAggregationRecoveryStories = (
+  left: NewsHomeItem,
+  right: NewsHomeItem,
+) => {
+  if (right.trendScore !== left.trendScore) {
+    return right.trendScore - left.trendScore;
+  }
+
+  if (left.sourceScore !== right.sourceScore) {
+    return left.sourceScore - right.sourceScore;
+  }
+
+  return left.title.localeCompare(right.title);
+};
+
+export const getNewsAggregationRecoveryQueue = ({
+  items,
+  limit,
+}: {
+  items: readonly NewsHomeItem[];
+  limit: number;
+}) => {
+  const totalCount = items.length;
+
+  if (totalCount === 0) {
+    return {
+      actions: [],
+      label: "Recovery Queue Waiting",
+      metrics: [
+        { label: "Stories", value: "0" },
+        { label: "Actions", value: "0" },
+        { label: "Verify", value: "0" },
+        { label: "Fallback", value: "0" },
+      ],
+      summary:
+        "Aggregation recovery queue will appear after sources deliver stories.",
+    };
+  }
+
+  const actionLimit = Math.max(0, limit);
+  const primaryStories = items.filter(
+    (item) => getNewsAggregationIntakeLaneKey(item) === "primary",
+  );
+  const verificationStories = items
+    .filter((item) => {
+      const laneKey = getNewsAggregationIntakeLaneKey(item);
+
+      return (
+        (laneKey === "community" || laneKey === "launch") &&
+        item.sourceScore < 80 &&
+        item.trendScore >= 80
+      );
+    })
+    .sort(sortNewsAggregationRecoveryStories);
+  const fallbackStories = items
+    .filter((item) => {
+      const sourceType = item.sourceType.trim().toLowerCase();
+
+      return (
+        getNewsAggregationIntakeLaneKey(item) === "desk" &&
+        (sourceType === "manual" || sourceType === "other")
+      );
+    })
+    .sort(sortNewsAggregationRecoveryStories);
+  const primaryShare = primaryStories.length / totalCount;
+  const needsPrimaryRefresh =
+    primaryStories.length === 0 || primaryShare < 0.25;
+  const strongestPrimaryStory =
+    primaryStories.sort(sortNewsAggregationRecoveryStories)[0] ?? items[0];
+  const actions: NewsAggregationRecoveryAction[] = [];
+  const [topVerificationStory] = verificationStories;
+
+  if (topVerificationStory) {
+    const laneKey = getNewsAggregationIntakeLaneKey(topVerificationStory);
+
+    actions.push({
+      actionLabel: "Verify hot signal",
+      laneLabel: getNewsAggregationLaneLabel(laneKey),
+      priorityLabel: "P1",
+      reason: `${topVerificationStory.sourceName} has ${topVerificationStory.trendScore} trend but ${topVerificationStory.sourceScore} trust; confirm with a primary source before promotion.`,
+      story: toNewsAggregationRecoveryStory(topVerificationStory),
+    });
+  }
+
+  if (needsPrimaryRefresh && strongestPrimaryStory) {
+    actions.push({
+      actionLabel: "Refresh primary sources",
+      laneLabel: getNewsAggregationLaneLabel("primary"),
+      priorityLabel: "P2",
+      reason: `Primary sources cover ${primaryStories.length} of ${totalCount} intake stories; refresh direct feeds before the next edition.`,
+      story: toNewsAggregationRecoveryStory(strongestPrimaryStory),
+    });
+  }
+
+  const [topFallbackStory] = fallbackStories;
+
+  if (topFallbackStory) {
+    actions.push({
+      actionLabel: "Replace desk fallback",
+      laneLabel: getNewsAggregationLaneLabel("desk"),
+      priorityLabel: "P3",
+      reason: `${topFallbackStory.sourceName} is a manual fallback; replace it after live sources recover.`,
+      story: toNewsAggregationRecoveryStory(topFallbackStory),
+    });
+  }
+
+  const visibleActions = actions.slice(0, actionLimit);
+  const actionCount = visibleActions.length;
+  const verificationCount = verificationStories.length;
+  const fallbackCount = fallbackStories.length;
+
+  return {
+    actions: visibleActions,
+    label: actionCount > 0 ? "Recovery Queue Ready" : "Recovery Queue Clear",
+    metrics: [
+      { label: "Stories", value: String(totalCount) },
+      { label: "Actions", value: String(actionCount) },
+      { label: "Verify", value: String(verificationCount) },
+      { label: "Fallback", value: String(fallbackCount) },
+    ],
+    summary:
+      actionCount > 0
+        ? `${actionCount} aggregation recovery ${
+            actionCount === 1 ? "action is" : "actions are"
+          } queued; ${verificationCount} ${
+            verificationCount === 1 ? "story needs" : "stories need"
+          } verification and ${fallbackCount} ${
+            fallbackCount === 1 ? "fallback needs" : "fallbacks need"
+          } replacement.`
+        : "Aggregation intake is balanced enough for the next ranking pass.",
+  };
+};
+
 export const getNewsEntityRadar = ({
   items,
   limit,
@@ -20051,8 +21899,17 @@ const getSourceClusterEntityEntries = (item: RankedNewsItem<NewsHomeItem>) => {
   return entries;
 };
 
+const normalizeNewsStoryClusterKey = (clusterKey: string | undefined) => {
+  const normalized = clusterKey?.trim().toLowerCase();
+
+  if (!normalized) return null;
+
+  return normalized;
+};
+
 interface NewsSourceClusterWorking {
   category: string;
+  clusterKey: string | null;
   entityCounts: Map<string, number>;
   entityLabels: Map<string, string>;
   items: RankedNewsItem<NewsHomeItem>[];
@@ -20079,6 +21936,12 @@ const shouldJoinSourceCluster = ({
   cluster: NewsSourceClusterWorking;
   item: RankedNewsItem<NewsHomeItem>;
 }) => {
+  const itemClusterKey = normalizeNewsStoryClusterKey(item.clusterKey);
+
+  if (cluster.clusterKey || itemClusterKey) {
+    return cluster.clusterKey !== null && cluster.clusterKey === itemClusterKey;
+  }
+
   if (cluster.category !== item.category) return false;
 
   const itemEntities = getSourceClusterEntityEntries(item);
@@ -20122,6 +21985,7 @@ const createSourceCluster = (
 ): NewsSourceClusterWorking => {
   const cluster: NewsSourceClusterWorking = {
     category: item.category,
+    clusterKey: normalizeNewsStoryClusterKey(item.clusterKey),
     entityCounts: new Map(),
     entityLabels: new Map(),
     items: [],
@@ -20189,10 +22053,12 @@ const toNewsSourceCluster = ({
     categoryLabel: formatCategory(cluster.category),
     commonSignals,
     heatScore,
-    key: getSourceClusterKey({
-      category: cluster.category,
-      commonSignals,
-    }),
+    key:
+      cluster.clusterKey ??
+      getSourceClusterKey({
+        category: cluster.category,
+        commonSignals,
+      }),
     lead: lead
       ? {
           id: lead.id,
@@ -20374,13 +22240,17 @@ const getNewsClaimSignals = (cluster: NewsSourceClusterWorking) => {
 
 const getNewsClaimTrackerKey = ({
   category,
+  clusterKey,
   lead,
   signals,
 }: {
   category: string;
+  clusterKey: string | null;
   lead: RankedNewsItem<NewsHomeItem> | undefined;
   signals: readonly string[];
 }) => {
+  if (clusterKey) return clusterKey;
+
   const signalKey = getSourceClusterKey({
     category,
     commonSignals: signals,
@@ -20459,6 +22329,7 @@ const toNewsClaimTrackerItem = ({
       .map((item) => toNewsClaimTrackerEvidence({ item, signals })),
     key: getNewsClaimTrackerKey({
       category: cluster.category,
+      clusterKey: cluster.clusterKey,
       lead,
       signals,
     }),
@@ -22128,6 +23999,13 @@ export interface NewsHomeExposureRecord {
   visitorKey: string;
 }
 
+type NewsExposureCooldownReference = { id: string } & NewsUrlReference &
+  Partial<NewsHomeItem>;
+
+type NewsHomeExposureReference = { id: string } & NewsUrlReference & {
+    clusterKey?: string | null;
+  };
+
 const normalizeNewsHomeExposureUrl = (url: string | null | undefined) => {
   if (!url) return null;
 
@@ -22157,6 +24035,19 @@ const getNewsHomeExposureUrlKeys = (item: NewsUrlReference) =>
     .map(normalizeNewsHomeExposureUrl)
     .filter((url): url is string => url !== null);
 
+const normalizeNewsHomeExposureClusterKey = (
+  clusterKey: string | null | undefined,
+) => {
+  const normalizedClusterKey = clusterKey?.trim().toLowerCase();
+
+  if (!normalizedClusterKey) return null;
+
+  return normalizedClusterKey;
+};
+
+const getNewsHomeExposureClusterKey = (item: { clusterKey?: string | null }) =>
+  normalizeNewsHomeExposureClusterKey(item.clusterKey);
+
 export const selectNewsHomeExposureRecords = ({
   feedMode,
   isPreview,
@@ -22169,7 +24060,7 @@ export const selectNewsHomeExposureRecords = ({
   isPreview: boolean;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
-  recordedItems: readonly ({ id: string } & NewsUrlReference)[];
+  recordedItems: readonly NewsHomeExposureReference[];
   visitorKey: string | null;
 }): NewsHomeExposureRecord[] => {
   if (isPreview || !visitorKey || limit <= 0) return [];
@@ -22177,6 +24068,16 @@ export const selectNewsHomeExposureRecords = ({
   const recordedUrlKeys = new Set(
     recordedItems.flatMap(getNewsHomeExposureUrlKeys),
   );
+  const recordedClusterKeys = new Set(
+    recordedItems
+      .map(getNewsHomeExposureClusterKey)
+      .filter((clusterKey): clusterKey is string => clusterKey !== null),
+  );
+  const hasRecordedCluster = (item: NewsHomeItem) => {
+    const clusterKey = getNewsHomeExposureClusterKey(item);
+
+    return clusterKey ? recordedClusterKeys.has(clusterKey) : false;
+  };
 
   return filterHiddenNewsItems(
     items.map((item, homeRankSlot) => ({ ...item, homeRankSlot })),
@@ -22187,6 +24088,7 @@ export const selectNewsHomeExposureRecords = ({
         (urlKey) => !recordedUrlKeys.has(urlKey),
       ),
     )
+    .filter((item) => !hasRecordedCluster(item))
     .slice(0, limit)
     .map((item, exposureSlot) => ({
       action: "view",
@@ -22204,6 +24106,160 @@ export const selectNewsHomeExposureRecords = ({
       newsItemId: item.id,
       visitorKey,
     }));
+};
+
+const toNewsExposureCooldownStory = ({
+  item,
+  reason,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  reason: string;
+}) => ({
+  id: item.id,
+  reason,
+  scoreLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+  sourceName: item.sourceName,
+  title: item.title,
+});
+
+export const getNewsExposureCooldownQueue = ({
+  historyItems,
+  items,
+  limit,
+  negativeFeedbackItems,
+  positiveFeedbackItems,
+  recordedItems,
+  savedItems,
+}: {
+  historyItems: readonly NewsExposureCooldownReference[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsExposureCooldownReference[];
+  positiveFeedbackItems: readonly NewsExposureCooldownReference[];
+  recordedItems: readonly NewsExposureCooldownReference[];
+  savedItems: readonly NewsExposureCooldownReference[];
+}) => {
+  const displayLimit = Math.max(0, Math.floor(limit));
+  const recordedIds = new Set(recordedItems.map((item) => item.id));
+  const recordedUrlKeys = new Set(
+    recordedItems.flatMap(getNewsHomeExposureUrlKeys),
+  );
+  const recordedClusterKeys = new Set(
+    recordedItems
+      .map(getNewsHomeExposureClusterKey)
+      .filter((clusterKey): clusterKey is string => clusterKey !== null),
+  );
+  const activeUrlKeyCounts = items.reduce<Map<string, number>>(
+    (counts, item) => {
+      for (const urlKey of new Set(getNewsHomeExposureUrlKeys(item))) {
+        counts.set(urlKey, (counts.get(urlKey) ?? 0) + 1);
+      }
+
+      return counts;
+    },
+    new Map(),
+  );
+  const getUniqueActiveUrlKeys = (item: RankedNewsItem<NewsHomeItem>) =>
+    getNewsHomeExposureUrlKeys(item).filter(
+      (urlKey) => activeUrlKeyCounts.get(urlKey) === 1,
+    );
+  const engagedItems = [
+    ...historyItems,
+    ...negativeFeedbackItems,
+    ...positiveFeedbackItems,
+    ...savedItems,
+  ];
+  const engagedIds = new Set(engagedItems.map((item) => item.id));
+  const engagedUrlKeys = new Set(
+    engagedItems.flatMap(getNewsHomeExposureUrlKeys),
+  );
+  const engagedClusterKeys = new Set(
+    engagedItems
+      .map(getNewsHomeExposureClusterKey)
+      .filter((clusterKey): clusterKey is string => clusterKey !== null),
+  );
+  const getActiveClusterKey = (item: RankedNewsItem<NewsHomeItem>) =>
+    getNewsHomeExposureClusterKey(item);
+  const isRecorded = (item: RankedNewsItem<NewsHomeItem>) => {
+    const clusterKey = getActiveClusterKey(item);
+
+    return (
+      recordedIds.has(item.id) ||
+      getUniqueActiveUrlKeys(item).some((urlKey) =>
+        recordedUrlKeys.has(urlKey),
+      ) ||
+      (clusterKey ? recordedClusterKeys.has(clusterKey) : false)
+    );
+  };
+  const isEngaged = (item: RankedNewsItem<NewsHomeItem>) => {
+    const clusterKey = getActiveClusterKey(item);
+
+    return (
+      engagedIds.has(item.id) ||
+      getUniqueActiveUrlKeys(item).some((urlKey) =>
+        engagedUrlKeys.has(urlKey),
+      ) ||
+      (clusterKey ? engagedClusterKeys.has(clusterKey) : false)
+    );
+  };
+  const cooldownCandidates = [...items]
+    .filter((item) => isRecorded(item) && !isEngaged(item))
+    .sort(
+      (a, b) =>
+        b.personalizedScore - a.personalizedScore ||
+        b.trendScore - a.trendScore,
+    );
+  const replacementCandidates = [...items]
+    .filter((item) => !isRecorded(item) && !isEngaged(item))
+    .sort(
+      (a, b) =>
+        b.trendScore - a.trendScore ||
+        b.personalizedScore - a.personalizedScore,
+    );
+  const cooldownCount = cooldownCandidates.length;
+  const replacementCount = replacementCandidates.length;
+  const cooldowns = cooldownCandidates.slice(0, displayLimit).map((item) =>
+    toNewsExposureCooldownStory({
+      item,
+      reason: "Already received a home impression without a follow-up action.",
+    }),
+  );
+  const replacements = replacementCandidates
+    .slice(0, displayLimit)
+    .map((item) =>
+      toNewsExposureCooldownStory({
+        item,
+        reason: "Unseen story can rotate into the next impression window.",
+      }),
+    );
+  const waiting = recordedItems.length === 0;
+
+  return {
+    cooldowns,
+    label:
+      cooldownCount > 0
+        ? "Exposure Cooldown Active"
+        : waiting
+          ? "Exposure Cooldown Waiting"
+          : "Exposure Cooldown Clear",
+    metrics: [
+      { label: "Active", value: String(items.length) },
+      { label: "Seen", value: String(recordedItems.length) },
+      { label: "Cooldown", value: String(cooldownCount) },
+      { label: "Replace", value: String(replacementCount) },
+    ],
+    replacements,
+    summary:
+      cooldownCount > 0
+        ? `${cooldownCount} exposed ${
+            cooldownCount === 1 ? "story should" : "stories should"
+          } cool down, with ${replacementCount} unseen ${
+            replacementCount === 1 ? "replacement" : "replacements"
+          } ready.`
+        : waiting
+          ? "Exposure cooldown will appear after home impressions are recorded."
+          : "No repeated unengaged exposures need cooling down.",
+  };
 };
 
 const formatFeedFatigueTopic = formatNewsCategoryDisplayLabel;

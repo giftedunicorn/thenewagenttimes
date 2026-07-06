@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type { RouterInputs } from "@acme/api";
 import type {
   NewsPreferenceProfile,
   ReaderInteractionAction,
@@ -39,6 +40,7 @@ import {
   stripPersistedNewsPreferenceProfile,
 } from "../../_components/news-home-model";
 import {
+  getNewsArticleCorroboration,
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
@@ -59,6 +61,8 @@ import {
   getNewsArticleReadTrainingReceipt,
   getNewsArticleSaveSignalState,
   getNewsArticleServerProfileAuditDisplay,
+  getNewsArticleSourceFollowProfile,
+  getNewsArticleSourceFollowState,
   getNewsArticleSourceLens,
   getNewsArticleSourceUrl,
   selectNewsArticleReadMilestone,
@@ -72,6 +76,11 @@ interface NewsArticleProps {
   article: NewsArticleItem;
   related: NewsHomeItem[];
 }
+
+type NewsArticleServerProfile =
+  RouterInputs["news"]["updateProfile"]["profile"];
+type NewsArticleServerProfileCategory =
+  NewsArticleServerProfile["preferredCategories"][number];
 
 const profileStorageKey = "new-ai-times-profile";
 const savedStorageKey = "new-ai-times-saved";
@@ -100,6 +109,26 @@ const categoryLabels: Record<string, string> = {
 
 const formatCategory = (category: string) =>
   categoryLabels[category] ?? category;
+
+const isNewsArticleServerProfileCategory = (
+  category: string,
+): category is NewsArticleServerProfileCategory => category in categoryLabels;
+
+const toNewsArticleServerProfile = (
+  profile: NewsPreferenceProfile,
+): NewsArticleServerProfile => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  return {
+    preferredCategories: normalizedProfile.preferredCategories.filter(
+      isNewsArticleServerProfileCategory,
+    ),
+    preferredEntities: [...normalizedProfile.preferredEntities],
+    preferredSources: [...normalizedProfile.preferredSources],
+    noveltyBias: normalizedProfile.noveltyBias,
+    recencyBias: normalizedProfile.recencyBias,
+  };
+};
 
 const readStoredProfile = (): NewsPreferenceProfile => {
   const defaultProfile = createDefaultNewsPreferenceProfile();
@@ -361,6 +390,17 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           setProfile(nextProfile);
           writeStoredProfile(nextProfile);
         }
+
+        await invalidateReaderSignalQueries();
+      },
+    }),
+  );
+  const updateProfile = useMutation(
+    trpc.news.updateProfile.mutationOptions({
+      onSuccess: async (serverProfile) => {
+        const nextProfile = stripPersistedNewsPreferenceProfile(serverProfile);
+        setProfile(nextProfile);
+        writeStoredProfile(nextProfile);
 
         await invalidateReaderSignalQueries();
       },
@@ -640,6 +680,20 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     () => getNewsArticleSourceLens({ article }),
     [article],
   );
+  const sourceFollowState = useMemo(
+    () => getNewsArticleSourceFollowState({ article, profile }),
+    [article, profile],
+  );
+  const articleCorroboration = useMemo(
+    () =>
+      getNewsArticleCorroboration({
+        article,
+        formatCategory,
+        limit: 3,
+        relatedItems: rankedRelated,
+      }),
+    [article, rankedRelated],
+  );
   const serverProfileAudit = getNewsArticleServerProfileAuditDisplay(
     profileQuery.data?.audit,
   );
@@ -796,6 +850,34 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       restoreGuardrail.mutate({
         visitorKey,
         newsItemId: article.id,
+      });
+    }
+  };
+
+  const followArticleSource = () => {
+    if (sourceFollowState.isFollowing) return;
+
+    const nextProfile = getNewsArticleSourceFollowProfile({
+      article,
+      profile,
+    });
+
+    setFeedbackLoop(
+      getNewsArticleFeedbackLoop({
+        action: "click_source",
+        afterProfile: nextProfile,
+        article,
+        beforeProfile: profile,
+        formatCategory,
+      }),
+    );
+    setProfile(nextProfile);
+    writeStoredProfile(nextProfile);
+
+    if (canPersistReaderSignals && visitorKey) {
+      updateProfile.mutate({
+        profile: toNewsArticleServerProfile(nextProfile),
+        visitorKey,
       });
     }
   };
@@ -981,7 +1063,21 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
                 </a>
               </Button>
             ) : null}
+            <Button
+              className="rounded-none"
+              disabled={
+                sourceFollowState.isFollowing || updateProfile.isPending
+              }
+              type="button"
+              variant={sourceFollowState.isFollowing ? "outline" : undefined}
+              onClick={followArticleSource}
+            >
+              {sourceFollowState.label}
+            </Button>
           </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+            {sourceFollowState.summary}
+          </p>
 
           <div className="relative mt-10 max-w-3xl space-y-7 text-lg leading-8 text-[#2d2d2d] dark:text-[#ddd8ce]">
             <div
@@ -1075,6 +1171,62 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
                 />
               ))}
             </dl>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Article Corroboration</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {articleCorroboration.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]">
+                {articleCorroboration.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-4 border-y border-[#161616]/20 text-center text-xs dark:border-[#f4f1ea]/15">
+              {articleCorroboration.metrics.map((metric) => (
+                <div
+                  className="border-r border-[#161616]/20 py-3 last:border-r-0 dark:border-[#f4f1ea]/15"
+                  key={metric.label}
+                >
+                  <dt className="text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-base">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-3">
+              {articleCorroboration.sources.length > 0 ? (
+                articleCorroboration.sources.map((source) => (
+                  <Link
+                    className="border-t border-[#161616]/20 pt-3 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                    href={`/news/${source.id}`}
+                    key={source.id}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <span className="font-semibold">{source.title}</span>
+                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                        {source.scoreLabel}
+                      </span>
+                    </div>
+                    <span className="mt-1 block font-mono text-xs">
+                      {source.sourceName} / {source.categoryLabel}
+                    </span>
+                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                      {source.evidenceLabel}
+                    </span>
+                  </Link>
+                ))
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  Related independent sources will appear after the crawler
+                  finds overlapping entities or tags.
+                </p>
+              )}
+            </div>
           </section>
 
           <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">

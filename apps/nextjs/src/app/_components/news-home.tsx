@@ -40,7 +40,7 @@ import type {
   NewsReaderMemoryItem,
   PersistedNewsPreferenceProfile,
 } from "./news-home-model";
-import { useTRPC } from "~/trpc/react";
+import { TRPCReactProvider, useTRPC } from "~/trpc/react";
 import {
   applyNewsStoryQuickTuneAction,
   buildNewsHomeFeedInput,
@@ -52,8 +52,10 @@ import {
   formatNewsEditionDate,
   formatNewsTime,
   getNewsAggregationIntake,
+  getNewsAggregationRecoveryQueue,
   getNewsAlertRouting,
   getNewsAnglePreferenceOptions,
+  getNewsBreakingEscalationQueue,
   getNewsBriefingPack,
   getNewsChannelComparison,
   getNewsChannelRail,
@@ -76,6 +78,7 @@ import {
   getNewsEntityRadar,
   getNewsExperimentAllocation,
   getNewsExplorationSlots,
+  getNewsExposureCooldownQueue,
   getNewsFeedbackCoach,
   getNewsFeedbackCoachActionState,
   getNewsFeedbackTrainingUpdate,
@@ -116,6 +119,8 @@ import {
   getNewsPreferenceBiasTrainingUpdate,
   getNewsPreferenceBiasUndoTrainingUpdate,
   getNewsPreferenceControlPanel,
+  getNewsPreferenceCoverageDebt,
+  getNewsPreferenceDecayQueue,
   getNewsPreferencePresets,
   getNewsPreferenceProfileToggleAction,
   getNewsPreferenceProfileTrainingUpdate,
@@ -145,10 +150,16 @@ import {
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
   getNewsRecommendationAudit,
+  getNewsRecommendationDiversityGovernor,
+  getNewsRecommendationDiversityRepairQueue,
+  getNewsRecommendationEntitySaturation,
   getNewsRecommendationNudge,
   getNewsRecommendationRotationQueue,
+  getNewsRecommendationSourceSaturation,
+  getNewsRecommendationTopicSaturation,
   getNewsRecommendationTrace,
   getNewsRefreshSimulation,
+  getNewsSearchCandidateRail,
   getNewsSearchTrends,
   getNewsSectionFronts,
   getNewsServerProfileAuditDisplay,
@@ -195,6 +206,7 @@ import {
   selectNewsHomeBaseFeedItems,
   selectNewsHomeExposureRecords,
   selectNewsHomeItems,
+  selectNewsHomeLiveSearchCandidateItems,
   selectNewsHomePositiveFeedbackAnchors,
   selectNewsHomeSessionScopedItems,
   selectReaderFreshNewsHomeItems,
@@ -206,6 +218,7 @@ import {
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldDisableNewsHomeLoadMoreButton,
+  shouldFetchNewsHomeLiveSearchCandidates,
   shouldFetchNewsHomePrimaryFeed,
   shouldFetchServerRecommendations,
   shouldPersistNewsReaderProfile,
@@ -221,6 +234,9 @@ type NewsStoryQuickTuneAction = ReturnType<
 type NewsPreferenceTuningSuggestion = ReturnType<
   typeof getNewsPreferenceTuningPlan
 >["suggestions"][number];
+type NewsPreferenceCoverageDebtAction = ReturnType<
+  typeof getNewsPreferenceCoverageDebt
+>["debts"][number]["action"];
 type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
   guardrailReviewAction?: {
     actionLabel: string;
@@ -556,7 +572,15 @@ const getUniqueValues = (items: readonly NewsHomeItem[], key: "sourceSlug") =>
 const getTopEntities = (items: readonly NewsHomeItem[]) =>
   Array.from(new Set(items.flatMap((item) => item.entities))).slice(0, 10);
 
-export function NewsHome({
+export function NewsHome(props: NewsHomeProps) {
+  return (
+    <TRPCReactProvider>
+      <NewsHomeContent {...props} />
+    </TRPCReactProvider>
+  );
+}
+
+function NewsHomeContent({
   initialItems,
   deskStatus,
   refreshConfigured,
@@ -627,6 +651,12 @@ export function NewsHome({
     sourceSlug: activeSourceSlug,
     tag: activeAngleTag,
   });
+  const liveSearchQuery = searchDraft.trim();
+  const shouldFetchLiveSearchCandidates =
+    shouldFetchNewsHomeLiveSearchCandidates({
+      query: liveSearchQuery,
+      status,
+    });
   const serverRecommendationsEnabled = shouldFetchServerRecommendations({
     status,
     visitorKey,
@@ -675,6 +705,18 @@ export function NewsHome({
     trpc.news.guardrails.queryOptions(
       { limit: 6, visitorKey: visitorKey ?? undefined },
       { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
+  const searchCandidatesQuery = useQuery(
+    trpc.news.searchCandidates.queryOptions(
+      {
+        category: activeCategory ?? undefined,
+        limit: 5,
+        q: liveSearchQuery,
+        sourceSlug: activeSourceSlug ?? undefined,
+        tag: activeAngleTag ?? undefined,
+      },
+      { enabled: shouldFetchLiveSearchCandidates },
     ),
   );
   const primaryFeedInput = buildNewsHomeFeedInput({
@@ -1347,6 +1389,39 @@ export function NewsHome({
         suggestion,
       }),
     );
+  };
+
+  const applyPreferenceCoverageDebtAction = (
+    action: NewsPreferenceCoverageDebtAction,
+  ) => {
+    setFeedMode(action.feedMode);
+    setActiveAngleTag(null);
+
+    if (action.type === "category_filter") {
+      setActiveCategory(
+        isNewsCategoryKey(action.category) ? action.category : null,
+      );
+      setActiveSourceSlug(null);
+      setReviewHiddenAngleQuery("");
+      setSearchDraft("");
+      setSearchQuery("");
+      return;
+    }
+
+    if (action.type === "source_filter") {
+      setActiveCategory(null);
+      setActiveSourceSlug(action.sourceSlug);
+      setReviewHiddenAngleQuery("");
+      setSearchDraft("");
+      setSearchQuery("");
+      return;
+    }
+
+    setActiveCategory(null);
+    setActiveSourceSlug(null);
+    setReviewHiddenAngleQuery("");
+    setSearchDraft(action.query);
+    setSearchQuery(action.query);
   };
 
   const applyPreferenceProfileAction = (
@@ -2024,6 +2099,15 @@ export function NewsHome({
     positiveFeedbackItems,
     savedItems,
   });
+  const exposureCooldownQueue = getNewsExposureCooldownQueue({
+    historyItems,
+    items: rankedItems,
+    limit: 2,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    recordedItems: recordedHomeExposureItemsRef.current,
+    savedItems,
+  });
   const serverProfileAudit = getNewsServerProfileAuditDisplay(
     profileQuery.data?.audit,
   );
@@ -2098,6 +2182,31 @@ export function NewsHome({
     items: rankedItems,
     limit: 4,
     profile,
+  });
+  const recommendationDiversityGovernor =
+    getNewsRecommendationDiversityGovernor({
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      limit: 4,
+    });
+  const recommendationDiversityRepairQueue =
+    getNewsRecommendationDiversityRepairQueue({
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      limit: 4,
+    });
+  const recommendationSourceSaturation = getNewsRecommendationSourceSaturation({
+    items: rankedItems,
+    limit: 4,
+  });
+  const recommendationTopicSaturation = getNewsRecommendationTopicSaturation({
+    formatCategory: getCategoryLabel,
+    items: rankedItems,
+    limit: 4,
+  });
+  const recommendationEntitySaturation = getNewsRecommendationEntitySaturation({
+    items: rankedItems,
+    limit: 4,
   });
   const readerDaypartPlan = getNewsReaderDaypartPlan({
     formatCategory: getCategoryLabel,
@@ -2340,6 +2449,23 @@ export function NewsHome({
     items: rankedItems,
     profile,
   });
+  const preferenceCoverageDebt = getNewsPreferenceCoverageDebt({
+    formatCategory: getCategoryLabel,
+    items: rankedItems,
+    limit: 4,
+    profile,
+  });
+  const preferenceDecayQueue = getNewsPreferenceDecayQueue({
+    formatCategory: getCategoryLabel,
+    generatedAt,
+    historyItems,
+    items: rankedItems,
+    limit: 3,
+    negativeFeedbackItems,
+    positiveFeedbackItems,
+    profile,
+    savedItems,
+  });
   const preferenceControlPanel = getNewsPreferenceControlPanel({
     formatCategory: getCategoryLabel,
     profile,
@@ -2407,10 +2533,46 @@ export function NewsHome({
     limit: 5,
     profile,
   });
+  const liveSearchServerCandidateItems = useMemo(
+    () =>
+      (searchCandidatesQuery.data ?? []).map(toNewsHomeItemFromPublicFeedItem),
+    [searchCandidatesQuery.data],
+  );
+  const liveSearchCandidateItems = useMemo(
+    () =>
+      selectNewsHomeLiveSearchCandidateItems({
+        activeCategory,
+        activeSourceSlug,
+        activeTag: activeAngleTag,
+        localItems: rankedItems,
+        query: liveSearchQuery,
+        serverItems: liveSearchServerCandidateItems,
+      }),
+    [
+      activeAngleTag,
+      activeCategory,
+      activeSourceSlug,
+      liveSearchQuery,
+      liveSearchServerCandidateItems,
+      rankedItems,
+    ],
+  );
+  const searchCandidateRail = getNewsSearchCandidateRail({
+    candidates: liveSearchCandidateItems,
+    formatCategory: getCategoryLabel,
+    limit: 4,
+    query: liveSearchQuery,
+  });
   const liveWire = getNewsLiveWire({
     formatCategory: getCategoryLabel,
     items: rankedItems,
     limit: 4,
+  });
+  const breakingEscalationQueue = getNewsBreakingEscalationQueue({
+    formatCategory: getCategoryLabel,
+    items: rankedItems,
+    limit: 3,
+    now: new Date(generatedAt),
   });
   const continuationRail = getNewsContinuationRail({
     formatCategory: getCategoryLabel,
@@ -2438,6 +2600,10 @@ export function NewsHome({
   const aggregationIntake = getNewsAggregationIntake({
     items: rankedItems,
     limit: 2,
+  });
+  const aggregationRecoveryQueue = getNewsAggregationRecoveryQueue({
+    items: rankedItems,
+    limit: 3,
   });
   const sourceBalance = getNewsSourceBalance({ items: rankedItems });
   const sourceTrustLedger = getNewsSourceTrustLedger({ items: rankedItems });
@@ -2556,6 +2722,71 @@ export function NewsHome({
               Reset
             </Button>
           </form>
+          {liveSearchQuery ? (
+            <div
+              aria-label="Live Search Leads"
+              className="grid gap-2 border border-[#161616]/25 bg-[#fffdf7] p-3 dark:border-[#f4f1ea]/20 dark:bg-[#181818]"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-black">
+                    {searchCandidateRail.label}
+                  </h2>
+                  <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {searchCandidatesQuery.isFetching
+                      ? `Checking live matches for "${liveSearchQuery}".`
+                      : searchCandidateRail.summary}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 font-mono text-[11px]">
+                  {searchCandidateRail.metrics.map((metric) => (
+                    <span
+                      key={metric.label}
+                      className="border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/30"
+                    >
+                      {metric.label} {metric.value}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {searchCandidateRail.leads.length > 0 ? (
+                  searchCandidateRail.leads.map((lead) => (
+                    <Button
+                      key={lead.id}
+                      className="h-auto min-w-60 justify-start rounded-none px-3 py-2 text-left"
+                      size="sm"
+                      type="button"
+                      variant={
+                        searchQuery === lead.query ? "default" : "outline"
+                      }
+                      onClick={() => {
+                        setReviewHiddenAngleQuery("");
+                        setSearchDraft(lead.query);
+                        setSearchQuery(lead.query);
+                      }}
+                    >
+                      <span className="grid gap-1">
+                        <span className="font-mono text-[11px] opacity-70">
+                          {lead.sourceName} / {lead.categoryLabel}
+                        </span>
+                        <span className="line-clamp-2">{lead.title}</span>
+                        <span className="text-xs opacity-70">
+                          {lead.topicLabel}
+                        </span>
+                      </span>
+                    </Button>
+                  ))
+                ) : (
+                  <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {searchCandidatesQuery.isFetching
+                      ? "Loading live search leads."
+                      : searchCandidateRail.summary}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
           <div className="grid gap-2 border border-[#161616]/25 bg-[#fffdf7] p-3 dark:border-[#f4f1ea]/20 dark:bg-[#181818]">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -3854,6 +4085,181 @@ export function NewsHome({
             <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
+                  <h3 className="text-sm font-black">Preference Decay Queue</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {preferenceDecayQueue.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {preferenceDecayQueue.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {preferenceDecayQueue.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {preferenceDecayQueue.decays.length > 0 ? (
+                  preferenceDecayQueue.decays.map((entry) => (
+                    <div
+                      key={`${entry.kind}-${entry.signal}`}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">
+                          {entry.label}
+                        </div>
+                        <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                          {entry.kind} / {entry.statusLabel}
+                        </div>
+                      </div>
+                      <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {entry.reason}
+                      </p>
+                      <span className="w-fit border border-[#161616]/25 px-2 py-1 font-mono text-[11px] uppercase dark:border-[#f4f1ea]/25">
+                        {entry.actionLabel}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    No stale profile signals need cooling in the current ranked
+                    feed.
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 grid gap-3">
+                <h4 className="border-t border-[#161616]/20 pt-3 font-mono text-[11px] tracking-[0.14em] uppercase dark:border-[#f4f1ea]/15">
+                  Warm Signals
+                </h4>
+                {preferenceDecayQueue.revivals.length > 0 ? (
+                  preferenceDecayQueue.revivals.map((entry) => (
+                    <div
+                      key={`${entry.kind}-${entry.signal}`}
+                      className="grid gap-1 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold">{entry.label}</span>
+                        <span className="border border-[#161616]/30 px-2 py-0.5 font-mono text-[10px] uppercase dark:border-[#f4f1ea]/30">
+                          {entry.kind} / {entry.statusLabel}
+                        </span>
+                      </div>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {entry.reason}
+                      </span>
+                      <span className="w-fit border border-[#161616]/25 px-2 py-1 font-mono text-[11px] uppercase dark:border-[#f4f1ea]/25">
+                        {entry.actionLabel}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                    Warm signals will appear after recent positive behavior
+                    reinforces active preferences.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">
+                    Exposure Cooldown Queue
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {exposureCooldownQueue.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {exposureCooldownQueue.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {exposureCooldownQueue.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {exposureCooldownQueue.cooldowns.length > 0 ? (
+                  exposureCooldownQueue.cooldowns.map((story, index) => (
+                    <Link
+                      key={story.id}
+                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                      href={`/news/${story.id}`}
+                    >
+                      <span className="flex flex-wrap items-center gap-2 font-semibold">
+                        <span className="font-mono">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span>{story.sourceName}</span>
+                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                          {story.scoreLabel}
+                        </span>
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {story.title}
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {story.reason}
+                      </span>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    No repeated unengaged exposures need cooling down.
+                  </div>
+                )}
+              </div>
+              <div className="mt-3 grid gap-3">
+                <h4 className="border-t border-[#161616]/20 pt-3 font-mono text-[11px] tracking-[0.14em] uppercase dark:border-[#f4f1ea]/15">
+                  Replacement Ready
+                </h4>
+                {exposureCooldownQueue.replacements.length > 0 ? (
+                  exposureCooldownQueue.replacements.map((story) => (
+                    <Link
+                      key={story.id}
+                      className="grid gap-1 text-xs hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                      href={`/news/${story.id}`}
+                    >
+                      <span className="font-semibold">{story.title}</span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {story.sourceName} / {story.scoreLabel}
+                      </span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {story.reason}
+                      </span>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                    Replacement candidates will appear as unseen stories enter
+                    the ranked feed.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
                   <h3 className="text-sm font-black">
                     Reader Profile Snapshot
                   </h3>
@@ -3975,6 +4381,302 @@ export function NewsHome({
                     arrive.
                   </div>
                 )}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Preference Coverage</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {preferenceCoverageDebt.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {preferenceCoverageDebt.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {preferenceCoverageDebt.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {preferenceCoverageDebt.debts.length > 0 ? (
+                  preferenceCoverageDebt.debts.map((debt) => (
+                    <div
+                      key={`${debt.kind}-${debt.signal}`}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold">
+                          {debt.label}
+                        </div>
+                        <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                          {debt.kind}
+                        </div>
+                      </div>
+                      <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {debt.reason}
+                      </p>
+                      <Button
+                        className="h-8 rounded-none px-2 text-xs whitespace-nowrap"
+                        type="button"
+                        variant="outline"
+                        onClick={() =>
+                          applyPreferenceCoverageDebtAction(debt.action)
+                        }
+                      >
+                        {debt.actionLabel}
+                      </Button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    Current ranked stories cover the active For You profile.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Diversity Governor</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {recommendationDiversityGovernor.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {recommendationDiversityGovernor.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {recommendationDiversityGovernor.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {recommendationDiversityGovernor.controls.map((control) => (
+                  <div
+                    key={`${control.dimension}-${control.label}`}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[5rem_1fr] dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                      {control.dimension} / {control.shareLabel}
+                    </span>
+                    <span>
+                      <span className="block font-semibold">
+                        {control.label}
+                      </span>
+                      <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {control.detail}
+                      </span>
+                      <span className="mt-1 block font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                        {control.statusLabel}
+                      </span>
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Diversity Repair Queue</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {recommendationDiversityRepairQueue.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {recommendationDiversityRepairQueue.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {recommendationDiversityRepairQueue.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {recommendationDiversityRepairQueue.repairs.length > 0 ? (
+                  recommendationDiversityRepairQueue.repairs.map((repair) => (
+                    <Link
+                      key={`${repair.dimension}-${repair.candidate.id}`}
+                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] sm:grid-cols-[5rem_1fr] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                      href={`/news/${repair.candidate.id}`}
+                    >
+                      <span className="font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                        {repair.dimension} / {repair.shareLabel}
+                      </span>
+                      <span>
+                        <span className="block font-semibold">
+                          {repair.label}
+                        </span>
+                        <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          Replace {repair.replaceStory.title} with{" "}
+                          {repair.candidate.title}.
+                        </span>
+                        <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {repair.reason}
+                        </span>
+                        <span className="mt-1 block font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                          {repair.candidate.sourceName} / Score{" "}
+                          {repair.candidate.personalizedScore}
+                        </span>
+                      </span>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    No diversity repairs are needed for the current
+                    recommendation queue.
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Source Saturation</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {recommendationSourceSaturation.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {recommendationSourceSaturation.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {recommendationSourceSaturation.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {recommendationSourceSaturation.actions.map((action) => (
+                  <div
+                    key={action.label}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-semibold">{action.label}</span>
+                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {action.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Topic Saturation</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {recommendationTopicSaturation.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {recommendationTopicSaturation.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {recommendationTopicSaturation.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {recommendationTopicSaturation.actions.map((action) => (
+                  <div
+                    key={action.label}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-semibold">{action.label}</span>
+                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {action.detail}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-sm font-black">Entity Saturation</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {recommendationEntitySaturation.summary}
+                  </p>
+                </div>
+                <span className="shrink-0 border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {recommendationEntitySaturation.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                {recommendationEntitySaturation.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 text-lg font-black">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {recommendationEntitySaturation.actions.map((action) => (
+                  <div
+                    key={action.label}
+                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                  >
+                    <span className="font-semibold">{action.label}</span>
+                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {action.detail}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -5336,6 +6038,82 @@ export function NewsHome({
           <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
             <div className="flex items-start justify-between gap-4">
               <div>
+                <h2 className="text-xl font-black">
+                  Breaking Escalation Queue
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {breakingEscalationQueue.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {breakingEscalationQueue.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-4">
+              {breakingEscalationQueue.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 grid gap-4 lg:grid-cols-3">
+              {breakingEscalationQueue.lanes.map((lane) => (
+                <div
+                  key={lane.key}
+                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                >
+                  <div className="grid grid-cols-[1fr_auto] gap-3">
+                    <div className="font-semibold">{lane.label}</div>
+                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                      {lane.shareLabel}
+                    </span>
+                  </div>
+                  <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {lane.summary}
+                  </p>
+                  <div className="mt-3 grid gap-2">
+                    {lane.stories.length > 0 ? (
+                      lane.stories.map((story) => (
+                        <Link
+                          key={`${lane.key}-${story.id}`}
+                          className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
+                          href={`/news/${story.id}`}
+                        >
+                          <span className="font-mono text-[11px] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                            {story.urgencyLabel} / {story.categoryLabel}
+                          </span>
+                          <span className="leading-5 font-semibold">
+                            {story.title}
+                          </span>
+                          <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.sourceName} / {story.scoreLabel}
+                          </span>
+                          <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.reason}
+                          </span>
+                        </Link>
+                      ))
+                    ) : (
+                      <p className="border-t border-[#161616]/15 pt-2 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
+                        No stories are currently assigned to this escalation
+                        lane.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
                 <h2 className="text-xl font-black">Data Vault</h2>
                 <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                   {personalizationDataVault.summary}
@@ -6281,6 +7059,71 @@ export function NewsHome({
                   Aggregation intake will appear after sources deliver stories.
                 </div>
               )}
+            </div>
+            <div className="mt-5 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-black">
+                    Aggregation Recovery Queue
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                    {aggregationRecoveryQueue.summary}
+                  </p>
+                </div>
+                <span className="border border-[#161616]/50 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/50">
+                  {aggregationRecoveryQueue.label}
+                </span>
+              </div>
+              <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-4">
+                {aggregationRecoveryQueue.metrics.map((metric) => (
+                  <div
+                    key={metric.label}
+                    className="border-t border-[#161616]/20 pt-2 dark:border-[#f4f1ea]/15"
+                  >
+                    <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                      {metric.label}
+                    </dt>
+                    <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="mt-3 grid gap-3">
+                {aggregationRecoveryQueue.actions.length > 0 ? (
+                  aggregationRecoveryQueue.actions.map((action) => (
+                    <Link
+                      key={`${action.priorityLabel}-${action.story.id}`}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] sm:grid-cols-[4rem_1fr] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
+                      href={`/news/${action.story.id}`}
+                    >
+                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                        {action.priorityLabel}
+                      </span>
+                      <span>
+                        <span className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                          <span className="font-semibold">
+                            {action.actionLabel}
+                          </span>
+                          <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {action.laneLabel}
+                          </span>
+                        </span>
+                        <span className="mt-1 block leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {action.reason}
+                        </span>
+                        <span className="mt-2 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {action.story.sourceName} / {action.story.scoreLabel}
+                        </span>
+                      </span>
+                    </Link>
+                  ))
+                ) : (
+                  <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                    Aggregation recovery actions will appear when intake needs
+                    verification, direct-source refresh, or fallback
+                    replacement.
+                  </p>
+                )}
+              </div>
             </div>
           </section>
 

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
+  getNewsArticleCorroboration,
   getNewsArticleDeepReadTrainingState,
   getNewsArticleDigest,
   getNewsArticleFeedbackLoop,
@@ -23,6 +24,8 @@ import {
   getNewsArticleReadTrainingReceipt,
   getNewsArticleSaveSignalState,
   getNewsArticleServerProfileAuditDisplay,
+  getNewsArticleSourceFollowProfile,
+  getNewsArticleSourceFollowState,
   getNewsArticleSourceLens,
   getNewsArticleSourceUrl,
   selectNewsArticleReadMilestone,
@@ -713,6 +716,26 @@ describe("NewsArticle persisted reader memory hydration", () => {
   });
 });
 
+describe("NewsArticle source follow action", () => {
+  it("persists article source follows through the reader profile mutation", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsArticleSourceFollowState");
+    expect(source).toContain("getNewsArticleSourceFollowProfile");
+    expect(source).toContain("trpc.news.updateProfile.mutationOptions");
+    expect(source).toContain("followArticleSource");
+    expect(source).toContain("updateProfile.mutate");
+    expect(source).toContain("sourceFollowState.isFollowing");
+    expect(source).toContain("sourceFollowState.label");
+    expect(source).toContain("sourceFollowState.summary");
+    expect(source).toContain("writeStoredProfile(nextProfile)");
+    expect(source).toContain("invalidateReaderSignalQueries");
+  });
+});
+
 describe("getNewsArticleReadingPath", () => {
   it("ranks related stories by article overlap before reader score", () => {
     expect(
@@ -888,6 +911,41 @@ describe("getNewsArticleReadingPath", () => {
     ]);
   });
 
+  it("uses same-cluster stories as same-event article follow-ups", () => {
+    expect(
+      getNewsArticleReadingPath({
+        article: {
+          ...article,
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        },
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        relatedItems: [
+          {
+            ...relatedItem,
+            category: "funding",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+            entities: ["Frontier Lab"],
+            id: "same-event-reading-path",
+            personalizedScore: 105,
+            sourceName: "Model Lab",
+            sourceSlug: "model-lab",
+            tags: ["pricing"],
+            title: "A second source tracks GPT release pricing",
+          },
+        ],
+      }).recommendations,
+    ).toEqual([
+      {
+        id: "same-event-reading-path",
+        reason: "Same event",
+        signalCount: 1,
+        scoreLabel: "1 signal / 105 score",
+        title: "A second source tracks GPT release pricing",
+      },
+    ]);
+  });
+
   it("does not use source corroboration as an article reader signal", () => {
     expect(
       getNewsArticleReadingPath({
@@ -1010,6 +1068,80 @@ describe("getNewsArticleReaderFit", () => {
       ],
       summary: "No saved reader signals match this article yet.",
     });
+  });
+
+  it("labels same-event article follow-ups as event continuations", () => {
+    expect(
+      getNewsArticleReaderFit({
+        article: {
+          ...article,
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        },
+        formatCategory: formatArticleCategory,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            category: "funding",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+            entities: ["Frontier Lab"],
+            id: "same-event-reader-fit",
+            personalizedScore: 105,
+            sourceName: "Model Lab",
+            sourceSlug: "model-lab",
+            tags: ["pricing"],
+            title: "A second source tracks GPT release pricing",
+          },
+        ],
+      }).nextStep,
+    ).toEqual({
+      id: "same-event-reader-fit",
+      label: "Continue Event",
+      reason: "Same event",
+      scoreLabel: "1 signal / 105 score",
+      title: "A second source tracks GPT release pricing",
+    });
+  });
+
+  it("mentions same-event follow-ups for discovery article fit", () => {
+    expect(
+      getNewsArticleReaderFit({
+        article: {
+          ...article,
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        },
+        formatCategory: formatArticleCategory,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            category: "funding",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+            entities: ["Frontier Lab"],
+            id: "same-event-reader-fit",
+            personalizedScore: 105,
+            sourceName: "Model Lab",
+            sourceSlug: "model-lab",
+            tags: ["pricing"],
+            title: "A second source tracks GPT release pricing",
+          },
+        ],
+      }).summary,
+    ).toBe(
+      "No saved reader signals match this article yet; 1 same-event follow-up keeps the story moving.",
+    );
   });
 });
 
@@ -1303,6 +1435,59 @@ describe("getNewsArticleNextReads", () => {
           statusLabel: "Continue",
         },
       ],
+    });
+  });
+
+  it("keeps same-cluster independent coverage in the continue lane", () => {
+    expect(
+      getNewsArticleNextReads({
+        article: {
+          ...article,
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        },
+        formatCategory: formatArticleCategory,
+        limit: 1,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 0.8,
+          recencyBias: 1.2,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            category: "funding",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+            entities: ["Frontier Lab"],
+            id: "same-event-next-read",
+            matchedSignals: [],
+            personalizedScore: 106,
+            sourceName: "Model Lab",
+            sourceScore: 86,
+            sourceSlug: "model-lab",
+            tags: ["pricing"],
+            title: "A second source tracks GPT release pricing",
+            trendScore: 82,
+          },
+        ],
+      }),
+    ).toMatchObject({
+      metrics: [
+        { label: "Candidates", value: "1" },
+        { label: "Continue", value: "1" },
+        { label: "Explore", value: "0" },
+        { label: "Verify", value: "0" },
+      ],
+      reads: [
+        {
+          id: "same-event-next-read",
+          reason: "Same event",
+          scoreLabel: "1 signal / 106 score",
+          statusLabel: "Continue",
+        },
+      ],
+      summary: "1 next reads: 1 continue, 0 explore, and 0 verify.",
     });
   });
 
@@ -1911,6 +2096,346 @@ describe("getNewsArticleSourceLens", () => {
         "Lower-confidence rss source with quieter edition heat and sparse entity coverage.",
       tone: "Watch",
     });
+  });
+});
+
+describe("getNewsArticleSourceFollowState", () => {
+  it("labels article source follow state from the reader profile", () => {
+    expect(
+      getNewsArticleSourceFollowState({
+        article,
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      isFollowing: false,
+      label: "Follow Source",
+      summary: "Follow OpenAI News to make it a durable For You signal.",
+    });
+
+    expect(
+      getNewsArticleSourceFollowState({
+        article,
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [" OPENAI-NEWS "],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      isFollowing: true,
+      label: "Following Source",
+      summary: "OpenAI News is already a durable For You signal.",
+    });
+  });
+});
+
+describe("getNewsArticleSourceFollowProfile", () => {
+  it("adds the article source as a durable preference without duplicating it", () => {
+    expect(
+      getNewsArticleSourceFollowProfile({
+        article,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["venturewire", " OPENAI-NEWS "],
+          noveltyBias: 1.5,
+          recencyBias: 0.5,
+        },
+      }),
+    ).toEqual({
+      preferredCategories: ["model_release"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: ["venturewire", "openai-news"],
+      noveltyBias: 1.5,
+      recencyBias: 0.5,
+    });
+  });
+
+  it("keeps the explicitly followed article source when the profile is full", () => {
+    expect(
+      getNewsArticleSourceFollowProfile({
+        article,
+        profile: {
+          preferredCategories: [],
+          preferredEntities: [],
+          preferredSources: [
+            "source-01",
+            "source-02",
+            "source-03",
+            "source-04",
+            "source-05",
+            "source-06",
+            "source-07",
+            "source-08",
+            "source-09",
+            "source-10",
+            "source-11",
+            "source-12",
+          ],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }).preferredSources,
+    ).toEqual([
+      "source-02",
+      "source-03",
+      "source-04",
+      "source-05",
+      "source-06",
+      "source-07",
+      "source-08",
+      "source-09",
+      "source-10",
+      "source-11",
+      "source-12",
+      "openai-news",
+    ]);
+  });
+});
+
+describe("getNewsArticleCorroboration", () => {
+  it("summarizes independent related sources that corroborate the article", () => {
+    expect(
+      getNewsArticleCorroboration({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 3,
+        relatedItems: [
+          relatedItem,
+          {
+            ...relatedItem,
+            id: "model-lab-corroboration",
+            title: "Model labs confirm agent release details",
+            category: "model_release",
+            tags: ["model", "tools"],
+            entities: ["OpenAI", "Tool use"],
+            personalizedScore: 112,
+            sourceName: "Model Lab",
+            sourceScore: 86,
+            sourceSlug: "model-lab",
+            trendScore: 76,
+          },
+          {
+            ...relatedItem,
+            id: "same-source-follow-up",
+            title: "OpenAI publishes another release note",
+            category: "model_release",
+            tags: ["model"],
+            entities: ["OpenAI"],
+            personalizedScore: 118,
+            sourceName: "OpenAI News",
+            sourceScore: 92,
+            sourceSlug: "openai-news",
+          },
+          {
+            ...relatedItem,
+            id: "unrelated-funding-story",
+            title: "Agent startups raise a new seed round",
+            category: "funding",
+            tags: ["startup"],
+            entities: ["YC"],
+            personalizedScore: 116,
+            sourceName: "VentureWire",
+            sourceScore: 81,
+            sourceSlug: "venturewire",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Corroborated",
+      metrics: [
+        { label: "Sources", value: "3" },
+        { label: "Matches", value: "2" },
+        { label: "Signals", value: "5" },
+        { label: "Avg trust", value: "86" },
+      ],
+      sources: [
+        {
+          categoryLabel: "Agents",
+          evidenceLabel: "OpenAI, Agents, agent",
+          id: "related-openai-workflow",
+          scoreLabel: "3 signals / 80 trust",
+          sourceName: "Agent Desk",
+          title: "OpenAI agent workflows reach more developers",
+        },
+        {
+          categoryLabel: "Models",
+          evidenceLabel: "OpenAI, model",
+          id: "model-lab-corroboration",
+          scoreLabel: "2 signals / 86 trust",
+          sourceName: "Model Lab",
+          title: "Model labs confirm agent release details",
+        },
+      ],
+      summary:
+        "2 independent stories from 2 sources corroborate this article around OpenAI, Agents, agent, and model.",
+    });
+  });
+
+  it("keeps single-source articles honest before independent coverage appears", () => {
+    expect(
+      getNewsArticleCorroboration({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 3,
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "same-source-only",
+            title: "OpenAI publishes another release note",
+            category: "model_release",
+            tags: ["model"],
+            entities: ["OpenAI"],
+            personalizedScore: 118,
+            sourceName: "OpenAI News",
+            sourceScore: 92,
+            sourceSlug: "openai-news",
+          },
+          {
+            ...relatedItem,
+            id: "unrelated-funding-story",
+            title: "Agent startups raise a new seed round",
+            category: "funding",
+            tags: ["startup"],
+            entities: ["YC"],
+            personalizedScore: 116,
+            sourceName: "VentureWire",
+            sourceScore: 81,
+            sourceSlug: "venturewire",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Single Source",
+      metrics: [
+        { label: "Sources", value: "1" },
+        { label: "Matches", value: "0" },
+        { label: "Signals", value: "0" },
+        { label: "Avg trust", value: "92" },
+      ],
+      sources: [],
+      summary: "No independent related source corroborates this article yet.",
+    });
+  });
+
+  it("treats same-cluster independent coverage as article corroboration", () => {
+    expect(
+      getNewsArticleCorroboration({
+        article: {
+          ...article,
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        },
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        relatedItems: [
+          {
+            ...relatedItem,
+            category: "model_release",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+            entities: ["Frontier Lab"],
+            id: "same-event-independent-source",
+            personalizedScore: 105,
+            sourceName: "Model Lab",
+            sourceScore: 87,
+            sourceSlug: "model-lab",
+            tags: ["pricing"],
+            title: "A second source tracks GPT release pricing",
+          },
+          {
+            ...relatedItem,
+            category: "funding",
+            entities: ["YC"],
+            id: "unrelated-funding-story",
+            personalizedScore: 130,
+            sourceName: "VentureWire",
+            sourceScore: 81,
+            sourceSlug: "venturewire",
+            tags: ["startup"],
+            title: "Agent startups raise a new seed round",
+          },
+        ],
+      }),
+    ).toEqual({
+      label: "Developing",
+      metrics: [
+        { label: "Sources", value: "2" },
+        { label: "Matches", value: "1" },
+        { label: "Signals", value: "1" },
+        { label: "Avg trust", value: "90" },
+      ],
+      sources: [
+        {
+          categoryLabel: "Models",
+          evidenceLabel: "same event",
+          id: "same-event-independent-source",
+          scoreLabel: "1 signal / 87 trust",
+          sourceName: "Model Lab",
+          title: "A second source tracks GPT release pricing",
+        },
+      ],
+      summary:
+        "1 independent story from 1 source corroborates this article around same event.",
+    });
+  });
+
+  it("prioritizes source trust over personalization when evidence ties", () => {
+    const corroboration = getNewsArticleCorroboration({
+      article,
+      formatCategory: formatArticleCategory,
+      limit: 2,
+      relatedItems: [
+        {
+          ...relatedItem,
+          id: "personalized-low-trust",
+          title: "Engagement wire tracks OpenAI agent interest",
+          tags: ["agent"],
+          entities: ["OpenAI"],
+          personalizedScore: 150,
+          sourceName: "Engagement Wire",
+          sourceScore: 62,
+          sourceSlug: "engagement-wire",
+          trendScore: 95,
+        },
+        {
+          ...relatedItem,
+          id: "trusted-lab-confirmation",
+          title: "Trusted lab confirms OpenAI model details",
+          tags: ["model"],
+          entities: ["OpenAI"],
+          personalizedScore: 90,
+          sourceName: "Trusted Lab",
+          sourceScore: 94,
+          sourceSlug: "trusted-lab",
+          trendScore: 70,
+        },
+      ],
+    });
+
+    expect(corroboration.sources.map((source) => source.id)).toEqual([
+      "trusted-lab-confirmation",
+      "personalized-low-trust",
+    ]);
+  });
+});
+
+describe("NewsArticle corroboration panel", () => {
+  it("mounts article-level source corroboration in the sidebar", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsArticleCorroboration({");
+    expect(source).toContain("Article Corroboration");
+    expect(source).toContain("articleCorroboration.sources.map");
   });
 });
 

@@ -70,11 +70,31 @@ describe("AI news schema contracts", () => {
       category: "model_release",
       tags: ["agent", "model"],
       entities: ["OpenAI"],
+      clusterKey: "openai-releases-a-new-agent-model",
       dedupeKey: "openai-releases-a-new-agent-model",
       embeddingStatus: "pending",
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("requires a cluster key for cross-source story aggregation", () => {
+    const result = CreateNewsItemSchema.safeParse({
+      sourceId,
+      title: "OpenAI releases a new agent model",
+      summary: "A short summary for feed cards and internal trend review.",
+      canonicalUrl: "https://example.com/openai-agent-model",
+      originalUrl: "https://example.com/openai-agent-model",
+      publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      status: "published",
+      category: "model_release",
+      tags: ["agent", "model"],
+      entities: ["OpenAI"],
+      dedupeKey: "openai-releases-a-new-agent-model",
+      embeddingStatus: "pending",
+    });
+
+    expect(result.success).toBe(false);
   });
 
   it("rejects invalid news categories", () => {

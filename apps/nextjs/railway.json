@@ -5,6 +5,7 @@
     "buildCommand": "pnpm run deploy:nextjs"
   },
   "deploy": {
+    "preDeployCommand": ["pnpm run db:predeploy"],
     "startCommand": "pnpm run start:nextjs"
   }
 }

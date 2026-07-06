@@ -1,5 +1,5 @@
 import { relations, sql } from "drizzle-orm";
-import { pgEnum, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, pgEnum, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -166,6 +166,7 @@ export const NewsItem = pgTable(
       .array()
       .default(sql`'{}'::text[]`)
       .notNull(),
+    clusterKey: t.varchar({ length: 320 }).notNull(),
     dedupeKey: t.varchar({ length: 320 }).notNull(),
     sourceScore: t.integer().default(50).notNull(),
     trendScore: t.integer().default(0).notNull(),
@@ -179,6 +180,7 @@ export const NewsItem = pgTable(
       .$onUpdateFn(() => new Date()),
   }),
   (table) => [
+    index("news_item_cluster_key_idx").on(table.clusterKey),
     uniqueIndex("news_item_canonical_url_idx").on(table.canonicalUrl),
     uniqueIndex("news_item_dedupe_key_idx").on(table.dedupeKey),
   ],
@@ -399,6 +401,7 @@ export const CreateNewsItemSchema = createInsertSchema(NewsItem, {
   authorName: z.string().max(160).nullable().optional(),
   canonicalUrl: z.string().url().max(2048),
   category: NewsCategorySchema,
+  clusterKey: z.string().min(1).max(320),
   dedupeKey: z.string().min(1).max(320),
   embeddingStatus: NewsEmbeddingStatusSchema.optional(),
   entities: z.array(z.string().min(1).max(160)).optional(),

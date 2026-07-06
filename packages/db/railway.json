@@ -5,6 +5,7 @@
     "buildCommand": "pnpm --dir ../.. run deploy:nextjs"
   },
   "deploy": {
+    "preDeployCommand": ["pnpm --dir ../.. run db:predeploy"],
     "startCommand": "pnpm --dir ../.. run start:nextjs"
   }
 }

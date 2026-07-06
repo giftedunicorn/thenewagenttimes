@@ -27,6 +27,7 @@ export interface NewsItemRefreshUpdateValues {
   authorName: string | null;
   bodyText: string | null;
   category: NewsItemInput["category"];
+  clusterKey: string;
   entities: string[];
   imageUrl: string | null;
   language: string;
@@ -50,6 +51,7 @@ export const getNewsItemRefreshUpdateValues = (
   authorName: item.authorName ?? null,
   bodyText: item.bodyText ?? null,
   category: item.category,
+  clusterKey: item.clusterKey,
   entities: item.entities ?? [],
   imageUrl: item.imageUrl ?? null,
   language: item.language ?? "en",
@@ -87,6 +89,7 @@ export const shouldUpdateNewsItemFromRefresh = (
   existing.authorName !== incoming.authorName ||
   existing.bodyText !== incoming.bodyText ||
   existing.category !== incoming.category ||
+  existing.clusterKey !== incoming.clusterKey ||
   !areStringArraysEqual(existing.entities, incoming.entities) ||
   existing.imageUrl !== incoming.imageUrl ||
   existing.language !== incoming.language ||
@@ -197,6 +200,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
         authorName: NewsItem.authorName,
         bodyText: NewsItem.bodyText,
         category: NewsItem.category,
+        clusterKey: NewsItem.clusterKey,
         entities: NewsItem.entities,
         id: NewsItem.id,
         imageUrl: NewsItem.imageUrl,

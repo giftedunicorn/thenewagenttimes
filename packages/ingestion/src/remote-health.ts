@@ -15,10 +15,20 @@ export type RemoteHealthFetch = (
   init: RemoteHealthHttpInit,
 ) => Promise<RemoteHealthHttpResponse>;
 
+export interface RemoteNewsHomepageHealth {
+  liveStories?: number;
+  mode?: string;
+  path?: string;
+  previewStories?: number;
+  servingNewsExperience?: boolean;
+  title?: string;
+}
+
 export interface RemoteNewsHealthResult {
   actionRequired: string[];
   body: unknown;
   commands: Record<string, string | null>;
+  homepage: RemoteNewsHomepageHealth | null;
   liveReady: boolean | null;
   nextCommand: string | null;
   nextStep: string | null;
@@ -148,6 +158,54 @@ const getRemoteNewsHealthNewsReadiness = (
   return typeof body.news[field] === "boolean" ? body.news[field] : null;
 };
 
+const getRemoteNewsHomepageHealth = (
+  body: unknown,
+): RemoteNewsHomepageHealth | null => {
+  if (!isRecord(body) || !isRecord(body.homepage)) return null;
+
+  const homepage: RemoteNewsHomepageHealth = {};
+
+  if (typeof body.homepage.liveStories === "number") {
+    homepage.liveStories = body.homepage.liveStories;
+  }
+
+  if (typeof body.homepage.mode === "string") {
+    homepage.mode = body.homepage.mode;
+  }
+
+  if (typeof body.homepage.path === "string") {
+    homepage.path = body.homepage.path;
+  }
+
+  if (typeof body.homepage.previewStories === "number") {
+    homepage.previewStories = body.homepage.previewStories;
+  }
+
+  if (typeof body.homepage.servingNewsExperience === "boolean") {
+    homepage.servingNewsExperience = body.homepage.servingNewsExperience;
+  }
+
+  if (typeof body.homepage.title === "string") {
+    homepage.title = body.homepage.title;
+  }
+
+  return homepage;
+};
+
+const isRemoteNewsHomepageReady = (
+  homepage: RemoteNewsHomepageHealth | null,
+) => {
+  const liveStories = homepage?.liveStories ?? 0;
+  const previewStories = homepage?.previewStories ?? 0;
+
+  return (
+    homepage?.path === "/" &&
+    homepage.servingNewsExperience === true &&
+    homepage.title === "The New AI Times" &&
+    liveStories + previewStories > 0
+  );
+};
+
 const getRemoteNewsHealthNextStep = (body: unknown) =>
   isRecord(body) && typeof body.nextStep === "string" ? body.nextStep : null;
 
@@ -170,7 +228,16 @@ const getRemoteNewsHealthCommands = (body: unknown) => {
 };
 
 const assertRemoteNewsHealthReady = (result: RemoteNewsHealthResult) => {
-  if (result.ready === true) return;
+  if (result.ready === true && isRemoteNewsHomepageReady(result.homepage)) {
+    return;
+  }
+
+  if (result.ready === true) {
+    throw new RemoteNewsHealthNotReadyError({
+      ...result,
+      nextStep: "homepage-mismatch",
+    });
+  }
 
   throw new RemoteNewsHealthNotReadyError(result);
 };
@@ -194,10 +261,12 @@ export const checkRemoteNewsHealth = async ({
 
   const body = parseRemoteNewsHealthBody(responseText);
   const commands = getRemoteNewsHealthCommands(body);
+  const homepage = getRemoteNewsHomepageHealth(body);
   const result: RemoteNewsHealthResult = {
     actionRequired: getRemoteNewsHealthActions(body),
     body,
     commands,
+    homepage,
     liveReady: getRemoteNewsHealthNewsReadiness(body, "liveReady"),
     nextCommand:
       typeof commands.next === "string" || commands.next === null

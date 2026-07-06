@@ -3,13 +3,25 @@ import {
   buildNewsDeskStatus,
   getNewsDeskRunYieldLabel,
   getNewsDeskStatusSummary,
+  getPreviewNewsHomeItems,
 } from "../../../_components/news-home-model";
 
 interface HandleNewsHealthRequestInput {
   authSecret?: string | undefined;
   embeddingApiKey?: string | undefined;
   getDeskStatus: () => Promise<NewsDeskStatus>;
+  getSchemaReadiness?: (() => Promise<NewsSchemaReadiness>) | undefined;
   refreshSecret: string | undefined;
+}
+
+type NewsSchemaReadinessState =
+  | "incomplete"
+  | "missing"
+  | "ready"
+  | "unavailable";
+
+export interface NewsSchemaReadiness {
+  newsItemClusterKey: NewsSchemaReadinessState;
 }
 
 type NewsHealthNextStep =
@@ -32,6 +44,33 @@ const unavailableNewsDeskStatus = () =>
     totalSources: 0,
     unavailable: true,
   });
+
+const unavailableNewsSchemaReadiness = (): NewsSchemaReadiness => ({
+  newsItemClusterKey: "unavailable",
+});
+
+const getDefaultNewsSchemaReadiness = (
+  status: NewsDeskStatus,
+): NewsSchemaReadiness => ({
+  newsItemClusterKey: status.health === "unavailable" ? "unavailable" : "ready",
+});
+
+const isNewsSchemaReady = ({
+  schemaReadiness,
+  status,
+}: {
+  schemaReadiness: NewsSchemaReadiness;
+  status: NewsDeskStatus;
+}) =>
+  status.health !== "unavailable" &&
+  schemaReadiness.newsItemClusterKey === "ready";
+
+const getNewsSchemaAction = (schemaReadiness: NewsSchemaReadiness) =>
+  schemaReadiness.newsItemClusterKey === "missing"
+    ? "Apply the database schema so news_item.cluster_key is available."
+    : schemaReadiness.newsItemClusterKey === "incomplete"
+      ? "Run pnpm run db:predeploy so news_item.cluster_key is backfilled and non-null."
+      : "Apply the database schema to the target database.";
 
 const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
   const sourceHealth = status.latestRun?.sourceHealth;
@@ -59,11 +98,13 @@ const getNewsHealthActions = ({
   authConfigured,
   embeddingConfigured,
   refreshConfigured,
+  schemaReadiness,
   status,
 }: {
   authConfigured: boolean;
   embeddingConfigured: boolean;
   refreshConfigured: boolean;
+  schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }) => {
   const actions: string[] = [];
@@ -84,9 +125,11 @@ const getNewsHealthActions = ({
     );
   }
 
-  if (status.health === "unavailable") {
-    actions.push("Apply the database schema to the target database.");
-    actions.push("Seed sources and run pnpm run news:refresh.");
+  if (!isNewsSchemaReady({ schemaReadiness, status })) {
+    actions.push(getNewsSchemaAction(schemaReadiness));
+    if (status.health === "unavailable") {
+      actions.push("Seed sources and run pnpm run news:refresh.");
+    }
     return actions;
   }
 
@@ -123,12 +166,26 @@ const isNewsSemanticReady = (status: NewsDeskStatus) =>
 
 const isNewsLiveReady = (status: NewsDeskStatus) => status.health === "live";
 
+const getNewsHomepageHealth = (status: NewsDeskStatus) => {
+  const previewStories = getPreviewNewsHomeItems().length;
+  const mode = status.publishedStories > 0 ? "live" : "preview";
+
+  return {
+    liveStories: status.publishedStories,
+    mode,
+    path: "/",
+    previewStories,
+    servingNewsExperience: mode === "live" || previewStories > 0,
+    title: "The New AI Times",
+  };
+};
+
 const newsHealthCommands = {
   bootstrap: "pnpm run news:bootstrap:remote",
   embed: "pnpm run news:embed:remote",
   health: "pnpm run news:health:remote",
   refresh: "pnpm run news:refresh:remote",
-  schema: "pnpm run db:push",
+  schema: "pnpm run db:predeploy",
   seedSources: "pnpm run news:seed-sources",
 } as const;
 
@@ -136,17 +193,19 @@ const getNewsHealthChecks = ({
   authConfigured,
   embeddingConfigured,
   refreshConfigured,
+  schemaReadiness,
   status,
 }: {
   authConfigured: boolean;
   embeddingConfigured: boolean;
   refreshConfigured: boolean;
+  schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }) => ({
   auth: authConfigured,
   embeddingProvider: embeddingConfigured,
   refreshSecret: refreshConfigured,
-  schema: status.health !== "unavailable",
+  schema: isNewsSchemaReady({ schemaReadiness, status }),
   semantic: isNewsSemanticReady(status),
   sources: status.activeSources > 0,
   stories: status.health === "live",
@@ -167,16 +226,20 @@ const getNewsHealthNextStep = ({
   authConfigured,
   embeddingConfigured,
   refreshConfigured,
+  schemaReadiness,
   status,
 }: {
   authConfigured: boolean;
   embeddingConfigured: boolean;
   refreshConfigured: boolean;
+  schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }): NewsHealthNextStep => {
   if (!authConfigured) return "configure-auth-secret";
   if (!refreshConfigured) return "configure-refresh-secret";
-  if (status.health === "unavailable") return "apply-database-schema";
+  if (!isNewsSchemaReady({ schemaReadiness, status })) {
+    return "apply-database-schema";
+  }
   if (status.health === "empty") return "seed-news-sources";
   if (status.health === "seeded") return "run-news-refresh";
   if (status.health === "error") return "inspect-ingestion-run";
@@ -209,16 +272,25 @@ export const handleNewsHealthRequest = async ({
   authSecret,
   embeddingApiKey,
   getDeskStatus,
+  getSchemaReadiness,
   refreshSecret,
 }: HandleNewsHealthRequestInput) => {
   const authConfigured = Boolean(authSecret?.trim());
   const embeddingConfigured = Boolean(embeddingApiKey?.trim());
   const refreshConfigured = Boolean(refreshSecret?.trim());
-  const status = await getDeskStatus().catch(() => unavailableNewsDeskStatus());
+  const [status, schemaReadinessResult] = await Promise.all([
+    getDeskStatus().catch(() => unavailableNewsDeskStatus()),
+    getSchemaReadiness
+      ? getSchemaReadiness().catch(() => unavailableNewsSchemaReadiness())
+      : Promise.resolve(null),
+  ]);
+  const schemaReadiness =
+    schemaReadinessResult ?? getDefaultNewsSchemaReadiness(status);
   const checks = getNewsHealthChecks({
     authConfigured,
     embeddingConfigured,
     refreshConfigured,
+    schemaReadiness,
     status,
   });
 
@@ -227,6 +299,7 @@ export const handleNewsHealthRequest = async ({
       authConfigured,
       embeddingConfigured,
       refreshConfigured,
+      schemaReadiness,
       status,
     }),
     authConfigured,
@@ -238,10 +311,12 @@ export const handleNewsHealthRequest = async ({
           authConfigured,
           embeddingConfigured,
           refreshConfigured,
+          schemaReadiness,
           status,
         }),
       ),
     },
+    homepage: getNewsHomepageHealth(status),
     news: {
       activeSources: status.activeSources,
       embeddedStories: status.embeddedStories ?? 0,
@@ -261,11 +336,13 @@ export const handleNewsHealthRequest = async ({
       authConfigured,
       embeddingConfigured,
       refreshConfigured,
+      schemaReadiness,
       status,
     }),
     ok: true,
     ready: areNewsHealthChecksReady(checks),
     refreshConfigured,
+    schema: schemaReadiness,
     web: "ready",
   });
 };

@@ -303,12 +303,17 @@ export const shouldDedupeNewsHomeExposureInteraction = ({
 
   const surface = metadata.surface?.trim().toLowerCase();
 
-  return surface === "home" || surface === "home_exposure";
+  return (
+    surface === "home" ||
+    surface === "home_exposure" ||
+    surface === "mobile_home"
+  );
 };
 
 interface NewsViewedHistoryRow {
   canonicalUrl: string | null;
   category: string;
+  clusterKey: string;
   entities: readonly string[];
   metadata: unknown;
   newsItemId: string;
@@ -334,6 +339,7 @@ export const selectNewsViewedHistory = (
       item: {
         canonicalUrl: row.canonicalUrl,
         category: row.category,
+        clusterKey: row.clusterKey,
         entities: row.entities,
         id: row.newsItemId,
         occurredAt: row.occurredAt.toISOString(),
@@ -408,6 +414,7 @@ export const getNewsCollaborativeSignalScore = ({
 export interface NewsCollaborativeSignalRow {
   canonicalUrl?: string | null;
   category: z.infer<typeof NewsCategorySchema>;
+  clusterKey?: string | null;
   deepReadCount: number;
   entities: readonly string[];
   hideCount: number;
@@ -422,6 +429,7 @@ export interface NewsCollaborativeSignalRow {
 }
 
 type NewsSemanticFeedbackRef = NewsUrlReference & {
+  clusterKey?: string | null;
   newsItemId: string;
   occurredAt?: string;
   strength?: number;
@@ -436,6 +444,7 @@ export const toNewsCollaborativeSignal = (
     ? {
         ...(row.canonicalUrl ? { canonicalUrl: row.canonicalUrl } : {}),
         category: row.category,
+        ...(row.clusterKey ? { clusterKey: row.clusterKey } : {}),
         entities: row.entities,
         newsItemId: row.newsItemId,
         ...(row.originalUrl ? { originalUrl: row.originalUrl } : {}),
@@ -1166,6 +1175,7 @@ export const buildNewsReaderProfileAfterInteractionRemoval = ({
 export type NewsForYouCandidate = DedupeNewsItem &
   RecommendableNewsItem & {
     canonicalUrl: string | null;
+    clusterKey: string;
     imageUrl: string | null;
     originalUrl?: string | null;
     sourceName: string;
@@ -1191,28 +1201,115 @@ const compactConditions = (
 export const getNewsHomeExposureDedupeWindowStart = (now = new Date()) =>
   new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+const normalizeNewsHomeExposureClusterKey = (
+  clusterKey: string | null | undefined,
+) => {
+  const normalizedClusterKey = clusterKey?.trim().toLowerCase();
+
+  if (!normalizedClusterKey) return null;
+
+  return normalizedClusterKey;
+};
+
+const normalizeNewsHomeExposureUrl = (url: string | null | undefined) => {
+  if (!url) return null;
+
+  const trimmedUrl = url.trim();
+
+  if (!trimmedUrl) return null;
+
+  const [withoutFragment = ""] = trimmedUrl.split("#");
+  const [withoutQuery = ""] = withoutFragment.split("?");
+  const withoutTrailingSlash = withoutQuery.replace(/\/$/, "");
+  const withoutScheme = withoutTrailingSlash.replace(
+    /^[a-z][a-z0-9+.-]*:\/\//i,
+    "",
+  );
+  const [host = "", ...pathParts] = withoutScheme.split("/");
+  const normalizedHost = host.toLowerCase().replace(/^www\./, "");
+  const normalizedPath = pathParts.join("/").replace(/\/$/, "").toLowerCase();
+  const normalizedUrl = [normalizedHost, normalizedPath]
+    .filter(Boolean)
+    .join("/");
+
+  return normalizedUrl.length > 0 ? normalizedUrl : null;
+};
+
+const getNewsHomeExposureUrlKeys = ({
+  canonicalUrl,
+  originalUrl,
+}: {
+  canonicalUrl?: string | null;
+  originalUrl?: string | null;
+}) =>
+  [canonicalUrl, originalUrl]
+    .map(normalizeNewsHomeExposureUrl)
+    .filter((urlKey): urlKey is string => urlKey !== null);
+
+const getNewsItemNormalizedUrlExpression = (
+  column: typeof NewsItem.canonicalUrl | typeof NewsItem.originalUrl,
+) =>
+  sql`lower(regexp_replace(regexp_replace(regexp_replace(split_part(split_part(${column}, '#', 1), '?', 1), '/$', ''), '^[a-z][a-z0-9+.-]*://', '', 'i'), '^www\\.', '', 'i'))`;
+
 export const buildNewsHomeExposureDedupeCondition = ({
+  canonicalUrl,
+  clusterKey,
   feedMode,
   newsItemId,
+  originalUrl,
   readerProfileId,
   since,
 }: {
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
   feedMode: NewsFeedMode | undefined;
   newsItemId: string;
+  originalUrl?: string | null;
   readerProfileId: string;
   since: Date;
-}): SQL<unknown> =>
-  compactConditions([
-    eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+}): SQL<unknown> => {
+  const normalizedClusterKey = normalizeNewsHomeExposureClusterKey(clusterKey);
+  const normalizedUrlKeys = getNewsHomeExposureUrlKeys({
+    canonicalUrl,
+    originalUrl,
+  });
+  const normalizedNewsItemCanonicalUrl = getNewsItemNormalizedUrlExpression(
+    NewsItem.canonicalUrl,
+  );
+  const normalizedNewsItemOriginalUrl = getNewsItemNormalizedUrlExpression(
+    NewsItem.originalUrl,
+  );
+  const urlIdentityConditions = normalizedUrlKeys.flatMap((urlKey) => [
+    sql`${normalizedNewsItemCanonicalUrl} = ${urlKey}`,
+    sql`${normalizedNewsItemOriginalUrl} = ${urlKey}`,
+  ]);
+  const storyIdentityConditions = [
     eq(NewsReaderInteraction.newsItemId, newsItemId),
-    sql`${NewsReaderInteraction.action} = 'view'`,
-    sql`${NewsReaderInteraction.occurredAt} >= ${since}`,
-    sql`${NewsReaderInteraction.metadata}->>'exposure' = 'true'`,
-    sql`trim(lower(${NewsReaderInteraction.metadata}->>'surface')) in ('home', 'home_exposure', 'home-exposure')`,
-    feedMode
-      ? sql`${NewsReaderInteraction.metadata}->>'feedMode' = ${feedMode}`
+    normalizedClusterKey
+      ? sql`${NewsReaderInteraction.newsItemId} in (select ${NewsItem.id} from ${NewsItem} where trim(lower(${NewsItem.clusterKey})) = ${normalizedClusterKey})`
       : undefined,
-  ]) ?? sql`false`;
+    urlIdentityConditions.length > 0
+      ? sql`${NewsReaderInteraction.newsItemId} in (select ${NewsItem.id} from ${NewsItem} where ${or(...urlIdentityConditions)})`
+      : undefined,
+  ].filter((condition): condition is SQL<unknown> => condition !== undefined);
+  const storyIdentityCondition =
+    or(...storyIdentityConditions) ??
+    eq(NewsReaderInteraction.newsItemId, newsItemId);
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      sql`${NewsReaderInteraction.action} = 'view'`,
+      sql`${NewsReaderInteraction.occurredAt} >= ${since}`,
+      sql`${NewsReaderInteraction.metadata}->>'exposure' = 'true'`,
+      sql`trim(lower(${NewsReaderInteraction.metadata}->>'surface')) in ('home', 'home_exposure', 'home-exposure', 'mobile_home', 'mobile-home')`,
+      feedMode
+        ? sql`${NewsReaderInteraction.metadata}->>'feedMode' = ${feedMode}`
+        : undefined,
+    ]) ?? sql`false`
+  );
+};
 
 export const buildNewsTextSearchCondition = (
   query: string | undefined,
@@ -1326,6 +1423,7 @@ const toNewsPreferenceProfilePersistenceValues = (
 });
 
 type NewsPositiveFeedbackIdentity = NewsUrlReference & {
+  clusterKey?: string | null;
   newsItemId?: string;
 };
 
@@ -1337,16 +1435,28 @@ const filterActiveNewsPositiveFeedback = <
   positiveFeedbackItems,
 }: {
   hiddenNewsItemIds: readonly string[];
-  hiddenNewsItems: readonly NewsUrlReference[];
+  hiddenNewsItems: readonly (NewsUrlReference & {
+    clusterKey?: string | null;
+  })[];
   positiveFeedbackItems: readonly TItem[];
 }): TItem[] => {
   const hiddenNewsItemIdSet = new Set(hiddenNewsItemIds);
+  const hiddenNewsClusterKeys = new Set(
+    hiddenNewsItems
+      .map((item) => normalizeNewsHomeExposureClusterKey(item.clusterKey))
+      .filter((clusterKey): clusterKey is string => clusterKey !== null),
+  );
   const hiddenNewsUrlKeys = new Set(
     hiddenNewsItems.flatMap(getNewsDedupeUrlKeys),
   );
 
   return positiveFeedbackItems.filter((item) => {
     if (item.newsItemId && hiddenNewsItemIdSet.has(item.newsItemId)) {
+      return false;
+    }
+
+    const clusterKey = normalizeNewsHomeExposureClusterKey(item.clusterKey);
+    if (clusterKey && hiddenNewsClusterKeys.has(clusterKey)) {
       return false;
     }
 
@@ -1512,6 +1622,7 @@ export const getNewsCollaborativeSignalWindowStart = (now = new Date()) =>
 
 export const buildNewsCollaborativeSignalCondition = ({
   candidateCategories = [],
+  candidateClusterKeys = [],
   candidateEntities = [],
   candidateNewsItemIds,
   candidateSourceSlugs = [],
@@ -1520,6 +1631,7 @@ export const buildNewsCollaborativeSignalCondition = ({
   since,
 }: {
   candidateCategories?: readonly z.infer<typeof NewsCategorySchema>[];
+  candidateClusterKeys?: readonly string[];
   candidateEntities?: readonly string[];
   candidateNewsItemIds: readonly string[];
   candidateSourceSlugs?: readonly string[];
@@ -1527,10 +1639,23 @@ export const buildNewsCollaborativeSignalCondition = ({
   currentReaderProfileId: string | null;
   since: Date;
 }): SQL<unknown> | undefined => {
+  const normalizedCandidateClusterKeys = Array.from(
+    new Set(
+      candidateClusterKeys
+        .map((clusterKey) => clusterKey.trim().toLowerCase())
+        .filter((clusterKey) => clusterKey.length > 0),
+    ),
+  );
   const candidateRecallConditions = [
     candidateNewsItemIds.length > 0
       ? inArray(NewsReaderInteraction.newsItemId, candidateNewsItemIds)
       : sql`false`,
+    normalizedCandidateClusterKeys.length > 0
+      ? inArray(
+          sql<string>`trim(lower(${NewsItem.clusterKey}))`,
+          normalizedCandidateClusterKeys,
+        )
+      : undefined,
     candidateCategories.length > 0
       ? inArray(NewsItem.category, candidateCategories)
       : undefined,
@@ -1734,6 +1859,7 @@ export const newsRouter = {
           title: NewsItem.title,
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
           imageUrl: NewsItem.imageUrl,
           originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
@@ -1866,6 +1992,7 @@ export const newsRouter = {
               .select({
                 canonicalUrl: NewsItem.canonicalUrl,
                 category: NewsItem.category,
+                clusterKey: NewsItem.clusterKey,
                 entities: NewsItem.entities,
                 id: NewsItem.id,
                 imageUrl: NewsItem.imageUrl,
@@ -1905,6 +2032,7 @@ export const newsRouter = {
                 action: NewsReaderInteraction.action,
                 canonicalUrl: NewsItem.canonicalUrl,
                 category: NewsItem.category,
+                clusterKey: NewsItem.clusterKey,
                 entities: NewsItem.entities,
                 metadata: NewsReaderInteraction.metadata,
                 newsItemId: NewsReaderInteraction.newsItemId,
@@ -1940,6 +2068,7 @@ export const newsRouter = {
               .select({
                 canonicalUrl: NewsItem.canonicalUrl,
                 category: NewsItem.category,
+                clusterKey: NewsItem.clusterKey,
                 entities: NewsItem.entities,
                 metadata: NewsReaderInteraction.metadata,
                 newsItemId: NewsReaderInteraction.newsItemId,
@@ -2004,6 +2133,7 @@ export const newsRouter = {
                 action: row.action,
                 canonicalUrl: row.canonicalUrl,
                 category: row.category,
+                clusterKey: row.clusterKey,
                 entities: row.entities,
                 metadata: parsedMetadata,
                 newsItemId: row.newsItemId,
@@ -2028,6 +2158,7 @@ export const newsRouter = {
                 : undefined,
             canonicalUrl: row.canonicalUrl,
             category: row.category,
+            clusterKey: row.clusterKey,
             entities: row.entities,
             newsItemId: row.newsItemId,
             occurredAt: row.occurredAt,
@@ -2037,6 +2168,7 @@ export const newsRouter = {
           }));
           semanticFeedbackRefs = activePositiveFeedbackRows.map((row) => ({
             canonicalUrl: row.canonicalUrl,
+            clusterKey: row.clusterKey,
             newsItemId: row.newsItemId,
             occurredAt: row.occurredAt,
             originalUrl: row.originalUrl,
@@ -2059,6 +2191,7 @@ export const newsRouter = {
           title: NewsItem.title,
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
           imageUrl: NewsItem.imageUrl,
           originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
@@ -2090,6 +2223,7 @@ export const newsRouter = {
           .select({
             canonicalUrl: NewsItem.canonicalUrl,
             category: NewsItem.category,
+            clusterKey: NewsItem.clusterKey,
             deepReadCount: sql<number>`count(*) filter (where ${
               NewsReaderInteraction.action
             } = 'view' and ${newsArticleSurfaceCondition()} and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.8)::int`,
@@ -2115,6 +2249,13 @@ export const newsRouter = {
               candidateCategories: Array.from(
                 new Set(items.map((item) => item.category)),
               ),
+              candidateClusterKeys: Array.from(
+                new Set(
+                  items
+                    .map((item) => item.clusterKey.trim().toLowerCase())
+                    .filter((clusterKey) => clusterKey.length > 0),
+                ),
+              ),
               candidateEntities: Array.from(
                 new Set(items.flatMap((item) => item.entities)),
               ),
@@ -2133,6 +2274,7 @@ export const newsRouter = {
             NewsReaderInteraction.newsItemId,
             NewsItem.canonicalUrl,
             NewsItem.category,
+            NewsItem.clusterKey,
             NewsItem.entities,
             NewsItem.originalUrl,
             NewsSource.slug,
@@ -2181,6 +2323,7 @@ export const newsRouter = {
 
         const semanticCandidateVectors = items.map((item) => ({
           canonicalUrl: item.canonicalUrl,
+          clusterKey: item.clusterKey,
           embedding: latestEmbeddingByNewsItemId.get(item.id) ?? null,
           newsItemId: item.id,
           originalUrl: item.originalUrl,
@@ -2240,6 +2383,7 @@ export const newsRouter = {
             title: NewsItem.title,
             summary: NewsItem.summary,
             canonicalUrl: NewsItem.canonicalUrl,
+            clusterKey: NewsItem.clusterKey,
             imageUrl: NewsItem.imageUrl,
             originalUrl: NewsItem.originalUrl,
             publishedAt: NewsItem.publishedAt,
@@ -2277,6 +2421,7 @@ export const newsRouter = {
             id: NewsItem.id,
             title: NewsItem.title,
             canonicalUrl: NewsItem.canonicalUrl,
+            clusterKey: NewsItem.clusterKey,
             originalUrl: NewsItem.originalUrl,
             publishedAt: NewsItem.publishedAt,
             category: NewsItem.category,
@@ -2336,6 +2481,7 @@ export const newsRouter = {
             title: NewsItem.title,
             summary: NewsItem.summary,
             canonicalUrl: NewsItem.canonicalUrl,
+            clusterKey: NewsItem.clusterKey,
             imageUrl: NewsItem.imageUrl,
             originalUrl: NewsItem.originalUrl,
             publishedAt: NewsItem.publishedAt,
@@ -2374,6 +2520,7 @@ export const newsRouter = {
             id: NewsItem.id,
             title: NewsItem.title,
             canonicalUrl: NewsItem.canonicalUrl,
+            clusterKey: NewsItem.clusterKey,
             originalUrl: NewsItem.originalUrl,
             publishedAt: NewsItem.publishedAt,
             category: NewsItem.category,
@@ -2432,6 +2579,7 @@ export const newsRouter = {
           title: NewsItem.title,
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
           imageUrl: NewsItem.imageUrl,
           originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
@@ -2486,6 +2634,7 @@ export const newsRouter = {
           summary: NewsItem.summary,
           bodyText: NewsItem.bodyText,
           canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
           originalUrl: NewsItem.originalUrl,
           imageUrl: NewsItem.imageUrl,
           authorName: NewsItem.authorName,
@@ -2572,6 +2721,9 @@ export const newsRouter = {
         .select({
           id: NewsItem.id,
           title: NewsItem.title,
+          canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
+          originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
           category: NewsItem.category,
           tags: NewsItem.tags,
@@ -2655,8 +2807,11 @@ export const newsRouter = {
             .from(NewsReaderInteraction)
             .where(
               buildNewsHomeExposureDedupeCondition({
+                canonicalUrl: item.canonicalUrl,
+                clusterKey: item.clusterKey,
                 feedMode: input.metadata?.feedMode,
                 newsItemId: input.newsItemId,
+                originalUrl: item.originalUrl,
                 readerProfileId: profile.id,
                 since: getNewsHomeExposureDedupeWindowStart(),
               }),
@@ -2908,6 +3063,7 @@ export const newsRouter = {
           title: NewsItem.title,
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
           imageUrl: NewsItem.imageUrl,
           originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,

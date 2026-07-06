@@ -66,6 +66,121 @@ describe("handleNewsHealthRequest", () => {
     expect(getDeskStatus).toHaveBeenCalledOnce();
   });
 
+  it("surfaces cluster schema gaps even when legacy news tables are reachable", async () => {
+    const response = await handleNewsHealthRequest({
+      authSecret: "configured-auth-secret",
+      embeddingApiKey: "configured-openai-key",
+      getDeskStatus: () =>
+        Promise.resolve(
+          buildNewsDeskStatus({
+            activeSources: 8,
+            embeddedStories: 24,
+            latestPublishedAt: "2026-07-01T08:00:00.000Z",
+            latestRun: {
+              errorMessage: null,
+              finishedAt: "2026-07-01T08:05:00.000Z",
+              itemsCreated: 12,
+              itemsSeen: 18,
+              itemsUpdated: 3,
+              runType: "rss",
+              sourceName: "OpenAI News",
+              startedAt: "2026-07-01T08:00:00.000Z",
+              status: "succeeded",
+            },
+            publishedStories: 24,
+            totalSources: 12,
+            unembeddedStories: 0,
+          }),
+        ),
+      getSchemaReadiness: () =>
+        Promise.resolve({
+          newsItemClusterKey: "missing",
+        }),
+      refreshSecret: "configured-refresh-secret",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Apply the database schema so news_item.cluster_key is available.",
+      ],
+      checks: {
+        auth: true,
+        embeddingProvider: true,
+        refreshSecret: true,
+        schema: false,
+        semantic: true,
+        sources: true,
+        stories: true,
+      },
+      commands: {
+        next: "pnpm run db:predeploy",
+        schema: "pnpm run db:predeploy",
+      },
+      news: {
+        health: "live",
+        ready: true,
+      },
+      nextStep: "apply-database-schema",
+      ready: false,
+      schema: {
+        newsItemClusterKey: "missing",
+      },
+    });
+  });
+
+  it("keeps half-applied cluster schema migrations out of the ready state", async () => {
+    const response = await handleNewsHealthRequest({
+      authSecret: "configured-auth-secret",
+      embeddingApiKey: "configured-openai-key",
+      getDeskStatus: () =>
+        Promise.resolve(
+          buildNewsDeskStatus({
+            activeSources: 8,
+            embeddedStories: 24,
+            latestPublishedAt: "2026-07-01T08:00:00.000Z",
+            latestRun: {
+              errorMessage: null,
+              finishedAt: "2026-07-01T08:05:00.000Z",
+              itemsCreated: 12,
+              itemsSeen: 18,
+              itemsUpdated: 3,
+              runType: "rss",
+              sourceName: "OpenAI News",
+              startedAt: "2026-07-01T08:00:00.000Z",
+              status: "succeeded",
+            },
+            publishedStories: 24,
+            totalSources: 12,
+            unembeddedStories: 0,
+          }),
+        ),
+      getSchemaReadiness: () =>
+        Promise.resolve({
+          newsItemClusterKey: "incomplete",
+        }),
+      refreshSecret: "configured-refresh-secret",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Run pnpm run db:predeploy so news_item.cluster_key is backfilled and non-null.",
+      ],
+      checks: {
+        schema: false,
+      },
+      commands: {
+        next: "pnpm run db:predeploy",
+      },
+      nextStep: "apply-database-schema",
+      ready: false,
+      schema: {
+        newsItemClusterKey: "incomplete",
+      },
+    });
+  });
+
   it("surfaces the latest refresh yield diagnostics for production checks", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
@@ -408,6 +523,13 @@ describe("handleNewsHealthRequest", () => {
         publishedStories: 0,
         ready: false,
       },
+      homepage: {
+        mode: "preview",
+        path: "/",
+        previewStories: 12,
+        servingNewsExperience: true,
+        title: "The New AI Times",
+      },
       nextStep: "configure-auth-secret",
       ok: true,
       ready: false,
@@ -441,9 +563,9 @@ describe("handleNewsHealthRequest", () => {
         bootstrap: "pnpm run news:bootstrap:remote",
         embed: "pnpm run news:embed:remote",
         health: "pnpm run news:health:remote",
-        next: "pnpm run db:push",
+        next: "pnpm run db:predeploy",
         refresh: "pnpm run news:refresh:remote",
-        schema: "pnpm run db:push",
+        schema: "pnpm run db:predeploy",
         seedSources: "pnpm run news:seed-sources",
       },
       news: {

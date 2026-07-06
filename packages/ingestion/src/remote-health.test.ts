@@ -145,6 +145,13 @@ describe("checkRemoteNewsHealth", () => {
                   stories: true,
                 },
                 nextStep: "ready",
+                homepage: {
+                  mode: "live",
+                  path: "/",
+                  previewStories: 12,
+                  servingNewsExperience: true,
+                  title: "The New AI Times",
+                },
                 news: {
                   liveReady: true,
                   semanticReady: true,
@@ -173,6 +180,13 @@ describe("checkRemoteNewsHealth", () => {
           sources: true,
           stories: true,
         },
+        homepage: {
+          mode: "live",
+          path: "/",
+          previewStories: 12,
+          servingNewsExperience: true,
+          title: "The New AI Times",
+        },
         nextStep: "ready",
         news: {
           liveReady: true,
@@ -181,12 +195,113 @@ describe("checkRemoteNewsHealth", () => {
         ready: true,
       },
       commands: {},
+      homepage: {
+        mode: "live",
+        path: "/",
+        previewStories: 12,
+        servingNewsExperience: true,
+        title: "The New AI Times",
+      },
       liveReady: true,
       nextCommand: null,
       nextStep: "ready",
       ready: true,
       semanticReady: true,
       status: 200,
+    });
+  });
+
+  it("rejects ready responses that are not serving the New AI Times homepage", async () => {
+    const error = await checkRemoteNewsHealth({
+      fetchHealth: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                homepage: {
+                  mode: "preview",
+                  path: "/",
+                  previewStories: 0,
+                  servingNewsExperience: false,
+                  title: "TanStack Start",
+                },
+                news: {
+                  liveReady: true,
+                  semanticReady: true,
+                },
+                nextStep: "ready",
+                ready: true,
+              }),
+            ),
+        }),
+      healthUrl: "https://thenewagenttimes.up.railway.app",
+    }).catch((caughtError: unknown) => caughtError);
+
+    expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
+    expect(error).toMatchObject({
+      message: "Remote news health is not ready: nextStep=homepage-mismatch",
+      result: {
+        homepage: {
+          mode: "preview",
+          path: "/",
+          previewStories: 0,
+          servingNewsExperience: false,
+          title: "TanStack Start",
+        },
+        nextStep: "homepage-mismatch",
+        ready: true,
+        status: 200,
+      },
+    });
+  });
+
+  it("rejects ready responses whose homepage has no live or preview stories", async () => {
+    const error = await checkRemoteNewsHealth({
+      fetchHealth: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                homepage: {
+                  liveStories: 0,
+                  mode: "live",
+                  path: "/",
+                  previewStories: 0,
+                  servingNewsExperience: true,
+                  title: "The New AI Times",
+                },
+                news: {
+                  liveReady: true,
+                  semanticReady: true,
+                },
+                nextStep: "ready",
+                ready: true,
+              }),
+            ),
+        }),
+      healthUrl: "https://thenewagenttimes.up.railway.app",
+    }).catch((caughtError: unknown) => caughtError);
+
+    expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
+    expect(error).toMatchObject({
+      message: "Remote news health is not ready: nextStep=homepage-mismatch",
+      result: {
+        homepage: {
+          liveStories: 0,
+          mode: "live",
+          path: "/",
+          previewStories: 0,
+          servingNewsExperience: true,
+          title: "The New AI Times",
+        },
+        nextStep: "homepage-mismatch",
+        ready: true,
+        status: 200,
+      },
     });
   });
 
@@ -306,6 +421,7 @@ describe("formatRemoteNewsHealthSummary", () => {
           next: "pnpm run db:push",
           schema: "pnpm run db:push",
         },
+        homepage: null,
         liveReady: false,
         nextCommand: "pnpm run db:push",
         nextStep: "apply-database-schema",

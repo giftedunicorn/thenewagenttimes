@@ -3,9 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildNewsHomeCandidateOrderByExpressions,
   buildRelatedNewsCondition,
+  buildRelatedNewsOrderByExpressions,
   getNewsDeskStatus,
   getNewsHomeData,
   getNewsRunSkipDiagnosticsFromMetadata,
+  getNewsSchemaReadiness,
   shouldReadNewsArticleFromDatabase,
 } from "./news";
 
@@ -61,6 +63,12 @@ const newsDbMock = vi.hoisted(() => {
   }
 
   return {
+    execute: vi.fn(
+      () =>
+        queuedResults.shift()?.resolve ?? {
+          rows: [],
+        },
+    ),
     queueResults: (...results: QueryResult[]) => {
       queuedResults.push(...results);
     },
@@ -80,6 +88,7 @@ const newsDbMock = vi.hoisted(() => {
 
 vi.mock("@acme/db/client", () => ({
   db: {
+    execute: newsDbMock.execute,
     select: newsDbMock.select,
   },
 }));
@@ -143,6 +152,26 @@ describe("buildRelatedNewsCondition", () => {
     expect(sqlText).toContain("tags");
     expect(sqlText.match(/array\[/g) ?? []).toHaveLength(2);
     expect(sqlText.match(/::text\[\]/g) ?? []).toHaveLength(2);
+  });
+});
+
+describe("buildRelatedNewsOrderByExpressions", () => {
+  it("ranks same-cluster article candidates ahead of broader related recalls", () => {
+    const orderText = buildRelatedNewsOrderByExpressions({
+      article: {
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+      },
+    })
+      .map(collectSqlDebugText)
+      .join(" ");
+
+    expect(orderText.indexOf("clusterKey")).toBeGreaterThanOrEqual(0);
+    expect(orderText.indexOf("clusterKey")).toBeLessThan(
+      orderText.indexOf("trendScore"),
+    );
+    expect(orderText.indexOf("trendScore")).toBeLessThan(
+      orderText.indexOf("publishedAt"),
+    );
   });
 });
 
@@ -265,6 +294,25 @@ describe("getNewsDeskStatus", () => {
       health: "live",
       latestPublishedAt: "2026-07-04T10:00:00.000Z",
       publishedStories: 390,
+    });
+  });
+});
+
+describe("getNewsSchemaReadiness", () => {
+  it("marks a nullable cluster key column incomplete until predeploy finishes", async () => {
+    newsDbMock.reset();
+    newsDbMock.queueResults({
+      resolve: {
+        rows: [
+          {
+            isNullable: "YES",
+          },
+        ],
+      },
+    });
+
+    await expect(getNewsSchemaReadiness()).resolves.toEqual({
+      newsItemClusterKey: "incomplete",
     });
   });
 });

@@ -319,6 +319,76 @@ const slugText = (text: string) =>
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "");
 
+const storyClusterStopwords = new Set([
+  "a",
+  "an",
+  "and",
+  "for",
+  "in",
+  "new",
+  "of",
+  "on",
+  "the",
+  "to",
+  "with",
+]);
+
+const storyClusterTokenAliases: Record<string, string> = {
+  announced: "announce",
+  announces: "announce",
+  launched: "launch",
+  launches: "launch",
+  released: "release",
+  releases: "release",
+  shipped: "ship",
+  ships: "ship",
+};
+
+const getStoryClusterTokens = (title: string) => {
+  const tokens = normalizeText(title)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1 && !storyClusterStopwords.has(token))
+    .map((token) => storyClusterTokenAliases[token] ?? token);
+  const seenTokens = new Set<string>();
+
+  return tokens.filter((token) => {
+    if (seenTokens.has(token)) return false;
+
+    seenTokens.add(token);
+    return true;
+  });
+};
+
+export const buildStoryClusterKey = (input: {
+  category: NewsCategory;
+  entities?: readonly string[];
+  publishedAt: Date;
+  title: string;
+}) => {
+  const dayKey = Number.isFinite(input.publishedAt.getTime())
+    ? input.publishedAt.toISOString().slice(0, 10)
+    : "unknown-date";
+  const entityKey = (input.entities ?? [])
+    .map(slugText)
+    .filter(Boolean)
+    .sort()
+    .slice(0, 4)
+    .join("-");
+  const titleKey = getStoryClusterTokens(input.title).slice(0, 9).join("-");
+  const readableKey = [input.category, dayKey, entityKey, titleKey]
+    .filter(Boolean)
+    .join("-");
+  const digest = createHash("sha256")
+    .update(readableKey)
+    .digest("hex")
+    .slice(0, 16);
+
+  return `${readableKey.slice(0, 280)}-${digest}`;
+};
+
 export const canonicalizeUrl = (url: string): string => {
   const parsed = new URL(url);
 
@@ -585,6 +655,12 @@ const normalizeShared = (input: {
     category,
     tags: [...new Set([...(input.tags ?? []), ...inferredTags])],
     entities,
+    clusterKey: buildStoryClusterKey({
+      category,
+      entities,
+      publishedAt: input.publishedAt,
+      title,
+    }),
     dedupeKey: buildDedupeKey({
       sourceId: input.sourceId,
       title,

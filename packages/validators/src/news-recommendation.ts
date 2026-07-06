@@ -508,8 +508,8 @@ export const summarizeNewsRecommendation = <
       badges: uniqueBadges,
       scoreLabel: `${item.personalizedScore} score`,
       summary: supportText
-        ? `Moved behind fresh angles because this card or URL was recently seen on the home feed, while still supported by ${supportText}.`
-        : "Moved behind fresh angles because this card or URL was recently seen on the home feed.",
+        ? `Moved behind fresh angles because this card, URL, or event cluster was recently seen on the home feed, while still supported by ${supportText}.`
+        : "Moved behind fresh angles because this card, URL, or event cluster was recently seen on the home feed.",
     };
   }
 
@@ -1083,7 +1083,8 @@ const canUseNewsRecommendationRotationCandidate = <
   item: RankedNewsItem<TItem>;
 }) =>
   item.sourceScore >= newsRecommendationRotationMinimumSourceScore &&
-  (allowProtectedSignals || !hasNewsRecommendationRotationProtectedSignal(item));
+  (allowProtectedSignals ||
+    !hasNewsRecommendationRotationProtectedSignal(item));
 
 const getNewsRecommendationRotationReaderSignalCount = <
   TItem extends RecommendableNewsItem,
@@ -1281,6 +1282,7 @@ export const filterHiddenNewsItems = <TItem extends NewsIdentity>(
 
 export type DedupeNewsItem = NewsUrlIdentity & {
   category: string;
+  clusterKey?: string;
   entities?: readonly string[];
   publishedAt: string;
   sourceSlug?: string;
@@ -1299,6 +1301,12 @@ export const getNewsDedupeUrlKeys = (item: NewsUrlReference) =>
     .map(normalizeNewsDedupeUrl)
     .filter((url): url is string => url !== null)
     .map((url) => `url:${url}`);
+
+const getNewsDedupeClusterKey = (item: Pick<DedupeNewsItem, "clusterKey">) => {
+  const normalizedClusterKey = item.clusterKey?.trim().toLowerCase();
+
+  return normalizedClusterKey ? `cluster:${normalizedClusterKey}` : null;
+};
 
 const normalizeNewsDedupeUrl = (url: string | null | undefined) => {
   if (!url) return null;
@@ -1395,12 +1403,15 @@ const shouldUseNewsDedupeTitleKey = (item: DedupeNewsItem) => {
 };
 
 const getNewsDedupeKeys = (item: DedupeNewsItem) => {
+  const clusterKey = getNewsDedupeClusterKey(item);
   const urlKeys = getNewsDedupeUrlKeys(item);
   const titleKeys = shouldUseNewsDedupeTitleKey(item)
     ? [getNewsDedupeTitleKey(item)]
     : [];
 
-  return Array.from(new Set([...urlKeys, ...titleKeys]));
+  return Array.from(
+    new Set([...(clusterKey ? [clusterKey] : []), ...urlKeys, ...titleKeys]),
+  );
 };
 
 const normalizeNewsDedupeEntity = (entity: string) =>
@@ -2224,6 +2235,7 @@ export type PositiveFeedbackNewsItem = Pick<
 > &
   NewsUrlReference & {
     action?: PositiveFeedbackAction;
+    clusterKey?: string | null;
     newsItemId?: string;
     occurredAt?: string;
     tags?: readonly string[];
@@ -2234,6 +2246,7 @@ export type RecentExposureNewsItem = Pick<
   "category" | "entities" | "sourceSlug"
 > &
   NewsUrlReference & {
+    clusterKey?: string | null;
     id?: string;
     occurredAt?: string;
     readPercent?: number;
@@ -2243,6 +2256,7 @@ export type RecentExposureNewsItem = Pick<
   };
 
 export interface NewsSemanticVector extends NewsUrlReference {
+  clusterKey?: string | null;
   newsItemId: string;
   embedding: readonly number[] | null | undefined;
   occurredAt?: string;
@@ -2258,6 +2272,7 @@ export interface NewsSemanticSimilarityMatch {
 
 export interface NewsCollaborativeSignal extends NewsUrlReference {
   category?: string;
+  clusterKey?: string | null;
   entities?: readonly string[];
   newsItemId: string;
   score: number;
@@ -2369,11 +2384,23 @@ const isActivePositiveFeedback = (
   return hoursSince(item.occurredAt, now) <= 14 * 24;
 };
 
+const getOptionalNewsClusterKey = (item: object) => {
+  const reference = item as { clusterKey?: unknown };
+  const clusterKey =
+    typeof reference.clusterKey === "string" ? reference.clusterKey.trim() : "";
+
+  return clusterKey ? clusterKey.toLowerCase() : null;
+};
+
 const isPositiveFeedbackSelfMatch = (
   item: RecommendableNewsItem & NewsUrlReference,
   feedbackItem: PositiveFeedbackNewsItem,
 ) => {
   if (feedbackItem.newsItemId === item.id) return true;
+
+  const itemClusterKey = getOptionalNewsClusterKey(item);
+  const feedbackClusterKey = getOptionalNewsClusterKey(feedbackItem);
+  if (itemClusterKey && itemClusterKey === feedbackClusterKey) return true;
 
   const feedbackUrlKeys = new Set(getNewsDedupeUrlKeys(feedbackItem));
   if (feedbackUrlKeys.size === 0) return false;
@@ -2726,6 +2753,19 @@ const hasRecentExposureUrlMatch = (
   );
 };
 
+const hasRecentExposureClusterMatch = (
+  item: object,
+  recentExposureItems: readonly RecentExposureNewsItem[],
+) => {
+  const clusterKey = getOptionalNewsClusterKey(item);
+
+  if (!clusterKey) return false;
+
+  return recentExposureItems.some(
+    (exposureItem) => getOptionalNewsClusterKey(exposureItem) === clusterKey,
+  );
+};
+
 const hasRecentExposureFuzzyMatch = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
   recentExposureItems: readonly RecentExposureNewsItem[],
@@ -2751,6 +2791,7 @@ const getExposureCooldownMatch = <TItem extends RecommendableNewsItem>(
   if (
     homeExposureItems.length > 0 &&
     (hasRecentExposureIdentityMatch(item, homeExposureItems) ||
+      hasRecentExposureClusterMatch(item, homeExposureItems) ||
       hasRecentExposureUrlMatch(item, homeExposureItems) ||
       hasRecentExposureFuzzyMatch(item, homeExposureItems))
   ) {
@@ -2807,6 +2848,12 @@ const isSemanticFeedbackSelfMatch = (
   feedback: NewsSemanticVector,
 ) => {
   if (feedback.newsItemId === candidate.newsItemId) return true;
+
+  const candidateClusterKey = getOptionalNewsClusterKey(candidate);
+  const feedbackClusterKey = getOptionalNewsClusterKey(feedback);
+  if (candidateClusterKey && candidateClusterKey === feedbackClusterKey) {
+    return true;
+  }
 
   const feedbackUrlKeys = new Set(getNewsDedupeUrlKeys(feedback));
   if (feedbackUrlKeys.size === 0) return false;
@@ -2989,6 +3036,12 @@ const hasCollaborativeSignalMetadataMatch = <
   signal: NewsCollaborativeSignal,
 ) => {
   if (signal.newsItemId === item.id) return false;
+
+  const itemClusterKey = getOptionalNewsClusterKey(item);
+  const signalClusterKey = getOptionalNewsClusterKey(signal);
+  if (itemClusterKey && itemClusterKey === signalClusterKey) {
+    return false;
+  }
 
   const signalUrlKeys = new Set(getNewsDedupeUrlKeys(signal));
   if (
@@ -3440,7 +3493,9 @@ export const selectSessionIntentNewsFeed = <
 const getSourceCorroborationKeys = <TItem extends RecommendableNewsItem>(
   item: RankedNewsItem<TItem>,
 ) => {
+  const clusterKey = getOptionalNewsClusterKey(item);
   const category = item.category.trim().toLowerCase();
+  const eventKey = clusterKey ? [`event:${clusterKey}`] : [];
   const entityKeys = item.entities
     .map((entity) => entity.trim().toLowerCase())
     .filter(Boolean)
@@ -3449,7 +3504,7 @@ const getSourceCorroborationKeys = <TItem extends RecommendableNewsItem>(
     .filter(isSpecificRecommendationAngleTag)
     .map((tag) => `${category}:angle:${getRecommendationAngleKey(tag)}`);
 
-  return [...entityKeys, ...angleKeys];
+  return [...eventKey, ...entityKeys, ...angleKeys];
 };
 
 const hasSourceCorroborationBlockedSignal = <

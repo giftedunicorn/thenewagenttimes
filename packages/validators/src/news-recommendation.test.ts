@@ -1215,6 +1215,28 @@ describe("summarizeNewsRecommendation", () => {
     });
   });
 
+  test("explains same-event home exposure cooldowns as event-cluster repeats", () => {
+    const explanation = summarizeNewsRecommendation({
+      item: {
+        ...items[0],
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        matchedSignals: ["home_exposure_cooldown"],
+        personalizedScore: 122,
+        publishedAt: "2026-07-01T09:30:00.000Z",
+        sourceScore: 86,
+        trendScore: 74,
+      },
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(explanation).toEqual({
+      badges: ["Recently seen on home", "High heat", "Fresh", "Strong source"],
+      scoreLabel: "122 score",
+      summary:
+        "Moved behind fresh angles because this card, URL, or event cluster was recently seen on the home feed, while still supported by high story heat, fresh publication timing, and source credibility.",
+    });
+  });
+
   test("explains collaborative Less damping without treating it as reader preference", () => {
     const explanation = summarizeNewsRecommendation({
       item: {
@@ -1586,6 +1608,41 @@ describe("filterBlockedNewsItems", () => {
 
     expect(filtered.map((item) => item.id)).toEqual(["openai-voice-model"]);
   });
+
+  test("removes hidden story variants that share an ingestion cluster key", () => {
+    const filtered = filterBlockedNewsItems(
+      [
+        {
+          ...items[0],
+          id: "wire-gpt6-follow",
+          title: "Labs report a new OpenAI reasoning model release",
+          canonicalUrl: "https://wire.example/openai-reasoning-release",
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+          originalUrl: "https://wire.example/openai-reasoning-release",
+          sourceSlug: "wire",
+        },
+        {
+          ...items[1],
+          id: "fresh-funding-story",
+          canonicalUrl: "https://example.com/funding-story",
+        },
+      ],
+      ["hidden-openai-cluster"],
+      [
+        {
+          ...items[0],
+          id: "hidden-openai-cluster",
+          title: "OpenAI ships GPT-6 for coding agents",
+          canonicalUrl: "https://example.com/openai-gpt6",
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+          originalUrl: "https://example.com/openai-gpt6",
+          sourceSlug: "openai-news",
+        },
+      ],
+    );
+
+    expect(filtered.map((item) => item.id)).toEqual(["fresh-funding-story"]);
+  });
 });
 
 describe("dedupeNewsItems", () => {
@@ -1789,6 +1846,44 @@ describe("dedupeNewsItems", () => {
     expect(deduped.map((item) => item.id)).toEqual([
       "official-gpt5-launch",
       "openai-voice-model",
+    ]);
+  });
+
+  test("collapses same-event story clusters even when URLs and headlines differ", () => {
+    const deduped = dedupeNewsItems([
+      {
+        ...items[0],
+        id: "wire-gpt6-release",
+        title: "Labs report a new OpenAI reasoning model release",
+        canonicalUrl: "https://wire.example/openai-reasoning-release",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        originalUrl: "https://wire.example/openai-reasoning-release",
+        sourceSlug: "wire",
+        sourceScore: 82,
+        trendScore: 96,
+      },
+      {
+        ...items[0],
+        id: "official-gpt6-release",
+        title: "OpenAI ships GPT-6 for coding agents",
+        canonicalUrl: "https://openai.com/news/gpt6-coding-agents",
+        clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+        originalUrl: "https://openai.com/news/gpt6-coding-agents",
+        sourceSlug: "openai-news",
+        sourceScore: 96,
+        trendScore: 88,
+      },
+      {
+        ...items[1],
+        id: "funding",
+        canonicalUrl: "https://venture.example/funding",
+        originalUrl: "https://venture.example/funding",
+      },
+    ]);
+
+    expect(deduped.map((item) => item.id)).toEqual([
+      "official-gpt6-release",
+      "funding",
     ]);
   });
 
@@ -2589,6 +2684,46 @@ describe("buildNewsSemanticSimilarityMatches", () => {
     ]);
   });
 
+  test("does not connect semantic feedback to the same story cluster variant", () => {
+    const candidateVectors = [
+      {
+        canonicalUrl: "https://wire.example/openai-gpt6-agents",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        newsItemId: "wire-gpt6-story",
+        embedding: [1, 0, 0],
+        originalUrl: "https://wire.example/openai-gpt6-agents",
+      },
+      {
+        canonicalUrl: "https://example.com/news/openai-model-follow-up",
+        clusterKey: "2026-07-02:model_release:openai:model-tools",
+        newsItemId: "agent-runtime-follow-up",
+        embedding: [0.96, 0.2, 0],
+      },
+    ];
+    const feedbackVectors = [
+      {
+        canonicalUrl: "https://openai.com/news/gpt6-coding-agents",
+        clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+        newsItemId: "saved-official-gpt6",
+        embedding: [1, 0, 0],
+        occurredAt: "2026-07-01T08:00:00.000Z",
+        originalUrl: "https://openai.com/news/gpt6-coding-agents?utm=saved",
+        strength: 3,
+      },
+    ];
+
+    const matches = buildNewsSemanticSimilarityMatches({
+      candidateVectors,
+      feedbackVectors,
+      minSimilarity: 0.9,
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(matches.map((match) => match.newsItemId)).toEqual([
+      "agent-runtime-follow-up",
+    ]);
+  });
+
   test("ignores stale feedback vectors and incompatible dimensions", () => {
     expect(
       buildNewsSemanticSimilarityMatches({
@@ -2748,6 +2883,59 @@ describe("selectCollaborativeSignalNewsFeed", () => {
     expect(feed.map((item) => item.id)).toEqual([
       "same-topic-follow-up",
       "same-story-url-variant",
+      "generic-funding-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("collaborative_feedback");
+    expect(feed[1]?.matchedSignals).not.toContain("collaborative_feedback");
+  });
+
+  test("does not lift collaborative signals for the same story cluster variant", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-story-cluster-variant",
+        canonicalUrl: "https://wire.example/openai-gpt6-agents",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        originalUrl: "https://wire.example/openai-gpt6-agents",
+        personalizedScore: 125,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "same-topic-follow-up",
+        canonicalUrl: "https://example.com/news/openai-model-follow-up",
+        clusterKey: "2026-07-02:model_release:openai:model-tools",
+        originalUrl: "https://example.com/news/openai-model-follow-up",
+        sourceScore: 86,
+        personalizedScore: 118,
+        matchedSignals: [],
+      },
+      {
+        ...items[1],
+        id: "generic-funding-story",
+        personalizedScore: 124,
+        matchedSignals: [],
+      },
+    ];
+    const collaborativeSignal = {
+      canonicalUrl: "https://openai.com/news/gpt6-coding-agents",
+      category: "model_release",
+      clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+      entities: ["OpenAI"],
+      newsItemId: "official-gpt6-story",
+      originalUrl: "https://openai.com/news/gpt6-coding-agents?utm=reader",
+      score: 8,
+      sourceSlug: "openai-news",
+      tags: ["agents"],
+    };
+
+    const feed = selectCollaborativeSignalNewsFeed(ranked, [
+      collaborativeSignal,
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-topic-follow-up",
+      "same-story-cluster-variant",
       "generic-funding-story",
     ]);
     expect(feed[0]?.matchedSignals).toContain("collaborative_feedback");
@@ -3669,6 +3857,54 @@ describe("selectSourceCorroboratedNewsFeed", () => {
     expect(feed[0]?.matchedSignals).toContain("source_corroboration");
   });
 
+  test("lifts independent sources covering the same event cluster", () => {
+    const feed = selectSourceCorroboratedNewsFeed([
+      {
+        ...items[0],
+        id: "single-source-high-score",
+        category: "funding",
+        clusterKey: "2026-07-01:funding:runway:series-c",
+        entities: ["Runway"],
+        matchedSignals: [],
+        personalizedScore: 132,
+        sourceScore: 88,
+        sourceSlug: "venturewire",
+        tags: ["startup"],
+      },
+      {
+        ...items[0],
+        id: "same-event-official-report",
+        category: "model_release",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        entities: ["OpenAI"],
+        matchedSignals: [],
+        personalizedScore: 124,
+        sourceScore: 90,
+        sourceSlug: "openai-news",
+        tags: ["pricing"],
+      },
+      {
+        ...items[1],
+        id: "same-event-independent-analysis",
+        category: "funding",
+        clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+        entities: ["Frontier Lab"],
+        matchedSignals: [],
+        personalizedScore: 116,
+        sourceScore: 84,
+        sourceSlug: "model-lab",
+        tags: ["enterprise"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-event-official-report",
+      "single-source-high-score",
+      "same-event-independent-analysis",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("source_corroboration");
+  });
+
   test("does not treat repeated coverage from the same source as corroboration", () => {
     const feed = selectSourceCorroboratedNewsFeed([
       {
@@ -3835,6 +4071,57 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
     expect(feed.map((item) => item.id)).toEqual([
       "saved-story-follow-up",
       "saved-story-url-variant",
+      "unrelated-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("positive_feedback");
+    expect(feed[1]?.matchedSignals).not.toContain("positive_feedback");
+  });
+
+  test("does not anchor the saved story itself when it reappears as a same-cluster variant", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "saved-story-cluster-variant",
+        canonicalUrl: "https://wire.example/openai-gpt6-agents",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        originalUrl: "https://wire.example/openai-gpt6-agents",
+        personalizedScore: 190,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "saved-story-follow-up",
+        canonicalUrl: "https://example.com/news/openai-model-follow-up",
+        clusterKey: "2026-07-02:model_release:openai:model-tools",
+        originalUrl: "https://example.com/news/openai-model-follow-up",
+        personalizedScore: 120,
+        matchedSignals: ["entity"],
+      },
+      {
+        ...items[1],
+        id: "unrelated-story",
+        personalizedScore: 180,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(ranked, [
+      {
+        action: "save",
+        canonicalUrl: "https://openai.com/news/gpt6-coding-agents",
+        category: "model_release",
+        clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+        entities: ["OpenAI"],
+        newsItemId: "saved-story",
+        originalUrl: "https://openai.com/news/gpt6-coding-agents?utm=saved",
+        sourceSlug: "openai-news",
+        tags: ["agents", "benchmarks"],
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "saved-story-follow-up",
+      "saved-story-cluster-variant",
       "unrelated-story",
     ]);
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
@@ -6106,6 +6393,49 @@ describe("selectExposureBalancedNewsFeed", () => {
     expect(feed.map((item) => item.id)).toEqual([
       "fresh-market-angle",
       "same-home-exposure-card",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("home_exposure_cooldown");
+    expect(feed[1]?.matchedSignals).not.toContain("exposure_cooldown");
+  });
+
+  test("cools same-cluster home exposure variants even when URLs differ", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-cluster-wire-story",
+        canonicalUrl: "https://wire.example/openai-reasoning-release",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        originalUrl: "https://wire.example/openai-reasoning-release",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+    const homeExposure = [
+      {
+        canonicalUrl: "https://example.com/openai-gpt6",
+        category: "model_release",
+        clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+        entities: ["OpenAI"],
+        originalUrl: "https://example.com/openai-gpt6",
+        sourceSlug: "openai-news",
+        surface: "home" as const,
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, homeExposure);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "same-cluster-wire-story",
     ]);
     expect(feed[1]?.matchedSignals).toContain("home_exposure_cooldown");
     expect(feed[1]?.matchedSignals).not.toContain("exposure_cooldown");

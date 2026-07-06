@@ -76,11 +76,33 @@ const collectSqlDebugText = (value: unknown): string => {
   return [name, stringValues, chunks].filter(Boolean).join(" ");
 };
 
+const countClusterKeySelects = (source: string) =>
+  source.match(/clusterKey:\s*NewsItem\.clusterKey/g)?.length ?? 0;
+
+const getSourceBlock = ({
+  end,
+  source,
+  start,
+}: {
+  end: string;
+  source: string;
+  start: string;
+}) => {
+  const startIndex = source.indexOf(start);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+
+  const endIndex = source.indexOf(end, startIndex + start.length);
+  expect(endIndex).toBeGreaterThan(startIndex);
+
+  return source.slice(startIndex, endIndex);
+};
+
 const baseNewsItem = {
   id: "openai-model-lead",
   title: "OpenAI model lead",
   summary: "OpenAI ships a model release.",
   canonicalUrl: "https://example.com/openai-model-lead",
+  clusterKey: "",
   imageUrl: null,
   publishedAt: "2026-07-01T08:00:00.000Z",
   category: "model_release",
@@ -95,6 +117,7 @@ const baseNewsItem = {
 
 const newsCandidateWithOriginalUrl = {
   ...baseNewsItem,
+  clusterKey: "2026-07-01:model_release:openai:model-lead",
   originalUrl: "https://example.com/openai-model-lead?utm=feed",
 } satisfies NewsForYouCandidate;
 
@@ -102,6 +125,9 @@ describe("news router input contracts", () => {
   it("models original URLs on personalized recommendation candidates", () => {
     expect(newsCandidateWithOriginalUrl.originalUrl).toBe(
       "https://example.com/openai-model-lead?utm=feed",
+    );
+    expect(newsCandidateWithOriginalUrl.clusterKey).toBe(
+      "2026-07-01:model_release:openai:model-lead",
     );
   });
 
@@ -630,6 +656,150 @@ describe("news router input contracts", () => {
   });
 });
 
+describe("news router cluster key data flow", () => {
+  it("selects cluster keys for home-facing story collections", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const blocks = [
+      {
+        end: "  profile: publicProcedure",
+        minimumSelects: 1,
+        name: "public feed",
+        start: "  feed: publicProcedure",
+      },
+      {
+        end: "  saved: publicProcedure",
+        minimumSelects: 3,
+        name: "personalized feed",
+        start: "  forYou: publicProcedure",
+      },
+      {
+        end: "  history: publicProcedure",
+        minimumSelects: 2,
+        name: "saved stories",
+        start: "  saved: publicProcedure",
+      },
+      {
+        end: "  guardrails: publicProcedure",
+        minimumSelects: 2,
+        name: "reading history",
+        start: "  history: publicProcedure",
+      },
+      {
+        end: "  byId: publicProcedure",
+        minimumSelects: 1,
+        name: "guardrails",
+        start: "  guardrails: publicProcedure",
+      },
+      {
+        end: "  recordInteraction: publicProcedure",
+        minimumSelects: 1,
+        name: "article detail",
+        start: "  byId: publicProcedure",
+      },
+      {
+        end: "  restoreGuardrail: publicProcedure",
+        minimumSelects: 1,
+        name: "interaction training item",
+        start: "  recordInteraction: publicProcedure",
+      },
+      {
+        end: "} satisfies TRPCRouterRecord;",
+        minimumSelects: 1,
+        name: "search candidates",
+        start: "  searchCandidates: publicProcedure",
+      },
+    ];
+
+    for (const block of blocks) {
+      expect(
+        countClusterKeySelects(
+          getSourceBlock({
+            end: block.end,
+            source,
+            start: block.start,
+          }),
+        ),
+        block.name,
+      ).toBeGreaterThanOrEqual(block.minimumSelects);
+    }
+  });
+
+  it("passes the interaction story cluster into home exposure dedupe", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const recordInteractionBlock = getSourceBlock({
+      end: "  restoreGuardrail: publicProcedure",
+      source,
+      start: "  recordInteraction: publicProcedure",
+    });
+
+    expect(recordInteractionBlock).toContain("clusterKey: item.clusterKey");
+  });
+
+  it("passes the interaction story URLs into home exposure dedupe", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const recordInteractionBlock = getSourceBlock({
+      end: "  restoreGuardrail: publicProcedure",
+      source,
+      start: "  recordInteraction: publicProcedure",
+    });
+
+    expect(recordInteractionBlock).toContain("canonicalUrl: item.canonicalUrl");
+    expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
+  });
+
+  it("passes cluster keys into semantic similarity vectors", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const forYouBlock = getSourceBlock({
+      end: "  saved: publicProcedure",
+      source,
+      start: "  forYou: publicProcedure",
+    });
+
+    expect(forYouBlock).toContain("semanticFeedbackRefs");
+    expect(forYouBlock).toContain("clusterKey: row.clusterKey");
+    expect(forYouBlock).toContain("semanticCandidateVectors");
+    expect(forYouBlock).toContain("clusterKey: item.clusterKey");
+  });
+
+  it("passes cluster keys into collaborative cohort signals", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const forYouBlock = getSourceBlock({
+      end: "  saved: publicProcedure",
+      source,
+      start: "  forYou: publicProcedure",
+    });
+    const collaborativeBlock = getSourceBlock({
+      end: "        collaborativeSignals = collaborativeRows.flatMap",
+      source: forYouBlock,
+      start: "        const collaborativeRows = await ctx.db",
+    });
+
+    expect(collaborativeBlock).toContain("clusterKey: NewsItem.clusterKey");
+    expect(collaborativeBlock).toContain("NewsItem.clusterKey");
+    expect(collaborativeBlock).toContain("candidateClusterKeys");
+    expect(collaborativeBlock).toContain("item.clusterKey.trim()");
+    expect(collaborativeBlock).toContain(
+      "item.clusterKey.trim().toLowerCase()",
+    );
+    expect(forYouBlock).toContain("toNewsCollaborativeSignal(row)");
+  });
+});
+
 describe("shouldIncludeNewsInteractionAsPositiveFeedback", () => {
   it("uses explicit positive actions as recommendation anchors", () => {
     expect(
@@ -858,6 +1028,17 @@ describe("shouldDedupeNewsHomeExposureInteraction", () => {
         },
       }),
     ).toBe(true);
+    expect(
+      shouldDedupeNewsHomeExposureInteraction({
+        action: "view",
+        metadata: {
+          exposure: true,
+          exposureSlot: 2,
+          feedMode: "for_you",
+          surface: "mobile_home",
+        },
+      }),
+    ).toBe(true);
   });
 
   it("keeps explicit feedback and article reads persistable", () => {
@@ -898,6 +1079,7 @@ describe("selectNewsViewedHistory", () => {
       {
         canonicalUrl: "https://example.com/home-exposed",
         category: "model_release",
+        clusterKey: "2026-07-01:model_release:home-exposed",
         entities: ["OpenAI"],
         metadata: {
           exposure: true,
@@ -915,6 +1097,7 @@ describe("selectNewsViewedHistory", () => {
       {
         canonicalUrl: "https://example.com/shallow-read",
         category: "agent_product",
+        clusterKey: "2026-07-01:agent_product:shallow-read",
         entities: ["Agents"],
         metadata: { readPercent: 0.2, surface: "article" },
         newsItemId: "shallow-article",
@@ -927,6 +1110,7 @@ describe("selectNewsViewedHistory", () => {
       {
         canonicalUrl: "https://example.com/deep-read",
         category: "research",
+        clusterKey: "2026-07-01:research:deep-read",
         entities: ["Benchmarks"],
         metadata: { readPercent: 0.82, surface: "article" },
         newsItemId: "deep-article",
@@ -1144,6 +1328,7 @@ describe("toNewsCollaborativeSignal", () => {
     expect(
       toNewsCollaborativeSignal({
         category: "agent_product",
+        clusterKey: "2026-07-01:agent_product:browser-agent",
         deepReadCount: 1,
         entities: ["Agents"],
         hideCount: 0,
@@ -1157,6 +1342,7 @@ describe("toNewsCollaborativeSignal", () => {
       }),
     ).toEqual({
       category: "agent_product",
+      clusterKey: "2026-07-01:agent_product:browser-agent",
       entities: ["Agents"],
       newsItemId: "candidate-news-item",
       score: 10,
@@ -1264,6 +1450,31 @@ describe("buildNewsCollaborativeSignalCondition", () => {
     expect(sqlText).toContain("&&");
   });
 
+  it("recalls cohort stories from candidate story clusters", async () => {
+    const condition = buildNewsCollaborativeSignalCondition({
+      candidateClusterKeys: ["2026-07-01:model_release:openai:gpt-6"],
+      candidateNewsItemIds: ["candidate-news-item"],
+      currentReaderProfileId: "current-reader-profile",
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    } as Parameters<typeof buildNewsCollaborativeSignalCondition>[0] & {
+      candidateClusterKeys: string[];
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("clusterKey");
+    const source = await readFile(new URL("./news.ts", import.meta.url), {
+      encoding: "utf8",
+    });
+    const conditionBlock = getSourceBlock({
+      end: "export const buildNewsGuardrailRestoreCondition",
+      source,
+      start: "export const buildNewsCollaborativeSignalCondition",
+    });
+
+    expect(conditionBlock).toContain("trim(lower(${NewsItem.clusterKey}))");
+    expect(conditionBlock).toContain("candidateClusterKeys");
+  });
+
   it("casts entity and tag cohort recall values as Postgres text arrays", () => {
     const condition = buildNewsCollaborativeSignalCondition({
       candidateEntities: ["Agents", "OpenAI"],
@@ -1363,6 +1574,19 @@ describe("buildNewsHomeExposureDedupeCondition", () => {
     expect(sqlText).toContain("home-exposure");
   });
 
+  it("matches mobile home exposure surfaces during dedupe", () => {
+    const condition = buildNewsHomeExposureDedupeCondition({
+      feedMode: undefined,
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      readerProfileId: "reader-profile-123",
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("mobile_home");
+    expect(sqlText).toContain("mobile-home");
+  });
+
   it("keeps feed mode optional for legacy exposure events", () => {
     const condition = buildNewsHomeExposureDedupeCondition({
       feedMode: undefined,
@@ -1372,6 +1596,55 @@ describe("buildNewsHomeExposureDedupeCondition", () => {
     });
 
     expect(collectSqlDebugText(condition)).not.toContain("feedMode");
+  });
+
+  it("can match prior home exposures from another item in the same story cluster", () => {
+    const condition = buildNewsHomeExposureDedupeCondition({
+      clusterKey: "2026-07-01:model_release:openai:gpt-6",
+      feedMode: "for_you",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      readerProfileId: "reader-profile-123",
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    } as Parameters<typeof buildNewsHomeExposureDedupeCondition>[0] & {
+      clusterKey: string;
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("clusterKey");
+    expect(sqlText).toContain("2026-07-01:model_release:openai:gpt-6");
+  });
+
+  it("matches home exposure clusters case-insensitively", async () => {
+    const source = await readFile(new URL("./news.ts", import.meta.url), {
+      encoding: "utf8",
+    });
+    const conditionBlock = getSourceBlock({
+      end: "export const buildNewsTextSearchCondition",
+      source,
+      start: "export const buildNewsHomeExposureDedupeCondition",
+    });
+
+    expect(conditionBlock).toContain("lower(${NewsItem.clusterKey})");
+    expect(conditionBlock).toContain("= ${normalizedClusterKey}");
+  });
+
+  it("can match prior home exposures from another item with URL variants", () => {
+    const condition = buildNewsHomeExposureDedupeCondition({
+      canonicalUrl: "https://www.openai.com/news/gpt-6?utm=home#comments",
+      feedMode: "for_you",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      originalUrl: "http://openai.com/news/gpt-6/",
+      readerProfileId: "reader-profile-123",
+      since: new Date("2026-07-01T00:00:00.000Z"),
+    } as Parameters<typeof buildNewsHomeExposureDedupeCondition>[0] & {
+      canonicalUrl: string;
+      originalUrl: string;
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("canonicalUrl");
+    expect(sqlText).toContain("originalUrl");
+    expect(sqlText).toContain("openai.com/news/gpt-6");
   });
 });
 
@@ -4328,6 +4601,76 @@ describe("selectNewsForYouItems", () => {
     });
 
     expect(feed.map((item) => item.id)).toEqual(["fresh-agent-story"]);
+  });
+
+  it("removes positive feedback anchors from the same hidden story cluster", () => {
+    const feed = selectNewsForYouItems({
+      hiddenNewsItemIds: ["hidden-wire-gpt6"],
+      hiddenNewsItems: [
+        {
+          ...baseNewsItem,
+          id: "hidden-wire-gpt6",
+          title: "Wire report on OpenAI GPT-6 agent release",
+          canonicalUrl: "https://wire.example/openai-gpt6-agents",
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+          originalUrl: "https://wire.example/openai-gpt6-agents",
+          sourceSlug: "wire",
+          sourceName: "Wire Desk",
+        },
+      ],
+      items: [
+        {
+          ...baseNewsItem,
+          id: "same-source-model-follow-up",
+          canonicalUrl: "https://example.com/same-source-model-follow-up",
+          clusterKey: "2026-07-02:model_release:openai:model-tools",
+          originalUrl: "https://example.com/same-source-model-follow-up",
+          trendScore: 90,
+        },
+        {
+          ...baseNewsItem,
+          id: "fresh-agent-workflow",
+          canonicalUrl: "https://example.com/fresh-agent-workflow",
+          category: "agent_product",
+          clusterKey: "2026-07-02:agent_product:workflow",
+          entities: ["Agents"],
+          originalUrl: "https://example.com/fresh-agent-workflow",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          trendScore: 84,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      now: new Date("2026-07-02T09:00:00.000Z"),
+      positiveFeedbackItems: [
+        {
+          action: "save",
+          canonicalUrl: "https://openai.com/news/gpt6-coding-agents",
+          category: "model_release",
+          clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+          entities: ["OpenAI"],
+          newsItemId: "saved-official-gpt6",
+          occurredAt: "2026-07-01T09:00:00.000Z",
+          originalUrl: "https://openai.com/news/gpt6-coding-agents?utm=feed",
+          sourceSlug: "openai-news",
+          tags: ["model", "agent"],
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      viewedNewsItemIds: [],
+    });
+
+    expect(
+      feed.find((item) => item.id === "same-source-model-follow-up")
+        ?.matchedSignals,
+    ).not.toContain("positive_feedback");
   });
 
   it("applies edition daypart ranking after base personalization", () => {

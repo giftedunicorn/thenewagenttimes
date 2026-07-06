@@ -6,6 +6,24 @@ import {
   resolveRemoteNewsBootstrapCommandInput,
 } from "./remote-bootstrap";
 
+const remoteNewsHomepage = {
+  mode: "live",
+  path: "/",
+  previewStories: 12,
+  servingNewsExperience: true,
+  title: "The New AI Times",
+} as const;
+
+const readyRemoteNewsHealthBody = () => ({
+  homepage: remoteNewsHomepage,
+  news: {
+    liveReady: true,
+    semanticReady: true,
+  },
+  nextStep: "ready",
+  ready: true,
+});
+
 describe("bootstrapRemoteNewsEdition", () => {
   it("refreshes stories, embeds pending items, and checks health in order", async () => {
     const calls: string[] = [];
@@ -48,12 +66,7 @@ describe("bootstrapRemoteNewsEdition", () => {
                   sources: true,
                   stories: true,
                 },
-                nextStep: "ready",
-                news: {
-                  liveReady: true,
-                  semanticReady: true,
-                },
-                ready: true,
+                ...readyRemoteNewsHealthBody(),
               }),
             ),
         });
@@ -113,6 +126,7 @@ describe("bootstrapRemoteNewsEdition", () => {
             sources: true,
             stories: true,
           },
+          homepage: remoteNewsHomepage,
           nextStep: "ready",
           news: {
             liveReady: true,
@@ -121,6 +135,7 @@ describe("bootstrapRemoteNewsEdition", () => {
           ready: true,
         },
         commands: {},
+        homepage: remoteNewsHomepage,
         liveReady: true,
         nextCommand: null,
         nextStep: "ready",
@@ -161,7 +176,8 @@ describe("bootstrapRemoteNewsEdition", () => {
         return Promise.resolve({
           ok: true,
           status: 200,
-          text: () => Promise.resolve('{"nextStep":"ready","ready":true}'),
+          text: () =>
+            Promise.resolve(JSON.stringify(readyRemoteNewsHealthBody())),
         });
       },
       fetchRefresh: (url, init) => {
@@ -291,8 +307,7 @@ describe("bootstrapRemoteNewsEdition", () => {
                       ready: false,
                     }
                   : {
-                      nextStep: "ready",
-                      ready: true,
+                      ...readyRemoteNewsHealthBody(),
                     },
               ),
             ),

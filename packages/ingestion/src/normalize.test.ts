@@ -4,6 +4,7 @@ import { CreateNewsItemSchema } from "@acme/db/schema";
 
 import {
   buildDedupeKey,
+  buildStoryClusterKey,
   canonicalizeUrl,
   extractEntities,
   inferNewsCategory,
@@ -77,6 +78,44 @@ describe("buildDedupeKey", () => {
     });
 
     expect(first).toBe(second);
+  });
+});
+
+describe("buildStoryClusterKey", () => {
+  it("groups cross-source coverage of the same AI story without sharing source-specific dedupe", () => {
+    const first = normalizeFeedItem({
+      sourceId,
+      sourceSlug: "openai-news",
+      item: {
+        title: "OpenAI releases a new reasoning model API",
+        url: "https://openai.com/news/reasoning-api?utm_source=rss",
+        summary:
+          "OpenAI released a reasoning model API for agent workflows and multimodal tools.",
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+      },
+    });
+    const second = normalizeFeedItem({
+      sourceId: "42b01f0a-4d29-4c13-a9b5-69bca0b89098",
+      sourceSlug: "developer-news",
+      item: {
+        title: "OpenAI releases new reasoning model API",
+        url: "https://developer.example.com/openai-reasoning-model",
+        summary:
+          "Developers get a new reasoning model API from OpenAI for agentic workflows.",
+        publishedAt: new Date("2026-06-27T08:04:00.000Z"),
+      },
+    });
+
+    expect(first.clusterKey).toBe(second.clusterKey);
+    expect(first.clusterKey).toBe(
+      buildStoryClusterKey({
+        category: "model_release",
+        entities: ["OpenAI"],
+        publishedAt: new Date("2026-06-27T08:00:00.000Z"),
+        title: "OpenAI releases a new reasoning model API",
+      }),
+    );
+    expect(first.dedupeKey).not.toBe(second.dedupeKey);
   });
 });
 

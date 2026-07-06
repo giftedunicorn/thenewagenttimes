@@ -39,10 +39,16 @@ export const buildRelatedNewsCondition = ({
   article,
   articleId,
 }: {
-  article: Pick<NewsHomeItem, "category" | "entities" | "tags">;
+  article: Pick<NewsHomeItem, "category" | "clusterKey" | "entities" | "tags">;
   articleId: string;
-}) =>
-  sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${articleId} and (${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${textArraySql(article.entities)} or ${NewsItem.tags} && ${textArraySql(article.tags)})`;
+}) => {
+  const clusterKey = article.clusterKey?.trim();
+  const relatedCondition = clusterKey
+    ? sql`${NewsItem.clusterKey} = ${clusterKey} or ${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${textArraySql(article.entities)} or ${NewsItem.tags} && ${textArraySql(article.tags)}`
+    : sql`${NewsItem.category} = ${article.category} or ${NewsItem.entities} && ${textArraySql(article.entities)} or ${NewsItem.tags} && ${textArraySql(article.tags)}`;
+
+  return sql`${NewsItem.status} = 'published' and ${NewsItem.id} <> ${articleId} and (${relatedCondition})`;
+};
 
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -55,6 +61,25 @@ export const buildNewsHomeCandidateOrderByExpressions = () => [
   desc(NewsItem.trendScore),
   desc(NewsItem.sourceScore),
 ];
+
+export const buildRelatedNewsOrderByExpressions = ({
+  article,
+}: {
+  article: Pick<NewsHomeItem, "clusterKey">;
+}) => {
+  const clusterKey = article.clusterKey?.trim();
+
+  return [
+    ...(clusterKey
+      ? [
+          sql`case when ${NewsItem.clusterKey} = ${clusterKey} then 0 else 1 end`,
+        ]
+      : []),
+    desc(NewsItem.trendScore),
+    desc(NewsItem.publishedAt),
+    desc(NewsItem.sourceScore),
+  ];
+};
 
 const toNullableIsoTimestamp = (
   value: Date | string | null | undefined,
@@ -83,6 +108,7 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
           title: NewsItem.title,
           summary: NewsItem.summary,
           canonicalUrl: NewsItem.canonicalUrl,
+          clusterKey: NewsItem.clusterKey,
           imageUrl: NewsItem.imageUrl,
           originalUrl: NewsItem.originalUrl,
           publishedAt: NewsItem.publishedAt,
@@ -292,6 +318,30 @@ export const getNewsDeskStatus = async (): Promise<NewsDeskStatus> => {
   });
 };
 
+interface NewsSchemaReadinessRows {
+  rows?: { isNullable?: string; is_nullable?: string }[];
+}
+
+export const getNewsSchemaReadiness = async () => {
+  const result = (await db.execute<{ isNullable: string }>(sql`
+    select is_nullable as "isNullable"
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'news_item'
+      and column_name = 'cluster_key'
+    limit 1
+  `)) as NewsSchemaReadinessRows;
+  const clusterKey = result.rows?.[0];
+
+  return {
+    newsItemClusterKey: clusterKey
+      ? (clusterKey.isNullable ?? clusterKey.is_nullable) === "NO"
+        ? "ready"
+        : "incomplete"
+      : "missing",
+  } as const;
+};
+
 export const getNewsArticleData = async (
   id: string,
 ): Promise<{
@@ -310,6 +360,7 @@ export const getNewsArticleData = async (
         summary: NewsItem.summary,
         bodyText: NewsItem.bodyText,
         canonicalUrl: NewsItem.canonicalUrl,
+        clusterKey: NewsItem.clusterKey,
         originalUrl: NewsItem.originalUrl,
         imageUrl: NewsItem.imageUrl,
         authorName: NewsItem.authorName,
@@ -339,6 +390,7 @@ export const getNewsArticleData = async (
         title: NewsItem.title,
         summary: NewsItem.summary,
         canonicalUrl: NewsItem.canonicalUrl,
+        clusterKey: NewsItem.clusterKey,
         imageUrl: NewsItem.imageUrl,
         originalUrl: NewsItem.originalUrl,
         publishedAt: NewsItem.publishedAt,
@@ -354,7 +406,7 @@ export const getNewsArticleData = async (
       .from(NewsItem)
       .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
       .where(buildRelatedNewsCondition({ article, articleId: id }))
-      .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
+      .orderBy(...buildRelatedNewsOrderByExpressions({ article }))
       .limit(24);
 
     const articleItem = {

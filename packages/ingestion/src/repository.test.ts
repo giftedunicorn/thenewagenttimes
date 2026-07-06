@@ -43,6 +43,7 @@ const publishedAt = new Date("2026-07-01T08:00:00.000Z");
 const newsItem = {
   canonicalUrl: "https://example.com/openai-agent",
   category: "model_release",
+  clusterKey: "openai-agent-model-cluster",
   dedupeKey: "openai-agent-model",
   embeddingStatus: "pending",
   entities: ["OpenAI"],
@@ -65,6 +66,7 @@ describe("getNewsItemRefreshUpdateValues", () => {
       authorName: null,
       bodyText: null,
       category: "model_release",
+      clusterKey: "openai-agent-model-cluster",
       entities: ["OpenAI"],
       imageUrl: null,
       language: "en",

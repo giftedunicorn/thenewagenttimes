@@ -76,6 +76,7 @@ import {
   getNewsContinuationRail,
   getNewsContinuationRailTrainingAction,
   getNewsCoverageThreads,
+  getNewsDeskFreshnessStatus,
   getNewsDeskRunYieldLabel,
   getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
@@ -1495,6 +1496,10 @@ function NewsHomeContent({
   const nextCursor = nextCursorState.cursor;
   const nextCursorTrendScore = nextCursorState.cursorTrendScore;
   const deskStatusSummary = getNewsDeskStatusSummary(deskStatus);
+  const deskFreshnessStatus = getNewsDeskFreshnessStatus({
+    now: new Date(generatedAt),
+    status: deskStatus,
+  });
   const sourceHealthDiagnostics = getNewsDeskSourceHealthDiagnostics(
     deskStatus.latestRun,
   );
@@ -13790,6 +13795,13 @@ function NewsHomeContent({
                 label="Latest story"
                 value={formatOptionalTime(deskStatus.latestPublishedAt)}
               />
+              <StatusLine
+                label="Freshness"
+                value={deskFreshnessStatus.label}
+              />
+              <p className="-mt-2 text-xs leading-5 opacity-70">
+                {deskFreshnessStatus.detail}
+              </p>
               <StatusLine
                 label="Last refresh"
                 value={formatLastRun(deskStatus.latestRun)}

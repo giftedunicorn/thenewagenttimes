@@ -700,6 +700,18 @@ export interface NewsDeskSourceHealthDiagnostic {
   state: NewsDeskSourceHealthDiagnosticState;
 }
 
+export type NewsDeskFreshnessState = "fresh" | "stale" | "waiting";
+
+export interface NewsDeskFreshnessStatus {
+  detail: string;
+  label: string;
+  maxStoryAgeHours: number;
+  state: NewsDeskFreshnessState;
+}
+
+export const newsDeskMaxStoryAgeHours = 72;
+const newsDeskMillisecondsPerHour = 60 * 60 * 1000;
+
 export const buildNewsDeskStatus = ({
   activeSources,
   embeddedStories = 0,
@@ -808,6 +820,46 @@ export const getNewsDeskSourceHealthDiagnostics = (
   }));
 
   return [...failedDiagnostics, ...emptyDiagnostics];
+};
+
+export const getNewsDeskFreshnessStatus = ({
+  maxStoryAgeHours = newsDeskMaxStoryAgeHours,
+  now = new Date(),
+  status,
+}: {
+  maxStoryAgeHours?: number;
+  now?: Date;
+  status: NewsDeskStatus;
+}): NewsDeskFreshnessStatus => {
+  if (status.health !== "live" || !status.latestPublishedAt) {
+    return {
+      detail: "Freshness appears after the first live story publishes.",
+      label: "Waiting",
+      maxStoryAgeHours,
+      state: "waiting",
+    };
+  }
+
+  const publishedAt = new Date(status.latestPublishedAt).getTime();
+  const latestStoryAgeHours = Number.isFinite(publishedAt)
+    ? (now.getTime() - publishedAt) / newsDeskMillisecondsPerHour
+    : Number.POSITIVE_INFINITY;
+
+  if (latestStoryAgeHours <= maxStoryAgeHours) {
+    return {
+      detail: `Latest live story is within the ${maxStoryAgeHours}-hour freshness window.`,
+      label: "Fresh",
+      maxStoryAgeHours,
+      state: "fresh",
+    };
+  }
+
+  return {
+    detail: `Latest live story is older than ${maxStoryAgeHours} hours. Run news:refresh:remote.`,
+    label: "Needs refresh",
+    maxStoryAgeHours,
+    state: "stale",
+  };
 };
 
 const getNewsDeskRunDisplayName = (run: NewsDeskRun) =>
@@ -30416,9 +30468,11 @@ export const getNewsDeskStatusSummary = (status: NewsDeskStatus) => {
 };
 
 export const getNewsProductionReadinessChecklist = ({
+  now = new Date(),
   refreshConfigured,
   status,
 }: {
+  now?: Date;
   refreshConfigured: boolean;
   status: NewsDeskStatus;
 }): NewsProductionReadinessItem[] => {
@@ -30432,6 +30486,8 @@ export const getNewsProductionReadinessChecklist = ({
   const unembeddedStories = status.unembeddedStories ?? status.publishedStories;
   const embeddingsReady =
     liveReady && embeddedStories > 0 && unembeddedStories === 0;
+  const freshnessStatus = getNewsDeskFreshnessStatus({ now, status });
+  const freshnessReady = freshnessStatus.state === "fresh";
 
   const schemaItem = {
     detail: schemaReady
@@ -30476,6 +30532,11 @@ export const getNewsProductionReadinessChecklist = ({
     label: "Generate embeddings",
     state: embeddingsReady ? "done" : liveReady ? "current" : "pending",
   } satisfies NewsProductionReadinessItem;
+  const freshnessItem = {
+    detail: freshnessStatus.detail,
+    label: "Keep edition fresh",
+    state: freshnessReady ? "done" : liveReady ? "current" : "pending",
+  } satisfies NewsProductionReadinessItem;
   const liveStoriesItem = {
     detail: liveReady
       ? `${status.publishedStories} published stories are serving the edition.`
@@ -30491,6 +30552,7 @@ export const getNewsProductionReadinessChecklist = ({
     ...orderedSetupItems,
     firstRefreshItem,
     embeddingsItem,
+    freshnessItem,
     liveStoriesItem,
   ];
 };

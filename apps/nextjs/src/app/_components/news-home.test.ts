@@ -833,6 +833,19 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
+  it("surfaces edition freshness inside the desk status panel", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("getNewsDeskFreshnessStatus");
+    expect(source).toContain("const deskFreshnessStatus");
+    expect(source).toMatch(
+      /<StatusLine[\s\S]*?label="Freshness"[\s\S]*?value=\{deskFreshnessStatus\.label\}/,
+    );
+    expect(source).toContain("{deskFreshnessStatus.detail}");
+  });
+
   it("wires right-rail recommendation queues into reader story actions", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",

@@ -40,6 +40,7 @@ import {
   getNewsContinuationRailTrainingAction,
   getNewsCoverageThreads,
   getNewsDeskRunYieldLabel,
+  getNewsDeskFreshnessStatus,
   getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
@@ -41510,6 +41511,55 @@ describe("getNewsDeskStatusSummary", () => {
   });
 });
 
+describe("getNewsDeskFreshnessStatus", () => {
+  it("marks stale live editions as needing refresh", () => {
+    expect(
+      getNewsDeskFreshnessStatus({
+        now: new Date("2026-07-05T11:00:00.000Z"),
+        status: {
+          health: "live",
+          activeSources: 9,
+          embeddedStories: 42,
+          totalSources: 12,
+          publishedStories: 42,
+          latestPublishedAt: "2026-07-01T10:30:00.000Z",
+          latestRun: null,
+          unembeddedStories: 0,
+        },
+      }),
+    ).toEqual({
+      detail:
+        "Latest live story is older than 72 hours. Run news:refresh:remote.",
+      label: "Needs refresh",
+      maxStoryAgeHours: 72,
+      state: "stale",
+    });
+  });
+
+  it("marks current live editions as fresh", () => {
+    expect(
+      getNewsDeskFreshnessStatus({
+        now: new Date("2026-07-01T11:00:00.000Z"),
+        status: {
+          health: "live",
+          activeSources: 9,
+          embeddedStories: 42,
+          totalSources: 12,
+          publishedStories: 42,
+          latestPublishedAt: "2026-07-01T10:30:00.000Z",
+          latestRun: null,
+          unembeddedStories: 0,
+        },
+      }),
+    ).toEqual({
+      detail: "Latest live story is within the 72-hour freshness window.",
+      label: "Fresh",
+      maxStoryAgeHours: 72,
+      state: "fresh",
+    });
+  });
+});
+
 describe("getNewsDeskRunYieldLabel", () => {
   it("includes skipped diagnostics when a refresh filters feed noise", () => {
     expect(
@@ -41679,6 +41729,11 @@ describe("getNewsProductionReadinessChecklist", () => {
         state: "pending",
       },
       {
+        detail: "Freshness appears after the first live story publishes.",
+        label: "Keep edition fresh",
+        state: "pending",
+      },
+      {
         detail: "Preview stories stay visible until published stories exist.",
         label: "Live stories",
         state: "pending",
@@ -41705,6 +41760,7 @@ describe("getNewsProductionReadinessChecklist", () => {
       ["Protect refresh endpoint", "done"],
       ["Run first refresh", "current"],
       ["Generate embeddings", "pending"],
+      ["Keep edition fresh", "pending"],
       ["Live stories", "pending"],
     ]);
   });
@@ -41712,6 +41768,7 @@ describe("getNewsProductionReadinessChecklist", () => {
   it("marks the production news loop ready when live stories are published", () => {
     expect(
       getNewsProductionReadinessChecklist({
+        now: new Date("2026-07-01T11:00:00.000Z"),
         refreshConfigured: true,
         status: {
           health: "live",
@@ -41730,13 +41787,38 @@ describe("getNewsProductionReadinessChecklist", () => {
       ["Protect refresh endpoint", "done"],
       ["Run first refresh", "done"],
       ["Generate embeddings", "done"],
+      ["Keep edition fresh", "done"],
       ["Live stories", "done"],
+    ]);
+  });
+
+  it("keeps stale live editions in the current production checklist", () => {
+    expect(
+      getNewsProductionReadinessChecklist({
+        now: new Date("2026-07-05T11:00:00.000Z"),
+        refreshConfigured: true,
+        status: {
+          health: "live",
+          activeSources: 9,
+          embeddedStories: 42,
+          totalSources: 12,
+          publishedStories: 42,
+          latestPublishedAt: "2026-07-01T10:30:00.000Z",
+          latestRun: null,
+          unembeddedStories: 0,
+        },
+      }).map((item) => [item.label, item.state, item.detail]),
+    ).toContainEqual([
+      "Keep edition fresh",
+      "current",
+      "Latest live story is older than 72 hours. Run news:refresh:remote.",
     ]);
   });
 
   it("keeps semantic personalization pending while live stories need embeddings", () => {
     expect(
       getNewsProductionReadinessChecklist({
+        now: new Date("2026-07-01T11:00:00.000Z"),
         refreshConfigured: true,
         status: {
           health: "live",

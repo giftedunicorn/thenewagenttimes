@@ -1,9 +1,11 @@
 import type { NewsDeskStatus } from "../../../_components/news-home-model";
 import {
   buildNewsDeskStatus,
+  getNewsDeskFreshnessStatus,
   getNewsDeskRunYieldLabel,
   getNewsDeskStatusSummary,
   getPreviewNewsHomeItems,
+  newsDeskMaxStoryAgeHours,
 } from "../../../_components/news-home-model";
 
 interface HandleNewsHealthRequestInput {
@@ -156,6 +158,12 @@ const getNewsHealthActions = ({
     );
   }
 
+  if (status.health === "live" && !isNewsFreshReady(status)) {
+    actions.push(
+      `Run pnpm run news:refresh:remote because the latest live story is older than ${newsDeskMaxStoryAgeHours} hours.`,
+    );
+  }
+
   addEmbeddingProviderAction();
 
   if (status.health === "live" && !isNewsSemanticReady(status)) {
@@ -173,6 +181,12 @@ const isNewsSemanticReady = (status: NewsDeskStatus) =>
   (status.unembeddedStories ?? status.publishedStories) === 0;
 
 const isNewsLiveReady = (status: NewsDeskStatus) => status.health === "live";
+
+const isNewsFreshReady = (status: NewsDeskStatus) =>
+  getNewsDeskFreshnessStatus({ status }).state === "fresh";
+
+const isNewsReady = (status: NewsDeskStatus) =>
+  isNewsFreshReady(status) && isNewsSemanticReady(status);
 
 const getNewsHomepageHealth = (status: NewsDeskStatus) => {
   const previewStories = getPreviewNewsHomeItems().length;
@@ -212,6 +226,7 @@ const getNewsHealthChecks = ({
 }) => ({
   auth: authConfigured,
   embeddingProvider: embeddingConfigured,
+  freshness: isNewsFreshReady(status),
   refreshSecret: refreshConfigured,
   schema: isNewsSchemaReady({ schemaReadiness, status }),
   semantic: isNewsSemanticReady(status),
@@ -224,6 +239,7 @@ const areNewsHealthChecksReady = (
 ) =>
   checks.auth &&
   checks.embeddingProvider &&
+  checks.freshness &&
   checks.refreshSecret &&
   checks.schema &&
   checks.semantic &&
@@ -251,6 +267,9 @@ const getNewsHealthNextStep = ({
   if (status.health === "empty") return "seed-news-sources";
   if (status.health === "seeded") return "run-news-refresh";
   if (status.health === "error") return "inspect-ingestion-run";
+  if (status.health === "live" && !isNewsFreshReady(status)) {
+    return "run-news-refresh";
+  }
   if (!embeddingConfigured) return "configure-embedding-provider";
   if (!isNewsSemanticReady(status)) return "embed-news-stories";
 
@@ -328,13 +347,15 @@ export const handleNewsHealthRequest = async ({
     news: {
       activeSources: status.activeSources,
       embeddedStories: status.embeddedStories ?? 0,
+      freshReady: isNewsFreshReady(status),
       health: status.health,
       latestPublishedAt: status.latestPublishedAt,
       latestRun: status.latestRun,
       latestRunYield: getNewsDeskRunYieldLabel(status.latestRun),
       liveReady: isNewsLiveReady(status),
+      maxStoryAgeHours: newsDeskMaxStoryAgeHours,
       publishedStories: status.publishedStories,
-      ready: isNewsSemanticReady(status),
+      ready: isNewsReady(status),
       semanticReady: isNewsSemanticReady(status),
       summary: getNewsDeskStatusSummary(status),
       totalSources: status.totalSources,

@@ -1,9 +1,18 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildNewsDeskStatus } from "../../../_components/news-home-model";
 import { handleNewsHealthRequest } from "./handler";
 
 describe("handleNewsHealthRequest", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T09:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("reports live news readiness with refresh protection configured", async () => {
     const getDeskStatus = vi.fn(() =>
       Promise.resolve(
@@ -64,6 +73,58 @@ describe("handleNewsHealthRequest", () => {
       web: "ready",
     });
     expect(getDeskStatus).toHaveBeenCalledOnce();
+  });
+
+  it("keeps stale live editions out of the ready state", async () => {
+    const response = await handleNewsHealthRequest({
+      authSecret: "configured-auth-secret",
+      embeddingApiKey: "configured-openai-key",
+      getDeskStatus: () =>
+        Promise.resolve(
+          buildNewsDeskStatus({
+            activeSources: 8,
+            embeddedStories: 24,
+            latestPublishedAt: "2000-01-01T08:00:00.000Z",
+            latestRun: {
+              errorMessage: null,
+              finishedAt: "2000-01-01T08:05:00.000Z",
+              itemsCreated: 12,
+              itemsSeen: 18,
+              itemsUpdated: 3,
+              runType: "rss",
+              sourceName: "OpenAI News",
+              startedAt: "2000-01-01T08:00:00.000Z",
+              status: "succeeded",
+            },
+            publishedStories: 24,
+            totalSources: 12,
+            unembeddedStories: 0,
+          }),
+        ),
+      refreshSecret: "configured-refresh-secret",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Run pnpm run news:refresh:remote because the latest live story is older than 72 hours.",
+      ],
+      checks: {
+        freshness: false,
+        stories: true,
+      },
+      commands: {
+        next: "pnpm run news:refresh:remote",
+      },
+      news: {
+        freshReady: false,
+        latestPublishedAt: "2000-01-01T08:00:00.000Z",
+        maxStoryAgeHours: 72,
+        ready: false,
+      },
+      nextStep: "run-news-refresh",
+      ready: false,
+    });
   });
 
   it("surfaces cluster schema gaps even when legacy news tables are reachable", async () => {

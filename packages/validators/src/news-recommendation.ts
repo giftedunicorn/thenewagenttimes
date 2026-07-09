@@ -76,6 +76,7 @@ const recommendationReasonLabels = {
   positive_save_feedback: "Saved follow-up",
   positive_share_feedback: "Shared follow-up",
   positive_source_click_feedback: "Source-click follow-up",
+  reading_history_cooldown: "Recently read",
   semantic_feedback: "Similar to stories you engaged with",
   session_intent: "Current session intent",
   source: "Trusted source",
@@ -372,6 +373,9 @@ export const summarizeNewsRecommendation = <
     "home_exposure_cooldown",
   );
   const isNegativeFeedback = item.matchedSignals.includes("negative_feedback");
+  const isReadingHistoryCooldown = item.matchedSignals.includes(
+    "reading_history_cooldown",
+  );
   const isSemanticFeedback = item.matchedSignals.includes("semantic_feedback");
   const isSessionIntent = item.matchedSignals.includes("session_intent");
   const isCollaborativeFeedback = item.matchedSignals.includes(
@@ -510,6 +514,16 @@ export const summarizeNewsRecommendation = <
       summary: supportText
         ? `Moved behind fresh angles because this card, URL, or event cluster was recently seen on the home feed, while still supported by ${supportText}.`
         : "Moved behind fresh angles because this card, URL, or event cluster was recently seen on the home feed.",
+    };
+  }
+
+  if (isReadingHistoryCooldown) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Moved behind unread stories because this card, URL, or event cluster was already in your reading history, while still supported by ${supportText}.`
+        : "Moved behind unread stories because this card, URL, or event cluster was already in your reading history.",
     };
   }
 
@@ -690,10 +704,17 @@ export const summarizeNewsRecommendation = <
   };
 };
 
-const normalizeSet = (values: readonly string[]) =>
-  new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean));
+const normalizeSet = (
+  values: readonly string[],
+  getSignalKey = (value: string) => value.trim().toLowerCase(),
+) => new Set(values.map(getSignalKey).filter(Boolean));
 
-const clampBias = (value: number) => Math.min(Math.max(value, 0), 2);
+const neutralPreferenceBias = 1;
+
+const clampBias = (value: number) =>
+  Number.isFinite(value)
+    ? Math.min(Math.max(value, 0), 2)
+    : neutralPreferenceBias;
 
 const preferenceLimits = {
   categories: 12,
@@ -702,7 +723,11 @@ const preferenceLimits = {
 } as const;
 
 const normalizePreferenceSignalKey = (value: string) =>
-  value.trim().toLowerCase();
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_");
 
 const normalizeEntityPreferenceSignalKey = (value: string) => {
   const signal = value.trim();
@@ -802,8 +827,14 @@ const uniqueAppend = (
 
 const hoursSince = (date: string, now: Date) => {
   const timestamp = new Date(date).getTime();
-  if (Number.isNaN(timestamp)) return 72;
+  if (Number.isNaN(timestamp) || timestamp > now.getTime()) return 72;
   return Math.max((now.getTime() - timestamp) / 3_600_000, 0);
+};
+
+const getPastPublishedAtTime = (publishedAt: string, now: Date) => {
+  const timestamp = new Date(publishedAt).getTime();
+
+  return Number.isNaN(timestamp) || timestamp > now.getTime() ? 0 : timestamp;
 };
 
 const interactionWeights = {
@@ -816,7 +847,7 @@ const interactionWeights = {
 const minimumTrainingReadPercent = 0.35;
 
 const clampReadPercent = (readPercent: number) =>
-  Math.min(Math.max(readPercent, 0), 1);
+  Number.isFinite(readPercent) ? Math.min(Math.max(readPercent, 0), 1) : 0;
 
 const getRankSlotIntentMultiplier = (rankSlot: number | undefined) => {
   if (rankSlot === undefined || !Number.isFinite(rankSlot)) return 1;
@@ -856,6 +887,7 @@ const upstreamDemotionSignals = new Set([
   "exposure_cooldown",
   "home_exposure_cooldown",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_trust",
 ]);
 
@@ -926,8 +958,12 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
   const normalizedPreferences = normalizeNewsPreferenceProfile(preferences);
   const preferredCategories = normalizeSet(
     normalizedPreferences.preferredCategories,
+    normalizePreferenceSignalKey,
   );
-  const preferredSources = normalizeSet(normalizedPreferences.preferredSources);
+  const preferredSources = normalizeSet(
+    normalizedPreferences.preferredSources,
+    normalizePreferenceSignalKey,
+  );
   const preferredEntities = normalizeSet(
     normalizedPreferences.preferredEntities,
   );
@@ -944,12 +980,14 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
       const matchedSignals: string[] = [];
       let preferenceBoost = 0;
 
-      if (preferredCategories.has(item.category.trim().toLowerCase())) {
+      if (
+        preferredCategories.has(normalizePreferenceSignalKey(item.category))
+      ) {
         preferenceBoost += 28;
         matchedSignals.push("category");
       }
 
-      if (preferredSources.has(item.sourceSlug.trim().toLowerCase())) {
+      if (preferredSources.has(normalizePreferenceSignalKey(item.sourceSlug))) {
         preferenceBoost += 16;
         matchedSignals.push("source");
       }
@@ -1011,8 +1049,8 @@ export const rankNewsForReader = <TItem extends RecommendableNewsItem>(
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastPublishedAtTime(right.publishedAt, now) -
+        getPastPublishedAtTime(left.publishedAt, now)
       );
     });
 };
@@ -1048,6 +1086,7 @@ const newsRecommendationRotationProtectedSignals = new Set([
   "home_exposure_cooldown",
   "negative_feedback",
   "positive_feedback",
+  "reading_history_cooldown",
   "semantic_feedback",
   "session_intent",
   "source_corroboration",
@@ -1129,6 +1168,32 @@ const createNewsRecommendationRotationDefinitions = <
     },
   ] as const;
 
+const orderNewsRecommendationRotationDefinitions = <
+  TItem extends RecommendableNewsItem,
+>({
+  definitions,
+  objectiveOrder = [],
+}: {
+  definitions: readonly NewsRecommendationRotationDefinition<TItem>[];
+  objectiveOrder?: readonly NewsRecommendationRotationObjective[];
+}) => {
+  const remainingDefinitions = new Map(
+    definitions.map((definition) => [definition.objective, definition]),
+  );
+  const orderedDefinitions: NewsRecommendationRotationDefinition<TItem>[] = [];
+
+  for (const objective of objectiveOrder) {
+    const definition = remainingDefinitions.get(objective);
+
+    if (!definition) continue;
+
+    orderedDefinitions.push(definition);
+    remainingDefinitions.delete(objective);
+  }
+
+  return [...orderedDefinitions, ...remainingDefinitions.values()];
+};
+
 const getNewsRecommendationRotationSourceKey = <
   TItem extends RecommendableNewsItem,
 >(
@@ -1148,6 +1213,7 @@ const selectNewsRecommendationRotationCandidate = <
   usedIds: ReadonlySet<string>;
   usedSources: ReadonlySet<string>;
 }) => {
+  const now = new Date();
   const candidates = items
     .filter(
       (item) =>
@@ -1168,8 +1234,8 @@ const selectNewsRecommendationRotationCandidate = <
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastPublishedAtTime(right.publishedAt, now) -
+        getPastPublishedAtTime(left.publishedAt, now)
       );
     });
 
@@ -1187,16 +1253,22 @@ export const selectNewsRecommendationRotationSlots = <
 >({
   items,
   limit,
+  objectiveOrder,
 }: {
   items: readonly RankedNewsItem<TItem>[];
   limit: number;
+  objectiveOrder?: readonly NewsRecommendationRotationObjective[];
 }): NewsRecommendationRotationSlot<TItem>[] => {
   const slotLimit = Math.max(0, limit);
   const slots: NewsRecommendationRotationSlot<TItem>[] = [];
   const usedIds = new Set<string>();
   const usedSources = new Set<string>();
+  const definitions = orderNewsRecommendationRotationDefinitions({
+    definitions: createNewsRecommendationRotationDefinitions<TItem>(),
+    objectiveOrder,
+  });
 
-  for (const definition of createNewsRecommendationRotationDefinitions<TItem>()) {
+  for (const definition of definitions) {
     if (slots.length >= slotLimit) break;
 
     const item = selectNewsRecommendationRotationCandidate({
@@ -1226,9 +1298,11 @@ export const selectNewsRecommendationRotationFeed = <
 >({
   items,
   limit,
+  objectiveOrder,
 }: {
   items: readonly RankedNewsItem<TItem>[];
   limit: number;
+  objectiveOrder?: readonly NewsRecommendationRotationObjective[];
 }): RankedNewsItem<TItem>[] => {
   const feedLimit = Math.max(0, limit);
   if (feedLimit === 0) return [];
@@ -1244,6 +1318,7 @@ export const selectNewsRecommendationRotationFeed = <
     const slots = selectNewsRecommendationRotationSlots({
       items: segment,
       limit: segment.length,
+      objectiveOrder,
     });
     const selectedIds = new Set(slots.map((slot) => slot.item.id));
 
@@ -1497,8 +1572,11 @@ const compareNewsDedupeStrength = (
     return left.trendScore - right.trendScore;
   }
 
+  const now = new Date();
+
   return (
-    new Date(left.publishedAt).getTime() - new Date(right.publishedAt).getTime()
+    getPastPublishedAtTime(left.publishedAt, now) -
+    getPastPublishedAtTime(right.publishedAt, now)
   );
 };
 
@@ -1846,6 +1924,7 @@ export const selectFatigueBalancedNewsFeed = <
 const quotaBlockedSignals = new Set([
   "collaborative_negative_feedback",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_trust",
 ]);
 
@@ -2190,7 +2269,9 @@ export const selectReaderFreshNewsFeed = <
 >(
   rankedItems: readonly RankedNewsItem<TItem>[],
   viewedNewsItemIds: readonly string[],
-  viewedNewsItems: readonly NewsUrlReference[] = [],
+  viewedNewsItems: readonly (NewsUrlReference & {
+    clusterKey?: string | null;
+  })[] = [],
 ): RankedNewsItem<TItem>[] => {
   if (viewedNewsItemIds.length === 0 && viewedNewsItems.length === 0) {
     return [...rankedItems];
@@ -2198,6 +2279,13 @@ export const selectReaderFreshNewsFeed = <
 
   const viewedIds = new Set(viewedNewsItemIds);
   const viewedUrlKeys = new Set(viewedNewsItems.flatMap(getNewsDedupeUrlKeys));
+  const viewedClusterKeys = new Set(
+    viewedNewsItems.flatMap((item) => {
+      const clusterKey = getOptionalNewsClusterKey(item);
+
+      return clusterKey ? [clusterKey] : [];
+    }),
+  );
   const unseenItems: RankedNewsItem<TItem>[] = [];
   const viewedItems: RankedNewsItem<TItem>[] = [];
 
@@ -2205,9 +2293,12 @@ export const selectReaderFreshNewsFeed = <
     const hasViewedUrl = getNewsDedupeUrlKeys(item).some((key) =>
       viewedUrlKeys.has(key),
     );
+    const clusterKey = getOptionalNewsClusterKey(item);
+    const hasViewedCluster =
+      clusterKey !== null && viewedClusterKeys.has(clusterKey);
 
-    if (viewedIds.has(item.id) || hasViewedUrl) {
-      viewedItems.push(item);
+    if (viewedIds.has(item.id) || hasViewedUrl || hasViewedCluster) {
+      viewedItems.push(addMatchedSignal(item, "reading_history_cooldown"));
     } else {
       unseenItems.push(item);
     }
@@ -2364,7 +2455,7 @@ const getPositiveFeedbackActionStrength = (
 ) =>
   action
     ? positiveFeedbackActionStrength[action]
-    : positiveFeedbackActionStrength.save;
+    : positiveFeedbackActionStrength.click_source;
 
 const getPositiveFeedbackTimestamp = (occurredAt: string | undefined) => {
   if (!occurredAt) return 0;
@@ -2378,10 +2469,16 @@ const isActivePositiveFeedback = (
   item: PositiveFeedbackNewsItem,
   now: Date,
 ) => {
+  if (item.occurredAt) {
+    const timestamp = new Date(item.occurredAt).getTime();
+
+    if (Number.isNaN(timestamp) || timestamp > now.getTime()) return false;
+  }
+
   if (item.action !== "click_source") return true;
   if (!item.occurredAt) return true;
 
-  return hoursSince(item.occurredAt, now) <= 14 * 24;
+  return isPastTimestampWithinHours(item.occurredAt, now, 14 * 24);
 };
 
 const getOptionalNewsClusterKey = (item: object) => {
@@ -2595,6 +2692,7 @@ const collaborativeProtectedSignals = new Set([
   "home_exposure_cooldown",
   "negative_feedback",
   "positive_feedback",
+  "reading_history_cooldown",
   "session_intent",
   "semantic_feedback",
   "source",
@@ -2607,6 +2705,7 @@ const daypartBlockedSignals = new Set([
   "exposure_cooldown",
   "home_exposure_cooldown",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_trust",
 ]);
 const sessionIntentBlockedSignals = new Set([
@@ -2614,6 +2713,7 @@ const sessionIntentBlockedSignals = new Set([
   "exposure_cooldown",
   "home_exposure_cooldown",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_trust",
 ]);
 const sessionIntentProtectedSignals = new Set(["positive_feedback"]);
@@ -2622,6 +2722,7 @@ const sourceCorroborationBlockedSignals = new Set([
   "exposure_cooldown",
   "home_exposure_cooldown",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_trust",
 ]);
 const sourceCorroborationProtectedSignals = new Set(["positive_feedback"]);
@@ -2682,8 +2783,21 @@ const hasDeepPreferenceMatch = <TItem extends RecommendableNewsItem>(
     0,
   ) >= 2;
 
+const isPastTimestampWithinHours = (
+  date: string,
+  now: Date,
+  maxAgeHours: number,
+) => {
+  const timestamp = new Date(date).getTime();
+
+  if (Number.isNaN(timestamp) || timestamp > now.getTime()) return false;
+
+  return (now.getTime() - timestamp) / 3_600_000 <= maxAgeHours;
+};
+
 const isActiveRecentExposure = (item: RecentExposureNewsItem, now: Date) =>
-  !item.occurredAt || hoursSince(item.occurredAt, now) <= exposureCooldownHours;
+  !item.occurredAt ||
+  isPastTimestampWithinHours(item.occurredAt, now, exposureCooldownHours);
 
 const normalizeRecentExposureSurface = (surface: string | undefined) =>
   surface
@@ -2812,7 +2926,9 @@ const isActiveSemanticFeedbackVector = (
   item: NewsSemanticVector,
   now: Date,
   maxAgeHours: number,
-) => !item.occurredAt || hoursSince(item.occurredAt, now) <= maxAgeHours;
+) =>
+  !item.occurredAt ||
+  isPastTimestampWithinHours(item.occurredAt, now, maxAgeHours);
 
 const getCosineSimilarity = (
   left: readonly number[] | null | undefined,
@@ -2840,8 +2956,17 @@ const getCosineSimilarity = (
   return dotProduct / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude));
 };
 
+const normalizeSemanticMatchStrength = (strength: number | undefined) =>
+  strength === undefined || !Number.isFinite(strength)
+    ? 1
+    : Math.min(Math.max(strength, 1), 3);
+
+const normalizeSemanticMatchSimilarity = (similarity: number) =>
+  Number.isFinite(similarity) ? Math.min(Math.max(similarity, 0), 1) : 0;
+
 const getSemanticMatchRank = (match: NewsSemanticSimilarityMatch) =>
-  match.similarity * (match.strength ?? 1);
+  normalizeSemanticMatchSimilarity(match.similarity) *
+  normalizeSemanticMatchStrength(match.strength);
 
 const isSemanticFeedbackSelfMatch = (
   candidate: NewsSemanticVector,
@@ -2923,12 +3048,15 @@ const getSemanticSimilarityBoost = ({
   similarity: number;
   strength: number;
 }) => {
+  const normalizedSimilarity = normalizeSemanticMatchSimilarity(similarity);
   const similarityLift =
-    ((Math.min(Math.max(similarity, minSimilarity), 1) - minSimilarity) /
+    ((Math.max(normalizedSimilarity, minSimilarity) - minSimilarity) /
       (1 - minSimilarity)) *
     maxBoost;
 
-  return Math.round(similarityLift + strength * 2);
+  return Math.round(
+    similarityLift + normalizeSemanticMatchStrength(strength) * 2,
+  );
 };
 
 const semanticFeedbackBlockedSignals = new Set([
@@ -2936,6 +3064,7 @@ const semanticFeedbackBlockedSignals = new Set([
   "exposure_cooldown",
   "home_exposure_cooldown",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_trust",
 ]);
 
@@ -2977,7 +3106,7 @@ export const selectSemanticSimilarityNewsFeed = <
 
       if (
         !match ||
-        match.similarity < minSimilarity ||
+        normalizeSemanticMatchSimilarity(match.similarity) < minSimilarity ||
         hasSemanticFeedbackBlockedSignal(item)
       ) {
         return { index, item };
@@ -3425,7 +3554,7 @@ const getSessionIntentBoost = <TItem extends RecommendableNewsItem>(
       searchText.includes(term),
     ).length;
 
-    boost += Math.min(16, matchCount * 5);
+    boost += Math.min(32, matchCount * 8);
   }
 
   return boost;
@@ -3730,19 +3859,22 @@ export const selectNegativeFeedbackAdjustedNewsFeed = <
   const activeNegativeFeedbackItems = negativeFeedbackItems.filter((item) => {
     if (!item.occurredAt) return true;
 
-    return hoursSince(item.occurredAt, now) <= 30 * 24;
+    return isPastTimestampWithinHours(item.occurredAt, now, 30 * 24);
   });
 
   if (activeNegativeFeedbackItems.length === 0) return [...rankedItems];
 
   const feedbackSources = normalizeSet(
     activeNegativeFeedbackItems.map((item) => item.sourceSlug),
+    normalizePreferenceSignalKey,
   );
   const feedbackCategories = normalizeSet(
     activeNegativeFeedbackItems.map((item) => item.category),
+    normalizePreferenceSignalKey,
   );
   const feedbackEntities = normalizeSet(
     activeNegativeFeedbackItems.flatMap((item) => item.entities),
+    normalizePreferenceSignalKey,
   );
   const feedbackTags = normalizeSet(
     activeNegativeFeedbackItems.flatMap((item) => item.tags ?? []),
@@ -3759,10 +3891,10 @@ export const selectNegativeFeedbackAdjustedNewsFeed = <
 
   for (const item of rankedItems) {
     const hasNegativeSignal =
-      feedbackSources.has(item.sourceSlug.trim().toLowerCase()) ||
-      feedbackCategories.has(item.category.trim().toLowerCase()) ||
+      feedbackSources.has(normalizePreferenceSignalKey(item.sourceSlug)) ||
+      feedbackCategories.has(normalizePreferenceSignalKey(item.category)) ||
       item.entities.some((entity) =>
-        feedbackEntities.has(entity.trim().toLowerCase()),
+        feedbackEntities.has(normalizePreferenceSignalKey(entity)),
       ) ||
       item.tags.some(
         (tag) =>
@@ -3796,6 +3928,7 @@ const isBreakingNewsItem = (
   !item.matchedSignals.includes("negative_feedback") &&
   !item.matchedSignals.includes("exposure_cooldown") &&
   !item.matchedSignals.includes("home_exposure_cooldown") &&
+  !item.matchedSignals.includes("reading_history_cooldown") &&
   !item.matchedSignals.includes("source_trust");
 
 export const selectBreakingNewsPriorityFeed = <
@@ -3888,7 +4021,7 @@ export const updateReaderProfileWithInteraction = <
   const shouldLearnEntities =
     !shouldOnlyLearnSource &&
     (interaction.action !== "view" ||
-      Math.min(Math.max(interaction.readPercent ?? 0.35, 0), 1) >= 0.75);
+      clampReadPercent(interaction.readPercent ?? 0.35) >= 0.75);
   const learnedAngleSignals = getRecommendationAngleLabels(item.tags);
 
   return {

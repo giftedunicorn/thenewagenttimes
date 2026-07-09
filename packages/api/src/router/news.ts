@@ -85,6 +85,21 @@ const normalizeNewsTagValue = (tag: string) =>
     .replace(/[\s-]+/g, "_")
     .replace(/_+/g, "_");
 
+const normalizeNewsPreferenceCategoryValue = (category: string) =>
+  category
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_");
+
+const normalizeNewsSearchQueryValue = (query: string) =>
+  query
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const optionalNewsTagFilter = z
   .string()
   .trim()
@@ -125,10 +140,28 @@ export const NewsByIdInputSchema = z.object({
   id: z.string().uuid(),
 });
 
+const NewsPreferenceCategoryInputSchema = z.preprocess(
+  (value) =>
+    typeof value === "string"
+      ? normalizeNewsPreferenceCategoryValue(value)
+      : value,
+  NewsCategorySchema,
+);
+
+export const NewsPreferenceProfileInputSchema = z.object({
+  preferredCategories: z.array(NewsPreferenceCategoryInputSchema).max(12),
+  preferredSources: z.array(z.string().trim().min(1).max(160)).max(12),
+  preferredEntities: z.array(z.string().trim().min(1).max(160)).max(24),
+  noveltyBias: z.number().min(0).max(2),
+  recencyBias: z.number().min(0).max(2),
+});
+
 export const NewsSearchCandidatesInputSchema = NewsFeedFilterInputSchema.extend(
   {
     q: z.string().trim().min(1).max(256),
     limit: z.number().int().min(1).max(25).default(10),
+    profile: NewsPreferenceProfileInputSchema.optional(),
+    visitorKey: optionalVisitorKey,
   },
 );
 
@@ -144,9 +177,37 @@ export const NewsHistoryInputSchema = NewsReaderProfileInputSchema.extend({
   limit: z.number().int().min(1).max(25).default(6),
 });
 
+export const NewsPositiveFeedbackInputSchema = NewsReaderProfileInputSchema.extend(
+  {
+    limit: z.number().int().min(1).max(25).default(6),
+  },
+);
+
 export const NewsGuardrailsInputSchema = NewsReaderProfileInputSchema.extend({
   limit: z.number().int().min(1).max(25).default(6),
 });
+
+export const NewsSearchMemoryInputSchema = NewsReaderProfileInputSchema.extend({
+  limit: z.number().int().min(1).max(20).default(20),
+});
+
+export const NewsRecordSearchMemoryInputSchema =
+  NewsReaderProfileInputSchema.extend({
+    query: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256)
+      .transform(normalizeNewsSearchQueryValue)
+      .refine((query) => query.length > 0),
+    resultCount: z
+      .number()
+      .finite()
+      .optional()
+      .transform((resultCount) =>
+        Math.max(0, Math.round(resultCount ?? 0)),
+      ),
+  });
 
 export const NewsForYouInputSchema = NewsFeedFilterInputSchema.extend({
   excludeNewsItemIds: z.array(z.string().uuid()).max(240).optional(),
@@ -237,6 +298,37 @@ export const NewsRemoveSavedInputSchema = NewsReaderProfileInputSchema.extend({
   newsItemId: z.string().uuid(),
 });
 
+export const NewsRemoveHistoryInputSchema = NewsReaderProfileInputSchema.extend(
+  {
+    newsItemId: z.string().uuid(),
+  },
+);
+
+const NewsPositiveFeedbackRemovalActionSchema = z.enum([
+  "click_source",
+  "share",
+]);
+
+type NewsPositiveFeedbackRemovalAction = z.infer<
+  typeof NewsPositiveFeedbackRemovalActionSchema
+>;
+
+export const NewsRemovePositiveFeedbackInputSchema =
+  NewsReaderProfileInputSchema.extend({
+    action: NewsPositiveFeedbackRemovalActionSchema,
+    newsItemId: z.string().uuid(),
+  });
+
+export const NewsRemoveSearchMemoryInputSchema =
+  NewsReaderProfileInputSchema.extend({
+    query: z
+      .string()
+      .trim()
+      .min(1)
+      .max(256)
+      .transform(normalizeNewsSearchQueryValue),
+  });
+
 export const shouldTrainNewsProfileFromInteraction = ({
   action,
   metadata,
@@ -310,6 +402,16 @@ export const shouldDedupeNewsHomeExposureInteraction = ({
   );
 };
 
+type NewsDurableFeedbackAction = Extract<
+  NewsRecordInteractionInput["action"],
+  "hide" | "save"
+>;
+
+export const shouldDedupeNewsDurableFeedbackInteraction = (
+  input: Pick<NewsRecordInteractionInput, "action">,
+): input is { action: NewsDurableFeedbackAction } =>
+  input.action === "save" || input.action === "hide";
+
 interface NewsViewedHistoryRow {
   canonicalUrl: string | null;
   category: string;
@@ -323,6 +425,125 @@ interface NewsViewedHistoryRow {
   tags: readonly string[];
   title: string;
 }
+
+export interface NewsSearchMemoryItem {
+  query: string;
+  resultCount: number;
+  searchedAt: string;
+}
+
+interface NewsSearchMemoryRow {
+  metadata: unknown;
+  occurredAt: Date;
+}
+
+const newsSearchMemoryQueryMaxLength = 120;
+const newsSearchMemoryRetentionMs = 14 * 24 * 60 * 60 * 1000;
+
+const normalizeNewsSearchMemoryQueryValue = (query: string) =>
+  query
+    .trim()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .slice(0, newsSearchMemoryQueryMaxLength)
+    .trim();
+
+const getNewsSearchMemoryQueryKey = (query: string) =>
+  normalizeNewsSearchMemoryQueryValue(query).toLowerCase();
+
+export const getNewsSearchMemoryWindowStart = (now = new Date()) =>
+  new Date(now.getTime() - newsSearchMemoryRetentionMs);
+
+export const selectNewsSearchMemoryItems = (
+  rows: readonly NewsSearchMemoryRow[],
+  limit: number,
+): NewsSearchMemoryItem[] => {
+  const now = Date.now();
+  const windowStart = now - newsSearchMemoryRetentionMs;
+  const candidates = rows
+    .flatMap((row) => {
+      const metadata = NewsInteractionMetadataSchema.safeParse(row.metadata);
+      const timestamp = row.occurredAt.getTime();
+
+      if (!metadata.success || !Number.isFinite(timestamp)) return [];
+      if (timestamp < windowStart) return [];
+      if (timestamp > now) return [];
+
+      const query = metadata.data.intentQuery
+        ? normalizeNewsSearchMemoryQueryValue(metadata.data.intentQuery)
+        : "";
+
+      if (!query) return [];
+
+      return [
+        {
+          key: getNewsSearchMemoryQueryKey(query),
+          query,
+          searchedAt: row.occurredAt.toISOString(),
+          timestamp,
+        },
+      ];
+    })
+    .sort((left, right) => right.timestamp - left.timestamp);
+  const selectedItems: NewsSearchMemoryItem[] = [];
+  const itemByQueryKey = new Map<string, NewsSearchMemoryItem>();
+
+  for (const candidate of candidates) {
+    const existingItem = itemByQueryKey.get(candidate.key);
+
+    if (existingItem) {
+      existingItem.resultCount += 1;
+      continue;
+    }
+
+    const item = {
+      query: candidate.query,
+      resultCount: 1,
+      searchedAt: candidate.searchedAt,
+    };
+
+    selectedItems.push(item);
+    itemByQueryKey.set(candidate.key, item);
+  }
+
+  return selectedItems.slice(0, Math.max(0, Math.trunc(limit)));
+};
+
+export const buildNewsForYouSessionIntent = ({
+  input,
+  searchMemoryItems = [],
+}: {
+  input: Pick<NewsForYouInput, "category" | "q" | "sourceSlug" | "tag">;
+  searchMemoryItems?: readonly NewsSearchMemoryItem[];
+}): NewsSessionIntentFilter => {
+  const explicitQuery = input.q?.trim() ?? "";
+  const [latestSearchMemoryItem] = searchMemoryItems;
+  const searchMemoryQuery = latestSearchMemoryItem?.query ?? "";
+
+  return {
+    category: input.category ?? null,
+    query: explicitQuery.length > 0 ? explicitQuery : searchMemoryQuery,
+    sourceSlug: input.sourceSlug ?? null,
+    tag: input.tag ?? null,
+  };
+};
+
+export const buildNewsForYouCandidateRecallInput = ({
+  input,
+  sessionIntent,
+}: {
+  input: NewsForYouInput;
+  sessionIntent: NewsSessionIntentFilter;
+}): NewsForYouInput => {
+  const explicitQuery = input.q?.trim() ?? "";
+  const sessionQuery = sessionIntent.query?.trim() ?? "";
+  const recallQuery = explicitQuery.length > 0 ? explicitQuery : sessionQuery;
+
+  return {
+    ...input,
+    ...(recallQuery.length > 0 ? { q: recallQuery } : {}),
+  };
+};
 
 export const selectNewsViewedHistory = (
   rows: readonly NewsViewedHistoryRow[],
@@ -466,14 +687,6 @@ const collaborativeSignalInteractionCondition = (): SQL<unknown> =>
     sql`${NewsReaderInteraction.action} in ('hide', 'save', 'share', 'click_source')`,
     sql`${NewsReaderInteraction.action} = 'view' and ${newsArticleSurfaceCondition()} and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.8`,
   ) ?? sql`false`;
-
-export const NewsPreferenceProfileInputSchema = z.object({
-  preferredCategories: z.array(NewsCategorySchema).max(12),
-  preferredSources: z.array(z.string().trim().min(1).max(160)).max(12),
-  preferredEntities: z.array(z.string().trim().min(1).max(160)).max(24),
-  noveltyBias: z.number().min(0).max(2),
-  recencyBias: z.number().min(0).max(2),
-});
 
 const NewsPreferenceProfileSnapshotSchema = z.object({
   preferredCategories: z.array(z.string().trim().min(1).max(160)).max(12),
@@ -769,6 +982,18 @@ export const summarizeNewsReaderProfileSignals = ({
   let trainedReadCount = 0;
 
   interactions.forEach((interaction, index) => {
+    const interactionSurface = interaction.metadata?.surface
+      ? normalizeNewsInteractionMetadataKey(interaction.metadata.surface)
+      : "";
+
+    if (
+      interaction.action === "view" &&
+      interactionSurface === "search" &&
+      !interaction.metadata?.intentQuery
+    ) {
+      return;
+    }
+
     lastSignalAt = getLatestProfileSignalTimestamp(
       lastSignalAt,
       interaction.occurredAt,
@@ -819,11 +1044,7 @@ export const summarizeNewsReaderProfileSignals = ({
     }
 
     if (interaction.metadata?.surface) {
-      addSignalCount(
-        surfaceCounts,
-        normalizeNewsInteractionMetadataKey(interaction.metadata.surface),
-        index,
-      );
+      addSignalCount(surfaceCounts, interactionSurface, index);
     }
 
     normalizeNewsInteractionMatchedSignals(
@@ -1172,6 +1393,62 @@ export const buildNewsReaderProfileAfterInteractionRemoval = ({
     removedInteraction,
   }) ?? normalizeNewsPreferenceProfile(currentProfile);
 
+export const buildNewsReaderProfileAfterInteractionBatchRemoval = ({
+  currentProfile,
+  remainingInteractions,
+  removedInteractions,
+}: {
+  currentProfile: NewsPreferenceProfile;
+  remainingInteractions: readonly NewsReaderProfileSignalInteraction[];
+  removedInteractions: readonly NewsReaderProfileSignalInteraction[];
+}): NewsPreferenceProfile => {
+  const sortedRemovedInteractions = removedInteractions
+    .map((interaction, index) => ({ index, interaction }))
+    .sort(
+      (left, right) =>
+        getNewsInteractionReplayTimestamp(left.interaction) -
+          getNewsInteractionReplayTimestamp(right.interaction) ||
+        left.index - right.index,
+    )
+    .map(({ interaction }) => interaction);
+  const firstRemovedInteraction = sortedRemovedInteractions.at(0);
+
+  if (!firstRemovedInteraction)
+    return normalizeNewsPreferenceProfile(currentProfile);
+
+  const profileBeforeRemoval = getNewsInteractionProfileSnapshot(
+    firstRemovedInteraction,
+    "profileBefore",
+  );
+
+  if (!profileBeforeRemoval)
+    return normalizeNewsPreferenceProfile(currentProfile);
+
+  const firstRemovedAt = getNewsInteractionReplayTimestamp(
+    firstRemovedInteraction,
+  );
+  const interactionsAfterFirstRemoval = remainingInteractions.filter(
+    (interaction) =>
+      getNewsInteractionReplayTimestamp(interaction) > firstRemovedAt,
+  );
+  const replayedCurrentProfile = rebuildNewsPreferenceProfileFromInteractions({
+    baseProfile: profileBeforeRemoval,
+    interactions: [
+      ...sortedRemovedInteractions,
+      ...interactionsAfterFirstRemoval,
+    ],
+  });
+
+  if (!areNewsPreferenceProfilesEqual(replayedCurrentProfile, currentProfile)) {
+    return normalizeNewsPreferenceProfile(currentProfile);
+  }
+
+  return rebuildNewsPreferenceProfileFromInteractions({
+    baseProfile: profileBeforeRemoval,
+    interactions: interactionsAfterFirstRemoval,
+  });
+};
+
 export type NewsForYouCandidate = DedupeNewsItem &
   RecommendableNewsItem & {
     canonicalUrl: string | null;
@@ -1251,28 +1528,28 @@ const getNewsItemNormalizedUrlExpression = (
 ) =>
   sql`lower(regexp_replace(regexp_replace(regexp_replace(split_part(split_part(${column}, '#', 1), '?', 1), '/$', ''), '^[a-z][a-z0-9+.-]*://', '', 'i'), '^www\\.', '', 'i'))`;
 
-export const buildNewsHomeExposureDedupeCondition = ({
-  canonicalUrl,
-  clusterKey,
-  feedMode,
-  newsItemId,
-  originalUrl,
-  readerProfileId,
-  since,
-}: {
+interface NewsInteractionStoryIdentityInput {
   canonicalUrl?: string | null;
   clusterKey?: string | null;
-  feedMode: NewsFeedMode | undefined;
   newsItemId: string;
   originalUrl?: string | null;
-  readerProfileId: string;
-  since: Date;
-}): SQL<unknown> => {
+}
+
+const buildNewsInteractionStoryIdentityCondition = ({
+  canonicalUrl,
+  clusterKey,
+  newsItemId,
+  originalUrl,
+}: NewsInteractionStoryIdentityInput): SQL<unknown> => {
   const normalizedClusterKey = normalizeNewsHomeExposureClusterKey(clusterKey);
-  const normalizedUrlKeys = getNewsHomeExposureUrlKeys({
-    canonicalUrl,
-    originalUrl,
-  });
+  const normalizedUrlKeys = Array.from(
+    new Set(
+      getNewsHomeExposureUrlKeys({
+        canonicalUrl,
+        originalUrl,
+      }),
+    ),
+  );
   const normalizedNewsItemCanonicalUrl = getNewsItemNormalizedUrlExpression(
     NewsItem.canonicalUrl,
   );
@@ -1292,9 +1569,36 @@ export const buildNewsHomeExposureDedupeCondition = ({
       ? sql`${NewsReaderInteraction.newsItemId} in (select ${NewsItem.id} from ${NewsItem} where ${or(...urlIdentityConditions)})`
       : undefined,
   ].filter((condition): condition is SQL<unknown> => condition !== undefined);
-  const storyIdentityCondition =
+
+  return (
     or(...storyIdentityConditions) ??
-    eq(NewsReaderInteraction.newsItemId, newsItemId);
+    eq(NewsReaderInteraction.newsItemId, newsItemId)
+  );
+};
+
+export const buildNewsHomeExposureDedupeCondition = ({
+  canonicalUrl,
+  clusterKey,
+  feedMode,
+  newsItemId,
+  originalUrl,
+  readerProfileId,
+  since,
+}: {
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
+  feedMode: NewsFeedMode | undefined;
+  newsItemId: string;
+  originalUrl?: string | null;
+  readerProfileId: string;
+  since: Date;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
 
   return (
     compactConditions([
@@ -1314,24 +1618,27 @@ export const buildNewsHomeExposureDedupeCondition = ({
 export const buildNewsTextSearchCondition = (
   query: string | undefined,
 ): SQL<unknown> | undefined => {
-  if (!query) return undefined;
+  const rawQuery = query?.trim();
+  if (!rawQuery) return undefined;
 
-  const pattern = `%${query}%`;
-  const normalizedTagQuery = normalizeNewsTagValue(query);
-  const normalizedTagPattern = `%${normalizedTagQuery}%`;
-  const normalizedTagCondition =
-    normalizedTagQuery === query.toLowerCase()
-      ? undefined
-      : sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${normalizedTagPattern})`;
+  const patterns = Array.from(
+    new Set([
+      `%${rawQuery}%`,
+      `%${normalizeNewsSearchQueryValue(rawQuery)}%`,
+      `%${normalizeNewsTagValue(rawQuery)}%`,
+    ]),
+  );
 
   return or(
-    ilike(NewsItem.title, pattern),
-    ilike(NewsItem.summary, pattern),
-    ilike(NewsSource.name, pattern),
-    ilike(NewsSource.slug, pattern),
-    sql`exists (select 1 from unnest(${NewsItem.entities}) as entity where entity ilike ${pattern})`,
-    sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${pattern})`,
-    normalizedTagCondition,
+    ...patterns.flatMap((pattern) => [
+      ilike(NewsItem.title, pattern),
+      ilike(NewsItem.summary, pattern),
+      ilike(NewsItem.category, pattern),
+      ilike(NewsSource.name, pattern),
+      ilike(NewsSource.slug, pattern),
+      sql`exists (select 1 from unnest(${NewsItem.entities}) as entity where entity ilike ${pattern})`,
+      sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${pattern})`,
+    ]),
   );
 };
 
@@ -1684,30 +1991,246 @@ export const buildNewsCollaborativeSignalCondition = ({
 };
 
 export const buildNewsGuardrailRestoreCondition = ({
+  canonicalUrl,
+  clusterKey,
   newsItemId,
+  originalUrl,
   readerProfileId,
 }: {
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
   newsItemId: string;
+  originalUrl?: string | null;
   readerProfileId: string;
-}): SQL<unknown> =>
-  compactConditions([
-    eq(NewsReaderInteraction.readerProfileId, readerProfileId),
-    eq(NewsReaderInteraction.newsItemId, newsItemId),
-    sql`${NewsReaderInteraction.action} = 'hide'`,
-  ]) ?? sql`false`;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      sql`${NewsReaderInteraction.action} = 'hide'`,
+    ]) ?? sql`false`
+  );
+};
 
 export const buildNewsSavedRemovalCondition = ({
+  canonicalUrl,
+  clusterKey,
   newsItemId,
+  originalUrl,
   readerProfileId,
 }: {
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
   newsItemId: string;
+  originalUrl?: string | null;
   readerProfileId: string;
-}): SQL<unknown> =>
-  compactConditions([
-    eq(NewsReaderInteraction.readerProfileId, readerProfileId),
-    eq(NewsReaderInteraction.newsItemId, newsItemId),
-    sql`${NewsReaderInteraction.action} = 'save'`,
-  ]) ?? sql`false`;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      sql`${NewsReaderInteraction.action} = 'save'`,
+    ]) ?? sql`false`
+  );
+};
+
+export const buildNewsHistoryRemovalCondition = ({
+  canonicalUrl,
+  clusterKey,
+  newsItemId,
+  originalUrl,
+  readerProfileId,
+}: {
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
+  newsItemId: string;
+  originalUrl?: string | null;
+  readerProfileId: string;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      sql`${NewsReaderInteraction.action} = 'view'`,
+      meaningfulNewsArticleReadCondition(),
+    ]) ?? sql`false`
+  );
+};
+
+export const buildNewsPositiveFeedbackRemovalCondition = ({
+  action,
+  canonicalUrl,
+  clusterKey,
+  newsItemId,
+  originalUrl,
+  readerProfileId,
+}: {
+  action: NewsPositiveFeedbackRemovalAction;
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
+  newsItemId: string;
+  originalUrl?: string | null;
+  readerProfileId: string;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      action === "share"
+        ? sql`${NewsReaderInteraction.action} = 'share'`
+        : sql`${NewsReaderInteraction.action} = 'click_source'`,
+    ]) ?? sql`false`
+  );
+};
+
+export const buildNewsSearchMemoryRemovalCondition = ({
+  query,
+  readerProfileId,
+}: {
+  query: string;
+  readerProfileId: string;
+}): SQL<unknown> => {
+  const normalizedQuery = normalizeNewsSearchQueryValue(query);
+  const normalizedIntentQuery = sql<string>`trim(lower(regexp_replace(regexp_replace(${NewsReaderInteraction.metadata}->>'intentQuery', '[_-]+', ' ', 'g'), '\\s+', ' ', 'g')))`;
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      sql`${normalizedIntentQuery} = ${normalizedQuery}`,
+    ]) ?? sql`false`
+  );
+};
+
+const shouldCleanupNewsFeedbackConflict = ({
+  action,
+}: Pick<NewsRecordInteractionInput, "action">) =>
+  action === "hide" ||
+  action === "save" ||
+  action === "share" ||
+  action === "click_source";
+
+export const buildNewsFeedbackConflictCleanupCondition = ({
+  action,
+  canonicalUrl,
+  clusterKey,
+  newsItemId,
+  originalUrl,
+  readerProfileId,
+}: {
+  action: NewsRecordInteractionInput["action"];
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
+  newsItemId: string;
+  originalUrl?: string | null;
+  readerProfileId: string;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
+  const conflictActionCondition =
+    action === "hide"
+      ? (or(
+          sql`${NewsReaderInteraction.action} in ('save', 'share', 'click_source')`,
+          sql`${NewsReaderInteraction.action} = 'view' and ${meaningfulNewsArticleReadCondition()}`,
+        ) ?? sql`false`)
+      : action === "save" || action === "share" || action === "click_source"
+        ? sql`${NewsReaderInteraction.action} = 'hide'`
+        : undefined;
+
+  if (!conflictActionCondition) return sql`false`;
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      conflictActionCondition,
+    ]) ?? sql`false`
+  );
+};
+
+export const buildNewsDurableFeedbackDedupeCondition = ({
+  action,
+  canonicalUrl,
+  clusterKey,
+  newsItemId,
+  originalUrl,
+  readerProfileId,
+}: {
+  action: NewsDurableFeedbackAction;
+  canonicalUrl?: string | null;
+  clusterKey?: string | null;
+  newsItemId: string;
+  originalUrl?: string | null;
+  readerProfileId: string;
+}): SQL<unknown> => {
+  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
+    canonicalUrl,
+    clusterKey,
+    newsItemId,
+    originalUrl,
+  });
+
+  return (
+    compactConditions([
+      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
+      storyIdentityCondition,
+      action === "save"
+        ? sql`${NewsReaderInteraction.action} = 'save'`
+        : sql`${NewsReaderInteraction.action} = 'hide'`,
+    ]) ?? sql`false`
+  );
+};
+
+const getNewsFeedbackItemIdentity = async ({
+  db,
+  newsItemId,
+}: {
+  db: NewsRouterDb;
+  newsItemId: string;
+}) => {
+  const [itemIdentity] = await db
+    .select({
+      canonicalUrl: NewsItem.canonicalUrl,
+      clusterKey: NewsItem.clusterKey,
+      originalUrl: NewsItem.originalUrl,
+    })
+    .from(NewsItem)
+    .where(eq(NewsItem.id, newsItemId))
+    .limit(1);
+
+  return itemIdentity;
+};
 
 const newsReaderProfileSignalInteractionSelection = {
   action: NewsReaderInteraction.action,
@@ -1738,13 +2261,20 @@ const removeNewsReaderInteractionAndRollbackProfile = async ({
     .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
     .where(removalCondition)
     .orderBy(desc(NewsReaderInteraction.occurredAt))
-    .limit(2);
+    .limit(500);
 
   await db.delete(NewsReaderInteraction).where(removalCondition);
 
-  const removedRow = removedRows.at(0);
+  if (removedRows.length === 0) return responseProfile;
 
-  if (removedRows.length !== 1 || !removedRow) return responseProfile;
+  const removedInteractions = removedRows.map(
+    toNewsReaderProfileSignalInteraction,
+  );
+  const earliestRemovedRow = removedRows.reduce((earliestRow, row) =>
+    row.occurredAt.getTime() < earliestRow.occurredAt.getTime()
+      ? row
+      : earliestRow,
+  );
 
   const remainingRows = await db
     .select(newsReaderProfileSignalInteractionSelection)
@@ -1754,18 +2284,18 @@ const removeNewsReaderInteractionAndRollbackProfile = async ({
     .where(
       compactConditions([
         eq(NewsReaderInteraction.readerProfileId, profile.id),
-        sql`${NewsReaderInteraction.occurredAt} > ${removedRow.occurredAt}`,
+        sql`${NewsReaderInteraction.occurredAt} > ${earliestRemovedRow.occurredAt}`,
       ]),
     )
     .orderBy(desc(NewsReaderInteraction.occurredAt))
     .limit(500);
 
-  const nextProfile = buildNewsReaderProfileAfterInteractionRemoval({
+  const nextProfile = buildNewsReaderProfileAfterInteractionBatchRemoval({
     currentProfile: responseProfile,
     remainingInteractions: remainingRows.map(
       toNewsReaderProfileSignalInteraction,
     ),
-    removedInteraction: toNewsReaderProfileSignalInteraction(removedRow),
+    removedInteractions,
   });
 
   if (!areNewsPreferenceProfilesEqual(nextProfile, responseProfile)) {
@@ -1840,13 +2370,58 @@ export const buildNewsForYouCandidateConditions = ({
       : undefined,
   ]);
 
+const isRecommendableNewsSearchCandidate = <TItem extends DedupeNewsItem>(
+  item: TItem,
+): item is TItem & RecommendableNewsItem => {
+  const candidate = item as TItem & {
+    entities?: unknown;
+    sourceSlug?: unknown;
+    tags?: unknown;
+  };
+
+  return (
+    typeof candidate.sourceSlug === "string" &&
+    Array.isArray(candidate.entities) &&
+    Array.isArray(candidate.tags)
+  );
+};
+
 export const selectNewsSearchCandidateItems = <TItem extends DedupeNewsItem>({
   items,
   limit,
+  profile,
 }: {
   items: readonly TItem[];
   limit: number;
-}): TItem[] => selectNewsFeedItems({ items, limit });
+  profile?: NewsPreferenceProfile;
+}): TItem[] => {
+  const dedupedItems = selectNewsFeedItems({
+    items,
+    limit: items.length,
+  });
+
+  if (!profile) return dedupedItems.slice(0, limit);
+
+  const rankableItems = dedupedItems.filter(isRecommendableNewsSearchCandidate);
+
+  if (rankableItems.length !== dedupedItems.length) {
+    return dedupedItems.slice(0, limit);
+  }
+
+  const itemById = new Map(dedupedItems.map((item) => [item.id, item]));
+  const rankedItems = selectDiverseNewsFeed(
+    rankNewsForReader(rankableItems, profile),
+    {
+      explorationInterval: getNewsExplorationInterval(profile),
+      limit: rankableItems.length,
+    },
+  );
+
+  return rankedItems
+    .map((item) => itemById.get(item.id))
+    .filter((item): item is TItem => item !== undefined)
+    .slice(0, limit);
+};
 
 export const newsRouter = {
   feed: publicProcedure
@@ -1975,6 +2550,7 @@ export const newsRouter = {
       let viewedNewsItemIds: string[] = [];
       let viewedNewsItems: RecentExposureNewsItem[] = [];
       let readingHistoryItems: RecentExposureNewsItem[] = [];
+      let searchMemoryItems: NewsSearchMemoryItem[] = [];
 
       if (identity) {
         const [persistedProfile] = await ctx.db
@@ -1987,7 +2563,13 @@ export const newsRouter = {
         currentReaderProfileId = persistedProfile?.id ?? null;
 
         if (persistedProfile) {
-          const [hiddenRows, positiveRows, viewedRows] = await Promise.all([
+          const searchMemoryWindowEnd = new Date();
+          const [
+            hiddenRows,
+            positiveRows,
+            searchMemoryRows,
+            viewedRows,
+          ] = await Promise.all([
             ctx.db
               .select({
                 canonicalUrl: NewsItem.canonicalUrl,
@@ -2066,6 +2648,27 @@ export const newsRouter = {
               .limit(500),
             ctx.db
               .select({
+                metadata: NewsReaderInteraction.metadata,
+                occurredAt: NewsReaderInteraction.occurredAt,
+              })
+              .from(NewsReaderInteraction)
+              .where(
+                compactConditions([
+                  eq(
+                    NewsReaderInteraction.readerProfileId,
+                    persistedProfile.id,
+                  ),
+                  eq(NewsReaderInteraction.action, "view"),
+                  sql`${NewsReaderInteraction.occurredAt} >= ${getNewsSearchMemoryWindowStart(searchMemoryWindowEnd)}`,
+                  sql`${NewsReaderInteraction.occurredAt} <= ${searchMemoryWindowEnd}`,
+                  sql`${NewsReaderInteraction.metadata}->>'surface' = 'search'`,
+                  sql`nullif(trim(${NewsReaderInteraction.metadata}->>'intentQuery'), '') is not null`,
+                ]),
+              )
+              .orderBy(desc(NewsReaderInteraction.occurredAt))
+              .limit(8),
+            ctx.db
+              .select({
                 canonicalUrl: NewsItem.canonicalUrl,
                 category: NewsItem.category,
                 clusterKey: NewsItem.clusterKey,
@@ -2098,6 +2701,7 @@ export const newsRouter = {
               .limit(500),
           ]);
 
+          searchMemoryItems = selectNewsSearchMemoryItems(searchMemoryRows, 1);
           hiddenNewsItemIds = hiddenRows.map((row) => row.newsItemId);
           hiddenNewsItems = hiddenRows.map((row) => ({
             ...row,
@@ -2184,6 +2788,14 @@ export const newsRouter = {
         }
       }
 
+      const sessionIntent = buildNewsForYouSessionIntent({
+        input,
+        searchMemoryItems,
+      });
+      const candidateRecallInput = buildNewsForYouCandidateRecallInput({
+        input,
+        sessionIntent,
+      });
       const candidateLimit = getNewsForYouCandidateLimit(input.limit);
       const rows = await ctx.db
         .select({
@@ -2206,7 +2818,9 @@ export const newsRouter = {
         })
         .from(NewsItem)
         .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-        .where(buildNewsForYouCandidateConditions({ input }))
+        .where(
+          buildNewsForYouCandidateConditions({ input: candidateRecallInput }),
+        )
         .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
         .limit(candidateLimit);
 
@@ -2353,12 +2967,7 @@ export const newsRouter = {
         readerLocalHour: input.readerLocalHour,
         readingHistoryItems,
         semanticMatches,
-        sessionIntent: {
-          category: input.category ?? null,
-          query: input.q ?? "",
-          sourceSlug: input.sourceSlug ?? null,
-          tag: input.tag ?? null,
-        },
+        sessionIntent,
         viewedNewsItemIds,
         viewedNewsItems,
       });
@@ -2563,6 +3172,116 @@ export const newsRouter = {
       ).slice(0, input.limit);
     }),
 
+  positiveFeedback: publicProcedure
+    .input(NewsPositiveFeedbackInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) return [];
+
+      const [rows, hiddenRows] = await Promise.all([
+        ctx.db
+          .select({
+            id: NewsItem.id,
+            title: NewsItem.title,
+            summary: NewsItem.summary,
+            canonicalUrl: NewsItem.canonicalUrl,
+            clusterKey: NewsItem.clusterKey,
+            imageUrl: NewsItem.imageUrl,
+            originalUrl: NewsItem.originalUrl,
+            publishedAt: NewsItem.publishedAt,
+            category: NewsItem.category,
+            tags: NewsItem.tags,
+            entities: NewsItem.entities,
+            sourceScore: NewsItem.sourceScore,
+            trendScore: NewsItem.trendScore,
+            sourceName: NewsSource.name,
+            sourceSlug: NewsSource.slug,
+            sourceType: NewsSource.sourceType,
+            action: NewsReaderInteraction.action,
+            occurredAt: NewsReaderInteraction.occurredAt,
+          })
+          .from(NewsReaderInteraction)
+          .innerJoin(
+            NewsReaderProfile,
+            eq(NewsReaderInteraction.readerProfileId, NewsReaderProfile.id),
+          )
+          .innerJoin(
+            NewsItem,
+            eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+          )
+          .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+          .where(
+            compactConditions([
+              eq(NewsReaderProfile.readerKey, identity.readerKey),
+              inArray(NewsReaderInteraction.action, ["share", "click_source"]),
+              eq(NewsItem.status, "published"),
+            ]),
+          )
+          .orderBy(desc(NewsReaderInteraction.occurredAt))
+          .limit(input.limit * 3),
+        ctx.db
+          .select({
+            id: NewsItem.id,
+            title: NewsItem.title,
+            canonicalUrl: NewsItem.canonicalUrl,
+            clusterKey: NewsItem.clusterKey,
+            originalUrl: NewsItem.originalUrl,
+            publishedAt: NewsItem.publishedAt,
+            category: NewsItem.category,
+            entities: NewsItem.entities,
+            sourceScore: NewsItem.sourceScore,
+            trendScore: NewsItem.trendScore,
+            sourceSlug: NewsSource.slug,
+          })
+          .from(NewsReaderInteraction)
+          .innerJoin(
+            NewsReaderProfile,
+            eq(NewsReaderInteraction.readerProfileId, NewsReaderProfile.id),
+          )
+          .innerJoin(
+            NewsItem,
+            eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+          )
+          .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+          .where(
+            compactConditions([
+              eq(NewsReaderProfile.readerKey, identity.readerKey),
+              eq(NewsReaderInteraction.action, "hide"),
+              eq(NewsItem.status, "published"),
+            ]),
+          )
+          .orderBy(desc(NewsReaderInteraction.occurredAt))
+          .limit(500),
+      ]);
+
+      const positiveFeedbackItems = rows.flatMap((row) => {
+        if (row.action !== "share" && row.action !== "click_source") {
+          return [];
+        }
+
+        return [
+          {
+            ...row,
+            action: row.action,
+            occurredAt: row.occurredAt.toISOString(),
+            publishedAt: row.publishedAt.toISOString(),
+          },
+        ];
+      });
+
+      return selectUniqueNewsCollectionItems(
+        positiveFeedbackItems,
+        hiddenRows.map((row) => ({
+          ...row,
+          publishedAt: row.publishedAt.toISOString(),
+        })),
+      ).slice(0, input.limit);
+    }),
+
   guardrails: publicProcedure
     .input(NewsGuardrailsInputSchema)
     .query(async ({ ctx, input }) => {
@@ -2755,17 +3474,52 @@ export const newsRouter = {
         .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
         .limit(1);
 
-      const currentProfile = toPreferenceProfile(existingProfile);
-      const nextProfile = shouldTrainNewsProfileFromInteraction(input)
-        ? updateReaderProfileWithInteraction(
-            currentProfile,
-            {
-              ...item,
-              publishedAt: item.publishedAt.toISOString(),
-            },
-            toNewsReaderProfileInteraction(input),
-          )
-        : currentProfile;
+      const conflictCleanupProfile =
+        existingProfile && shouldCleanupNewsFeedbackConflict(input)
+          ? await removeNewsReaderInteractionAndRollbackProfile({
+              db: ctx.db,
+              profile: existingProfile,
+              removalCondition: buildNewsFeedbackConflictCleanupCondition({
+                action: input.action,
+                canonicalUrl: item.canonicalUrl,
+                clusterKey: item.clusterKey,
+                newsItemId: input.newsItemId,
+                originalUrl: item.originalUrl,
+                readerProfileId: existingProfile.id,
+              }),
+            })
+          : toPreferenceProfile(existingProfile);
+      const currentProfile = conflictCleanupProfile;
+      const duplicateDurableFeedback =
+        existingProfile && shouldDedupeNewsDurableFeedbackInteraction(input)
+          ? await ctx.db
+              .select({ id: NewsReaderInteraction.id })
+              .from(NewsReaderInteraction)
+              .where(
+                buildNewsDurableFeedbackDedupeCondition({
+                  action: input.action,
+                  canonicalUrl: item.canonicalUrl,
+                  clusterKey: item.clusterKey,
+                  newsItemId: input.newsItemId,
+                  originalUrl: item.originalUrl,
+                  readerProfileId: existingProfile.id,
+                }),
+              )
+              .limit(1)
+          : [];
+      const shouldSkipDurableFeedback = duplicateDurableFeedback.length > 0;
+      const nextProfile =
+        !shouldSkipDurableFeedback &&
+        shouldTrainNewsProfileFromInteraction(input)
+          ? updateReaderProfileWithInteraction(
+              currentProfile,
+              {
+                ...item,
+                publishedAt: item.publishedAt.toISOString(),
+              },
+              toNewsReaderProfileInteraction(input),
+            )
+          : currentProfile;
 
       const [profile] = await ctx.db
         .insert(NewsReaderProfile)
@@ -2818,7 +3572,9 @@ export const newsRouter = {
             )
             .limit(1)
         : [];
-      const shouldStoreInteraction = duplicateHomeExposure.length === 0;
+      const shouldStoreInteraction =
+        duplicateHomeExposure.length === 0 &&
+        duplicateDurableFeedback.length === 0;
 
       if (shouldStoreInteraction) {
         await ctx.db.insert(NewsReaderInteraction).values({
@@ -2873,11 +3629,19 @@ export const newsRouter = {
       let responseProfile = toPreferenceProfile(profile);
 
       if (profile) {
+        const itemIdentity = await getNewsFeedbackItemIdentity({
+          db: ctx.db,
+          newsItemId: input.newsItemId,
+        });
+
         responseProfile = await removeNewsReaderInteractionAndRollbackProfile({
           db: ctx.db,
           profile,
           removalCondition: buildNewsGuardrailRestoreCondition({
+            canonicalUrl: itemIdentity?.canonicalUrl,
+            clusterKey: itemIdentity?.clusterKey,
             newsItemId: input.newsItemId,
+            originalUrl: itemIdentity?.originalUrl,
             readerProfileId: profile.id,
           }),
         });
@@ -2912,11 +3676,116 @@ export const newsRouter = {
       let responseProfile = toPreferenceProfile(profile);
 
       if (profile) {
+        const itemIdentity = await getNewsFeedbackItemIdentity({
+          db: ctx.db,
+          newsItemId: input.newsItemId,
+        });
+
         responseProfile = await removeNewsReaderInteractionAndRollbackProfile({
           db: ctx.db,
           profile,
           removalCondition: buildNewsSavedRemovalCondition({
+            canonicalUrl: itemIdentity?.canonicalUrl,
+            clusterKey: itemIdentity?.clusterKey,
             newsItemId: input.newsItemId,
+            originalUrl: itemIdentity?.originalUrl,
+            readerProfileId: profile.id,
+          }),
+        });
+      }
+
+      return buildNewsReaderMutationProfileResponse({
+        profile: responseProfile,
+      });
+    }),
+
+  removeHistory: publicProcedure
+    .input(NewsRemoveHistoryInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A reader identity is required to remove news reading history.",
+        });
+      }
+
+      const [profile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+
+      let responseProfile = toPreferenceProfile(profile);
+
+      if (profile) {
+        const itemIdentity = await getNewsFeedbackItemIdentity({
+          db: ctx.db,
+          newsItemId: input.newsItemId,
+        });
+
+        responseProfile = await removeNewsReaderInteractionAndRollbackProfile({
+          db: ctx.db,
+          profile,
+          removalCondition: buildNewsHistoryRemovalCondition({
+            canonicalUrl: itemIdentity?.canonicalUrl,
+            clusterKey: itemIdentity?.clusterKey,
+            newsItemId: input.newsItemId,
+            originalUrl: itemIdentity?.originalUrl,
+            readerProfileId: profile.id,
+          }),
+        });
+      }
+
+      return buildNewsReaderMutationProfileResponse({
+        profile: responseProfile,
+      });
+    }),
+
+  removePositiveFeedback: publicProcedure
+    .input(NewsRemovePositiveFeedbackInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "A reader identity is required to remove news positive feedback.",
+        });
+      }
+
+      const [profile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+
+      let responseProfile = toPreferenceProfile(profile);
+
+      if (profile) {
+        const itemIdentity = await getNewsFeedbackItemIdentity({
+          db: ctx.db,
+          newsItemId: input.newsItemId,
+        });
+
+        responseProfile = await removeNewsReaderInteractionAndRollbackProfile({
+          db: ctx.db,
+          profile,
+          removalCondition: buildNewsPositiveFeedbackRemovalCondition({
+            action: input.action,
+            canonicalUrl: itemIdentity?.canonicalUrl,
+            clusterKey: itemIdentity?.clusterKey,
+            newsItemId: input.newsItemId,
+            originalUrl: itemIdentity?.originalUrl,
             readerProfileId: profile.id,
           }),
         });
@@ -3053,10 +3922,201 @@ export const newsRouter = {
       });
     }),
 
+  recordSearchMemory: publicProcedure
+    .input(NewsRecordSearchMemoryInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A reader identity is required to record news search memory.",
+        });
+      }
+
+      const [item] = await ctx.db
+        .select({ id: NewsItem.id })
+        .from(NewsItem)
+        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+        .where(
+          compactConditions([
+            eq(NewsItem.status, "published"),
+            buildNewsTextSearchCondition(input.query),
+          ]),
+        )
+        .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
+        .limit(1);
+
+      const [searchMemoryAnchorItem] = item
+        ? [item]
+        : await ctx.db
+            .select({ id: NewsItem.id })
+            .from(NewsItem)
+            .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+            .where(eq(NewsItem.status, "published"))
+            .orderBy(desc(NewsItem.trendScore), desc(NewsItem.publishedAt))
+            .limit(1);
+
+      if (!searchMemoryAnchorItem) {
+        return {
+          reason:
+            "Unable to find a published story to anchor reader search memory.",
+          recorded: false,
+          resultCount: input.resultCount,
+        };
+      }
+
+      const [existingProfile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+      const currentProfile = toPreferenceProfile(existingProfile);
+      const [profile] = existingProfile
+        ? [existingProfile]
+        : await ctx.db
+            .insert(NewsReaderProfile)
+            .values({
+              readerKey: identity.readerKey,
+              userId: identity.userId,
+              preferredCategories: [...currentProfile.preferredCategories],
+              preferredSources: [...currentProfile.preferredSources],
+              preferredEntities: [...currentProfile.preferredEntities],
+              noveltyBias: currentProfile.noveltyBias,
+              recencyBias: currentProfile.recencyBias,
+            })
+            .returning();
+
+      if (!profile) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Unable to persist reader search memory.",
+        });
+      }
+
+      await ctx.db.insert(NewsReaderInteraction).values({
+        action: "view",
+        metadata: buildNewsInteractionTrainingMetadata({
+          metadata: {
+            intentQuery: input.query,
+            matchedResult: Boolean(item),
+            resultCount: input.resultCount,
+            surface: "search",
+          },
+          profileAfter: currentProfile,
+          profileBefore: currentProfile,
+        }),
+        newsItemId: searchMemoryAnchorItem.id,
+        readerProfileId: profile.id,
+      });
+
+      return { recorded: true, resultCount: input.resultCount };
+    }),
+
+  searchMemory: publicProcedure
+    .input(NewsSearchMemoryInputSchema)
+    .query(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) return [];
+
+      const searchMemoryWindowEnd = new Date();
+
+      const rows = await ctx.db
+        .select({
+          metadata: NewsReaderInteraction.metadata,
+          occurredAt: NewsReaderInteraction.occurredAt,
+        })
+        .from(NewsReaderInteraction)
+        .innerJoin(
+          NewsReaderProfile,
+          eq(NewsReaderInteraction.readerProfileId, NewsReaderProfile.id),
+        )
+        .where(
+          compactConditions([
+            eq(NewsReaderProfile.readerKey, identity.readerKey),
+            eq(NewsReaderInteraction.action, "view"),
+            sql`${NewsReaderInteraction.occurredAt} >= ${getNewsSearchMemoryWindowStart(searchMemoryWindowEnd)}`,
+            sql`${NewsReaderInteraction.occurredAt} <= ${searchMemoryWindowEnd}`,
+            sql`${NewsReaderInteraction.metadata}->>'surface' = 'search'`,
+            sql`nullif(trim(${NewsReaderInteraction.metadata}->>'intentQuery'), '') is not null`,
+          ]),
+        )
+        .orderBy(desc(NewsReaderInteraction.occurredAt))
+        .limit(input.limit * 8);
+
+      return selectNewsSearchMemoryItems(rows, input.limit);
+    }),
+
+  removeSearchMemory: publicProcedure
+    .input(NewsRemoveSearchMemoryInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+
+      if (!identity) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "A reader identity is required to remove news search memory.",
+        });
+      }
+
+      const [profile] = await ctx.db
+        .select()
+        .from(NewsReaderProfile)
+        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+        .limit(1);
+
+      if (!profile) return { removedCount: 0 };
+
+      const removedRows = await ctx.db
+        .update(NewsReaderInteraction)
+        .set({
+          metadata: sql<Record<string, unknown>>`(${NewsReaderInteraction.metadata})::jsonb - 'intentQuery'`,
+        })
+        .where(
+          buildNewsSearchMemoryRemovalCondition({
+            query: input.query,
+            readerProfileId: profile.id,
+          }),
+        )
+        .returning({ id: NewsReaderInteraction.id });
+
+      return { removedCount: removedRows.length };
+    }),
+
   searchCandidates: publicProcedure
     .input(NewsSearchCandidatesInputSchema)
     .query(async ({ ctx, input }) => {
       const candidateLimit = Math.min(input.limit * 3, 75);
+      const identity = resolveReaderIdentity(
+        ctx.session?.user.id,
+        input.visitorKey,
+      );
+      let searchProfile: NewsPreferenceProfile | undefined = input.profile
+        ? normalizeNewsPreferenceProfile(input.profile)
+        : undefined;
+
+      if (identity && !searchProfile) {
+        const [persistedProfile] = await ctx.db
+          .select()
+          .from(NewsReaderProfile)
+          .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
+          .limit(1);
+
+        if (persistedProfile) {
+          searchProfile = toPreferenceProfile(persistedProfile);
+        }
+      }
+
       const rows = await ctx.db
         .select({
           id: NewsItem.id,
@@ -3092,8 +4152,12 @@ export const newsRouter = {
         items: rows.map((row) => ({
           ...row,
           publishedAt: row.publishedAt.toISOString(),
+          sourceName: row.source.name,
+          sourceSlug: row.source.slug,
+          sourceType: row.source.sourceType,
         })),
         limit: input.limit,
+        profile: searchProfile,
       });
     }),
 } satisfies TRPCRouterRecord;

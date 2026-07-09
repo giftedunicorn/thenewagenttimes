@@ -248,7 +248,7 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Run pnpm run news:refresh against the target database.",
+        "Run pnpm run news:refresh:remote against the deployed service.",
       ],
       authConfigured: true,
       news: {
@@ -472,7 +472,7 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Inspect failed sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog. Rerun pnpm run news:refresh after fixing source issues.",
+        "Inspect failed sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog. Rerun pnpm run news:refresh:remote after fixing source issues.",
       ],
       news: {
         health: "error",
@@ -503,9 +503,9 @@ describe("handleNewsHealthRequest", () => {
       actionRequired: [
         "Set BETTER_AUTH_SECRET or AUTH_SECRET in the Railway service environment.",
         "Set NEWS_REFRESH_SECRET in the Railway service environment.",
-        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
         "Apply the database schema to the target database.",
-        "Seed sources and run pnpm run news:refresh.",
+        "Seed sources and run pnpm run news:refresh:remote.",
+        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
       ],
       authConfigured: false,
       checks: {
@@ -549,9 +549,9 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
         "Apply the database schema to the target database.",
-        "Seed sources and run pnpm run news:refresh.",
+        "Seed sources and run pnpm run news:refresh:remote.",
+        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
       ],
       checks: {
         auth: true,

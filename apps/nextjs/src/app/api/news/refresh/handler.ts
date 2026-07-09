@@ -24,6 +24,18 @@ interface HandleNewsRefreshRequestInput {
   request: Request;
 }
 
+type NewsRefreshNextStep =
+  | "embed-news-stories"
+  | "inspect-source-failures"
+  | "ready"
+  | "seed-news-sources";
+
+const newsRefreshCommands = {
+  embed: "pnpm run news:embed:remote",
+  refresh: "pnpm run news:refresh:remote",
+  seedSources: "pnpm run news:seed-sources",
+} as const;
+
 const readRequestSecret = (request: Request) => {
   const authorization = request.headers.get("authorization");
   const bearerMatch = authorization?.match(/^Bearer\s+(.+)$/i);
@@ -37,6 +49,65 @@ const readRequestSecret = (request: Request) => {
 
 const getNewsRefreshErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Unknown news refresh failure";
+
+const getNewsRefreshNextStep = (
+  result: NewsRefreshSummary,
+): NewsRefreshNextStep => {
+  if (result.sourcesSeeded === 0) return "seed-news-sources";
+  if (result.sourcesFailed > 0) return "inspect-source-failures";
+  if (result.itemsCreated + result.itemsUpdated > 0) {
+    return "embed-news-stories";
+  }
+
+  return "ready";
+};
+
+const getNewsRefreshFailedSourceDiagnostics = (result: NewsRefreshSummary) => {
+  const failedSources = result.sourceHealth.failedSourceSlugs
+    .map((slug) => {
+      const message = result.sourceHealth.failureMessages[slug];
+
+      return message ? `${slug} (${message})` : slug;
+    })
+    .join(", ");
+  const emptySources =
+    result.sourceHealth.emptySourceSlugs.length > 0
+      ? ` Empty sources: ${result.sourceHealth.emptySourceSlugs.join(", ")}.`
+      : "";
+
+  return `Inspect failed news sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh:remote after fixing source issues.`;
+};
+
+const getNewsRefreshActionRequired = (
+  nextStep: NewsRefreshNextStep,
+  result: NewsRefreshSummary,
+) => {
+  switch (nextStep) {
+    case "embed-news-stories":
+      return [
+        "Run pnpm run news:embed:remote so semantic recommendations include refreshed stories.",
+      ];
+    case "inspect-source-failures":
+      return [getNewsRefreshFailedSourceDiagnostics(result)];
+    case "seed-news-sources":
+      return ["Seed news sources before running the refresh job again."];
+    case "ready":
+      return [];
+  }
+};
+
+const getNewsRefreshCommandForNextStep = (nextStep: NewsRefreshNextStep) => {
+  switch (nextStep) {
+    case "embed-news-stories":
+      return newsRefreshCommands.embed;
+    case "inspect-source-failures":
+      return newsRefreshCommands.refresh;
+    case "seed-news-sources":
+      return newsRefreshCommands.seedSources;
+    case "ready":
+      return newsRefreshCommands.refresh;
+  }
+};
 
 export const handleNewsRefreshRequest = async ({
   expectedSecret,
@@ -64,9 +135,19 @@ export const handleNewsRefreshRequest = async ({
       { status: 500 },
     );
   }
+  const nextStep = getNewsRefreshNextStep(result);
 
   return Response.json({
+    actionRequired: getNewsRefreshActionRequired(nextStep, result),
+    commands: {
+      embed: newsRefreshCommands.embed,
+      next: getNewsRefreshCommandForNextStep(nextStep),
+      refresh: newsRefreshCommands.refresh,
+      seedSources: newsRefreshCommands.seedSources,
+    },
+    nextStep,
     ok: true,
+    ready: nextStep === "ready",
     ...result,
   });
 };

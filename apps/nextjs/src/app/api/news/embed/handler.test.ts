@@ -76,13 +76,71 @@ describe("handleNewsEmbedRequest", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       embedded: 24,
       failed: 1,
       limit: 25,
       ok: true,
     });
     expect(embed).toHaveBeenCalledWith({ limit: 25 });
+  });
+
+  it("tells operators to retry embeddings when the provider fails part of the batch", async () => {
+    const embed = vi.fn(({ limit }: { limit: number }) =>
+      Promise.resolve({ embedded: limit - 1, failed: 1 }),
+    );
+
+    const response = await handleNewsEmbedRequest({
+      apiKey: "openai-key",
+      embed,
+      expectedSecret: "correct-secret-value",
+      request: new Request("https://example.com/api/news/embed", {
+        headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Retry pnpm run news:embed:remote; 1 story failed to embed in this batch.",
+      ],
+      commands: {
+        embed: "pnpm run news:embed:remote",
+        next: "pnpm run news:embed:remote",
+      },
+      nextStep: "retry-news-embeddings",
+      ok: true,
+      ready: false,
+    });
+  });
+
+  it("points operators to the health check when the embedding batch drains", async () => {
+    const embed = vi.fn(() => Promise.resolve({ embedded: 3, failed: 0 }));
+
+    const response = await handleNewsEmbedRequest({
+      apiKey: "openai-key",
+      embed,
+      expectedSecret: "correct-secret-value",
+      request: new Request("https://example.com/api/news/embed?limit=25", {
+        headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
+      ],
+      commands: {
+        health: "pnpm run news:health:remote",
+        next: "pnpm run news:health:remote",
+      },
+      nextStep: "check-news-health",
+      ok: true,
+      ready: true,
+    });
   });
 
   it("accepts bounded embedding batch limits from the request URL", async () => {
@@ -101,7 +159,7 @@ describe("handleNewsEmbedRequest", () => {
     });
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       embedded: 100,
       failed: 0,
       limit: 100,

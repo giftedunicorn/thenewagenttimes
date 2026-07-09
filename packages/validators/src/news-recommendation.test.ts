@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import {
   buildNewsSemanticSimilarityMatches,
@@ -85,6 +85,24 @@ describe("normalizeNewsPreferenceProfile", () => {
       preferredEntities: ["OpenAI", "Anthropic"],
       noveltyBias: 2,
       recencyBias: 0,
+    });
+  });
+
+  test("normalizes non-finite bias values to neutral preference strength", () => {
+    const profile = normalizeNewsPreferenceProfile({
+      preferredCategories: ["agent_product"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: ["openai-news"],
+      noveltyBias: Number.POSITIVE_INFINITY,
+      recencyBias: Number.NaN,
+    });
+
+    expect(profile).toEqual({
+      preferredCategories: ["agent_product"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: ["openai-news"],
+      noveltyBias: 1,
+      recencyBias: 1,
     });
   });
 
@@ -233,6 +251,45 @@ describe("rankNewsForReader", () => {
     expect(ranked[0]?.id).toBe("trimmed-signals");
     expect(ranked[0]?.matchedSignals).toEqual(
       expect.arrayContaining(["category", "source", "entity", "tag"]),
+    );
+  });
+
+  test("matches preferred reader topic and source separator variants", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "preferred-agent-source",
+          category: "agent_product",
+          entities: ["Agents"],
+          sourceSlug: "openai-news",
+          sourceScore: 80,
+          tags: ["agents"],
+          trendScore: 60,
+        },
+        {
+          ...items[1],
+          id: "unmatched-market-story",
+          category: "market_map",
+          entities: ["Market"],
+          sourceScore: 80,
+          sourceSlug: "market-map",
+          tags: ["market"],
+          trendScore: 85,
+        },
+      ],
+      {
+        preferredCategories: ["agent-product"],
+        preferredSources: ["OpenAI News"],
+        preferredEntities: [],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+    );
+
+    expect(ranked[0]?.id).toBe("preferred-agent-source");
+    expect(ranked[0]?.matchedSignals).toEqual(
+      expect.arrayContaining(["category", "source"]),
     );
   });
 
@@ -623,6 +680,74 @@ describe("rankNewsForReader", () => {
     ]);
   });
 
+  test("does not rank future-dated stories ahead of current valid news", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "future-dated-model-story",
+          publishedAt: "2026-08-01T09:00:00.000Z",
+          sourceScore: 90,
+          trendScore: 82,
+        },
+        {
+          ...items[0],
+          id: "current-valid-model-story",
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          sourceScore: 90,
+          trendScore: 82,
+        },
+      ],
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      new Date("2026-07-01T10:00:00.000Z"),
+    );
+
+    expect(ranked.map((item) => item.id)).toEqual([
+      "current-valid-model-story",
+      "future-dated-model-story",
+    ]);
+  });
+
+  test("does not break equal-score ties in favor of future-dated stories", () => {
+    const ranked = rankNewsForReader(
+      [
+        {
+          ...items[0],
+          id: "future-dated-tie",
+          publishedAt: "2026-08-01T09:00:00.000Z",
+          sourceScore: 90,
+          trendScore: 80,
+        },
+        {
+          ...items[0],
+          id: "current-valid-tie",
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          sourceScore: 90,
+          trendScore: 80,
+        },
+      ],
+      {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 0,
+        recencyBias: 0,
+      },
+      new Date("2026-07-01T10:00:00.000Z"),
+    );
+
+    expect(ranked.map((item) => item.id)).toEqual([
+      "current-valid-tie",
+      "future-dated-tie",
+    ]);
+  });
+
   test("guards the feed from low-trust high-heat sources", () => {
     const ranked = rankNewsForReader(
       [
@@ -756,6 +881,67 @@ describe("selectNewsRecommendationRotationSlots", () => {
     ]);
   });
 
+  test("honors a reader-selected rotation objective order", () => {
+    const slots = selectNewsRecommendationRotationSlots({
+      items: rotationItems,
+      limit: 4,
+      objectiveOrder: [
+        "source_trust",
+        "reader_match",
+        "exploration",
+        "market_heat",
+      ],
+    });
+
+    expect(
+      slots.map((slot) => ({
+        id: slot.item.id,
+        objective: slot.objective,
+        scoreKind: slot.scoreKind,
+      })),
+    ).toEqual([
+      {
+        id: "trusted-analysis",
+        objective: "source_trust",
+        scoreKind: "trust",
+      },
+      {
+        id: "reader-fit",
+        objective: "reader_match",
+        scoreKind: "score",
+      },
+      {
+        id: "explore-adjacent",
+        objective: "exploration",
+        scoreKind: "heat",
+      },
+      {
+        id: "market-hot",
+        objective: "market_heat",
+        scoreKind: "heat",
+      },
+    ]);
+
+    expect(
+      selectNewsRecommendationRotationFeed({
+        items: rotationItems,
+        limit: 5,
+        objectiveOrder: [
+          "source_trust",
+          "reader_match",
+          "exploration",
+          "market_heat",
+        ],
+      }).map((item) => item.id),
+    ).toEqual([
+      "trusted-analysis",
+      "reader-fit",
+      "explore-adjacent",
+      "market-hot",
+      "same-source-hot",
+    ]);
+  });
+
   test("keeps rotation source diversity across padded source slug variants", () => {
     const slots = selectNewsRecommendationRotationSlots({
       items: [
@@ -796,6 +982,44 @@ describe("selectNewsRecommendationRotationSlots", () => {
       "reader-fit",
       "explore-adjacent",
     ]);
+  });
+
+  test("does not break equal-score rotation ties in favor of future-dated stories", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const slots = selectNewsRecommendationRotationSlots({
+        items: [
+          {
+            ...items[0],
+            id: "future-rotation-tie",
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-08-01T09:00:00.000Z",
+            sourceScore: 82,
+            sourceSlug: "future-wire",
+            trendScore: 88,
+          },
+          {
+            ...items[0],
+            id: "current-rotation-tie",
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceScore: 82,
+            sourceSlug: "current-wire",
+            trendScore: 88,
+          },
+        ],
+        limit: 1,
+        objectiveOrder: ["market_heat"],
+      });
+
+      expect(slots[0]?.item.id).toBe("current-rotation-tie");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("returns an empty rotation while no ranked stories exist", () => {
@@ -1237,6 +1461,28 @@ describe("summarizeNewsRecommendation", () => {
     });
   });
 
+  test("explains reading-history cooldowns as recently read event repeats", () => {
+    const explanation = summarizeNewsRecommendation({
+      item: {
+        ...items[0],
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        matchedSignals: ["reading_history_cooldown"],
+        personalizedScore: 122,
+        publishedAt: "2026-07-01T09:30:00.000Z",
+        sourceScore: 86,
+        trendScore: 74,
+      },
+      now: new Date("2026-07-01T10:00:00.000Z"),
+    });
+
+    expect(explanation).toEqual({
+      badges: ["Recently read", "High heat", "Fresh", "Strong source"],
+      scoreLabel: "122 score",
+      summary:
+        "Moved behind unread stories because this card, URL, or event cluster was already in your reading history, while still supported by high story heat, fresh publication timing, and source credibility.",
+    });
+  });
+
   test("explains collaborative Less damping without treating it as reader preference", () => {
     const explanation = summarizeNewsRecommendation({
       item: {
@@ -1673,6 +1919,38 @@ describe("dedupeNewsItems", () => {
       "official-openai",
       "funding",
     ]);
+  });
+
+  test("does not keep future-dated duplicates when source and trend strength tie", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const deduped = dedupeNewsItems([
+        {
+          ...items[0],
+          id: "current-valid-duplicate",
+          canonicalUrl: "https://openai.com/news/agent-model",
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          sourceScore: 90,
+          trendScore: 88,
+        },
+        {
+          ...items[0],
+          id: "future-dated-duplicate",
+          canonicalUrl: "https://openai.com/news/agent-model",
+          publishedAt: "2026-08-01T09:00:00.000Z",
+          sourceScore: 90,
+          trendScore: 88,
+        },
+      ]);
+
+      expect(deduped.map((item) => item.id)).toEqual([
+        "current-valid-duplicate",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   test("collapses canonical and original URL variants while keeping the strongest source version", () => {
@@ -2755,6 +3033,29 @@ describe("buildNewsSemanticSimilarityMatches", () => {
       }),
     ).toEqual([]);
   });
+
+  test("ignores future-dated semantic feedback vectors", () => {
+    expect(
+      buildNewsSemanticSimilarityMatches({
+        candidateVectors: [
+          {
+            newsItemId: "agent-runtime-analysis",
+            embedding: [1, 0, 0],
+          },
+        ],
+        feedbackVectors: [
+          {
+            newsItemId: "future-agent-runtime",
+            embedding: [1, 0, 0],
+            occurredAt: "2026-08-01T08:00:00.000Z",
+            strength: 3,
+          },
+        ],
+        minSimilarity: 0.9,
+        now: new Date("2026-07-01T10:00:00.000Z"),
+      }),
+    ).toEqual([]);
+  });
 });
 
 describe("selectSemanticSimilarityNewsFeed", () => {
@@ -2791,6 +3092,71 @@ describe("selectSemanticSimilarityNewsFeed", () => {
     ]);
     expect(feed[0]?.matchedSignals).toContain("semantic_feedback");
     expect(feed[0]?.personalizedScore).toBeGreaterThan(112);
+  });
+
+  test("caps semantic feedback strength before applying recommendation lift", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "high-quality-generic-story",
+        personalizedScore: 115,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "oversized-strength-semantic-story",
+        category: "research",
+        entities: ["Agents"],
+        sourceSlug: "research-lab",
+        personalizedScore: 90,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectSemanticSimilarityNewsFeed(ranked, [
+      {
+        newsItemId: "oversized-strength-semantic-story",
+        similarity: 0.98,
+        strength: 1_000_000,
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "high-quality-generic-story",
+      "oversized-strength-semantic-story",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("semantic_feedback");
+    expect(feed[1]?.personalizedScore).toBeLessThan(115);
+  });
+
+  test("caps semantic similarity before selecting the strongest match", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "agent-runtime-analysis",
+        category: "research",
+        entities: ["Agents"],
+        sourceSlug: "research-lab",
+        personalizedScore: 100,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectSemanticSimilarityNewsFeed(ranked, [
+      {
+        newsItemId: "agent-runtime-analysis",
+        similarity: 99,
+        strength: 1,
+      },
+      {
+        newsItemId: "agent-runtime-analysis",
+        similarity: 0.98,
+        strength: 3,
+      },
+    ]);
+
+    expect(feed[0]?.matchedSignals).toContain("semantic_feedback");
+    expect(feed[0]?.personalizedScore).toBe(122);
   });
 
   test.each([
@@ -3732,6 +4098,43 @@ describe("selectSessionIntentNewsFeed", () => {
     expect(feed[0]?.matchedSignals).toContain("session_intent");
   });
 
+  test("lets specific multi-term search intent outrank generic high-score stories", () => {
+    const feed = selectSessionIntentNewsFeed(
+      [
+        {
+          ...items[0],
+          id: "generic-high-score-model-story",
+          matchedSignals: ["category"],
+          personalizedScore: 142,
+          summary: "A broadly important model release update.",
+          tags: ["model"],
+          title: "Frontier model release lands",
+        },
+        {
+          ...items[1],
+          id: "specific-search-intent-match",
+          matchedSignals: [],
+          personalizedScore: 120,
+          sourceName: "AgentOps Daily",
+          summary: "LangChain adds workflow memory for production agents.",
+          tags: ["runtime"],
+          title: "Runtime notes from the field",
+        },
+      ],
+      {
+        category: null,
+        query: "LangChain workflow memory agents",
+        sourceSlug: null,
+      },
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "specific-search-intent-match",
+      "generic-high-score-model-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("session_intent");
+  });
+
   test("lifts stories matching the current angle tag intent", () => {
     const feed = selectSessionIntentNewsFeed(
       [
@@ -4221,6 +4624,49 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
     expect(feed[1]?.matchedSignals).not.toContain("positive_feedback");
   });
 
+  test("ignores future-dated positive feedback before anchoring candidates", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "unrelated-story",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 190,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "future-save-follow-up",
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        personalizedScore: 120,
+        matchedSignals: ["entity"],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(
+      ranked,
+      [
+        {
+          action: "save",
+          category: "model_release",
+          entities: ["OpenAI"],
+          occurredAt: "2026-08-01T09:00:00.000Z",
+          sourceSlug: "openai-news",
+        },
+      ],
+      new Date("2026-07-01T09:00:00.000Z"),
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "unrelated-story",
+      "future-save-follow-up",
+    ]);
+    expect(feed[1]?.matchedSignals).not.toContain("positive_feedback");
+  });
+
   test("does not anchor source trust review stories from positive feedback", () => {
     const ranked = [
       {
@@ -4312,6 +4758,62 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
     ]);
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
     expect(feed[1]?.matchedSignals).toContain("positive_feedback");
+  });
+
+  test("orders explicit saved feedback ahead of newer implicit read matches", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "newer-read-follow-up",
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "older-saved-follow-up",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 120,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "unrelated-story",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "research-lab",
+        personalizedScore: 160,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        occurredAt: "2026-07-01T09:00:00.000Z",
+        sourceSlug: "openai-news",
+      },
+      {
+        action: "save",
+        category: "funding",
+        entities: ["Series A"],
+        occurredAt: "2026-06-01T09:00:00.000Z",
+        sourceSlug: "venturewire",
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "older-saved-follow-up",
+      "newer-read-follow-up",
+      "unrelated-story",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("positive_save_feedback");
+    expect(feed[1]?.matchedSignals).toContain("positive_read_feedback");
   });
 
   test("marks positive feedback anchors with the strongest matching action", () => {
@@ -6172,6 +6674,79 @@ describe("selectFreshnessQuotaBalancedNewsFeed", () => {
       },
     ]);
   });
+
+  test("uses clean fresh alternates before fresh stories already in reading history", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "older-model-lead",
+        personalizedScore: 210,
+        matchedSignals: ["category"],
+        publishedAt: "2026-06-28T08:00:00.000Z",
+      },
+      {
+        ...items[0],
+        id: "older-model-follow",
+        personalizedScore: 205,
+        matchedSignals: ["entity"],
+        publishedAt: "2026-06-28T09:00:00.000Z",
+      },
+      {
+        ...items[0],
+        id: "older-model-analysis",
+        personalizedScore: 200,
+        matchedSignals: ["source"],
+        publishedAt: "2026-06-28T10:00:00.000Z",
+      },
+      {
+        ...items[1],
+        id: "fresh-already-read",
+        personalizedScore: 190,
+        matchedSignals: ["reading_history_cooldown"],
+        publishedAt: "2026-07-01T08:00:00.000Z",
+      },
+      {
+        ...items[1],
+        id: "fresh-clean-alternate",
+        personalizedScore: 180,
+        matchedSignals: [],
+        publishedAt: "2026-07-01T07:00:00.000Z",
+      },
+    ];
+
+    expect(
+      selectFreshnessQuotaBalancedNewsFeed(ranked, {
+        freshnessWindowHours: 24,
+        limit: 5,
+        maxStaleItems: 3,
+        now: new Date("2026-07-01T12:00:00.000Z"),
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "older-model-lead",
+        signals: ["category"],
+      },
+      {
+        id: "older-model-follow",
+        signals: ["entity"],
+      },
+      {
+        id: "older-model-analysis",
+        signals: ["source"],
+      },
+      {
+        id: "fresh-clean-alternate",
+        signals: ["freshness_quota"],
+      },
+      {
+        id: "fresh-already-read",
+        signals: ["reading_history_cooldown"],
+      },
+    ]);
+  });
 });
 
 describe("selectReaderFreshNewsFeed", () => {
@@ -6250,6 +6825,43 @@ describe("selectReaderFreshNewsFeed", () => {
         ],
       ).map((item) => item.id),
     ).toEqual(["fresh-funding", "viewed-syndicated-model"]);
+  });
+
+  test("moves same-cluster variants of viewed stories behind unseen stories", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "viewed-cluster-wire-story",
+        canonicalUrl: "https://wire.example/openai-reasoning-release",
+        clusterKey: "2026-07-01:model_release:openai:gpt-6",
+        originalUrl: "https://wire.example/openai-reasoning-release",
+        personalizedScore: 180,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "fresh-funding",
+        canonicalUrl: "https://example.com/fresh-funding",
+        originalUrl: "https://example.com/fresh-funding",
+        personalizedScore: 160,
+        matchedSignals: ["entity"],
+      },
+    ];
+    const viewedClusterStory = {
+      canonicalUrl: "https://example.com/openai-gpt6",
+      clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+      originalUrl: "https://example.com/openai-gpt6",
+    };
+
+    expect(
+      selectReaderFreshNewsFeed(ranked, [], [viewedClusterStory]).map(
+        (item) => item.id,
+      ),
+    ).toEqual(["fresh-funding", "viewed-cluster-wire-story"]);
+    expect(
+      selectReaderFreshNewsFeed(ranked, [], [viewedClusterStory])[1]
+        ?.matchedSignals,
+    ).toContain("reading_history_cooldown");
   });
 
   test("keeps ranked order when no viewed story ids match", () => {
@@ -6794,6 +7406,46 @@ describe("selectExposureBalancedNewsFeed", () => {
     ]);
     expect(feed[0]?.matchedSignals).not.toContain("exposure_cooldown");
   });
+
+  test("does not cool down candidates from future-dated reading exposure", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-source-return",
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(
+      ranked,
+      [
+        {
+          category: "model_release",
+          entities: ["OpenAI"],
+          occurredAt: "2026-08-01T00:00:00.000Z",
+          sourceSlug: "openai-news",
+        },
+      ],
+      new Date("2026-07-07T00:00:00.000Z"),
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-source-return",
+      "fresh-market-angle",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("exposure_cooldown");
+  });
 });
 
 describe("selectNegativeFeedbackAdjustedNewsFeed", () => {
@@ -6839,6 +7491,46 @@ describe("selectNegativeFeedbackAdjustedNewsFeed", () => {
       "same-source-follow-up",
       "shared-entity-follow-up",
     ]);
+  });
+
+  test("ignores future-dated hidden feedback before suppressing candidates", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-source-follow-up",
+        entities: ["Anthropic"],
+        personalizedScore: 180,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "unrelated-agent-story",
+        category: "agent_product",
+        entities: ["Agents"],
+        sourceSlug: "agent-desk",
+        personalizedScore: 120,
+        matchedSignals: ["category"],
+      },
+    ];
+
+    const feed = selectNegativeFeedbackAdjustedNewsFeed(
+      ranked,
+      [
+        {
+          category: "model_release",
+          entities: ["OpenAI"],
+          occurredAt: "2026-08-01T00:00:00.000Z",
+          sourceSlug: "openai-news",
+        },
+      ],
+      new Date("2026-07-07T00:00:00.000Z"),
+    );
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-source-follow-up",
+      "unrelated-agent-story",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("negative_feedback");
   });
 
   test("moves stories sharing hidden feedback tags behind unrelated alternatives", () => {
@@ -6977,6 +7669,56 @@ describe("selectNegativeFeedbackAdjustedNewsFeed", () => {
     ]);
     expect(feed.slice(1).map((item) => item.matchedSignals)).toEqual([
       expect.arrayContaining(["negative_feedback"]),
+      expect.arrayContaining(["negative_feedback"]),
+      expect.arrayContaining(["negative_feedback"]),
+    ]);
+  });
+
+  test("normalizes hidden source and topic separator variants before suppressing follow-ups", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "source-separator-follow-up",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[0],
+        id: "topic-separator-follow-up",
+        category: "agent_product",
+        entities: ["Agents"],
+        sourceSlug: "research-lab",
+        personalizedScore: 180,
+        matchedSignals: ["category"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "market_map",
+        entities: ["AI market"],
+        sourceSlug: "market-map",
+        personalizedScore: 130,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectNegativeFeedbackAdjustedNewsFeed(ranked, [
+      {
+        category: "agent-product",
+        entities: ["OpenAI"],
+        sourceSlug: "OpenAI News",
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "fresh-market-angle",
+      "source-separator-follow-up",
+      "topic-separator-follow-up",
+    ]);
+    expect(feed.slice(1).map((item) => item.matchedSignals)).toEqual([
       expect.arrayContaining(["negative_feedback"]),
       expect.arrayContaining(["negative_feedback"]),
     ]);
@@ -7419,6 +8161,24 @@ describe("updateReaderProfileWithInteraction", () => {
       startingProfile,
       items[0],
       { action: "view", readPercent: 0.2 },
+    );
+
+    expect(profile).toEqual(startingProfile);
+  });
+
+  test("does not train the profile from non-finite read depth", () => {
+    const startingProfile = {
+      preferredCategories: [],
+      preferredSources: [],
+      preferredEntities: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+
+    const profile = updateReaderProfileWithInteraction(
+      startingProfile,
+      items[0],
+      { action: "view", readPercent: Infinity },
     );
 
     expect(profile).toEqual(startingProfile);

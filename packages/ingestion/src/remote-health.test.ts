@@ -329,7 +329,7 @@ describe("checkRemoteNewsHealth", () => {
                 nextStep: "configure-embedding-provider",
                 commands: {
                   next: null,
-                  schema: "pnpm run db:push",
+                  schema: "pnpm run db:predeploy",
                   refresh: "pnpm run news:refresh:remote",
                 },
                 news: {
@@ -354,7 +354,7 @@ describe("checkRemoteNewsHealth", () => {
         commands: {
           next: null,
           refresh: "pnpm run news:refresh:remote",
-          schema: "pnpm run db:push",
+          schema: "pnpm run db:predeploy",
         },
         body: {
           actionRequired: [
@@ -418,19 +418,19 @@ describe("formatRemoteNewsHealthSummary", () => {
         actionRequired: ["Apply the database schema to the target database."],
         body: {},
         commands: {
-          next: "pnpm run db:push",
-          schema: "pnpm run db:push",
+          next: "pnpm run db:predeploy",
+          schema: "pnpm run db:predeploy",
         },
         homepage: null,
         liveReady: false,
-        nextCommand: "pnpm run db:push",
+        nextCommand: "pnpm run db:predeploy",
         nextStep: "apply-database-schema",
         ready: false,
         semanticReady: false,
         status: 200,
       }),
     ).toBe(
-      "Remote news health: status=200 ready=false liveReady=false semanticReady=false nextStep=apply-database-schema nextCommand=pnpm run db:push",
+      "Remote news health: status=200 ready=false liveReady=false semanticReady=false nextStep=apply-database-schema nextCommand=pnpm run db:predeploy",
     );
   });
 });

@@ -10,8 +10,17 @@ interface HandleNewsEmbedRequestInput {
   request: Request;
 }
 
+type NewsEmbedNextStep =
+  | "check-news-health"
+  | "embed-news-stories"
+  | "retry-news-embeddings";
+
 const defaultNewsEmbedLimit = 25;
 const maxNewsEmbedLimit = 100;
+const newsEmbedCommands = {
+  embed: "pnpm run news:embed:remote",
+  health: "pnpm run news:health:remote",
+} as const;
 
 const readRequestSecret = (request: Request) => {
   const authorization = request.headers.get("authorization");
@@ -35,6 +44,47 @@ const readNewsEmbedLimit = (request: Request) => {
 
 const getNewsEmbedErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Unknown news embedding failure";
+
+const getNewsEmbedNextStep = ({
+  failed,
+  embedded,
+  limit,
+}: NewsEmbedSummary & { limit: number }): NewsEmbedNextStep => {
+  if (failed > 0) return "retry-news-embeddings";
+  if (embedded >= limit) return "embed-news-stories";
+
+  return "check-news-health";
+};
+
+const getNewsEmbedActionRequired = ({
+  failed,
+  nextStep,
+}: {
+  failed: number;
+  nextStep: NewsEmbedNextStep;
+}) => {
+  switch (nextStep) {
+    case "retry-news-embeddings":
+      return [
+        `Retry pnpm run news:embed:remote; ${failed} ${
+          failed === 1 ? "story" : "stories"
+        } failed to embed in this batch.`,
+      ];
+    case "embed-news-stories":
+      return [
+        "Run pnpm run news:embed:remote again; this batch filled the limit and more stories may remain.",
+      ];
+    case "check-news-health":
+      return [
+        "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
+      ];
+  }
+};
+
+const getNewsEmbedCommandForNextStep = (nextStep: NewsEmbedNextStep) =>
+  nextStep === "check-news-health"
+    ? newsEmbedCommands.health
+    : newsEmbedCommands.embed;
 
 export const handleNewsEmbedRequest = async ({
   apiKey,
@@ -71,9 +121,21 @@ export const handleNewsEmbedRequest = async ({
       { status: 500 },
     );
   }
+  const nextStep = getNewsEmbedNextStep({ ...result, limit });
 
   return Response.json({
+    actionRequired: getNewsEmbedActionRequired({
+      failed: result.failed,
+      nextStep,
+    }),
+    commands: {
+      embed: newsEmbedCommands.embed,
+      health: newsEmbedCommands.health,
+      next: getNewsEmbedCommandForNextStep(nextStep),
+    },
     ok: true,
+    ready: nextStep === "check-news-health",
+    nextStep,
     limit,
     ...result,
   });

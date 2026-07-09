@@ -91,7 +91,7 @@ const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
       ? ` Empty sources: ${sourceHealth.emptySourceSlugs.join(", ")}.`
       : "";
 
-  return `Inspect failed sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh after fixing source issues.`;
+  return `Inspect failed sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh:remote after fixing source issues.`;
 };
 
 const getNewsHealthActions = ({
@@ -108,6 +108,13 @@ const getNewsHealthActions = ({
   status: NewsDeskStatus;
 }) => {
   const actions: string[] = [];
+  const addEmbeddingProviderAction = () => {
+    if (!embeddingConfigured) {
+      actions.push(
+        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+      );
+    }
+  };
 
   if (!authConfigured) {
     actions.push(
@@ -119,36 +126,37 @@ const getNewsHealthActions = ({
     actions.push("Set NEWS_REFRESH_SECRET in the Railway service environment.");
   }
 
-  if (!embeddingConfigured) {
-    actions.push(
-      "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
-    );
-  }
-
   if (!isNewsSchemaReady({ schemaReadiness, status })) {
     actions.push(getNewsSchemaAction(schemaReadiness));
     if (status.health === "unavailable") {
-      actions.push("Seed sources and run pnpm run news:refresh.");
+      actions.push("Seed sources and run pnpm run news:refresh:remote.");
     }
+    addEmbeddingProviderAction();
     return actions;
   }
 
   if (status.health === "empty") {
-    actions.push("Seed sources and run pnpm run news:refresh.");
+    actions.push("Seed sources and run pnpm run news:refresh:remote.");
+    addEmbeddingProviderAction();
     return actions;
   }
 
   if (status.health === "seeded") {
-    actions.push("Run pnpm run news:refresh against the target database.");
+    actions.push(
+      "Run pnpm run news:refresh:remote against the deployed service.",
+    );
+    addEmbeddingProviderAction();
     return actions;
   }
 
   if (status.health === "error") {
     actions.push(
       getFailedSourceDiagnostics(status) ??
-        "Inspect the latest ingestion run and rerun pnpm run news:refresh.",
+        "Inspect the latest ingestion run and rerun pnpm run news:refresh:remote.",
     );
   }
+
+  addEmbeddingProviderAction();
 
   if (status.health === "live" && !isNewsSemanticReady(status)) {
     actions.push(

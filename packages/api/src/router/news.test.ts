@@ -1,21 +1,29 @@
 import { readFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { NewsForYouCandidate } from "./news";
 import {
   attachNewsRecommendationExplanations,
   buildNewsCollaborativeSignalCondition,
+  buildNewsDurableFeedbackDedupeCondition,
   buildNewsFeedCursorCondition,
   buildNewsFeedOrderByExpressions,
+  buildNewsFeedbackConflictCleanupCondition,
   buildNewsForYouCandidateConditions,
+  buildNewsForYouCandidateRecallInput,
   buildNewsGuardrailRestoreCondition,
+  buildNewsHistoryRemovalCondition,
   buildNewsHomeExposureDedupeCondition,
   buildNewsInteractionTrainingMetadata,
+  buildNewsForYouSessionIntent,
+  buildNewsPositiveFeedbackRemovalCondition,
   buildNewsPreferenceRollbackAfterInteractionRemoval,
   buildNewsReaderMutationProfileResponse,
+  buildNewsReaderProfileAfterInteractionBatchRemoval,
   buildNewsReaderProfileAfterInteractionRemoval,
   buildNewsReaderProfileResponse,
   buildNewsSavedRemovalCondition,
+  buildNewsSearchMemoryRemovalCondition,
   buildNewsTextSearchCondition,
   getNewsCollaborativeSignalScore,
   getNewsCollaborativeSignalWindowStart,
@@ -29,18 +37,25 @@ import {
   NewsHistoryInputSchema,
   NewsReaderProfileInputSchema,
   NewsRecordInteractionInputSchema,
+  NewsRecordSearchMemoryInputSchema,
+  NewsRemoveHistoryInputSchema,
+  NewsRemovePositiveFeedbackInputSchema,
   NewsRemoveSavedInputSchema,
+  NewsRemoveSearchMemoryInputSchema,
   NewsRestoreGuardrailInputSchema,
   newsRouter,
   NewsSavedInputSchema,
   NewsSearchCandidatesInputSchema,
+  NewsSearchMemoryInputSchema,
   NewsUpdateProfileInputSchema,
   rebuildNewsPreferenceProfileFromInteractions,
   selectNewsFeedItems,
   selectNewsForYouItems,
+  selectNewsSearchMemoryItems,
   selectNewsSearchCandidateItems,
   selectNewsViewedHistory,
   selectUniqueNewsCollectionItems,
+  shouldDedupeNewsDurableFeedbackInteraction,
   shouldDedupeNewsHomeExposureInteraction,
   shouldIncludeNewsInteractionAsPositiveFeedback,
   shouldIncludeNewsInteractionInReadingHistory,
@@ -199,19 +214,176 @@ describe("news router input contracts", () => {
     expect(
       NewsSearchCandidatesInputSchema.parse({
         q: "agent launch",
+        profile: {
+          noveltyBias: 1,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["Operator"],
+          preferredSources: ["agent-desk"],
+          recencyBias: 1,
+        },
         sourceSlug: " openai-news ",
         tag: "computer use",
+        visitorKey: "visitor-test-123",
       }),
     ).toMatchObject({
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredEntities: ["Operator"],
+        preferredSources: ["agent-desk"],
+      },
       sourceSlug: "openai-news",
       tag: "computer_use",
+      visitorKey: "visitor-test-123",
     });
+  });
+
+  it("defaults server search memory to the local memory window size", () => {
+    expect(
+      NewsSearchMemoryInputSchema.parse({
+        visitorKey: "visitor-test-123",
+      }).limit,
+    ).toBe(20);
+
+    expect(
+      NewsSearchMemoryInputSchema.safeParse({
+        limit: 21,
+        visitorKey: "visitor-test-123",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("normalizes persisted search-memory recording input without needing a story id", () => {
+    const result = NewsRecordSearchMemoryInputSchema.parse({
+      query: "  Agent_Product\nSignals  ",
+      resultCount: 4.4,
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(result).toEqual({
+      query: "agent product signals",
+      resultCount: 4,
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(
+      NewsRecordSearchMemoryInputSchema.safeParse({
+        query: "   ",
+        visitorKey: "visitor-test-123",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("normalizes removable search memory queries like persisted search memory", () => {
+    const result = NewsRemoveSearchMemoryInputSchema.parse({
+      query: "  Agent_Product\nSignals  ",
+      visitorKey: "visitor-test-123",
+    });
+
+    expect(result.query).toBe("agent product signals");
   });
 
   it("defaults personalized for-you feed limit to 20", () => {
     expect(
       NewsForYouInputSchema.parse({ visitorKey: "visitor-test-123" }).limit,
     ).toBe(20);
+  });
+
+  it("uses the latest persisted search memory as server For You intent", () => {
+    expect(
+      buildNewsForYouSessionIntent({
+        input: NewsForYouInputSchema.parse({
+          visitorKey: "visitor-test-123",
+        }),
+        searchMemoryItems: [
+          {
+            query: "langchain agents",
+            resultCount: 3,
+            searchedAt: "2026-07-06T10:00:00.000Z",
+          },
+          {
+            query: "evals",
+            resultCount: 1,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual({
+      category: null,
+      query: "langchain agents",
+      sourceSlug: null,
+      tag: null,
+    });
+  });
+
+  it("keeps explicit server For You request intent ahead of search memory", () => {
+    expect(
+      buildNewsForYouSessionIntent({
+        input: NewsForYouInputSchema.parse({
+          q: "frontier model pricing",
+          tag: "agent_product",
+          visitorKey: "visitor-test-123",
+        }),
+        searchMemoryItems: [
+          {
+            query: "langchain agents",
+            resultCount: 3,
+            searchedAt: "2026-07-06T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual({
+      category: null,
+      query: "frontier model pricing",
+      sourceSlug: null,
+      tag: "agent_product",
+    });
+  });
+
+  it("uses persisted search memory to widen server For You candidate recall", () => {
+    const input = NewsForYouInputSchema.parse({
+      visitorKey: "visitor-test-123",
+    });
+    const sessionIntent = buildNewsForYouSessionIntent({
+      input,
+      searchMemoryItems: [
+        {
+          query: "langchain workflow memory",
+          resultCount: 3,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(
+      buildNewsForYouCandidateRecallInput({
+        input,
+        sessionIntent,
+      }).q,
+    ).toBe("langchain workflow memory");
+  });
+
+  it("keeps explicit server For You query ahead of search-memory recall", () => {
+    const input = NewsForYouInputSchema.parse({
+      q: "frontier model pricing",
+      visitorKey: "visitor-test-123",
+    });
+    const sessionIntent = buildNewsForYouSessionIntent({
+      input,
+      searchMemoryItems: [
+        {
+          query: "langchain workflow memory",
+          resultCount: 3,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(
+      buildNewsForYouCandidateRecallInput({
+        input,
+        sessionIntent,
+      }).q,
+    ).toBe("frontier model pricing");
   });
 
   it("keeps public feed channel pagination fields out of personalized input", () => {
@@ -285,6 +457,24 @@ describe("news router input contracts", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("defines explicit positive feedback collection limits as a compact shelf", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const positiveFeedbackSchemaBlock = getSourceBlock({
+      end: "export const NewsGuardrailsInputSchema",
+      source,
+      start: "export const NewsPositiveFeedbackInputSchema",
+    });
+
+    expect(positiveFeedbackSchemaBlock).toContain(
+      "NewsReaderProfileInputSchema.extend",
+    );
+    expect(positiveFeedbackSchemaBlock).toContain(".max(25)");
+    expect(positiveFeedbackSchemaBlock).toContain(".default(6)");
   });
 
   it("defaults guardrail feedback collection limit to a compact sidebar shelf", () => {
@@ -609,6 +799,58 @@ describe("news router input contracts", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts removing one persisted read-history story", () => {
+    const result = NewsRemoveHistoryInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects read-history removal requests without a published story id", () => {
+    const result = NewsRemoveHistoryInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      newsItemId: "not-a-uuid",
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts removing one persisted explicit positive-feedback story", () => {
+    expect(
+      NewsRemovePositiveFeedbackInputSchema.safeParse({
+        action: "share",
+        visitorKey: "visitor-test-123",
+        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      }).success,
+    ).toBe(true);
+    expect(
+      NewsRemovePositiveFeedbackInputSchema.safeParse({
+        action: "click_source",
+        visitorKey: "visitor-test-123",
+        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects positive-feedback removal requests for saved or read actions", () => {
+    expect(
+      NewsRemovePositiveFeedbackInputSchema.safeParse({
+        action: "save",
+        visitorKey: "visitor-test-123",
+        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      }).success,
+    ).toBe(false);
+    expect(
+      NewsRemovePositiveFeedbackInputSchema.safeParse({
+        action: "view",
+        visitorKey: "visitor-test-123",
+        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts explicit reader profile updates from preference controls", () => {
     const result = NewsUpdateProfileInputSchema.safeParse({
       visitorKey: "visitor-test-123",
@@ -622,6 +864,26 @@ describe("news router input contracts", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("canonicalizes profile topic variants from direct API clients", () => {
+    const result = NewsUpdateProfileInputSchema.safeParse({
+      visitorKey: "visitor-test-123",
+      profile: {
+        preferredCategories: ["agent-product", "model release", "open-source"],
+        preferredSources: ["Agent Desk"],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.profile.preferredCategories).toEqual([
+      "agent_product",
+      "model_release",
+      "open_source",
+    ]);
   });
 
   it("rejects profile bias values outside the supported ranking range", () => {
@@ -653,6 +915,26 @@ describe("news router input contracts", () => {
 
   it("exposes a persisted saved-story removal endpoint", () => {
     expect(newsRouter).toHaveProperty("removeSaved");
+  });
+
+  it("exposes a persisted read-history removal endpoint", () => {
+    expect(newsRouter).toHaveProperty("removeHistory");
+  });
+
+  it("exposes a persisted positive-feedback removal endpoint", () => {
+    expect(newsRouter).toHaveProperty("removePositiveFeedback");
+  });
+
+  it("exposes a persisted search-memory removal endpoint", () => {
+    expect(newsRouter).toHaveProperty("removeSearchMemory");
+  });
+
+  it("exposes a persisted search-memory recording endpoint", () => {
+    expect(newsRouter).toHaveProperty("recordSearchMemory");
+  });
+
+  it("exposes persisted explicit positive feedback as a reader memory collection", () => {
+    expect(newsRouter).toHaveProperty("positiveFeedback");
   });
 });
 
@@ -756,6 +1038,128 @@ describe("news router cluster key data flow", () => {
     expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
   });
 
+  it("checks duplicate stateful feedback before applying profile training", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const recordInteractionBlock = getSourceBlock({
+      end: "  restoreGuardrail: publicProcedure",
+      source,
+      start: "  recordInteraction: publicProcedure",
+    });
+    const duplicateCheckIndex = recordInteractionBlock.indexOf(
+      "const duplicateDurableFeedback",
+    );
+    const profileTrainingIndex =
+      recordInteractionBlock.indexOf("const nextProfile");
+
+    expect(duplicateCheckIndex).toBeGreaterThanOrEqual(0);
+    expect(profileTrainingIndex).toBeGreaterThan(duplicateCheckIndex);
+    expect(recordInteractionBlock).toContain(
+      "shouldDedupeNewsDurableFeedbackInteraction(input)",
+    );
+    expect(recordInteractionBlock).toContain("canonicalUrl: item.canonicalUrl");
+    expect(recordInteractionBlock).toContain("clusterKey: item.clusterKey");
+    expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
+  });
+
+  it("removes persisted conflicting feedback before training the new interaction", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const recordInteractionBlock = getSourceBlock({
+      end: "  restoreGuardrail: publicProcedure",
+      source,
+      start: "  recordInteraction: publicProcedure",
+    });
+    const cleanupIndex = recordInteractionBlock.indexOf(
+      "const conflictCleanupProfile",
+    );
+    const profileTrainingIndex =
+      recordInteractionBlock.indexOf("const nextProfile");
+
+    expect(cleanupIndex).toBeGreaterThanOrEqual(0);
+    expect(profileTrainingIndex).toBeGreaterThan(cleanupIndex);
+    expect(recordInteractionBlock).toContain(
+      "removeNewsReaderInteractionAndRollbackProfile",
+    );
+    expect(recordInteractionBlock).toContain(
+      "buildNewsFeedbackConflictCleanupCondition({",
+    );
+    expect(recordInteractionBlock).toContain("action: input.action");
+    expect(recordInteractionBlock).toContain("canonicalUrl: item.canonicalUrl");
+    expect(recordInteractionBlock).toContain("clusterKey: item.clusterKey");
+    expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
+  });
+
+  it("passes story identity into saved, history, positive feedback, and guardrail removal conditions", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const restoreGuardrailBlock = getSourceBlock({
+      end: "  removeSaved: publicProcedure",
+      source,
+      start: "  restoreGuardrail: publicProcedure",
+    });
+    const removeSavedBlock = getSourceBlock({
+      end: "  removeHistory: publicProcedure",
+      source,
+      start: "  removeSaved: publicProcedure",
+    });
+    const removeHistoryBlock = getSourceBlock({
+      end: "  removePositiveFeedback: publicProcedure",
+      source,
+      start: "  removeHistory: publicProcedure",
+    });
+    const removePositiveFeedbackBlock = getSourceBlock({
+      end: "  updateProfile: publicProcedure",
+      source,
+      start: "  removePositiveFeedback: publicProcedure",
+    });
+
+    for (const block of [
+      restoreGuardrailBlock,
+      removeSavedBlock,
+      removeHistoryBlock,
+      removePositiveFeedbackBlock,
+    ]) {
+      expect(block).toContain("getNewsFeedbackItemIdentity");
+      expect(block).toContain("canonicalUrl: itemIdentity?.canonicalUrl");
+      expect(block).toContain("clusterKey: itemIdentity?.clusterKey");
+      expect(block).toContain("originalUrl: itemIdentity?.originalUrl");
+    }
+  });
+
+  it("selects persisted explicit share and source-click feedback into reader memory", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const positiveFeedbackBlock = getSourceBlock({
+      end: "  guardrails: publicProcedure",
+      source,
+      start: "  positiveFeedback: publicProcedure",
+    });
+
+    expect(positiveFeedbackBlock).toContain(
+      ".input(NewsPositiveFeedbackInputSchema)",
+    );
+    expect(positiveFeedbackBlock).toContain(
+      'inArray(NewsReaderInteraction.action, ["share", "click_source"])',
+    );
+    expect(positiveFeedbackBlock).toContain(
+      "action: NewsReaderInteraction.action",
+    );
+    expect(positiveFeedbackBlock).toContain(
+      "occurredAt: NewsReaderInteraction.occurredAt",
+    );
+    expect(positiveFeedbackBlock).toContain("selectUniqueNewsCollectionItems");
+    expect(positiveFeedbackBlock).toContain("hiddenRows.map");
+  });
+
   it("passes cluster keys into semantic similarity vectors", async () => {
     const source = await readFile(
       new URL("./news.ts", import.meta.url),
@@ -797,6 +1201,77 @@ describe("news router cluster key data flow", () => {
       "item.clusterKey.trim().toLowerCase()",
     );
     expect(forYouBlock).toContain("toNewsCollaborativeSignal(row)");
+  });
+
+  it("hydrates server-side For You intent from persisted search memory", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const forYouBlock = getSourceBlock({
+      end: "  saved: publicProcedure",
+      source,
+      start: "  forYou: publicProcedure",
+    });
+
+    expect(forYouBlock).toContain(
+      "let searchMemoryItems: NewsSearchMemoryItem[] = []",
+    );
+    expect(forYouBlock).toContain("const searchMemoryWindowEnd = new Date();");
+    expect(forYouBlock).toContain("searchMemoryRows,");
+    expect(forYouBlock).toContain(
+      "getNewsSearchMemoryWindowStart(searchMemoryWindowEnd)",
+    );
+    expect(forYouBlock).toContain(
+      "NewsReaderInteraction.occurredAt} <= ${searchMemoryWindowEnd}",
+    );
+    const searchMemoryRowsBlock = getSourceBlock({
+      end: ".limit(8)",
+      source: forYouBlock,
+      start: `ctx.db
+              .select({
+                metadata: NewsReaderInteraction.metadata,
+                occurredAt: NewsReaderInteraction.occurredAt,
+              })
+              .from(NewsReaderInteraction)`,
+    });
+
+    expect(searchMemoryRowsBlock).toContain(
+      'eq(NewsReaderInteraction.action, "view")',
+    );
+    expect(searchMemoryRowsBlock).toContain(
+      "NewsReaderInteraction.metadata}->>'surface' = 'search'",
+    );
+    expect(forYouBlock).toContain(
+      "searchMemoryItems = selectNewsSearchMemoryItems(searchMemoryRows, 1)",
+    );
+    expect(forYouBlock).toContain(
+      "const sessionIntent = buildNewsForYouSessionIntent({",
+    );
+    expect(forYouBlock).toContain("searchMemoryItems,");
+  });
+
+  it("uses persisted search intent for server-side For You candidate recall", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const forYouBlock = getSourceBlock({
+      end: "  saved: publicProcedure",
+      source,
+      start: "  forYou: publicProcedure",
+    });
+
+    expect(forYouBlock).toContain(
+      "const sessionIntent = buildNewsForYouSessionIntent({",
+    );
+    expect(forYouBlock).toContain(
+      "const candidateRecallInput = buildNewsForYouCandidateRecallInput({",
+    );
+    expect(forYouBlock).toContain("sessionIntent,");
+    expect(forYouBlock).toContain(
+      "buildNewsForYouCandidateConditions({ input: candidateRecallInput })",
+    );
   });
 });
 
@@ -1623,9 +2098,17 @@ describe("buildNewsHomeExposureDedupeCondition", () => {
       source,
       start: "export const buildNewsHomeExposureDedupeCondition",
     });
+    const identityBlock = getSourceBlock({
+      end: "export const buildNewsHomeExposureDedupeCondition",
+      source,
+      start: "const buildNewsInteractionStoryIdentityCondition",
+    });
 
-    expect(conditionBlock).toContain("lower(${NewsItem.clusterKey})");
-    expect(conditionBlock).toContain("= ${normalizedClusterKey}");
+    expect(conditionBlock).toContain(
+      "buildNewsInteractionStoryIdentityCondition",
+    );
+    expect(identityBlock).toContain("lower(${NewsItem.clusterKey})");
+    expect(identityBlock).toContain("= ${normalizedClusterKey}");
   });
 
   it("can match prior home exposures from another item with URL variants", () => {
@@ -1662,6 +2145,27 @@ describe("buildNewsGuardrailRestoreCondition", () => {
     expect(sqlText).toContain("hide");
     expect(sqlText).not.toContain("save");
   });
+
+  it("restores Less feedback across URL and cluster variants of the same story", () => {
+    const condition = buildNewsGuardrailRestoreCondition({
+      canonicalUrl: "https://www.openai.com/news/gpt-6?utm=home#comments",
+      clusterKey: "2026-07-01:model_release:openai:gpt-6",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      originalUrl: "http://openai.com/news/gpt-6/",
+      readerProfileId: "reader-profile-123",
+    } as Parameters<typeof buildNewsGuardrailRestoreCondition>[0] & {
+      canonicalUrl: string;
+      clusterKey: string;
+      originalUrl: string;
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("clusterKey");
+    expect(sqlText).toContain("canonicalUrl");
+    expect(sqlText).toContain("originalUrl");
+    expect(sqlText).toContain("openai.com/news/gpt-6");
+    expect(sqlText).toContain("hide");
+  });
 });
 
 describe("buildNewsSavedRemovalCondition", () => {
@@ -1677,6 +2181,225 @@ describe("buildNewsSavedRemovalCondition", () => {
     expect(sqlText).toContain("action");
     expect(sqlText).toContain("save");
     expect(sqlText).not.toContain("hide");
+  });
+
+  it("removes saved feedback across URL and cluster variants of the same story", () => {
+    const condition = buildNewsSavedRemovalCondition({
+      canonicalUrl: "https://www.openai.com/news/gpt-6?utm=saved#comments",
+      clusterKey: "2026-07-01:model_release:openai:gpt-6",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      originalUrl: "http://openai.com/news/gpt-6/",
+      readerProfileId: "reader-profile-123",
+    } as Parameters<typeof buildNewsSavedRemovalCondition>[0] & {
+      canonicalUrl: string;
+      clusterKey: string;
+      originalUrl: string;
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("clusterKey");
+    expect(sqlText).toContain("canonicalUrl");
+    expect(sqlText).toContain("originalUrl");
+    expect(sqlText).toContain("openai.com/news/gpt-6");
+    expect(sqlText).toContain("save");
+  });
+});
+
+describe("shouldDedupeNewsDurableFeedbackInteraction", () => {
+  it("deduplicates stateful save and Less feedback without muting repeat engagement signals", () => {
+    expect(shouldDedupeNewsDurableFeedbackInteraction({ action: "save" })).toBe(
+      true,
+    );
+    expect(shouldDedupeNewsDurableFeedbackInteraction({ action: "hide" })).toBe(
+      true,
+    );
+    expect(
+      shouldDedupeNewsDurableFeedbackInteraction({ action: "share" }),
+    ).toBe(false);
+    expect(
+      shouldDedupeNewsDurableFeedbackInteraction({ action: "click_source" }),
+    ).toBe(false);
+    expect(shouldDedupeNewsDurableFeedbackInteraction({ action: "view" })).toBe(
+      false,
+    );
+  });
+});
+
+describe("buildNewsHistoryRemovalCondition", () => {
+  it("targets meaningful article reads for the requested reader and story", () => {
+    const condition = buildNewsHistoryRemovalCondition({
+      newsItemId: "news-1",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition).toLowerCase();
+
+    expect(sqlText).toContain("readerprofileid");
+    expect(sqlText).toContain("newsitemid");
+    expect(sqlText).toContain("view");
+    expect(sqlText).toContain("article");
+    expect(sqlText).toContain("readpercent");
+    expect(sqlText).toContain("0.35");
+  });
+
+  it("removes clustered and URL-equivalent read-history stories together", () => {
+    const condition = buildNewsHistoryRemovalCondition({
+      canonicalUrl: "https://www.example.com/story?utm=1",
+      clusterKey: " Model Launch ",
+      newsItemId: "news-1",
+      originalUrl: "https://source.example.com/story#comments",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("clusterKey");
+    expect(sqlText).toContain("canonicalUrl");
+    expect(sqlText).toContain("originalUrl");
+  });
+});
+
+describe("buildNewsPositiveFeedbackRemovalCondition", () => {
+  it("targets one explicit positive action for the requested reader and story", () => {
+    const condition = buildNewsPositiveFeedbackRemovalCondition({
+      action: "share",
+      newsItemId: "news-1",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition).toLowerCase();
+
+    expect(sqlText).toContain("readerprofileid");
+    expect(sqlText).toContain("newsitemid");
+    expect(sqlText).toContain("action");
+    expect(sqlText).toContain("share");
+    expect(sqlText).not.toContain("click_source");
+  });
+
+  it("removes URL-equivalent source-click feedback for the same story", () => {
+    const condition = buildNewsPositiveFeedbackRemovalCondition({
+      action: "click_source",
+      canonicalUrl: "https://www.example.com/story?utm=1",
+      clusterKey: " Model Launch ",
+      newsItemId: "news-1",
+      originalUrl: "https://source.example.com/story#comments",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("click_source");
+    expect(sqlText).toContain("clusterKey");
+    expect(sqlText).toContain("canonicalUrl");
+    expect(sqlText).toContain("originalUrl");
+  });
+});
+
+describe("buildNewsSearchMemoryRemovalCondition", () => {
+  it("targets normalized search intent metadata for the requested reader", () => {
+    const condition = buildNewsSearchMemoryRemovalCondition({
+      query: "agent-product signals",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition).toLowerCase();
+
+    expect(sqlText).toContain("readerprofileid");
+    expect(sqlText).toContain("intentquery");
+    expect(sqlText).toContain("regexp_replace");
+    expect(sqlText).toContain("agent product signals");
+  });
+});
+
+describe("buildNewsFeedbackConflictCleanupCondition", () => {
+  it("removes positive anchors for the same story when Less is recorded", () => {
+    const condition = buildNewsFeedbackConflictCleanupCondition({
+      action: "hide",
+      canonicalUrl: "https://www.example.com/story?utm=less#comments",
+      clusterKey: " Model Launch ",
+      newsItemId: "news-1",
+      originalUrl: "https://source.example.com/story?utm=wire",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition).toLowerCase();
+
+    expect(sqlText).toContain("readerprofileid");
+    expect(sqlText).toContain("clusterkey");
+    expect(sqlText).toContain("canonicalurl");
+    expect(sqlText).toContain("originalurl");
+    expect(sqlText).toContain("save");
+    expect(sqlText).toContain("share");
+    expect(sqlText).toContain("click_source");
+    expect(sqlText).toContain("view");
+    expect(sqlText).toContain("readpercent");
+    expect(sqlText).toContain("0.35");
+  });
+
+  it("removes Less guardrails for the same story when positive feedback is recorded", () => {
+    const condition = buildNewsFeedbackConflictCleanupCondition({
+      action: "save",
+      canonicalUrl: "https://www.example.com/story?utm=save#comments",
+      clusterKey: " Model Launch ",
+      newsItemId: "news-1",
+      originalUrl: "https://source.example.com/story?utm=wire",
+      readerProfileId: "profile-1",
+    });
+    const sqlText = collectSqlDebugText(condition).toLowerCase();
+
+    expect(sqlText).toContain("readerprofileid");
+    expect(sqlText).toContain("clusterkey");
+    expect(sqlText).toContain("canonicalurl");
+    expect(sqlText).toContain("originalurl");
+    expect(sqlText).toContain("hide");
+    expect(sqlText).not.toContain("click_source");
+    expect(sqlText).not.toContain("readpercent");
+  });
+
+  it("does not build a broad cleanup condition for passive views", () => {
+    const condition = buildNewsFeedbackConflictCleanupCondition({
+      action: "view",
+      canonicalUrl: "https://www.example.com/story?utm=view#comments",
+      clusterKey: " Model Launch ",
+      newsItemId: "news-1",
+      originalUrl: "https://source.example.com/story?utm=wire",
+      readerProfileId: "profile-1",
+    });
+
+    expect(collectSqlDebugText(condition).toLowerCase()).toBe("false");
+  });
+});
+
+describe("buildNewsDurableFeedbackDedupeCondition", () => {
+  it("targets one reader, one story, and one stateful feedback action", () => {
+    const condition = buildNewsDurableFeedbackDedupeCondition({
+      action: "save",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      readerProfileId: "reader-profile-123",
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("readerProfileId");
+    expect(sqlText).toContain("newsItemId");
+    expect(sqlText).toContain("action");
+    expect(sqlText).toContain("save");
+    expect(sqlText).not.toContain("hide");
+  });
+
+  it("deduplicates saved feedback across URL and cluster variants of the same story", () => {
+    const condition = buildNewsDurableFeedbackDedupeCondition({
+      action: "save",
+      canonicalUrl: "https://www.openai.com/news/gpt-6?utm=home#comments",
+      clusterKey: "2026-07-01:model_release:openai:gpt-6",
+      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
+      originalUrl: "http://openai.com/news/gpt-6/",
+      readerProfileId: "reader-profile-123",
+    } as Parameters<typeof buildNewsDurableFeedbackDedupeCondition>[0] & {
+      canonicalUrl: string;
+      clusterKey: string;
+      originalUrl: string;
+    });
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("clusterKey");
+    expect(sqlText).toContain("canonicalUrl");
+    expect(sqlText).toContain("originalUrl");
+    expect(sqlText).toContain("openai.com/news/gpt-6");
+    expect(sqlText).toContain("save");
   });
 });
 
@@ -1706,6 +2429,15 @@ describe("selectNewsSearchCandidateItems", () => {
     const sqlText = collectSqlDebugText(condition);
 
     expect(sqlText).toContain("computer_use");
+  });
+
+  it("matches hyphenated topic queries against readable text and category keys", () => {
+    const condition = buildNewsTextSearchCondition("model-release");
+    const sqlText = collectSqlDebugText(condition);
+
+    expect(sqlText).toContain("category");
+    expect(sqlText).toContain("model release");
+    expect(sqlText).toContain("model_release");
   });
 
   it("matches search queries against source names and slugs", () => {
@@ -1763,6 +2495,246 @@ describe("selectNewsSearchCandidateItems", () => {
     );
   });
 
+  it("loads the reader profile before ranking search candidates", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const searchCandidatesSource = getSourceBlock({
+      end: "\n} satisfies TRPCRouterRecord",
+      source,
+      start: "  searchCandidates: publicProcedure",
+    });
+
+    expect(searchCandidatesSource).toContain("resolveReaderIdentity(");
+    expect(searchCandidatesSource).toContain("input.profile");
+    expect(searchCandidatesSource).toContain("input.visitorKey");
+    expect(searchCandidatesSource).toContain("if (identity && !searchProfile)");
+    expect(searchCandidatesSource).toContain("NewsReaderProfile");
+    expect(searchCandidatesSource).toContain("profile: searchProfile");
+  });
+
+  it("selects recent persisted search memory from interaction intent queries", () => {
+    const searchMemoryItems = selectNewsSearchMemoryItems(
+      [
+        {
+          metadata: {
+            intentQuery: "  Agent_Product  ",
+          },
+          occurredAt: new Date("2026-07-06T09:00:00.000Z"),
+        },
+        {
+          metadata: {
+            intentQuery: "agent product",
+          },
+          occurredAt: new Date("2026-07-06T10:00:00.000Z"),
+        },
+        {
+          metadata: {
+            intentQuery: "deployment evidence",
+          },
+          occurredAt: new Date("2026-07-06T08:00:00.000Z"),
+        },
+        {
+          metadata: {
+            intentQuery: "   ",
+          },
+          occurredAt: new Date("2026-07-06T11:00:00.000Z"),
+        },
+      ],
+      20,
+    );
+
+    expect(searchMemoryItems).toEqual([
+      {
+        query: "agent product",
+        resultCount: 2,
+        searchedAt: "2026-07-06T10:00:00.000Z",
+      },
+      {
+        query: "deployment evidence",
+        resultCount: 1,
+        searchedAt: "2026-07-06T08:00:00.000Z",
+      },
+    ]);
+  });
+
+  it("ignores future-dated persisted search memory before it can steer For You", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
+
+    try {
+      expect(
+        selectNewsSearchMemoryItems(
+          [
+            {
+              metadata: {
+                intentQuery: "future agent leak",
+              },
+              occurredAt: new Date("2026-07-10T09:00:00.000Z"),
+            },
+            {
+              metadata: {
+                intentQuery: "current agent memory",
+              },
+              occurredAt: new Date("2026-07-09T09:00:00.000Z"),
+            },
+          ],
+          20,
+        ),
+      ).toEqual([
+        {
+          query: "current agent memory",
+          resultCount: 1,
+          searchedAt: "2026-07-09T09:00:00.000Z",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ignores stale persisted search memory before it can steer For You", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
+
+    try {
+      expect(
+        selectNewsSearchMemoryItems(
+          [
+            {
+              metadata: {
+                intentQuery: "stale model pricing",
+              },
+              occurredAt: new Date("2026-06-01T09:00:00.000Z"),
+            },
+            {
+              metadata: {
+                intentQuery: "fresh agent memory",
+              },
+              occurredAt: new Date("2026-07-08T09:00:00.000Z"),
+            },
+          ],
+          20,
+        ),
+      ).toEqual([
+        {
+          query: "fresh agent memory",
+          resultCount: 1,
+          searchedAt: "2026-07-08T09:00:00.000Z",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("exposes persisted search intent memory through the news router", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const searchMemorySource = getSourceBlock({
+      end: "\n\n  searchCandidates: publicProcedure",
+      source,
+      start: "  searchMemory: publicProcedure",
+    });
+
+    expect(searchMemorySource).toContain("NewsSearchMemoryInputSchema");
+    expect(searchMemorySource).toContain("resolveReaderIdentity(");
+    expect(searchMemorySource).toContain("NewsReaderProfile.readerKey");
+    expect(searchMemorySource).toContain("metadata}->>'intentQuery'");
+    expect(searchMemorySource).toContain("const searchMemoryWindowEnd");
+    expect(searchMemorySource).toContain(
+      "getNewsSearchMemoryWindowStart(searchMemoryWindowEnd)",
+    );
+    expect(searchMemorySource).toContain(
+      "NewsReaderInteraction.occurredAt} <= ${searchMemoryWindowEnd}",
+    );
+    expect(searchMemorySource).toContain(
+      'eq(NewsReaderInteraction.action, "view")',
+    );
+    expect(searchMemorySource).toContain(
+      "NewsReaderInteraction.metadata}->>'surface' = 'search'",
+    );
+    expect(searchMemorySource).toContain("selectNewsSearchMemoryItems");
+  });
+
+  it("records direct search-page intent without training the reader profile", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const recordSearchMemorySource = getSourceBlock({
+      end: "\n\n  searchMemory: publicProcedure",
+      source,
+      start: "  recordSearchMemory: publicProcedure",
+    });
+
+    expect(recordSearchMemorySource).toContain(
+      "NewsRecordSearchMemoryInputSchema",
+    );
+    expect(recordSearchMemorySource).toContain("resolveReaderIdentity(");
+    expect(recordSearchMemorySource).toContain(
+      "buildNewsTextSearchCondition(input.query)",
+    );
+    expect(recordSearchMemorySource).toContain("NewsReaderInteraction");
+    expect(recordSearchMemorySource).toContain('surface: "search"');
+    expect(recordSearchMemorySource).toContain("intentQuery: input.query");
+    expect(recordSearchMemorySource).toContain("profileBefore: currentProfile");
+    expect(recordSearchMemorySource).toContain("profileAfter: currentProfile");
+    expect(recordSearchMemorySource).not.toContain(
+      "updateReaderProfileWithInteraction",
+    );
+  });
+
+  it("persists zero-result search intent with a neutral published story anchor", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const recordSearchMemorySource = getSourceBlock({
+      end: "\n\n  searchMemory: publicProcedure",
+      source,
+      start: "  recordSearchMemory: publicProcedure",
+    });
+
+    expect(recordSearchMemorySource).not.toContain("if (!item) {");
+    expect(recordSearchMemorySource).toContain("const [searchMemoryAnchorItem]");
+    expect(recordSearchMemorySource).toContain("matchedResult: Boolean(item)");
+    expect(recordSearchMemorySource).toContain(
+      "newsItemId: searchMemoryAnchorItem.id",
+    );
+    expect(recordSearchMemorySource).toContain(
+      "Unable to find a published story to anchor reader search memory.",
+    );
+  });
+
+  it("removes persisted search memory by stripping intent metadata only", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const removeSearchMemorySource = getSourceBlock({
+      end: "\n\n  searchCandidates: publicProcedure",
+      source,
+      start: "  removeSearchMemory: publicProcedure",
+    });
+
+    expect(removeSearchMemorySource).toContain(
+      "NewsRemoveSearchMemoryInputSchema",
+    );
+    expect(removeSearchMemorySource).toContain(
+      "buildNewsSearchMemoryRemovalCondition",
+    );
+    expect(removeSearchMemorySource).toContain("jsonb");
+    expect(removeSearchMemorySource).toContain("- 'intentQuery'");
+    expect(removeSearchMemorySource).not.toContain(
+      "delete(NewsReaderInteraction)",
+    );
+    expect(removeSearchMemorySource).toContain("removedCount");
+  });
+
   it("deduplicates search result URL variants before limiting candidates", () => {
     const candidates = selectNewsSearchCandidateItems({
       items: [
@@ -1801,6 +2773,50 @@ describe("selectNewsSearchCandidateItems", () => {
     expect(candidates.map((item) => item.id)).toEqual([
       "search-official-model",
       "search-agent-story",
+    ]);
+  });
+
+  it("uses the reader profile to rank search candidates after dedupe", () => {
+    const candidates = selectNewsSearchCandidateItems({
+      items: [
+        {
+          ...baseNewsItem,
+          id: "search-hot-model",
+          canonicalUrl: "https://example.com/search-hot-model",
+          originalUrl: "https://example.com/search-hot-model",
+          category: "model_release",
+          entities: ["ModelBench"],
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          tags: ["models"],
+          trendScore: 99,
+        },
+        {
+          ...baseNewsItem,
+          id: "search-reader-agent",
+          canonicalUrl: "https://example.com/search-reader-agent",
+          originalUrl: "https://example.com/search-reader-agent",
+          category: "agent_product",
+          entities: ["OpenAI", "Operator"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          tags: ["agents", "computer_use"],
+          trendScore: 70,
+        },
+      ],
+      limit: 2,
+      profile: {
+        noveltyBias: 1,
+        preferredCategories: ["agent_product"],
+        preferredEntities: ["Operator"],
+        preferredSources: ["agent-desk"],
+        recencyBias: 1,
+      },
+    });
+
+    expect(candidates.map((item) => item.id)).toEqual([
+      "search-reader-agent",
+      "search-hot-model",
     ]);
   });
 });
@@ -2029,6 +3045,50 @@ describe("summarizeNewsReaderProfileSignals", () => {
       lastSignalAt: "2026-07-01T10:00:00.000Z",
       lastTrainedAt: "2026-07-01T09:00:00.000Z",
       negativeSignalCount: 1,
+      trainedSignalCount: 1,
+    });
+  });
+
+  it("keeps removed search-memory views out of the profile audit", () => {
+    expect(
+      summarizeNewsReaderProfileSignals({
+        interactions: [
+          {
+            action: "view",
+            category: "model_release",
+            entities: ["Frontier Model"],
+            tags: ["model"],
+            metadata: {
+              matchedResult: false,
+              resultCount: 0,
+              surface: "search",
+            },
+            occurredAt: "2026-07-01T10:00:00.000Z",
+            sourceSlug: "model-desk",
+          },
+          {
+            action: "save",
+            category: "agent_product",
+            entities: ["OpenAI"],
+            tags: ["agents"],
+            metadata: {},
+            occurredAt: "2026-07-01T09:00:00.000Z",
+            sourceSlug: "openai-news",
+          },
+        ],
+        profile: {
+          noveltyBias: 1.5,
+          preferredCategories: ["agent_product"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["openai-news"],
+          recencyBias: 1.2,
+        },
+      }),
+    ).toMatchObject({
+      ignoredSignalCount: 0,
+      lastSignalAt: "2026-07-01T09:00:00.000Z",
+      topActions: [{ key: "save", count: 1 }],
+      topSurfaces: [],
       trainedSignalCount: 1,
     });
   });
@@ -2993,6 +4053,111 @@ describe("buildNewsReaderProfileAfterInteractionRemoval", () => {
         },
       }),
     ).toEqual(currentProfile);
+  });
+});
+
+describe("buildNewsReaderProfileAfterInteractionBatchRemoval", () => {
+  it("rolls back duplicate durable feedback rows that predate server dedupe", () => {
+    const baseProfile = {
+      noveltyBias: 1,
+      preferredCategories: [],
+      preferredEntities: [],
+      preferredSources: [],
+      recencyBias: 1,
+    };
+    const firstSavedInteraction = {
+      action: "save",
+      category: "model_release",
+      entities: ["OpenAI"],
+      tags: ["prompt_injection"],
+      metadata: {},
+      occurredAt: "2026-07-01T09:00:00.000Z",
+      sourceSlug: "openai-news",
+    } as const;
+    const duplicateSavedInteraction = {
+      ...firstSavedInteraction,
+      occurredAt: "2026-07-01T09:05:00.000Z",
+    };
+    const remainingInteraction = {
+      action: "save",
+      category: "agent_product",
+      entities: ["Anthropic"],
+      tags: ["workflow_automation"],
+      metadata: {},
+      occurredAt: "2026-07-01T10:00:00.000Z",
+      sourceSlug: "agent-desk",
+    } as const;
+    const profileAfterFirst = rebuildNewsPreferenceProfileFromInteractions({
+      baseProfile,
+      interactions: [firstSavedInteraction],
+    });
+    const profileAfterDuplicate = rebuildNewsPreferenceProfileFromInteractions({
+      baseProfile,
+      interactions: [firstSavedInteraction, duplicateSavedInteraction],
+    });
+    const currentProfile = rebuildNewsPreferenceProfileFromInteractions({
+      baseProfile,
+      interactions: [
+        firstSavedInteraction,
+        duplicateSavedInteraction,
+        remainingInteraction,
+      ],
+    });
+
+    const nextProfile = buildNewsReaderProfileAfterInteractionBatchRemoval({
+      currentProfile,
+      remainingInteractions: [
+        {
+          ...remainingInteraction,
+          metadata: buildNewsInteractionTrainingMetadata({
+            metadata: {},
+            profileAfter: currentProfile,
+            profileBefore: profileAfterDuplicate,
+          }),
+        },
+      ],
+      removedInteractions: [
+        {
+          ...firstSavedInteraction,
+          metadata: buildNewsInteractionTrainingMetadata({
+            metadata: {},
+            profileAfter: profileAfterFirst,
+            profileBefore: baseProfile,
+          }),
+        },
+        {
+          ...duplicateSavedInteraction,
+          metadata: buildNewsInteractionTrainingMetadata({
+            metadata: {},
+            profileAfter: profileAfterDuplicate,
+            profileBefore: profileAfterFirst,
+          }),
+        },
+      ],
+    });
+
+    expect(nextProfile).toMatchObject({
+      preferredCategories: ["agent_product"],
+      preferredEntities: ["Anthropic", "workflow automation"],
+      preferredSources: ["agent-desk"],
+    });
+  });
+
+  it("uses batch rollback when saved or Less removal deletes duplicate rows", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const removalBlock = getSourceBlock({
+      end: "export const selectUniqueNewsCollectionItems",
+      source,
+      start: "const removeNewsReaderInteractionAndRollbackProfile",
+    });
+
+    expect(removalBlock).toContain(
+      "buildNewsReaderProfileAfterInteractionBatchRemoval",
+    );
+    expect(removalBlock).not.toContain("removedRows.length !== 1");
   });
 });
 

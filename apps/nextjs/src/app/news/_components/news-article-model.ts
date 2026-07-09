@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import type {
   NewsPreferenceProfile,
   NewsUrlReference,
@@ -6,6 +8,7 @@ import type {
 } from "@acme/validators";
 import {
   getNewsDedupeUrlKeys,
+  getNewsRecommendationAngleLabels,
   normalizeNewsPreferenceProfile,
   shouldTrainReaderProfileFromInteraction,
   updateReaderProfileWithInteraction,
@@ -20,7 +23,20 @@ import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import {
   getNewsServerProfileAuditDisplay,
   getNewsStorySourceUrl,
+  mergeNewsHomePositiveFeedbackItems,
+  mergeNewsReaderMemoryItems,
+  removeNewsReaderMemoryItem,
 } from "../../_components/news-home-model";
+import {
+  getNewsStructuredDataUrl,
+  newsStructuredDataSiteName,
+} from "../../_components/news-structured-data";
+
+export interface NewsArticleSearchMemoryItem {
+  query: string;
+  resultCount: number;
+  searchedAt: string;
+}
 
 const normalizeValue = (value: string) => value.trim().toLowerCase();
 
@@ -91,6 +107,80 @@ const getSharedValues = (
   }
 
   return sharedValues;
+};
+
+const newsArticleSearchMemorySignalLimit = 8;
+
+const normalizeArticleSearchMemoryText = (value: string) =>
+  value.toLowerCase().replace(/[_-]+/g, " ");
+
+const getArticleSearchMemoryTimestamp = (item: NewsArticleSearchMemoryItem) => {
+  const timestamp = Date.parse(item.searchedAt);
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const getPastNewsArticlePublishedAtTime = (
+  publishedAt: string,
+  now: number,
+) => {
+  const timestamp = Date.parse(publishedAt);
+
+  return Number.isNaN(timestamp) || timestamp > now ? 0 : timestamp;
+};
+
+const getArticleSearchMemoryTokens = (query: string) =>
+  normalizeArticleSearchMemoryText(query).split(/\s+/).filter(Boolean);
+
+type NewsArticleSearchMemoryCandidate = Pick<
+  NewsHomeItem,
+  | "category"
+  | "entities"
+  | "sourceName"
+  | "sourceSlug"
+  | "summary"
+  | "tags"
+  | "title"
+>;
+
+const getArticleSearchMemoryText = (
+  article: NewsArticleSearchMemoryCandidate,
+) =>
+  normalizeArticleSearchMemoryText(
+    [
+      article.title,
+      article.summary,
+      article.sourceName,
+      article.sourceSlug,
+      article.category,
+      ...article.tags,
+      ...article.entities,
+    ].join(" "),
+  );
+
+const selectNewsArticleSearchMemoryMatches = ({
+  article,
+  searchMemoryItems,
+}: {
+  article: NewsArticleSearchMemoryCandidate;
+  searchMemoryItems: readonly NewsArticleSearchMemoryItem[];
+}) => {
+  const searchText = getArticleSearchMemoryText(article);
+
+  return [...searchMemoryItems]
+    .sort(
+      (left, right) =>
+        getArticleSearchMemoryTimestamp(right) -
+        getArticleSearchMemoryTimestamp(left),
+    )
+    .slice(0, newsArticleSearchMemorySignalLimit)
+    .filter((item) => {
+      const tokens = getArticleSearchMemoryTokens(item.query);
+
+      return (
+        tokens.length > 0 && tokens.every((token) => searchText.includes(token))
+      );
+    });
 };
 
 const formatSignalCount = (count: number) =>
@@ -179,6 +269,10 @@ const getArticleText = (article: NewsArticleItem) => {
   return bodyText && bodyText.length > 0 ? bodyText : article.summary;
 };
 
+const newsArticleSiteName = newsStructuredDataSiteName;
+const newsArticleDefaultDescription =
+  "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.";
+
 const splitArticleFacts = (text: string) =>
   text
     .split(/\n{2,}|(?<=[.!?])\s+/)
@@ -202,6 +296,111 @@ export const getNewsArticleFormattedDate = (date: string) =>
     minute: "2-digit",
     timeZone: "UTC",
   }).format(new Date(date));
+
+export const getNewsArticleMetadata = ({
+  article,
+}: {
+  article: NewsArticleItem | null;
+}): Metadata => {
+  if (!article) {
+    return {
+      description: newsArticleDefaultDescription,
+      openGraph: {
+        description: newsArticleDefaultDescription,
+        siteName: newsArticleSiteName,
+        title: newsArticleSiteName,
+      },
+      title: newsArticleSiteName,
+      twitter: {
+        card: "summary_large_image",
+        description: newsArticleDefaultDescription,
+        title: newsArticleSiteName,
+      },
+    };
+  }
+
+  const articleUrl = `/news/${article.id}`;
+  const images = article.imageUrl ? [article.imageUrl] : undefined;
+
+  return {
+    alternates: {
+      canonical: articleUrl,
+    },
+    description: article.summary,
+    openGraph: {
+      ...(article.authorName ? { authors: [article.authorName] } : {}),
+      description: article.summary,
+      ...(images ? { images } : {}),
+      publishedTime: article.publishedAt,
+      siteName: newsArticleSiteName,
+      title: article.title,
+      type: "article",
+      url: articleUrl,
+    },
+    title: `${article.title} | ${newsArticleSiteName}`,
+    twitter: {
+      card: "summary_large_image",
+      description: article.summary,
+      ...(images ? { images } : {}),
+      title: article.title,
+    },
+  };
+};
+
+export const getNewsArticleStructuredData = ({
+  article,
+  baseUrl,
+}: {
+  article: NewsArticleItem;
+  baseUrl?: string;
+}) => {
+  const articleUrl = getNewsStructuredDataUrl({
+    baseUrl,
+    path: `/news/${article.id}`,
+  });
+  const articleImageUrl = article.imageUrl
+    ? getNewsStructuredDataUrl({ baseUrl, path: article.imageUrl })
+    : null;
+  const authorName = article.authorName?.trim();
+  const entities = getUniqueValues(article.entities, 8);
+  const keywords = getUniqueValues([...article.tags, ...article.entities], 12);
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    ...(entities.length > 0
+      ? {
+          about: entities.map((entity) => ({
+            "@type": "Thing",
+            name: entity,
+          })),
+        }
+      : {}),
+    articleSection:
+      categoryLabels[article.category] ?? formatTagValue(article.category),
+    ...(authorName
+      ? {
+          author: {
+            "@type": "Person",
+            name: authorName,
+          },
+        }
+      : {}),
+    dateModified: article.publishedAt,
+    datePublished: article.publishedAt,
+    description: article.summary,
+    headline: article.title,
+    ...(articleImageUrl ? { image: [articleImageUrl] } : {}),
+    isAccessibleForFree: true,
+    ...(keywords.length > 0 ? { keywords } : {}),
+    mainEntityOfPage: articleUrl,
+    publisher: {
+      "@type": "Organization",
+      name: newsArticleSiteName,
+    },
+    url: articleUrl,
+  };
+};
 
 export const getNewsArticleReadPercent = ({
   documentHeight,
@@ -282,9 +481,9 @@ export const getNewsArticleSourceFollowState = ({
 
   return {
     isFollowing,
-    label: isFollowing ? "Following Source" : "Follow Source",
+    label: isFollowing ? "Unfollow Source" : "Follow Source",
     summary: isFollowing
-      ? `${article.sourceName} is already a durable For You signal.`
+      ? `${article.sourceName} is a durable For You signal; unfollow to stop lifting it.`
       : `Follow ${article.sourceName} to make it a durable For You signal.`,
   };
 };
@@ -298,16 +497,19 @@ export const getNewsArticleSourceFollowProfile = ({
 }): NewsPreferenceProfile => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
   const articleSourceSlug = normalizeValue(article.sourceSlug);
-  const preferredSources = [
-    ...normalizedProfile.preferredSources
-      .map(normalizeValue)
-      .filter((sourceSlug) => sourceSlug && sourceSlug !== articleSourceSlug),
-    articleSourceSlug,
-  ];
+  const currentSources = normalizedProfile.preferredSources.map(normalizeValue);
+  const isFollowing = currentSources.some(
+    (sourceSlug) => sourceSlug === articleSourceSlug,
+  );
+  const preferredSources = currentSources.filter(
+    (sourceSlug) => sourceSlug && sourceSlug !== articleSourceSlug,
+  );
 
   return normalizeNewsPreferenceProfile({
     ...normalizedProfile,
-    preferredSources,
+    preferredSources: isFollowing
+      ? preferredSources
+      : [...preferredSources, articleSourceSlug],
   });
 };
 
@@ -452,6 +654,25 @@ export const getNewsArticleLocalHistoryItem = ({
   viewedAt,
 });
 
+export const getNewsArticleLocalReadFeedbackItem = ({
+  article,
+  occurredAt,
+}: {
+  article: NewsArticleItem;
+  occurredAt: string;
+}): NewsPositiveFeedbackMemoryItem => ({
+  canonicalUrl: article.canonicalUrl,
+  category: article.category,
+  entities: [...article.entities],
+  id: article.id,
+  occurredAt,
+  originalUrl: article.originalUrl,
+  sourceName: article.sourceName,
+  sourceSlug: article.sourceSlug,
+  tags: [...article.tags],
+  title: article.title,
+});
+
 export const getNewsArticleLocalSavedItem = ({
   article,
   savedAt,
@@ -521,6 +742,28 @@ export const getNewsArticleGuardrailSignalState = ({
   };
 };
 
+export const selectNewsArticleEligibleRelatedItems = <
+  TItem extends NewsHomeItem,
+>({
+  guardrailItems,
+  relatedItems,
+}: {
+  guardrailItems: readonly ({ id: string } & Partial<NewsUrlReference>)[];
+  relatedItems: readonly TItem[];
+}) =>
+  relatedItems.filter((item) => {
+    const itemUrlKeys = new Set(getNewsDedupeUrlKeys(item));
+
+    return !guardrailItems.some(
+      (guardrailItem) =>
+        guardrailItem.id === item.id ||
+        (itemUrlKeys.size > 0 &&
+          getNewsDedupeUrlKeys(guardrailItem).some((urlKey) =>
+            itemUrlKeys.has(urlKey),
+          )),
+    );
+  });
+
 export const getNewsArticleLocalGuardrailItem = ({
   article,
   hiddenAt,
@@ -541,6 +784,42 @@ export const getNewsArticleLocalGuardrailItem = ({
   title: article.title,
 });
 
+export const getNewsArticleGuardrailStorageUpdate = ({
+  article,
+  guardrailItems,
+  occurredAt,
+  positiveFeedbackItems,
+  savedItems,
+}: {
+  article: NewsArticleItem;
+  guardrailItems: readonly NewsReaderMemoryItem[];
+  occurredAt: string;
+  positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const guardrailItem = getNewsArticleLocalGuardrailItem({
+    article,
+    hiddenAt: occurredAt,
+  });
+
+  return {
+    guardrailItems: mergeNewsReaderMemoryItems({
+      localItems: [guardrailItem],
+      serverItems: guardrailItems,
+    }),
+    positiveFeedbackItems: removeNewsReaderMemoryItem({
+      item: guardrailItem,
+      itemId: article.id,
+      items: positiveFeedbackItems,
+    }),
+    savedItems: removeNewsReaderMemoryItem({
+      item: guardrailItem,
+      itemId: article.id,
+      items: savedItems,
+    }),
+  };
+};
+
 const isNewsArticlePositiveFeedbackAction = (
   action: ReaderInteractionAction,
 ): action is Extract<ReaderInteractionAction, "click_source" | "share"> =>
@@ -551,7 +830,7 @@ export const getNewsArticleLocalPositiveFeedbackItem = ({
   article,
   occurredAt,
 }: {
-  action: Extract<ReaderInteractionAction, "click_source" | "share">;
+  action: Extract<ReaderInteractionAction, "click_source" | "save" | "share">;
   article: NewsArticleItem;
   occurredAt: string;
 }): NewsPositiveFeedbackMemoryItem => ({
@@ -567,6 +846,52 @@ export const getNewsArticleLocalPositiveFeedbackItem = ({
   tags: [...article.tags],
   title: article.title,
 });
+
+export const getNewsArticlePositiveStorageUpdate = ({
+  action,
+  article,
+  guardrailItems,
+  occurredAt,
+  positiveFeedbackItems,
+  savedItems,
+}: {
+  action: Extract<ReaderInteractionAction, "click_source" | "save" | "share">;
+  article: NewsArticleItem;
+  guardrailItems: readonly NewsReaderMemoryItem[];
+  occurredAt: string;
+  positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const positiveFeedbackItem = getNewsArticleLocalPositiveFeedbackItem({
+    action,
+    article,
+    occurredAt,
+  });
+
+  return {
+    guardrailItems: removeNewsReaderMemoryItem({
+      item: positiveFeedbackItem,
+      itemId: article.id,
+      items: guardrailItems,
+    }),
+    positiveFeedbackItems: mergeNewsHomePositiveFeedbackItems({
+      currentItems: positiveFeedbackItems,
+      nextItem: positiveFeedbackItem,
+    }),
+    savedItems:
+      action === "save"
+        ? mergeNewsReaderMemoryItems({
+            localItems: [
+              getNewsArticleLocalSavedItem({
+                article,
+                savedAt: occurredAt,
+              }),
+            ],
+            serverItems: savedItems,
+          })
+        : [...savedItems],
+  };
+};
 
 export const getNewsArticleLocalMemoryItemForAction = ({
   action,
@@ -713,6 +1038,7 @@ const newsArticleReaderSignalCacheScopes = [
   "profile",
   "saved",
   "history",
+  "positiveFeedback",
   "guardrails",
 ] as const;
 
@@ -931,12 +1257,14 @@ export const getNewsArticleCorroboration = ({
 };
 
 const getRecommendationReason = ({
+  hasSearchMemoryMatch = false,
   sameCluster,
   sameCategory,
   sameSource,
   sharedEntities,
   sharedTags,
 }: {
+  hasSearchMemoryMatch?: boolean;
   sameCluster?: boolean;
   sameCategory: boolean;
   sameSource: boolean;
@@ -944,6 +1272,7 @@ const getRecommendationReason = ({
   sharedTags: readonly string[];
 }) => {
   if (sameCluster) return "Same event";
+  if (hasSearchMemoryMatch) return "Search memory";
 
   const [entity] = sharedEntities;
   if (entity) return `${entity} thread`;
@@ -965,11 +1294,13 @@ export const getNewsArticleReadingPath = ({
   formatCategory,
   limit,
   relatedItems,
+  searchMemoryItems = [],
 }: {
   article: NewsArticleItem;
   formatCategory: (category: string) => string;
   limit: number;
   relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+  searchMemoryItems?: readonly NewsArticleSearchMemoryItem[];
 }) => {
   const context = [
     { label: "Topic", value: formatCategory(article.category) },
@@ -980,9 +1311,14 @@ export const getNewsArticleReadingPath = ({
     },
     { label: "Tags", value: article.tags.slice(0, 4).join(", ") || "None" },
   ];
+  const now = Date.now();
 
   const recommendations = relatedItems
     .map((item) => {
+      const searchMemoryMatches = selectNewsArticleSearchMemoryMatches({
+        article: item,
+        searchMemoryItems,
+      });
       const sharedEntities = getSharedValues(article.entities, item.entities);
       const sharedTags = getSharedValues(
         article.tags,
@@ -1004,19 +1340,22 @@ export const getNewsArticleReadingPath = ({
         sharedTags.length +
         (sameCluster ? 1 : 0) +
         (sameCategory ? 1 : 0) +
-        (sameSource ? 1 : 0);
+        (sameSource ? 1 : 0) +
+        (searchMemoryMatches.length > 0 ? 1 : 0);
 
       return {
         id: item.id,
         personalizedScore: item.personalizedScore,
         publishedAt: item.publishedAt,
         reason: getRecommendationReason({
+          hasSearchMemoryMatch: searchMemoryMatches.length > 0,
           sameCluster,
           sameCategory,
           sameSource,
           sharedEntities,
           sharedTags,
         }),
+        searchMemoryMatchCount: searchMemoryMatches.length,
         signalCount,
         scoreLabel: `${formatSignalCount(signalCount)} / ${
           item.personalizedScore
@@ -1026,6 +1365,10 @@ export const getNewsArticleReadingPath = ({
     })
     .filter((item) => item.signalCount > 0)
     .sort((left, right) => {
+      if (right.searchMemoryMatchCount !== left.searchMemoryMatchCount) {
+        return right.searchMemoryMatchCount - left.searchMemoryMatchCount;
+      }
+
       if (right.signalCount !== left.signalCount) {
         return right.signalCount - left.signalCount;
       }
@@ -1035,8 +1378,8 @@ export const getNewsArticleReadingPath = ({
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastNewsArticlePublishedAtTime(right.publishedAt, now) -
+        getPastNewsArticlePublishedAtTime(left.publishedAt, now)
       );
     })
     .slice(0, limit)
@@ -1107,6 +1450,7 @@ const getArticleNextReadStatus = ({
 };
 
 const getArticleNextReadReason = ({
+  hasSearchMemoryMatch,
   item,
   sameCluster,
   sameCategory,
@@ -1115,6 +1459,7 @@ const getArticleNextReadReason = ({
   sharedTags,
   status,
 }: {
+  hasSearchMemoryMatch: boolean;
   item: RankedNewsItem<NewsHomeItem>;
   sameCluster?: boolean;
   sameCategory: boolean;
@@ -1127,6 +1472,7 @@ const getArticleNextReadReason = ({
     return "Source needs review";
   }
   if (status === "Verify") return "High heat needs source check";
+  if (hasSearchMemoryMatch) return "Search memory";
   if (status === "Explore" && item.matchedSignals.includes("exploration")) {
     return "Exploration match";
   }
@@ -1213,15 +1559,22 @@ export const getNewsArticleNextReads = ({
   limit,
   profile,
   relatedItems,
+  searchMemoryItems = [],
 }: {
   article: NewsArticleItem;
   formatCategory: (category: string) => string;
   limit: number;
   profile: NewsPreferenceProfile;
   relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+  searchMemoryItems?: readonly NewsArticleSearchMemoryItem[];
 }) => {
+  const now = Date.now();
   const sortedReads = relatedItems
     .map((item) => {
+      const searchMemoryMatches = selectNewsArticleSearchMemoryMatches({
+        article: item,
+        searchMemoryItems,
+      });
       const sharedEntities = getSharedValues(article.entities, item.entities);
       const sharedTags = getSharedValues(
         article.tags,
@@ -1246,6 +1599,7 @@ export const getNewsArticleNextReads = ({
         (sameSource ? 1 : 0);
       const signalCount = Math.max(
         overlapSignalCount,
+        searchMemoryMatches.length > 0 ? 1 : 0,
         getArticleReaderRecommendationSignalCount(item),
         item.matchedSignals.includes("exploration") ? 1 : 0,
       );
@@ -1263,6 +1617,7 @@ export const getNewsArticleNextReads = ({
         personalizedScore: item.personalizedScore,
         publishedAt: item.publishedAt,
         reason: getArticleNextReadReason({
+          hasSearchMemoryMatch: searchMemoryMatches.length > 0,
           item,
           sameCluster,
           sameCategory,
@@ -1274,6 +1629,7 @@ export const getNewsArticleNextReads = ({
         scoreLabel: `${formatSignalCount(signalCount)} / ${
           item.personalizedScore
         } score`,
+        searchMemoryMatchCount: searchMemoryMatches.length,
         sharesArticleEntity: sharedEntities.length > 0,
         sourceName: item.sourceName,
         statusLabel: status,
@@ -1281,6 +1637,10 @@ export const getNewsArticleNextReads = ({
       };
     })
     .sort((left, right) => {
+      const searchMemoryDelta =
+        right.searchMemoryMatchCount - left.searchMemoryMatchCount;
+      if (searchMemoryDelta !== 0) return searchMemoryDelta;
+
       const statusDelta =
         articleNextReadStatusPriority[left.statusLabel] -
         articleNextReadStatusPriority[right.statusLabel];
@@ -1291,8 +1651,8 @@ export const getNewsArticleNextReads = ({
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastNewsArticlePublishedAtTime(right.publishedAt, now) -
+        getPastNewsArticlePublishedAtTime(left.publishedAt, now)
       );
     });
   const reads = selectNewsArticleNextReadCandidates({
@@ -1357,14 +1717,20 @@ export const getNewsArticleReaderFit = ({
   formatCategory,
   profile,
   relatedItems,
+  searchMemoryItems = [],
 }: {
   article: NewsArticleItem;
   formatCategory: (category: string) => string;
   profile: NewsPreferenceProfile;
   relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+  searchMemoryItems?: readonly NewsArticleSearchMemoryItem[];
 }) => {
   const preferredCategories = getNormalizedSet(profile.preferredCategories);
   const preferredSources = getNormalizedSet(profile.preferredSources);
+  const searchMemoryMatches = selectNewsArticleSearchMemoryMatches({
+    article,
+    searchMemoryItems,
+  });
   const matchedEntities = getSharedValues(
     article.entities,
     profile.preferredEntities,
@@ -1397,13 +1763,24 @@ export const getNewsArticleReaderFit = ({
     });
   }
 
-  const matchCount =
+  const [searchMemoryMatch] = searchMemoryMatches;
+  if (searchMemoryMatch) {
+    reasons.push({
+      detail: `Recent search "${searchMemoryMatch.query}" points at this article.`,
+      label: "Search memory",
+    });
+  }
+
+  const profileMatchCount =
     (categoryMatch ? 1 : 0) + (sourceMatch ? 1 : 0) + matchedEntities.length;
+  const searchMemoryMatchCount = searchMemoryMatches.length;
+  const readerSignalCount = profileMatchCount + searchMemoryMatchCount;
   const readingPath = getNewsArticleReadingPath({
     article,
     formatCategory,
     limit: 3,
     relatedItems,
+    searchMemoryItems,
   });
   const [nextRecommendation] = readingPath.recommendations;
   const followUpCount = readingPath.recommendations.length;
@@ -1411,15 +1788,18 @@ export const getNewsArticleReaderFit = ({
 
   return {
     label:
-      matchCount >= 3
+      readerSignalCount >= 3
         ? "Strong Fit"
-        : matchCount > 0
+        : readerSignalCount > 0
           ? "Reader Fit"
           : "Discovery Read",
     metrics: [
-      { label: "Profile matches", value: String(matchCount) },
+      { label: "Profile matches", value: String(profileMatchCount) },
       { label: "Follow-ups", value: String(followUpCount) },
       { label: "Reader bias", value: getReaderBiasLabel(profile) },
+      ...(searchMemoryMatchCount > 0
+        ? [{ label: "Search memory", value: String(searchMemoryMatchCount) }]
+        : []),
     ],
     nextStep: nextRecommendation
       ? {
@@ -1440,9 +1820,9 @@ export const getNewsArticleReaderFit = ({
             },
           ],
     summary:
-      matchCount > 0
-        ? `${matchCount} reader ${
-            matchCount === 1 ? "signal matches" : "signals match"
+      readerSignalCount > 0
+        ? `${readerSignalCount} reader ${
+            readerSignalCount === 1 ? "signal matches" : "signals match"
           } this article; ${followUpCount} ${
             followUpCount === 1 ? "follow-up keeps" : "follow-ups keep"
           } the thread moving.`
@@ -1527,6 +1907,38 @@ const formatArticleFeedbackBiasShift = ({
   return roundedDelta > 0 ? `+${roundedDelta}` : String(roundedDelta);
 };
 
+const getArticleFeedbackAngleSignals = ({
+  article,
+  signals,
+}: {
+  article: Pick<NewsArticleItem, "tags">;
+  signals: readonly string[];
+}) => {
+  const angleLabels = getNormalizedSet(
+    getNewsRecommendationAngleLabels(article.tags),
+  );
+
+  return signals.filter((signal) => angleLabels.has(normalizeValue(signal)));
+};
+
+const getArticleFeedbackEntitySignals = ({
+  angleSignals,
+  signals,
+}: {
+  angleSignals: readonly string[];
+  signals: readonly string[];
+}) => {
+  const angleSignalSet = getNormalizedSet(angleSignals);
+
+  return signals.filter((signal) => !angleSignalSet.has(normalizeValue(signal)));
+};
+
+const formatArticleFeedbackSignalList = (signals: readonly string[]) =>
+  signals.join(", ");
+
+const formatArticleFeedbackSignalVerb = (signals: readonly string[]) =>
+  signals.length === 1 ? "was" : "were";
+
 export const getNewsArticleFeedbackLoop = ({
   action,
   afterProfile,
@@ -1583,6 +1995,14 @@ export const getNewsArticleFeedbackLoop = ({
     before: beforeProfile.preferredEntities,
     negative,
   });
+  const angleSignals = getArticleFeedbackAngleSignals({
+    article,
+    signals: entitySignals,
+  });
+  const coverageSignals = getArticleFeedbackEntitySignals({
+    angleSignals,
+    signals: entitySignals,
+  });
   const notices: { detail: string; label: string }[] = [
     {
       detail: negative
@@ -1597,13 +2017,45 @@ export const getNewsArticleFeedbackLoop = ({
       label: negative ? "Source guarded" : "Source learned",
     },
   ];
+  const hasAngleSignals = angleSignals.length > 0;
 
-  if (entitySignals.length > 0) {
+  if (coverageSignals.length > 0) {
     notices.push({
       detail: negative
-        ? `${entitySignals.join(", ")} were removed from related coverage memory.`
-        : `${entitySignals.join(", ")} were added to related coverage memory.`,
-      label: negative ? "Signals guarded" : "Signals learned",
+        ? `${formatArticleFeedbackSignalList(
+            coverageSignals,
+          )} ${formatArticleFeedbackSignalVerb(
+            coverageSignals,
+          )} removed from related coverage memory.`
+        : `${formatArticleFeedbackSignalList(
+            coverageSignals,
+          )} ${formatArticleFeedbackSignalVerb(
+            coverageSignals,
+          )} added to related coverage memory.`,
+      label: hasAngleSignals
+        ? negative
+          ? "Entities guarded"
+          : "Entities learned"
+        : negative
+          ? "Signals guarded"
+          : "Signals learned",
+    });
+  }
+
+  if (angleSignals.length > 0) {
+    notices.push({
+      detail: negative
+        ? `${formatArticleFeedbackSignalList(
+            angleSignals,
+          )} ${formatArticleFeedbackSignalVerb(
+            angleSignals,
+          )} removed from angle memory.`
+        : `${formatArticleFeedbackSignalList(
+            angleSignals,
+          )} ${formatArticleFeedbackSignalVerb(
+            angleSignals,
+          )} added to angle memory.`,
+      label: negative ? "Angles guarded" : "Angles learned",
     });
   }
 
@@ -1895,11 +2347,13 @@ export const getNewsArticleLearningImpact = ({
   formatCategory,
   profile,
   relatedItems,
+  searchMemoryItems = [],
 }: {
   article: NewsArticleItem;
   formatCategory: (category: string) => string;
   profile: NewsPreferenceProfile;
   relatedItems: readonly RankedNewsItem<NewsHomeItem>[];
+  searchMemoryItems?: readonly NewsArticleSearchMemoryItem[];
 }) => {
   const topicLabel = formatCategory(article.category);
   const articleSignals = getArticleLearningSignals({ article, formatCategory });
@@ -1931,6 +2385,7 @@ export const getNewsArticleLearningImpact = ({
     formatCategory,
     limit: 3,
     relatedItems,
+    searchMemoryItems,
   });
   const nextStories = readingPath.recommendations.map((item) => ({
     id: item.id,

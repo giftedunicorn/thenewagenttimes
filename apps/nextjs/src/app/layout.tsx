@@ -6,21 +6,34 @@ import { Toaster } from "@acme/ui/toast";
 
 import { env } from "~/env";
 import { TRPCReactProvider } from "~/trpc/react";
+import { newsStructuredDataDefaultBaseUrl } from "./_components/news-structured-data";
 
 import "~/app/styles.css";
 
-const productionUrl =
-  env.RAILWAY_PUBLIC_DOMAIN ??
-  env.VERCEL_PROJECT_PRODUCTION_URL ??
-  env.VERCEL_URL ??
-  "thenewagenttimes.com";
+const getNewsSiteBaseUrl = () => {
+  const deploymentHost =
+    env.RAILWAY_PUBLIC_DOMAIN ??
+    env.VERCEL_PROJECT_PRODUCTION_URL ??
+    env.VERCEL_URL;
+  const trimmedHost = deploymentHost?.trim().replace(/\/+$/, "");
+
+  if (!trimmedHost) return newsStructuredDataDefaultBaseUrl;
+
+  return /^https?:\/\//i.test(trimmedHost)
+    ? trimmedHost
+    : `https://${trimmedHost}`;
+};
+
+const newsSiteBaseUrl = getNewsSiteBaseUrl();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(
-    env.NODE_ENV === "production"
-      ? `https://${productionUrl}`
-      : "http://localhost:3000",
-  ),
+  metadataBase: new URL(newsSiteBaseUrl),
+  alternates: {
+    types: {
+      "application/feed+json": "/feed.json",
+      "application/rss+xml": "/rss.xml",
+    },
+  },
   title: "The New AI Times",
   description:
     "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.",
@@ -28,7 +41,7 @@ export const metadata: Metadata = {
     title: "The New AI Times",
     description:
       "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.",
-    url: `https://${productionUrl}`,
+    url: newsSiteBaseUrl,
     siteName: "The New AI Times",
   },
   twitter: {
@@ -48,6 +61,14 @@ export const viewport: Viewport = {
 export default function RootLayout(props: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <link
+          href="/opensearch.xml"
+          rel="search"
+          title="The New AI Times"
+          type="application/opensearchdescription+xml"
+        />
+      </head>
       <body
         className={cn(
           "bg-background text-foreground min-h-screen font-sans antialiased",

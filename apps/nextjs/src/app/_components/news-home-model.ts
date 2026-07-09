@@ -5,11 +5,13 @@ import type {
   NewsRecommendationExplanation,
   NewsRecommendationRotationObjective,
   NewsRecommendationRotationScoreKind,
+  NewsSemanticSimilarityMatch,
   NewsUrlReference,
   PositiveFeedbackNewsItem,
   RankedNewsItem,
   ReaderInteraction,
   ReaderInteractionAction,
+  RecentExposureNewsItem,
   RecommendableNewsItem,
 } from "@acme/validators";
 import {
@@ -86,6 +88,8 @@ export const formatNewsTime = (date: string) =>
     minute: "2-digit",
     timeZone: "UTC",
   }).format(new Date(date));
+
+export { getNewsTopicHref } from "./news-topic-url";
 
 export interface NewsHomePublicFeedItem
   extends Omit<
@@ -226,8 +230,8 @@ const createPreviewNewsArticle = ({
   bodyText: bodyParagraphs.join("\n\n"),
   canonicalUrl,
   collectedAt: collectedAt ?? item.publishedAt,
-  imageUrl: `https://picsum.photos/seed/${imageSeed}/1200/820`,
-  originalUrl: originalUrl ?? `https://thenewagenttimes.com/news/${item.id}`,
+  imageUrl: `/news-images/${imageSeed}.png`,
+  originalUrl: originalUrl ?? "",
   sourceType,
 });
 
@@ -837,18 +841,132 @@ export const selectNewsHomeBaseFeedItems = ({
 const normalizeNewsHomeSessionValue = (value: string | null | undefined) =>
   value?.trim().toLowerCase() ?? "";
 
+const normalizeNewsHomeSessionSearchValue = (
+  value: string | null | undefined,
+) =>
+  normalizeNewsHomeSessionValue(value)
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const getNewsHomeSessionSearchText = (item: NewsHomeItem) =>
-  [
-    item.title,
-    item.summary,
-    item.category,
-    item.sourceName,
-    item.sourceSlug,
-    ...item.entities,
-    ...item.tags,
-  ]
-    .join(" ")
-    .toLowerCase();
+  normalizeNewsHomeSessionSearchValue(
+    [
+      item.title,
+      item.summary,
+      item.category,
+      item.sourceName,
+      item.sourceSlug,
+      ...item.entities,
+      ...item.tags,
+    ].join(" "),
+  );
+
+export interface NewsSearchMemoryRankingItem {
+  query: string;
+  resultCount: number;
+  searchedAt: string;
+}
+
+const newsHomeSearchMemoryScoreBoost = 24;
+const newsHomeSearchMemorySignalLimit = 8;
+
+const getNewsHomeSearchMemoryTimestamp = (
+  searchItem: NewsSearchMemoryRankingItem,
+) => {
+  const timestamp = Date.parse(searchItem.searchedAt);
+
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const getNewsHomeSearchMemoryQueryTokens = (query: string) =>
+  normalizeNewsHomeSessionSearchValue(query)
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+
+const doesNewsHomeItemMatchSearchMemory = ({
+  item,
+  query,
+}: {
+  item: NewsHomeItem;
+  query: string;
+}) => {
+  const normalizedQuery = normalizeNewsHomeSessionSearchValue(query);
+  const normalizedTagQuery = normalizedQuery
+    ? getNewsAngleSignalKey(normalizedQuery)
+    : "";
+
+  if (!normalizedQuery) return false;
+
+  const searchText = getNewsHomeSessionSearchText(item);
+
+  if (
+    searchText.includes(normalizedQuery) ||
+    Boolean(
+      normalizedTagQuery &&
+        normalizedTagQuery !== normalizedQuery &&
+        item.tags.some(
+          (tag) => getNewsAngleSignalKey(tag) === normalizedTagQuery,
+        ),
+    )
+  ) {
+    return true;
+  }
+
+  const queryTokens = getNewsHomeSearchMemoryQueryTokens(normalizedQuery);
+
+  return (
+    queryTokens.length > 0 &&
+    queryTokens.every((token) => searchText.includes(token))
+  );
+};
+
+export const selectNewsHomeSearchMemoryAnchoredItems = ({
+  items,
+  searchItems,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  searchItems: readonly NewsSearchMemoryRankingItem[];
+}) => {
+  const recentSearchItems = searchItems
+    .filter((searchItem) => searchItem.query.trim().length > 0)
+    .sort(
+      (left, right) =>
+        getNewsHomeSearchMemoryTimestamp(right) -
+        getNewsHomeSearchMemoryTimestamp(left),
+    )
+    .slice(0, newsHomeSearchMemorySignalLimit);
+
+  if (recentSearchItems.length === 0) return [...items];
+
+  return items
+    .map((item, index) => {
+      const hasSearchMemoryMatch = recentSearchItems.some((searchItem) =>
+        doesNewsHomeItemMatchSearchMemory({
+          item,
+          query: searchItem.query,
+        }),
+      );
+
+      if (!hasSearchMemoryMatch) {
+        return { index, item, score: item.personalizedScore };
+      }
+
+      const boostedItem = {
+        ...item,
+        matchedSignals: getUniqueNewsHomeInteractionSignals([
+          ...item.matchedSignals,
+          "search_memory",
+        ]),
+        personalizedScore:
+          item.personalizedScore + newsHomeSearchMemoryScoreBoost,
+      };
+
+      return { index, item: boostedItem, score: boostedItem.personalizedScore };
+    })
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map(({ item }) => item);
+};
 
 export const selectNewsHomeSessionScopedItems = ({
   intent,
@@ -858,7 +976,7 @@ export const selectNewsHomeSessionScopedItems = ({
   items: readonly NewsHomeItem[];
 }) => {
   const category = normalizeNewsHomeSessionValue(intent.category);
-  const query = normalizeNewsHomeSessionValue(intent.query);
+  const query = normalizeNewsHomeSessionSearchValue(intent.query);
   const normalizedTagQuery = query ? getNewsAngleSignalKey(query) : "";
   const sourceSlug = normalizeNewsHomeSessionValue(intent.sourceSlug);
   const tag = normalizeNewsHomeSessionValue(intent.tag);
@@ -1120,6 +1238,110 @@ export const buildNewsHomeFeedInput = <TCategory extends string>({
 export const buildNewsHomeLoadMoreFeedInput = <TCategory extends string>(
   input: NewsHomeFeedInputOptions<TCategory>,
 ) => buildNewsHomeFeedInput(input);
+
+export interface NewsHomeForYouApiRequestBody {
+  category?: string;
+  collaborativeSignals: readonly NewsCollaborativeSignal[];
+  excludeNewsItemIds: string[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  objective: NewsRecommendationRotationObjective;
+  positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+  profile: NewsPreferenceProfile;
+  q?: string;
+  readerLocalHour?: number;
+  recentExposureItems: readonly RecentExposureNewsItem[];
+  searchMemoryItems: readonly NewsSearchMemoryRankingItem[];
+  semanticSimilarityMatches: readonly NewsSemanticSimilarityMatch[];
+  sourceSlug?: string;
+  tag?: string;
+}
+
+const toNewsHomeRecentExposureItem = (
+  item: NewsReaderMemoryItem,
+): RecentExposureNewsItem | null => {
+  const occurredAt = item.viewedAt ?? item.occurredAt;
+
+  if (!occurredAt || !Number.isFinite(Date.parse(occurredAt))) return null;
+
+  return {
+    canonicalUrl: item.canonicalUrl,
+    category: item.category,
+    entities: [...item.entities],
+    id: item.id,
+    occurredAt,
+    originalUrl: item.originalUrl,
+    sourceSlug: item.sourceSlug,
+    surface: "home_exposure",
+    tags: [...(item.tags ?? [])],
+    title: item.title,
+  };
+};
+
+export const buildNewsHomeForYouApiRequestBody = ({
+  category,
+  collaborativeSignals,
+  currentItems,
+  limit,
+  negativeFeedbackItems,
+  objective,
+  positiveFeedbackItems,
+  profile,
+  q,
+  readerLocalHour,
+  recentExposureItems,
+  searchMemoryItems,
+  semanticSimilarityMatches,
+  sourceSlug,
+  tag,
+}: {
+  category: string | null;
+  collaborativeSignals: readonly NewsCollaborativeSignal[];
+  currentItems: readonly { id: string }[];
+  limit: number;
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  objective: NewsRecommendationRotationObjective;
+  positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+  profile: NewsPreferenceProfile;
+  q: string;
+  readerLocalHour: number | null;
+  recentExposureItems: readonly NewsReaderMemoryItem[];
+  searchMemoryItems: readonly NewsSearchMemoryRankingItem[];
+  semanticSimilarityMatches: readonly NewsSemanticSimilarityMatch[];
+  sourceSlug: string | null;
+  tag: string | null;
+}): NewsHomeForYouApiRequestBody => {
+  const trimmedQuery = q.trim();
+  const trimmedTag = tag?.trim() ?? "";
+  const validReaderLocalHour =
+    typeof readerLocalHour === "number" &&
+    Number.isInteger(readerLocalHour) &&
+    readerLocalHour >= 0 &&
+    readerLocalHour <= 23;
+
+  return {
+    ...(category ? { category } : {}),
+    collaborativeSignals: collaborativeSignals.slice(0, 80),
+    excludeNewsItemIds: Array.from(
+      new Set(currentItems.map((item) => item.id)),
+    ).slice(0, 240),
+    limit,
+    negativeFeedbackItems,
+    objective,
+    positiveFeedbackItems,
+    profile: normalizeNewsPreferenceProfile(profile),
+    ...(trimmedQuery ? { q: trimmedQuery } : {}),
+    ...(validReaderLocalHour ? { readerLocalHour } : {}),
+    recentExposureItems: recentExposureItems
+      .map(toNewsHomeRecentExposureItem)
+      .filter((item): item is RecentExposureNewsItem => item !== null)
+      .slice(0, 80),
+    searchMemoryItems,
+    semanticSimilarityMatches: semanticSimilarityMatches.slice(0, 80),
+    ...(sourceSlug ? { sourceSlug } : {}),
+    ...(trimmedTag ? { tag: trimmedTag } : {}),
+  };
+};
 
 export const getNewsHomeLoadMoreQueryRoute = ({
   feedMode,
@@ -1742,9 +1964,28 @@ export type NewsHomePositiveFeedbackAction = Extract<
 >;
 
 export type NewsPositiveFeedbackMemoryItem = NewsReaderMemoryItem & {
-  action: NewsHomePositiveFeedbackAction;
+  action?: NewsHomePositiveFeedbackAction;
   occurredAt: string;
 };
+
+export const getNewsHomeStoryHistoryItem = ({
+  item,
+  viewedAt,
+}: {
+  item: NewsHomeItem;
+  viewedAt: string;
+}): NewsReaderMemoryItem => ({
+  canonicalUrl: item.canonicalUrl,
+  category: item.category,
+  entities: [...item.entities],
+  id: item.id,
+  originalUrl: item.originalUrl,
+  sourceName: item.sourceName,
+  sourceSlug: item.sourceSlug,
+  tags: [...item.tags],
+  title: item.title,
+  viewedAt,
+});
 
 const getNewsReaderMemoryTimestamp = (item: NewsReaderMemoryItem) => {
   const timestamp = Date.parse(
@@ -1964,6 +2205,16 @@ const selectStoredNewsReaderMemoryItem = (
     return null;
   }
 
+  if (
+    [hiddenAt, occurredAt, savedAt, viewedAt].some(
+      (timestamp) =>
+        typeof timestamp === "string" &&
+        !Number.isFinite(Date.parse(timestamp)),
+    )
+  ) {
+    return null;
+  }
+
   const memoryItem: NewsReaderMemoryItem = {
     category,
     entities: entities.filter(
@@ -2026,6 +2277,7 @@ const isNewsHomePositiveFeedbackAction = (
   action === "click_source" || action === "save" || action === "share";
 
 const newsHomePositiveFeedbackMemoryLimit = 12;
+const newsHomeSourceClickPositiveFeedbackRetentionMs = 14 * 24 * 60 * 60 * 1000;
 
 const getNewsHomePositiveFeedbackTimestamp = ({
   occurredAt,
@@ -2075,16 +2327,33 @@ export const selectStoredNewsPositiveFeedbackItems = (
 ): NewsPositiveFeedbackMemoryItem[] => {
   if (!Array.isArray(value)) return [];
 
+  const now = Date.now();
+
   return limitNewsHomePositiveFeedbackItems(
     value.flatMap((item) => {
       if (!isStoredNewsReaderMemoryRecord(item)) return [];
 
       const memoryItem = selectStoredNewsReaderMemoryItem(item);
 
+      const action = isNewsHomePositiveFeedbackAction(item.action)
+        ? item.action
+        : undefined;
+
       if (
         !memoryItem ||
-        !isNewsHomePositiveFeedbackAction(item.action) ||
+        (item.action !== undefined && action === undefined) ||
         typeof item.occurredAt !== "string"
+      ) {
+        return [];
+      }
+
+      const occurredAtTime = Date.parse(item.occurredAt);
+
+      if (
+        !Number.isFinite(occurredAtTime) ||
+        occurredAtTime > now ||
+        (action === "click_source" &&
+          now - occurredAtTime > newsHomeSourceClickPositiveFeedbackRetentionMs)
       ) {
         return [];
       }
@@ -2092,7 +2361,7 @@ export const selectStoredNewsPositiveFeedbackItems = (
       return [
         {
           ...memoryItem,
-          action: item.action,
+          ...(action ? { action } : {}),
           occurredAt: item.occurredAt,
         },
       ];
@@ -2120,9 +2389,13 @@ const newsHomePositiveFeedbackActionStrength = {
   share: 3,
 } as const satisfies Record<NewsHomePositiveFeedbackAction, number>;
 
+const getNewsHomePositiveFeedbackActionStrength = (
+  action: NewsHomePositiveFeedbackAction | undefined,
+) => (action ? newsHomePositiveFeedbackActionStrength[action] : 0);
+
 export const mergeNewsHomePositiveFeedbackItems = <
   TItem extends {
-    action: NewsHomePositiveFeedbackAction;
+    action?: NewsHomePositiveFeedbackAction;
     id: string;
     occurredAt: string;
   } & NewsUrlReference,
@@ -2161,8 +2434,8 @@ export const mergeNewsHomePositiveFeedbackItems = <
   });
   const strongestExistingItem = existingItems.reduce((strongest, item) => {
     const actionStrengthDelta =
-      newsHomePositiveFeedbackActionStrength[item.action] -
-      newsHomePositiveFeedbackActionStrength[strongest.action];
+      getNewsHomePositiveFeedbackActionStrength(item.action) -
+      getNewsHomePositiveFeedbackActionStrength(strongest.action);
 
     if (actionStrengthDelta !== 0) {
       return actionStrengthDelta > 0 ? item : strongest;
@@ -2175,8 +2448,8 @@ export const mergeNewsHomePositiveFeedbackItems = <
   });
 
   if (
-    newsHomePositiveFeedbackActionStrength[nextItem.action] <
-    newsHomePositiveFeedbackActionStrength[strongestExistingItem.action]
+    getNewsHomePositiveFeedbackActionStrength(nextItem.action) <
+    getNewsHomePositiveFeedbackActionStrength(strongestExistingItem.action)
   ) {
     return limitNewsHomePositiveFeedbackItems(
       [
@@ -2198,7 +2471,7 @@ export const mergeNewsHomePositiveFeedbackItems = <
 
 export const removeNewsHomePositiveFeedbackItem = <
   TItem extends {
-    action: NewsHomePositiveFeedbackAction;
+    action?: NewsHomePositiveFeedbackAction;
     id: string;
   } & NewsUrlReference,
 >({
@@ -2223,6 +2496,39 @@ export const removeNewsHomePositiveFeedbackItem = <
 
     return !getNewsDedupeUrlKeys(item).some((urlKey) =>
       removedSaveUrlKeys.has(urlKey),
+    );
+  });
+};
+
+export const removeNewsHomePositiveFeedbackActionItem = <
+  TItem extends {
+    action?: NewsHomePositiveFeedbackAction;
+    id: string;
+  } & NewsUrlReference,
+>({
+  action,
+  item,
+  itemId,
+  items,
+}: {
+  action: Extract<NewsHomePositiveFeedbackAction, "click_source" | "share">;
+  item?: NewsUrlReference;
+  itemId: string;
+  items: readonly TItem[];
+}) => {
+  const removedUrlKeys = new Set([
+    ...(item ? getNewsDedupeUrlKeys(item) : []),
+    ...items
+      .filter((item) => item.id === itemId && item.action === action)
+      .flatMap(getNewsDedupeUrlKeys),
+  ]);
+
+  return items.filter((item) => {
+    if (item.action !== action) return true;
+    if (item.id === itemId) return false;
+
+    return !getNewsDedupeUrlKeys(item).some((urlKey) =>
+      removedUrlKeys.has(urlKey),
     );
   });
 };
@@ -2281,9 +2587,8 @@ const getNewsHomePositiveFeedbackAnchorKeys = (
   return keys;
 };
 
-const getNewsHomePositiveFeedbackAnchorActionStrength = (
-  action: NewsHomePositiveFeedbackAnchor["action"],
-) => (action ? newsHomePositiveFeedbackActionStrength[action] : 0);
+const getNewsHomePositiveFeedbackAnchorActionStrength =
+  getNewsHomePositiveFeedbackActionStrength;
 
 const shouldReplaceNewsHomePositiveFeedbackAnchor = ({
   currentAnchor,
@@ -2950,19 +3255,114 @@ export const getNewsGuardrailRecoveryPlan = ({
   };
 };
 
+export const getNewsGuardrailRecoveryTrainingAction = ({
+  action,
+  formatCategory,
+  historyItems,
+  items,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  restoredGuardrailItems = [],
+  savedItems,
+}: {
+  action: ReturnType<typeof getNewsGuardrailRecoveryPlan>["actions"][number];
+  formatCategory: (category: string) => string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  restoredGuardrailItems?: readonly NewsReaderMemoryItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  const positiveBehaviorItems = [
+    ...historyItems,
+    ...savedItems,
+    ...positiveFeedbackItems,
+  ];
+  const conflictItems = negativeFeedbackItems.filter((negativeItem) =>
+    positiveBehaviorItems.some((positiveItem) =>
+      hasSharedGuardrailRecoverySignal(negativeItem, positiveItem),
+    ),
+  );
+  const conflictItem = conflictItems[0];
+
+  if (action.label === "Review conflict" && conflictItem) {
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Restore topic",
+      effect: "add",
+      formatCategory,
+      item: conflictItem,
+    });
+  }
+
+  if (action.label === "Test recovery lane") {
+    const recoveryCandidate = items
+      .map((item) => ({
+        candidate: toNewsGuardrailRecoveryCandidate({
+          conflictItems,
+          item,
+          restoredItems: restoredGuardrailItems,
+        }),
+        item,
+      }))
+      .filter(
+        (
+          entry,
+        ): entry is {
+          candidate: NonNullable<
+            ReturnType<typeof toNewsGuardrailRecoveryCandidate>
+          >;
+          item: RankedNewsItem<NewsHomeItem>;
+        } => entry.candidate !== null,
+      )
+      .sort((left, right) => right.candidate.score - left.candidate.score)[0];
+
+    if (!recoveryCandidate) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Test topic",
+      effect: "add",
+      formatCategory,
+      item: recoveryCandidate.item,
+    });
+  }
+
+  if (action.label === "Keep cooldown") {
+    const cooldownItem = conflictItem ?? negativeFeedbackItems[0];
+
+    if (!cooldownItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Keep cooldown",
+      effect: "remove",
+      formatCategory,
+      item: cooldownItem,
+    });
+  }
+
+  return null;
+};
+
 export const getNewsReaderMemory = ({
   formatCategory,
   historyItems,
   profile,
   savedItems,
+  searchMemoryItems = [],
 }: {
   formatCategory: (category: string) => string;
   historyItems: readonly NewsReaderMemoryItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
+  searchMemoryItems?: readonly NewsSearchMemoryRankingItem[];
 }) => {
   const signalSummary = getNewsReaderSignalSummary(profile);
   const interactionItems = [...savedItems, ...historyItems];
+  const latestSearch = [...searchMemoryItems].sort(
+    (left, right) =>
+      getNewsHomeSearchMemoryTimestamp(right) -
+      getNewsHomeSearchMemoryTimestamp(left),
+  )[0];
   const topTopic = getTopMemorySignal(
     interactionItems.map((item) => item.category),
   );
@@ -2982,8 +3382,12 @@ export const getNewsReaderMemory = ({
   const topTopicLabel = topTopic ? formatCategory(topTopic.value) : "None";
   const savedCount = savedItems.length;
   const readCount = historyItems.length;
+  const searchMemoryCount = searchMemoryItems.length;
   const hasMemory =
-    signalSummary.signalCount > 0 || savedCount > 0 || readCount > 0;
+    signalSummary.signalCount > 0 ||
+    savedCount > 0 ||
+    readCount > 0 ||
+    searchMemoryCount > 0;
 
   if (!hasMemory) {
     return {
@@ -3038,6 +3442,13 @@ export const getNewsReaderMemory = ({
     });
   }
 
+  if (latestSearch) {
+    highlights.push({
+      detail: `Latest search: ${latestSearch.query}.`,
+      label: "Search memory",
+    });
+  }
+
   if (highlights.length === 0) {
     highlights.push({
       detail:
@@ -3056,19 +3467,80 @@ export const getNewsReaderMemory = ({
       { label: "Profile signals", value: String(signalSummary.signalCount) },
       { label: "Saved", value: String(savedCount) },
       { label: "Read", value: String(readCount) },
+      ...(searchMemoryCount > 0
+        ? [{ label: "Searches", value: String(searchMemoryCount) }]
+        : []),
       { label: "Top topic", value: topTopicLabel },
     ],
-    summary: `${signalSummary.signalCount} preference ${
-      signalSummary.signalCount === 1 ? "signal" : "signals"
-    }, ${savedCount} saved ${savedCount === 1 ? "story" : "stories"}, and ${readCount} ${
-      readCount === 1 ? "read" : "reads"
-    } are shaping the next edition.`,
+    summary:
+      searchMemoryCount > 0
+        ? `${signalSummary.signalCount} preference ${
+            signalSummary.signalCount === 1 ? "signal" : "signals"
+          }, ${savedCount} saved ${
+            savedCount === 1 ? "story" : "stories"
+          }, ${readCount} ${
+            readCount === 1 ? "read" : "reads"
+          }, and ${searchMemoryCount} recent ${
+            searchMemoryCount === 1 ? "search" : "searches"
+          } are shaping the next edition.`
+        : `${signalSummary.signalCount} preference ${
+            signalSummary.signalCount === 1 ? "signal" : "signals"
+          }, ${savedCount} saved ${
+            savedCount === 1 ? "story" : "stories"
+          }, and ${readCount} ${
+            readCount === 1 ? "read" : "reads"
+          } are shaping the next edition.`,
   };
 };
 
+export type NewsPersonalizationDataVaultActionKind =
+  | "export_behavior"
+  | "export_profile"
+  | "export_searches"
+  | "reset_memory"
+  | "review_guardrails"
+  | "start_training";
+
 export interface NewsPersonalizationDataVaultControl {
+  action: {
+    actionLabel: string;
+    kind: NewsPersonalizationDataVaultActionKind;
+  };
   detail: string;
   label: string;
+}
+
+export interface NewsPersonalizationDataVault {
+  controls: NewsPersonalizationDataVaultControl[];
+  label: string;
+  metrics: { label: string; value: string }[];
+  summary: string;
+}
+
+export interface NewsPersonalizationDataVaultExportRecord {
+  label: string;
+  value: string;
+}
+
+export interface NewsPersonalizationDataVaultExportSection {
+  label: string;
+  records: NewsPersonalizationDataVaultExportRecord[];
+}
+
+export interface NewsPersonalizationDataVaultExport {
+  filename: string;
+  label: string;
+  sections: NewsPersonalizationDataVaultExportSection[];
+  summary: string;
+}
+
+export interface NewsPersonalizationDataVaultProfileImport {
+  label: "Profile Import";
+  metrics: { label: string; value: string }[];
+  notices: { detail: string; label: string }[];
+  profile: NewsPreferenceProfile;
+  signals: { label: "Imported"; value: string }[];
+  summary: string;
 }
 
 export const getNewsPersonalizationDataVault = ({
@@ -3078,6 +3550,7 @@ export const getNewsPersonalizationDataVault = ({
   positiveFeedbackItems = [],
   profile,
   savedItems,
+  searchMemoryItems = [],
 }: {
   historyItems: readonly NewsReaderMemoryItem[];
   negativeFeedbackItems: readonly NewsReaderMemoryItem[];
@@ -3085,20 +3558,29 @@ export const getNewsPersonalizationDataVault = ({
   positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
   profile: NewsPreferenceProfile;
   savedItems: readonly NewsReaderMemoryItem[];
-}) => {
+  searchMemoryItems?: readonly NewsSearchMemoryRankingItem[];
+}): NewsPersonalizationDataVault => {
   const profileSignalCount = getNewsReaderSignalSummary(
     normalizeNewsPreferenceProfile(profile),
   ).signalCount;
   const behaviorMemoryCount =
     historyItems.length + savedItems.length + positiveFeedbackItems.length;
   const guardrailCount = negativeFeedbackItems.length;
+  const searchMemoryCount = searchMemoryItems.length;
   const hasVaultData =
-    profileSignalCount > 0 || behaviorMemoryCount > 0 || guardrailCount > 0;
+    profileSignalCount > 0 ||
+    behaviorMemoryCount > 0 ||
+    guardrailCount > 0 ||
+    searchMemoryCount > 0;
 
   if (!hasVaultData) {
     return {
       controls: [
         {
+          action: {
+            actionLabel: "Start training",
+            kind: "start_training" as const,
+          },
           detail:
             "Follow a topic, read a story, save, share, source-click, or press Less to create reviewable data.",
           label: "Start training",
@@ -3119,25 +3601,56 @@ export const getNewsPersonalizationDataVault = ({
   return {
     controls: [
       {
+        action: {
+          actionLabel: "Export profile",
+          kind: "export_profile" as const,
+        },
         detail:
           "Package followed topics, sources, entities, and bias settings for review.",
         label: "Export profile",
       },
       {
+        action: {
+          actionLabel: "Export behavior",
+          kind: "export_behavior" as const,
+        },
         detail: `Package ${behaviorMemoryCount} saved, read, shared, or source-clicked ${
           behaviorMemoryCount === 1 ? "memory" : "memories"
         }.`,
         label: "Export behavior",
       },
+      ...(searchMemoryCount > 0
+        ? [
+            {
+              action: {
+                actionLabel: "Export searches",
+                kind: "export_searches" as const,
+              },
+              detail: `Package ${searchMemoryCount} recent search ${
+                searchMemoryCount === 1 ? "query" : "queries"
+              }.`,
+              label: "Export searches",
+            },
+          ]
+        : []),
       {
+        action: {
+          actionLabel: "Review guardrails",
+          kind: "review_guardrails" as const,
+        },
         detail: `Review ${guardrailCount} Less feedback ${
           guardrailCount === 1 ? "item" : "items"
         } before resetting personalization.`,
         label: "Review guardrails",
       },
       {
-        detail:
-          "Clear local reads, saves, positive feedback, and Less guardrails before retraining.",
+        action: {
+          actionLabel: "Reset memory",
+          kind: "reset_memory" as const,
+        },
+        detail: `Clear local reads, saves, positive feedback${
+          searchMemoryCount > 0 ? ", searches," : ","
+        } and Less guardrails before retraining.`,
         label: "Reset memory",
       },
     ],
@@ -3145,15 +3658,369 @@ export const getNewsPersonalizationDataVault = ({
     metrics: [
       { label: "Profile", value: String(profileSignalCount) },
       { label: "Behavior", value: String(behaviorMemoryCount) },
+      ...(searchMemoryCount > 0
+        ? [{ label: "Searches", value: String(searchMemoryCount) }]
+        : []),
       { label: "Guardrails", value: String(guardrailCount) },
       { label: "Persistence", value: persisted ? "Synced" : "Local" },
     ],
-    summary: `The reader data vault is tracking ${profileSignalCount} profile ${
-      profileSignalCount === 1 ? "signal" : "signals"
-    }, ${behaviorMemoryCount} behavior ${
-      behaviorMemoryCount === 1 ? "memory" : "memories"
-    }, and ${guardrailCount} ${
-      guardrailCount === 1 ? "guardrail" : "guardrails"
+    summary:
+      searchMemoryCount > 0
+        ? `The reader data vault is tracking ${profileSignalCount} profile ${
+            profileSignalCount === 1 ? "signal" : "signals"
+          }, ${behaviorMemoryCount} behavior ${
+            behaviorMemoryCount === 1 ? "memory" : "memories"
+          }, ${searchMemoryCount} ${
+            searchMemoryCount === 1 ? "search" : "searches"
+          }, and ${guardrailCount} ${
+            guardrailCount === 1 ? "guardrail" : "guardrails"
+          }.`
+        : `The reader data vault is tracking ${profileSignalCount} profile ${
+            profileSignalCount === 1 ? "signal" : "signals"
+          }, ${behaviorMemoryCount} behavior ${
+            behaviorMemoryCount === 1 ? "memory" : "memories"
+          }, and ${guardrailCount} ${
+            guardrailCount === 1 ? "guardrail" : "guardrails"
+          }.`,
+  };
+};
+
+const newsPersonalizationDataVaultSummaries = {
+  export_behavior: "Data Vault exported behavior memory for review.",
+  export_profile: "Data Vault exported profile signals for review.",
+  export_searches: "Data Vault exported search memory for review.",
+  reset_memory: "Data Vault requested a memory reset.",
+  review_guardrails: "Data Vault opened guardrail review.",
+  start_training: "Data Vault opened For You training.",
+} satisfies Record<NewsPersonalizationDataVaultActionKind, string>;
+
+export const getNewsPersonalizationDataVaultTrainingUpdate = (
+  control: NewsPersonalizationDataVaultControl,
+) => ({
+  label: "Data Vault Action",
+  metrics: [{ label: "Control", value: control.action.actionLabel }],
+  notices: [{ detail: control.detail, label: control.label }],
+  signals: [{ label: "Action", value: control.action.actionLabel }],
+  summary: newsPersonalizationDataVaultSummaries[control.action.kind],
+});
+
+const formatNewsPersonalizationDataVaultList = (values: readonly string[]) => {
+  const cleanValues = values.filter((value) => value.trim().length > 0);
+
+  return cleanValues.length > 0 ? cleanValues.join(", ") : "None";
+};
+
+const toNewsPersonalizationDataVaultStoryRecord = ({
+  action,
+  item,
+  timestamp,
+}: {
+  action: string;
+  item: NewsReaderMemoryItem;
+  timestamp: string | undefined;
+}): NewsPersonalizationDataVaultExportRecord => ({
+  label: item.title,
+  value: `${item.sourceName} / ${action}${timestamp ? ` / ${timestamp}` : ""}`,
+});
+
+export const getNewsPersonalizationDataVaultExport = ({
+  control,
+  historyItems,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+  searchMemoryItems = [],
+}: {
+  control: NewsPersonalizationDataVaultControl;
+  historyItems: readonly NewsReaderMemoryItem[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+  searchMemoryItems?: readonly NewsSearchMemoryRankingItem[];
+}): NewsPersonalizationDataVaultExport | null => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  switch (control.action.kind) {
+    case "export_profile": {
+      const profileSignalCount =
+        getNewsReaderSignalSummary(normalizedProfile).signalCount;
+
+      return {
+        filename: "new-ai-times-data-vault-profile.json",
+        label: "Profile Export",
+        sections: [
+          {
+            label: "Profile",
+            records: [
+              {
+                label: "Topics",
+                value: formatNewsPersonalizationDataVaultList(
+                  normalizedProfile.preferredCategories,
+                ),
+              },
+              {
+                label: "Sources",
+                value: formatNewsPersonalizationDataVaultList(
+                  normalizedProfile.preferredSources,
+                ),
+              },
+              {
+                label: "Entities",
+                value: formatNewsPersonalizationDataVaultList(
+                  normalizedProfile.preferredEntities,
+                ),
+              },
+              {
+                label: "Recency bias",
+                value: `${normalizedProfile.recencyBias}/2`,
+              },
+              {
+                label: "Novelty bias",
+                value: `${normalizedProfile.noveltyBias}/2`,
+              },
+            ],
+          },
+        ],
+        summary: `Profile export includes ${profileSignalCount} explicit preference ${
+          profileSignalCount === 1 ? "signal" : "signals"
+        }.`,
+      };
+    }
+    case "export_behavior": {
+      const behaviorRecords = [
+        ...savedItems.map((item) =>
+          toNewsPersonalizationDataVaultStoryRecord({
+            action: "saved",
+            item,
+            timestamp: item.savedAt,
+          }),
+        ),
+        ...historyItems.map((item) =>
+          toNewsPersonalizationDataVaultStoryRecord({
+            action: "read",
+            item,
+            timestamp: item.viewedAt,
+          }),
+        ),
+        ...positiveFeedbackItems.map((item) =>
+          toNewsPersonalizationDataVaultStoryRecord({
+            action: item.action ?? "positive feedback",
+            item,
+            timestamp: item.occurredAt,
+          }),
+        ),
+      ];
+
+      return {
+        filename: "new-ai-times-data-vault-behavior.json",
+        label: "Behavior Export",
+        sections: [{ label: "Behavior", records: behaviorRecords }],
+        summary: `Behavior export includes ${behaviorRecords.length} saved, read, shared, or source-clicked ${
+          behaviorRecords.length === 1 ? "memory" : "memories"
+        }.`,
+      };
+    }
+    case "export_searches": {
+      return {
+        filename: "new-ai-times-data-vault-searches.json",
+        label: "Search Export",
+        sections: [
+          {
+            label: "Searches",
+            records: searchMemoryItems.map((item) => ({
+              label: item.query,
+              value: `${item.resultCount} ${
+                item.resultCount === 1 ? "result" : "results"
+              } / ${item.searchedAt}`,
+            })),
+          },
+        ],
+        summary: `Search export includes ${searchMemoryItems.length} recent ${
+          searchMemoryItems.length === 1 ? "search query" : "search queries"
+        }.`,
+      };
+    }
+    case "review_guardrails": {
+      return {
+        filename: "new-ai-times-data-vault-guardrails.json",
+        label: "Guardrail Review",
+        sections: [
+          {
+            label: "Less feedback",
+            records: negativeFeedbackItems.map((item) =>
+              toNewsPersonalizationDataVaultStoryRecord({
+                action: "less",
+                item,
+                timestamp: item.hiddenAt ?? item.occurredAt,
+              }),
+            ),
+          },
+        ],
+        summary: `Guardrail review includes ${negativeFeedbackItems.length} Less feedback ${
+          negativeFeedbackItems.length === 1 ? "item" : "items"
+        }.`,
+      };
+    }
+    case "reset_memory":
+    case "start_training":
+      return null;
+  }
+};
+
+export const getNewsPersonalizationDataVaultExportJson = (
+  dataVaultExport: NewsPersonalizationDataVaultExport,
+) =>
+  JSON.stringify(
+    {
+      exportedBy: "The New AI Times",
+      filename: dataVaultExport.filename,
+      label: dataVaultExport.label,
+      schemaVersion: 1,
+      sections: dataVaultExport.sections,
+      summary: dataVaultExport.summary,
+    },
+    null,
+    2,
+  );
+
+export const getNewsPersonalizationDataVaultExportHref = (
+  dataVaultExport: NewsPersonalizationDataVaultExport,
+) =>
+  `data:application/json;charset=utf-8,${encodeURIComponent(
+    getNewsPersonalizationDataVaultExportJson(dataVaultExport),
+  )}`;
+
+const isNewsPersonalizationDataVaultObject = (
+  value: unknown,
+): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isNewsPersonalizationDataVaultArray = (
+  value: unknown,
+): value is unknown[] => Array.isArray(value);
+
+const getNewsPersonalizationDataVaultImportList = (value: string) => {
+  if (value.trim().toLowerCase() === "none") return [];
+
+  return value
+    .split(",")
+    .map((signal) => signal.trim())
+    .filter((signal) => signal.length > 0);
+};
+
+const getNewsPersonalizationDataVaultImportBias = (value: string) => {
+  const match = /^([0-2])\/2$/.exec(value.trim());
+
+  return match ? Number(match[1]) : 1;
+};
+
+export const getNewsPersonalizationDataVaultProfileImport = (
+  json: string,
+): NewsPersonalizationDataVaultProfileImport | null => {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+
+  if (
+    !isNewsPersonalizationDataVaultObject(parsed) ||
+    parsed.exportedBy !== "The New AI Times" ||
+    parsed.label !== "Profile Export" ||
+    parsed.schemaVersion !== 1 ||
+    !isNewsPersonalizationDataVaultArray(parsed.sections)
+  ) {
+    return null;
+  }
+
+  const profileSection = parsed.sections.find(
+    (section) =>
+      isNewsPersonalizationDataVaultObject(section) &&
+      section.label === "Profile" &&
+      isNewsPersonalizationDataVaultArray(section.records),
+  );
+
+  if (
+    !isNewsPersonalizationDataVaultObject(profileSection) ||
+    !isNewsPersonalizationDataVaultArray(profileSection.records)
+  ) {
+    return null;
+  }
+
+  const records = new Map(
+    profileSection.records.flatMap((record) =>
+      isNewsPersonalizationDataVaultObject(record) &&
+      typeof record.label === "string" &&
+      typeof record.value === "string"
+        ? [[record.label, record.value]]
+        : [],
+    ),
+  );
+  const importedProfile = normalizeNewsPreferenceProfile({
+    preferredCategories: getNewsPersonalizationDataVaultImportList(
+      records.get("Topics") ?? "",
+    ),
+    preferredEntities: getNewsPersonalizationDataVaultImportList(
+      records.get("Entities") ?? "",
+    ),
+    preferredSources: getNewsPersonalizationDataVaultImportList(
+      records.get("Sources") ?? "",
+    ),
+    noveltyBias: getNewsPersonalizationDataVaultImportBias(
+      records.get("Novelty bias") ?? "",
+    ),
+    recencyBias: getNewsPersonalizationDataVaultImportBias(
+      records.get("Recency bias") ?? "",
+    ),
+  });
+  const importedSignals = [
+    ...importedProfile.preferredCategories,
+    ...importedProfile.preferredSources,
+    ...importedProfile.preferredEntities,
+  ];
+
+  return {
+    label: "Profile Import",
+    metrics: [
+      {
+        label: "Topics",
+        value: importedProfile.preferredCategories.length.toString(),
+      },
+      {
+        label: "Sources",
+        value: importedProfile.preferredSources.length.toString(),
+      },
+      {
+        label: "Entities",
+        value: importedProfile.preferredEntities.length.toString(),
+      },
+      {
+        label: "Bias",
+        value: `R${importedProfile.recencyBias}/N${importedProfile.noveltyBias}`,
+      },
+    ],
+    notices: [
+      {
+        detail:
+          importedSignals.length > 0
+            ? `Imported ${importedSignals.join(
+                ", ",
+              )} from a Data Vault profile package.`
+            : "Imported no explicit profile signals from a Data Vault profile package.",
+        label: "Profile package",
+      },
+    ],
+    profile: importedProfile,
+    signals: importedSignals.map((signal) => ({
+      label: "Imported",
+      value: signal,
+    })),
+    summary: `Imported ${importedSignals.length} Data Vault profile ${
+      importedSignals.length === 1 ? "signal" : "signals"
     }.`,
   };
 };
@@ -3426,6 +4293,28 @@ export const getNewsReaderJourneyMap = ({
 type NewsReaderWatchlistKind = "Entity" | "Source" | "Topic";
 type NewsReaderWatchlistStatus = "Suggested" | "Watching";
 
+export interface NewsReaderWatchlistEntry {
+  key: string;
+  kind: NewsReaderWatchlistKind;
+  reason: string;
+  score: number;
+  signal: string;
+  signalValue: string;
+  sourceNames: string[];
+  statusLabel: NewsReaderWatchlistStatus;
+  supportLabel: string;
+  topStory: {
+    id: string;
+    sourceName: string;
+    title: string;
+  } | null;
+}
+
+interface NewsReaderWatchlistScoredEntry extends NewsReaderWatchlistEntry {
+  coverageCount: number;
+  firstIndex: number;
+}
+
 interface NewsReaderWatchlistWorking {
   firstIndex: number;
   isActive: boolean;
@@ -3433,6 +4322,7 @@ interface NewsReaderWatchlistWorking {
   key: string;
   kind: NewsReaderWatchlistKind;
   signal: string;
+  signalValue: string;
   sourceNames: string[];
   sourceSlugs: Set<string>;
   trendScoreTotal: number;
@@ -3451,6 +4341,7 @@ const upsertNewsReaderWatchlistSignal = ({
   key,
   kind,
   signal,
+  signalValue,
   store,
 }: {
   firstIndex: number;
@@ -3459,10 +4350,12 @@ const upsertNewsReaderWatchlistSignal = ({
   key: string;
   kind: NewsReaderWatchlistKind;
   signal: string;
+  signalValue: string;
   store: Map<string, NewsReaderWatchlistWorking>;
 }) => {
   const normalizedSignal = signal.trim();
-  if (!normalizedSignal) return;
+  const normalizedSignalValue = signalValue.trim();
+  if (!normalizedSignal || !normalizedSignalValue) return;
 
   const existing = store.get(key);
 
@@ -3474,6 +4367,7 @@ const upsertNewsReaderWatchlistSignal = ({
       key,
       kind,
       signal: normalizedSignal,
+      signalValue: normalizedSignalValue,
       sourceNames: [item.sourceName],
       sourceSlugs: new Set([normalizePreferenceSignal(item.sourceSlug)]),
       trendScoreTotal: item.trendScore,
@@ -3511,13 +4405,16 @@ const getNewsReaderWatchlistReason = (
     ? "Already in your profile and active in the edition."
     : "High heat suggests adding this signal to the watchlist.";
 
-const toNewsReaderWatchlistEntry = (entry: NewsReaderWatchlistWorking) => {
+const toNewsReaderWatchlistEntry = (
+  entry: NewsReaderWatchlistWorking,
+): NewsReaderWatchlistScoredEntry => {
   const storyCount = entry.items.length;
   const sourceCount = entry.sourceSlugs.size;
   const averageTrendScore = Math.round(entry.trendScoreTotal / storyCount);
   const statusLabel: NewsReaderWatchlistStatus = entry.isActive
     ? "Watching"
     : "Suggested";
+  const now = Date.now();
   const sortedItems = [...entry.items].sort((left, right) => {
     if (right.personalizedScore !== left.personalizedScore) {
       return right.personalizedScore - left.personalizedScore;
@@ -3528,8 +4425,8 @@ const toNewsReaderWatchlistEntry = (entry: NewsReaderWatchlistWorking) => {
     }
 
     return (
-      new Date(right.publishedAt).getTime() -
-      new Date(left.publishedAt).getTime()
+      getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+      getPastNewsHomePublishedAtTime(left.publishedAt, now)
     );
   });
   const [topStory] = sortedItems;
@@ -3547,6 +4444,7 @@ const toNewsReaderWatchlistEntry = (entry: NewsReaderWatchlistWorking) => {
       storyCount,
     }),
     signal: entry.signal,
+    signalValue: entry.signalValue,
     sourceNames: entry.sourceNames,
     statusLabel,
     supportLabel: `${storyCount} ${
@@ -3604,6 +4502,7 @@ export const getNewsReaderWatchlist = ({
         key: `topic:${normalizePreferenceSignal(item.category)}`,
         kind: "Topic",
         signal: formatCategory(item.category),
+        signalValue: item.category,
         store: workingEntries,
       });
     }
@@ -3618,6 +4517,7 @@ export const getNewsReaderWatchlist = ({
         key: `source:${normalizePreferenceSignal(item.sourceSlug)}`,
         kind: "Source",
         signal: item.sourceName,
+        signalValue: item.sourceSlug,
         store: workingEntries,
       });
     }
@@ -3644,6 +4544,7 @@ export const getNewsReaderWatchlist = ({
         key: `entity:${normalizePreferenceSignal(entity)}`,
         kind: "Entity",
         signal: entity,
+        signalValue: entity,
         store: workingEntries,
       });
     }
@@ -4662,6 +5563,7 @@ export const getNewsSessionIntent = ({
     };
   }
 
+  const now = Date.now();
   const intents = rankedIntents.slice(0, limit).map((accumulator) => {
     const candidateItems = [...accumulator.candidateItems].sort(
       (left, right) => {
@@ -4674,8 +5576,8 @@ export const getNewsSessionIntent = ({
         }
 
         return (
-          new Date(right.publishedAt).getTime() -
-          new Date(left.publishedAt).getTime()
+          getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+          getPastNewsHomePublishedAtTime(left.publishedAt, now)
         );
       },
     );
@@ -4805,7 +5707,7 @@ type NewsProfilePositiveFeedbackAction = Extract<
 >;
 
 type NewsProfilePositiveFeedbackItem = NewsReaderMemoryItem & {
-  action: NewsProfilePositiveFeedbackAction;
+  action?: NewsProfilePositiveFeedbackAction;
 };
 
 const formatProfileLedgerList = (values: readonly string[]) => {
@@ -4869,6 +5771,18 @@ const formatProfileLedgerPositiveDetail = ({
   } feeding the profile.`;
 };
 
+export interface NewsProfileSignalLedgerControl {
+  active: boolean;
+  kind: NewsPreferenceProfileTrainingSignalKind;
+  label: string;
+  signal: string;
+}
+
+export const getNewsProfileSignalLedgerTrainingAction = (
+  control: NewsProfileSignalLedgerControl,
+): NewsPreferenceProfileTrainingAction =>
+  getNewsPreferenceProfileToggleAction(control);
+
 export const getNewsProfileSignalLedger = ({
   formatCategory,
   historyItems,
@@ -4928,6 +5842,32 @@ export const getNewsProfileSignalLedger = ({
     ],
     4,
   );
+  const explicitControls: NewsProfileSignalLedgerControl[] = [
+    ...normalizedProfile.preferredCategories.map((signal) => ({
+      active: true,
+      kind: "category" as const,
+      label: formatCategory(signal),
+      signal,
+    })),
+    ...normalizedProfile.preferredSources.map((signal) => ({
+      active: true,
+      kind: "source" as const,
+      label: signal,
+      signal,
+    })),
+    ...explicitEntitySignals.map((signal) => ({
+      active: true,
+      kind: "entity" as const,
+      label: signal,
+      signal,
+    })),
+    ...explicitAngleSignals.map((signal) => ({
+      active: true,
+      kind: "tag" as const,
+      label: formatNewsAngleQuery(signal),
+      signal: formatNewsAngleQuery(signal),
+    })),
+  ];
   const positiveSignals = getUniqueSignals(
     [
       ...positiveFeedbackItems.filter((item) => item.action !== "save"),
@@ -4959,11 +5899,13 @@ export const getNewsProfileSignalLedger = ({
         effect:
           explicitCount > 0 ? "Boosts matching stories" : "No direct boost yet",
         label: "Explicit profile",
+        controls: explicitControls,
         signals: explicitSignals,
         source: "Reader controls",
       },
       {
         count: positiveBehaviorCount,
+        controls: [],
         detail: formatProfileLedgerPositiveDetail({
           readCount,
           saveCount,
@@ -4983,6 +5925,7 @@ export const getNewsProfileSignalLedger = ({
       },
       {
         count: guardrailCount,
+        controls: [],
         detail:
           guardrailCount > 0
             ? `${guardrailCount} hidden ${
@@ -5001,6 +5944,7 @@ export const getNewsProfileSignalLedger = ({
       },
       {
         count: 2,
+        controls: [],
         detail: getNewsProfileBiasDetail(normalizedProfile),
         effect: "Tunes ranking balance",
         label: "Bias tuning",
@@ -5034,6 +5978,65 @@ const countInterestDriftSignals = (
   values: readonly string[],
 ): { count: number; value: string } | null => getTopMemorySignal(values);
 
+const getTopInterestDriftSource = (
+  items: readonly NewsReaderMemoryItem[],
+): { label: string; signal: string } | null => {
+  const countsBySource = new Map<
+    string,
+    { count: number; label: string; signal: string }
+  >();
+
+  for (const item of items) {
+    const signal = normalizePreferenceSignal(item.sourceSlug);
+    const label = item.sourceName.trim();
+
+    if (!signal || !label) continue;
+
+    const existing = countsBySource.get(signal);
+
+    countsBySource.set(signal, {
+      count: existing ? existing.count + 1 : 1,
+      label: existing?.label ?? label,
+      signal,
+    });
+  }
+
+  return (
+    Array.from(countsBySource.values()).sort((left, right) => {
+      if (right.count !== left.count) return right.count - left.count;
+      return left.label.localeCompare(right.label);
+    })[0] ?? null
+  );
+};
+
+const getNewsInterestDriftPositiveItems = ({
+  historyItems,
+  positiveFeedbackItems,
+  savedItems,
+}: {
+  historyItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems: readonly NewsProfilePositiveFeedbackItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}) => {
+  const savedItemIds = new Set(savedItems.map((item) => item.id));
+  const savedItemUrlKeys = new Set(savedItems.flatMap(getNewsDedupeUrlKeys));
+  const explicitSaveFeedbackItems = positiveFeedbackItems.filter(
+    (item) =>
+      item.action === "save" &&
+      !savedItemIds.has(item.id) &&
+      !getNewsDedupeUrlKeys(item).some((urlKey) =>
+        savedItemUrlKeys.has(urlKey),
+      ),
+  );
+
+  return [
+    ...positiveFeedbackItems.filter((item) => item.action !== "save"),
+    ...explicitSaveFeedbackItems,
+    ...savedItems,
+    ...historyItems,
+  ];
+};
+
 export const getNewsInterestDrift = ({
   formatCategory,
   historyItems,
@@ -5054,22 +6057,11 @@ export const getNewsInterestDrift = ({
     normalizedProfile.preferredCategories.length +
     normalizedProfile.preferredSources.length +
     normalizedProfile.preferredEntities.length;
-  const savedItemIds = new Set(savedItems.map((item) => item.id));
-  const savedItemUrlKeys = new Set(savedItems.flatMap(getNewsDedupeUrlKeys));
-  const explicitSaveFeedbackItems = positiveFeedbackItems.filter(
-    (item) =>
-      item.action === "save" &&
-      !savedItemIds.has(item.id) &&
-      !getNewsDedupeUrlKeys(item).some((urlKey) =>
-        savedItemUrlKeys.has(urlKey),
-      ),
-  );
-  const positiveItems = [
-    ...positiveFeedbackItems.filter((item) => item.action !== "save"),
-    ...explicitSaveFeedbackItems,
-    ...savedItems,
-    ...historyItems,
-  ];
+  const positiveItems = getNewsInterestDriftPositiveItems({
+    historyItems,
+    positiveFeedbackItems,
+    savedItems,
+  });
   const hasExplicitPositiveInteractions = positiveFeedbackItems.some(
     (item) => item.action !== "save",
   );
@@ -5166,13 +6158,131 @@ export const getNewsInterestDrift = ({
   };
 };
 
-type NewsReaderLearningLoopActionKey =
+export const getNewsInterestDriftTrainingAction = ({
+  formatCategory,
+  historyItems,
+  negativeFeedbackItems,
+  notice,
+  positiveFeedbackItems = [],
+  profile,
+  savedItems,
+}: {
+  formatCategory: (category: string) => string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  notice: ReturnType<typeof getNewsInterestDrift>["notices"][number];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  profile: NewsPreferenceProfile;
+  savedItems: readonly NewsReaderMemoryItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  const positiveItems = getNewsInterestDriftPositiveItems({
+    historyItems,
+    positiveFeedbackItems,
+    savedItems,
+  });
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+
+  if (notice.label === "Topic drift") {
+    const topTopic = countInterestDriftSignals(
+      positiveItems.map((item) => item.category),
+    );
+
+    if (!topTopic) return null;
+
+    const signal = normalizePreferenceSignal(topTopic.value);
+    const active = normalizedProfile.preferredCategories.includes(signal);
+    const label = formatCategory(signal);
+
+    return {
+      actionLabel: active ? "Reduce topic" : "Follow topic",
+      effect: active ? "remove" : "add",
+      label,
+      signals: [
+        {
+          kind: "category",
+          label,
+          signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (notice.label === "Source drift") {
+    const topSource = getTopInterestDriftSource(positiveItems);
+
+    if (!topSource) return null;
+
+    const active = normalizedProfile.preferredSources.includes(
+      topSource.signal,
+    );
+
+    return {
+      actionLabel: active ? "Reduce source" : "Prefer source",
+      effect: active ? "remove" : "add",
+      label: topSource.label,
+      signals: [
+        {
+          kind: "source",
+          label: topSource.label,
+          signal: topSource.signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (notice.label === "Guardrail") {
+    const negativeItem = negativeFeedbackItems[0];
+
+    if (!negativeItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      formatCategory,
+      item: negativeItem,
+    });
+  }
+
+  return null;
+};
+
+const getNewsCategoryPreferenceTrainingAction = ({
+  actionLabel,
+  effect,
+  formatCategory,
+  item,
+}: {
+  actionLabel: string;
+  effect: "add" | "remove";
+  formatCategory: (category: string) => string;
+  item: Pick<NewsHomeItem, "category">;
+}): NewsPreferenceProfileTrainingAction => {
+  const label = formatCategory(item.category);
+
+  return {
+    actionLabel,
+    effect,
+    label,
+    signals: [
+      {
+        kind: "category",
+        label,
+        signal: item.category,
+      },
+    ],
+    source: "control",
+  };
+};
+
+export type NewsReaderLearningLoopActionKey =
   | "balance"
   | "dampen"
   | "explore"
   | "reinforce";
 
-interface NewsReaderLearningLoopAction {
+export interface NewsReaderLearningLoopAction {
   detail: string;
   key: NewsReaderLearningLoopActionKey;
   label: string;
@@ -5406,6 +6516,72 @@ export const getNewsReaderLearningLoop = ({
   };
 };
 
+export const getNewsReaderLearningLoopTrainingAction = ({
+  action,
+  formatCategory,
+  historyItems,
+  items,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  savedItems,
+}: {
+  action: NewsReaderLearningLoopAction;
+  formatCategory: (category: string) => string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (action.key === "reinforce") {
+    const positiveItems = getReaderLearningPositiveItems({
+      historyItems,
+      positiveFeedbackItems,
+      savedItems,
+    });
+    const topTopic = getTopMemorySignal(
+      positiveItems.map((item) => item.category),
+    );
+
+    if (!topTopic) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Reinforce topic",
+      effect: "add",
+      formatCategory,
+      item: { category: topTopic.value },
+    });
+  }
+
+  if (action.key === "explore") {
+    const explorationItem = getReaderLearningExplorationCandidate(items);
+
+    if (!explorationItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Follow topic",
+      effect: "add",
+      formatCategory,
+      item: explorationItem,
+    });
+  }
+
+  if (action.key === "dampen") {
+    const [negativeItem] = negativeFeedbackItems;
+
+    if (!negativeItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      formatCategory,
+      item: negativeItem,
+    });
+  }
+
+  return null;
+};
+
 const feedbackActionLabels = {
   click_source: "Source click",
   hide: "Less",
@@ -5539,6 +6715,319 @@ const formatNewsSourceDisplayLabel = (source: string) => {
   return fallbackLabel || source;
 };
 
+export const getNewsReaderCohortTrainingAction = ({
+  cohort,
+  formatCategory,
+  profile,
+}: {
+  cohort:
+    | ReturnType<typeof getNewsReaderCohorts>["cohorts"][number]
+    | undefined;
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (!cohort) return null;
+
+  const definition = newsReaderCohortDefinitions.find(
+    (readerCohort) => readerCohort.label === cohort.label,
+  );
+
+  if (!definition) return null;
+
+  if (cohort.guardrailCount > 0 && cohort.score === 0) {
+    const [source] = definition.sources;
+
+    if (!source) return null;
+
+    const signal = normalizePreferenceSignal(source);
+    const label = formatNewsSourceDisplayLabel(signal);
+
+    return {
+      actionLabel: "Reduce cohort source",
+      effect: "remove",
+      label,
+      signals: [
+        {
+          kind: "source",
+          label,
+          signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const categorySignal = definition.categories
+    .map(normalizePreferenceSignal)
+    .find(
+      (category) => !normalizedProfile.preferredCategories.includes(category),
+    );
+
+  if (categorySignal) {
+    const label = formatCategory(categorySignal);
+
+    return {
+      actionLabel: "Follow cohort topic",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "category",
+          label,
+          signal: categorySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const sourceSignal = definition.sources
+    .map(normalizePreferenceSignal)
+    .find((source) => !normalizedProfile.preferredSources.includes(source));
+
+  if (sourceSignal) {
+    const label = formatNewsSourceDisplayLabel(sourceSignal);
+
+    return {
+      actionLabel: "Follow cohort source",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "source",
+          label,
+          signal: sourceSignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const entitySignal = definition.entities
+    .map(normalizePreferenceSignal)
+    .find((entity) => !normalizedProfile.preferredEntities.includes(entity));
+
+  if (entitySignal) {
+    return {
+      actionLabel: "Follow cohort entity",
+      effect: "add",
+      label: entitySignal,
+      signals: [
+        {
+          kind: "entity",
+          label: entitySignal,
+          signal: entitySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  return null;
+};
+
+export const getNewsSessionIntentTrainingAction = ({
+  formatCategory,
+  intent,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  intent:
+    | ReturnType<typeof getNewsSessionIntent>["intents"][number]
+    | undefined;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (!intent) return null;
+
+  const definition = newsSessionIntentDefinitions.find(
+    (sessionIntent) => sessionIntent.label === intent.label,
+  );
+
+  if (!definition) return null;
+
+  if (intent.guardrailCount > 0 && intent.score === 0) {
+    const [source] = definition.sources;
+
+    if (!source) return null;
+
+    const signal = normalizePreferenceSignal(source);
+    const label = formatNewsSourceDisplayLabel(signal);
+
+    return {
+      actionLabel: "Reduce intent source",
+      effect: "remove",
+      label,
+      signals: [
+        {
+          kind: "source",
+          label,
+          signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const categorySignal = definition.categories
+    .map(normalizePreferenceSignal)
+    .find(
+      (category) => !normalizedProfile.preferredCategories.includes(category),
+    );
+
+  if (categorySignal) {
+    const label = formatCategory(categorySignal);
+
+    return {
+      actionLabel: "Follow intent topic",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "category",
+          label,
+          signal: categorySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const sourceSignal = definition.sources
+    .map(normalizePreferenceSignal)
+    .find((source) => !normalizedProfile.preferredSources.includes(source));
+
+  if (sourceSignal) {
+    const label = formatNewsSourceDisplayLabel(sourceSignal);
+
+    return {
+      actionLabel: "Follow intent source",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "source",
+          label,
+          signal: sourceSignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const entitySignal = definition.entities
+    .map(normalizePreferenceSignal)
+    .find((entity) => !normalizedProfile.preferredEntities.includes(entity));
+
+  if (entitySignal) {
+    return {
+      actionLabel: "Follow intent entity",
+      effect: "add",
+      label: entitySignal,
+      signals: [
+        {
+          kind: "entity",
+          label: entitySignal,
+          signal: entitySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  return null;
+};
+
+export const getNewsCollaborativeSignalTrainingAction = ({
+  formatCategory,
+  profile,
+  signal,
+}: {
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+  signal:
+    | ReturnType<typeof getNewsCollaborativeSignals>["signals"][number]
+    | undefined;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (!signal) return null;
+
+  const definition = newsReaderCohortDefinitions.find(
+    (readerCohort) => readerCohort.label === signal.label,
+  );
+
+  if (!definition) return null;
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const categorySignal = definition.categories
+    .map(normalizePreferenceSignal)
+    .find(
+      (category) => !normalizedProfile.preferredCategories.includes(category),
+    );
+
+  if (categorySignal) {
+    const label = formatCategory(categorySignal);
+
+    return {
+      actionLabel: "Follow collaborative topic",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "category",
+          label,
+          signal: categorySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const sourceSignal = definition.sources
+    .map(normalizePreferenceSignal)
+    .find((source) => !normalizedProfile.preferredSources.includes(source));
+
+  if (sourceSignal) {
+    const label = formatNewsSourceDisplayLabel(sourceSignal);
+
+    return {
+      actionLabel: "Follow collaborative source",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "source",
+          label,
+          signal: sourceSignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const entitySignal = definition.entities
+    .map(normalizePreferenceSignal)
+    .find((entity) => !normalizedProfile.preferredEntities.includes(entity));
+
+  if (entitySignal) {
+    return {
+      actionLabel: "Follow collaborative entity",
+      effect: "add",
+      label: entitySignal,
+      signals: [
+        {
+          kind: "entity",
+          label: entitySignal,
+          signal: entitySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  return null;
+};
+
 const formatNewsServerProfileAuditSummary = (audit: NewsServerProfileAudit) => {
   const categoryFormattedSummary = Object.entries(
     newsCategoryDisplayLabels,
@@ -5626,6 +7115,7 @@ const newsServerProfileAuditMatchedSignalLabels: Record<string, string> = {
   positive_feedback: "Positive feedback",
   positive_read_feedback: "Read feedback",
   positive_share_feedback: "Share feedback",
+  reading_history_cooldown: "Recently read",
   semantic_feedback: "Semantic match",
   session_intent: "Intent match",
   source: "Source match",
@@ -6072,6 +7562,8 @@ export const getNewsReaderMemoryResetTrainingUpdate = ({
           { label: "Profile", value: "Default" },
           { label: "Saved", value: "Cleared" },
           { label: "History", value: "Cleared" },
+          { label: "Positive", value: "Cleared" },
+          { label: "Search", value: "Cleared" },
           { label: "Guardrails", value: "Cleared" },
         ],
         notices: [
@@ -6087,7 +7579,7 @@ export const getNewsReaderMemoryResetTrainingUpdate = ({
           { label: "Entities", value: "No saved entities" },
         ],
         summary:
-          "Reader memory was reset across profile, saved stories, reading history, and feedback guardrails.",
+          "Reader memory was reset across profile, saved stories, reading history, positive feedback, search intent, and feedback guardrails.",
       }
     : {
         label: "Local Reset",
@@ -6095,6 +7587,8 @@ export const getNewsReaderMemoryResetTrainingUpdate = ({
           { label: "Profile", value: "Default" },
           { label: "Saved", value: "Not synced" },
           { label: "History", value: "Not synced" },
+          { label: "Positive", value: "Local only" },
+          { label: "Search", value: "Local only" },
           { label: "Guardrails", value: "Local only" },
         ],
         notices: [
@@ -6110,7 +7604,7 @@ export const getNewsReaderMemoryResetTrainingUpdate = ({
           { label: "Entities", value: "No local entities" },
         ],
         summary:
-          "Local reader memory was reset; persisted saved stories, reading history, and feedback guardrails were not contacted.",
+          "Local reader memory was reset; persisted saved stories, reading history, positive feedback, search intent, and feedback guardrails were not contacted.",
       };
 
 export const getNewsReaderMemoryResetPersistence = ({
@@ -6173,6 +7667,35 @@ export const getNewsPreferenceProfileToggleAction = ({
         kind,
         label,
         signal,
+      },
+    ],
+    source: "control",
+  };
+};
+
+const getNewsReaderWatchlistTrainingSignalKind = (
+  kind: NewsReaderWatchlistKind,
+): NewsPreferenceProfileTrainingSignalKind => {
+  if (kind === "Topic") return "category";
+  if (kind === "Source") return "source";
+
+  return "entity";
+};
+
+export const getNewsReaderWatchlistTrainingAction = (
+  entry: NewsReaderWatchlistEntry,
+): NewsPreferenceProfileTrainingAction | null => {
+  if (entry.statusLabel !== "Suggested") return null;
+
+  return {
+    actionLabel: "Add to watchlist",
+    effect: "add",
+    label: entry.signal,
+    signals: [
+      {
+        kind: getNewsReaderWatchlistTrainingSignalKind(entry.kind),
+        label: entry.signal,
+        signal: entry.signalValue,
       },
     ],
     source: "control",
@@ -6312,6 +7835,10 @@ const getPreferenceProfileSignalCount = (profile: NewsPreferenceProfile) => {
 
 const getPreferenceProfileMetrics = (profile: NewsPreferenceProfile) => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const angleCount = normalizedProfile.preferredEntities.filter(
+    isNewsReaderAngleSignal,
+  ).length;
+  const entityCount = normalizedProfile.preferredEntities.length - angleCount;
 
   return [
     {
@@ -6328,7 +7855,11 @@ const getPreferenceProfileMetrics = (profile: NewsPreferenceProfile) => {
     },
     {
       label: "Entities",
-      value: String(normalizedProfile.preferredEntities.length),
+      value: String(entityCount),
+    },
+    {
+      label: "Angles",
+      value: String(angleCount),
     },
   ];
 };
@@ -6548,6 +8079,15 @@ interface NewsPreferenceDecaySignal {
   signal: string;
 }
 
+export interface NewsPreferenceDecayQueueEntry {
+  actionLabel: string;
+  kind: NewsPreferenceCoverageDebtKind;
+  label: string;
+  reason: string;
+  signal: string;
+  statusLabel: "Guarded" | "Stale" | "Warm";
+}
+
 interface NewsPreferenceDecayMatchableItem {
   category: string;
   entities: readonly string[];
@@ -6647,6 +8187,26 @@ const getPreferenceDecayDaysAgo = (timestamp: number, now: number) =>
 const getPreferenceDecayStoryCountLabel = (count: number) =>
   `${count} ranked ${count === 1 ? "story" : "stories"}`;
 
+export const getNewsPreferenceDecayTrainingAction = (
+  entry: NewsPreferenceDecayQueueEntry,
+): NewsPreferenceProfileTrainingAction | null => {
+  if (entry.statusLabel === "Warm") return null;
+
+  return {
+    actionLabel: entry.actionLabel,
+    effect: "remove",
+    label: entry.label,
+    signals: [
+      {
+        kind: entry.kind,
+        label: entry.label,
+        signal: entry.signal,
+      },
+    ],
+    source: "control",
+  };
+};
+
 export const getNewsPreferenceDecayQueue = ({
   formatCategory,
   generatedAt,
@@ -6741,47 +8301,51 @@ export const getNewsPreferenceDecayQueue = ({
   const revivalCandidates = signalStates.filter(
     (state) => state.rankedMatches.length > 0 && state.hasRecentPositive,
   );
-  const decays = decayCandidates.slice(0, displayLimit).map((state) => {
-    const rankedStoryCountLabel = getPreferenceDecayStoryCountLabel(
-      state.rankedMatches.length,
-    );
-    const reason = state.negativeIsNewer
-      ? `Recent Less feedback conflicts with ${rankedStoryCountLabel} matching this profile signal.`
-      : state.lastPositiveTimestamp > 0 && state.positiveDaysAgo !== null
-        ? `Last positive reinforcement was ${state.positiveDaysAgo} days ago while ${rankedStoryCountLabel} still matches this profile signal.`
-        : `No positive reinforcement has been recorded while ${rankedStoryCountLabel} still matches this profile signal.`;
-
-    return {
-      actionLabel: getPreferenceDecayActionLabel({
-        kind: state.signal.kind,
-        warm: false,
-      }),
-      kind: state.signal.kind,
-      label: state.signal.label,
-      reason,
-      signal: state.signal.signal,
-      statusLabel: state.negativeIsNewer ? "Guarded" : "Stale",
-    };
-  });
-  const revivals = revivalCandidates.slice(0, displayLimit).map((state) => {
-    const positiveDaysAgo = state.positiveDaysAgo ?? 0;
-
-    return {
-      actionLabel: getPreferenceDecayActionLabel({
-        kind: state.signal.kind,
-        warm: true,
-      }),
-      kind: state.signal.kind,
-      label: state.signal.label,
-      reason: `Positive behavior ${positiveDaysAgo} ${
-        positiveDaysAgo === 1 ? "day" : "days"
-      } ago reinforces ${getPreferenceDecayStoryCountLabel(
+  const decays: NewsPreferenceDecayQueueEntry[] = decayCandidates
+    .slice(0, displayLimit)
+    .map((state) => {
+      const rankedStoryCountLabel = getPreferenceDecayStoryCountLabel(
         state.rankedMatches.length,
-      )} matching this profile signal.`,
-      signal: state.signal.signal,
-      statusLabel: "Warm",
-    };
-  });
+      );
+      const reason = state.negativeIsNewer
+        ? `Recent Less feedback conflicts with ${rankedStoryCountLabel} matching this profile signal.`
+        : state.lastPositiveTimestamp > 0 && state.positiveDaysAgo !== null
+          ? `Last positive reinforcement was ${state.positiveDaysAgo} days ago while ${rankedStoryCountLabel} still matches this profile signal.`
+          : `No positive reinforcement has been recorded while ${rankedStoryCountLabel} still matches this profile signal.`;
+
+      return {
+        actionLabel: getPreferenceDecayActionLabel({
+          kind: state.signal.kind,
+          warm: false,
+        }),
+        kind: state.signal.kind,
+        label: state.signal.label,
+        reason,
+        signal: state.signal.signal,
+        statusLabel: state.negativeIsNewer ? "Guarded" : "Stale",
+      };
+    });
+  const revivals: NewsPreferenceDecayQueueEntry[] = revivalCandidates
+    .slice(0, displayLimit)
+    .map((state) => {
+      const positiveDaysAgo = state.positiveDaysAgo ?? 0;
+
+      return {
+        actionLabel: getPreferenceDecayActionLabel({
+          kind: state.signal.kind,
+          warm: true,
+        }),
+        kind: state.signal.kind,
+        label: state.signal.label,
+        reason: `Positive behavior ${positiveDaysAgo} ${
+          positiveDaysAgo === 1 ? "day" : "days"
+        } ago reinforces ${getPreferenceDecayStoryCountLabel(
+          state.rankedMatches.length,
+        )} matching this profile signal.`,
+        signal: state.signal.signal,
+        statusLabel: "Warm",
+      };
+    });
   const decayCount = decayCandidates.length;
   const revivalCount = revivalCandidates.length;
 
@@ -7081,13 +8645,14 @@ export const getNewsPreferenceStarter = ({
     const seenTags = new Set<string>();
 
     item.tags.forEach((tag, tagIndex) => {
-      const normalizedTag = normalizePreferenceSignal(tag);
+      const angleLabel = formatNewsAngleQuery(tag);
+      const normalizedTag = normalizePreferenceSignal(angleLabel);
 
       if (
         !normalizedTag ||
         seenTags.has(normalizedTag) ||
         !isSpecificNewsAngleTag(tag) ||
-        hasPreferenceSignal(normalizedProfile.preferredEntities, tag)
+        hasNewsReaderAngleSignal(normalizedProfile.preferredEntities, tag)
       ) {
         return;
       }
@@ -7096,8 +8661,8 @@ export const getNewsPreferenceStarter = ({
 
       upsertPreferenceStarterEntry({
         firstIndex: index * 100 + tagIndex,
-        label: formatNewsAngleQuery(tag),
-        signal: tag,
+        label: angleLabel,
+        signal: angleLabel,
         store: tagEntries,
         supportKey: item.sourceSlug,
         trendScore: item.trendScore,
@@ -7355,17 +8920,20 @@ export const getNewsForYouControlStrip = ({
   profile,
   rankedItems,
   savedItems,
+  searchMemoryItems = [],
 }: {
   formatCategory: (category: string) => string;
   guardrailItems: readonly NewsReaderMemoryItem[];
   profile: NewsPreferenceProfile;
   rankedItems: readonly RankedNewsItem<NewsHomeItem>[];
   savedItems: readonly NewsReaderMemoryItem[];
+  searchMemoryItems?: readonly NewsSearchMemoryRankingItem[];
 }) => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
   const topicCount = normalizedProfile.preferredCategories.length;
   const sourceCount = normalizedProfile.preferredSources.length;
   const entityCount = normalizedProfile.preferredEntities.length;
+  const searchMemoryCount = searchMemoryItems.length;
   const freshLabel = formatForYouControlStripBias(
     normalizedProfile.recencyBias,
   );
@@ -7408,6 +8976,12 @@ export const getNewsForYouControlStrip = ({
         value: `${guardrailItems.length} less`,
       },
       {
+        label: "Searches",
+        value: `${searchMemoryCount} ${
+          searchMemoryCount === 1 ? "search" : "searches"
+        }`,
+      },
+      {
         label: "Reset",
         value: "Reset memory",
       },
@@ -7416,6 +8990,7 @@ export const getNewsForYouControlStrip = ({
       { label: "Topics", value: String(topicCount) },
       { label: "Sources", value: String(sourceCount) },
       { label: "Entities", value: String(entityCount) },
+      { label: "Searches", value: String(searchMemoryCount) },
       { label: "Saved", value: String(savedItems.length) },
       { label: "Less", value: String(guardrailItems.length) },
     ],
@@ -7423,9 +8998,9 @@ export const getNewsForYouControlStrip = ({
       topicCount === 1 ? "topic" : "topics"
     }, ${sourceCount} ${sourceCount === 1 ? "source" : "sources"}, ${entityCount} ${
       entityCount === 1 ? "entity" : "entities"
-    }, Fresh ${freshLabel}, Novel ${novelLabel} across ${formatForYouControlStripStoryCount(
-      rankedItems.length,
-    )}.`,
+    }, Fresh ${freshLabel}, Novel ${novelLabel}, and ${searchMemoryCount} recent ${
+      searchMemoryCount === 1 ? "search" : "searches"
+    } across ${formatForYouControlStripStoryCount(rankedItems.length)}.`,
     trainingActions,
   };
 };
@@ -9596,6 +11171,7 @@ interface NewsInterestGraphNode {
   activeSignal: boolean;
   label: string;
   score: number;
+  signal: string;
   storyCount: number;
 }
 
@@ -9624,6 +11200,7 @@ const createInterestGraphStores = () =>
         activeSignal: boolean;
         label: string;
         score: number;
+        signal: string;
         storyIds: Set<string>;
       }
     >
@@ -9636,6 +11213,7 @@ const createInterestGraphStores = () =>
           activeSignal: boolean;
           label: string;
           score: number;
+          signal: string;
           storyIds: Set<string>;
         }
       >(),
@@ -9649,6 +11227,7 @@ const addInterestGraphNode = ({
   label,
   lane,
   score,
+  signal = key,
   stores,
 }: {
   activeSignal: boolean;
@@ -9657,12 +11236,14 @@ const addInterestGraphNode = ({
   label: string;
   lane: NewsInterestGraphLaneKey;
   score: number;
+  signal?: string;
   stores: ReturnType<typeof createInterestGraphStores>;
 }) => {
   const normalizedKey = key.trim().toLowerCase();
   const nodeLabel = label.trim();
+  const nodeSignal = signal.trim();
 
-  if (!normalizedKey || !nodeLabel) return;
+  if (!normalizedKey || !nodeLabel || !nodeSignal) return;
 
   const laneStore = stores.get(lane);
   if (!laneStore) return;
@@ -9674,6 +11255,7 @@ const addInterestGraphNode = ({
       activeSignal,
       label: nodeLabel,
       score,
+      signal: nodeSignal,
       storyIds: itemId ? new Set([itemId]) : new Set<string>(),
     });
     return;
@@ -9745,6 +11327,7 @@ const selectInterestGraphLaneNodes = ({
       activeSignal: node.activeSignal,
       label: node.label,
       score: node.score,
+      signal: node.signal,
       storyCount: node.storyIds.size,
     }))
     .sort((left, right) => {
@@ -9755,6 +11338,30 @@ const selectInterestGraphLaneNodes = ({
       return left.label.localeCompare(right.label);
     })
     .slice(0, limit);
+
+const getNewsInterestGraphTrainingSignalKind = (
+  laneKey: NewsInterestGraphLaneKey,
+): NewsPreferenceProfileTrainingSignalKind => {
+  if (laneKey === "topics") return "category";
+  if (laneKey === "sources") return "source";
+  if (laneKey === "angles") return "tag";
+
+  return "entity";
+};
+
+export const getNewsInterestGraphNodeTrainingAction = ({
+  laneKey,
+  node,
+}: {
+  laneKey: NewsInterestGraphLaneKey;
+  node: NewsInterestGraphNode;
+}): NewsPreferenceProfileTrainingAction =>
+  getNewsPreferenceProfileToggleAction({
+    active: node.activeSignal,
+    kind: getNewsInterestGraphTrainingSignalKind(laneKey),
+    label: node.label,
+    signal: node.signal,
+  });
 
 export const getNewsInterestGraph = ({
   formatCategory,
@@ -10019,6 +11626,7 @@ const nonReaderRecommendationSignals = new Set([
   "freshness_quota",
   "home_exposure_cooldown",
   "negative_feedback",
+  "reading_history_cooldown",
   "source_corroboration",
   "source_quota",
   "source_trust",
@@ -10161,10 +11769,11 @@ export const getNewsLiveWire = ({
     };
   }
 
+  const now = Date.now();
   const sortedByPublishedAt = [...items].sort((left, right) => {
     const publishedDiff =
-      new Date(right.publishedAt).getTime() -
-      new Date(left.publishedAt).getTime();
+      getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+      getPastNewsHomePublishedAtTime(left.publishedAt, now);
 
     if (publishedDiff !== 0) return publishedDiff;
 
@@ -10221,6 +11830,63 @@ export const getNewsLiveWire = ({
       .slice(0, limit)
       .map((item) => toNewsLiveWireUpdate({ formatCategory, item })),
   };
+};
+
+export type NewsLiveWireTrainingAction =
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    }
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    };
+
+export const getNewsLiveWireTrainingAction = ({
+  formatCategory,
+  items,
+  notice,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  notice: { label: string } | null | undefined;
+}): NewsLiveWireTrainingAction | null => {
+  if (notice?.label === "Heat spike") {
+    const topHeatStory = [...items].sort((left, right) => {
+      if (right.trendScore !== left.trendScore) {
+        return right.trendScore - left.trendScore;
+      }
+
+      return right.personalizedScore - left.personalizedScore;
+    })[0];
+
+    if (!topHeatStory) return null;
+
+    return {
+      action: getNewsCategoryPreferenceTrainingAction({
+        actionLabel: "Follow breaking topic",
+        effect: "add",
+        formatCategory,
+        item: topHeatStory,
+      }),
+      kind: "profile",
+    };
+  }
+
+  if (notice?.label === "Latest arrival") {
+    if (items.length === 0) return null;
+
+    return {
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    };
+  }
+
+  return null;
 };
 
 type NewsBreakingEscalationLaneKey = "banner" | "live" | "watch";
@@ -10570,6 +12236,7 @@ export const getNewsHotBoard = ({
     };
   }
 
+  const now = Date.now();
   const scoredEntries = items
     .map((item) => ({
       heatScore: getNewsHotBoardScore(item),
@@ -10585,8 +12252,8 @@ export const getNewsHotBoard = ({
       }
 
       return (
-        new Date(right.item.publishedAt).getTime() -
-        new Date(left.item.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.item.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.item.publishedAt, now)
       );
     })
     .slice(0, limit);
@@ -10747,6 +12414,7 @@ const toNewsSearchTrend = (trend: NewsSearchTrendWorking) => {
     isReaderMatch: trend.isReaderMatch,
     storyCount,
   });
+  const now = Date.now();
   const sortedItems = [...trend.items].sort((left, right) => {
     if (right.personalizedScore !== left.personalizedScore) {
       return right.personalizedScore - left.personalizedScore;
@@ -10757,8 +12425,8 @@ const toNewsSearchTrend = (trend: NewsSearchTrendWorking) => {
     }
 
     return (
-      new Date(right.publishedAt).getTime() -
-      new Date(left.publishedAt).getTime()
+      getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+      getPastNewsHomePublishedAtTime(left.publishedAt, now)
     );
   });
   const [topStory] = sortedItems;
@@ -10946,6 +12614,43 @@ export const getNewsSearchTrends = ({
   };
 };
 
+const getNewsSearchTrendTrainingSignalKind = (
+  kind: NewsSearchTrendKind,
+): NewsPreferenceProfileTrainingSignalKind => {
+  if (kind === "Topic") return "category";
+  if (kind === "Source") return "source";
+  if (kind === "Angle") return "tag";
+
+  return "entity";
+};
+
+export const getNewsSearchTrendTrainingAction = (
+  trend: ReturnType<typeof getNewsSearchTrends>["trends"][number],
+): NewsPreferenceProfileTrainingAction | null => {
+  const signalSeparatorIndex = trend.key.indexOf(":");
+
+  if (signalSeparatorIndex < 0) return null;
+
+  const signalFromKey = trend.key.slice(signalSeparatorIndex + 1);
+  const signal = trend.kind === "Entity" ? trend.query : signalFromKey;
+
+  if (!signal.trim()) return null;
+
+  return {
+    actionLabel: "Add search trend",
+    effect: "add",
+    label: trend.query,
+    signals: [
+      {
+        kind: getNewsSearchTrendTrainingSignalKind(trend.kind),
+        label: trend.query,
+        signal,
+      },
+    ],
+    source: "control",
+  };
+};
+
 const getNewsSearchCandidateKey = (item: NewsHomeItem) =>
   `${item.title.trim().toLowerCase()}::${item.sourceSlug.trim().toLowerCase()}`;
 
@@ -10968,6 +12673,65 @@ const getNewsSearchCandidateTopicLabel = ({
   return topicSignals.length > 0
     ? topicSignals.join(" / ")
     : formatCategory(item.category);
+};
+
+const newsSearchCandidateProfileSignals = new Set([
+  "category",
+  "deep_preference",
+  "entity",
+  "positive_feedback",
+  "semantic_feedback",
+  "source",
+  "tag",
+]);
+
+const newsSearchCandidateTrustedSignals = new Set([
+  "source_corroboration",
+  "source_trust",
+]);
+
+const getNewsSearchCandidateMatchedSignals = (item: NewsHomeItem) => {
+  const rankedCandidate = item as Partial<
+    Pick<RankedNewsItem<NewsHomeItem>, "matchedSignals">
+  >;
+
+  return Array.isArray(rankedCandidate.matchedSignals)
+    ? rankedCandidate.matchedSignals.filter(
+        (signal): signal is string => typeof signal === "string",
+      )
+    : [];
+};
+
+const getNewsSearchCandidateReasonLabel = (item: NewsHomeItem) => {
+  const matchedSignals = getNewsSearchCandidateMatchedSignals(item);
+
+  if (matchedSignals.includes("search_memory")) return "Recent search match";
+
+  if (
+    matchedSignals.some((signal) =>
+      newsSearchCandidateProfileSignals.has(signal),
+    )
+  ) {
+    return "Reader profile match";
+  }
+
+  if (matchedSignals.includes("collaborative_feedback")) {
+    return "Similar readers";
+  }
+
+  if (matchedSignals.includes("exploration")) return "Exploration";
+
+  if (
+    matchedSignals.some((signal) =>
+      newsSearchCandidateTrustedSignals.has(signal),
+    )
+  ) {
+    return "Trusted source";
+  }
+
+  if (item.trendScore >= 85) return "Market heat";
+
+  return "Live match";
 };
 
 export const selectNewsHomeLiveSearchCandidateItems = ({
@@ -11027,6 +12791,7 @@ export const getNewsSearchCandidateRail = ({
   }
 
   const seenCandidateKeys = new Set<string>();
+  const now = Date.now();
   const leads = [...candidates]
     .sort((left, right) => {
       if (right.trendScore !== left.trendScore) {
@@ -11034,8 +12799,8 @@ export const getNewsSearchCandidateRail = ({
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.publishedAt, now)
       );
     })
     .flatMap((item) => {
@@ -11049,6 +12814,7 @@ export const getNewsSearchCandidateRail = ({
           categoryLabel: formatCategory(item.category),
           id: item.id,
           query: normalizedQuery,
+          reasonLabel: getNewsSearchCandidateReasonLabel(item),
           sourceName: item.sourceName,
           title: item.title,
           topicLabel: getNewsSearchCandidateTopicLabel({
@@ -11089,6 +12855,7 @@ export const getNewsTopicPulse = ({
   items: readonly NewsHomeItem[];
   limit: number;
 }) => {
+  const now = Date.now();
   const pulseByCategory = new Map<
     string,
     {
@@ -11123,8 +12890,8 @@ export const getNewsTopicPulse = ({
     }
 
     if (
-      new Date(item.publishedAt).getTime() >
-      new Date(existing.latestPublishedAt).getTime()
+      getPastNewsHomePublishedAtTime(item.publishedAt, now) >
+      getPastNewsHomePublishedAtTime(existing.latestPublishedAt, now)
     ) {
       existing.latestPublishedAt = item.publishedAt;
     }
@@ -11151,11 +12918,42 @@ export const getNewsTopicPulse = ({
       }
 
       return (
-        new Date(right.latestPublishedAt).getTime() -
-        new Date(left.latestPublishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.latestPublishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.latestPublishedAt, now)
       );
     })
     .slice(0, limit);
+};
+
+export const getNewsTopicPulseTrainingAction = ({
+  formatCategory,
+  profile,
+  pulse,
+}: {
+  formatCategory: (category: string) => string;
+  profile: NewsPreferenceProfile;
+  pulse: ReturnType<typeof getNewsTopicPulse>[number];
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = normalizePreferenceSignal(pulse.category);
+  const label = formatCategory(signal);
+  const active =
+    normalizeNewsPreferenceProfile(profile).preferredCategories.includes(
+      signal,
+    );
+
+  return {
+    actionLabel: active ? "Reduce topic" : "Follow topic",
+    effect: active ? "remove" : "add",
+    label,
+    signals: [
+      {
+        kind: "category",
+        label,
+        signal,
+      },
+    ],
+    source: "control",
+  };
 };
 
 type NewsTopicMatchMode = "Cooldown" | "Explore" | "Follow" | "Watch";
@@ -11364,6 +13162,35 @@ export const getNewsTopicMatchMatrix = ({
   };
 };
 
+export const getNewsTopicMatchTrainingAction = ({
+  row,
+}: {
+  row: ReturnType<typeof getNewsTopicMatchMatrix>["rows"][number];
+}): NewsPreferenceProfileTrainingAction => {
+  const actionLabel =
+    row.mode === "Cooldown"
+      ? "Cool down topic"
+      : row.mode === "Explore"
+        ? "Explore topic"
+        : row.mode === "Watch"
+          ? "Watch topic"
+          : "Follow topic";
+
+  return {
+    actionLabel,
+    effect: row.mode === "Cooldown" ? "remove" : "add",
+    label: row.label,
+    signals: [
+      {
+        kind: "category",
+        label: row.label,
+        signal: row.category,
+      },
+    ],
+    source: "control",
+  };
+};
+
 const editionMixDefinitions = [
   {
     detail: "Matched reader signals",
@@ -11427,7 +13254,7 @@ export const getNewsEditionMix = ({
 
 type NewsEditionQualityGateStatus = "block" | "pass" | "watch";
 
-interface NewsEditionQualityGateCheck {
+export interface NewsEditionQualityGateCheck {
   action: string;
   detail: string;
   evidenceLabel: string;
@@ -11608,6 +13435,116 @@ export const getNewsEditionQualityGate = ({
   };
 };
 
+const getNewsEditionQualityGateTrainingActionLabel = (
+  key: NewsEditionQualityGateCheck["key"],
+): string => {
+  if (key === "reader_fit") return "Train reader fit";
+  if (key === "source_mix") return "Train source mix";
+  if (key === "exploration") return "Train exploration lane";
+  if (key === "guardrail") return "Train guardrail";
+
+  return "Train lead quality";
+};
+
+const getNewsQualityGateSourceSignal = ({
+  item,
+}: {
+  item: Pick<NewsHomeItem, "category" | "sourceName" | "sourceSlug">;
+}): NewsPreferenceProfileTrainingSignal | null => {
+  if (!item.sourceSlug.trim()) return null;
+
+  return {
+    kind: "source",
+    label: item.sourceName,
+    signal: item.sourceSlug,
+  };
+};
+
+export const getNewsEditionQualityGateTrainingAction = ({
+  check,
+  formatCategory,
+  items,
+  negativeFeedbackItems,
+}: {
+  check: NewsEditionQualityGateCheck;
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsHomeItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  const [leadItem] = items;
+  let effect: NewsPreferenceProfileTrainingAction["effect"] = "add";
+  let signal: NewsPreferenceProfileTrainingSignal | null = null;
+
+  if (check.key === "guardrail") {
+    const [guardrailItem] = negativeFeedbackItems;
+    effect = "remove";
+    signal = guardrailItem
+      ? (getNewsQualityGateSourceSignal({ item: guardrailItem }) ?? {
+          kind: "category",
+          label: formatCategory(guardrailItem.category),
+          signal: guardrailItem.category,
+        })
+      : null;
+  } else if (check.key === "source_mix") {
+    const leadSource = leadItem
+      ? normalizePreferenceSignal(leadItem.sourceSlug)
+      : "";
+    const sourceItem =
+      [...items]
+        .filter(
+          (item) =>
+            item.sourceSlug.trim() &&
+            normalizePreferenceSignal(item.sourceSlug) !== leadSource,
+        )
+        .sort((left, right) => right.sourceScore - left.sourceScore)[0] ??
+      leadItem;
+
+    signal = sourceItem
+      ? getNewsQualityGateSourceSignal({ item: sourceItem })
+      : null;
+  } else if (check.key === "reader_fit") {
+    const readerItem = items.find(hasReaderRecommendationSignal) ?? leadItem;
+
+    signal = readerItem
+      ? {
+          kind: "category",
+          label: formatCategory(readerItem.category),
+          signal: readerItem.category,
+        }
+      : null;
+  } else if (check.key === "exploration") {
+    const explorationItem =
+      items.find((item) => item.matchedSignals.includes("exploration")) ??
+      items.find((item) => !hasReaderRecommendationSignal(item));
+
+    signal = explorationItem
+      ? {
+          kind: "category",
+          label: formatCategory(explorationItem.category),
+          signal: explorationItem.category,
+        }
+      : null;
+  } else {
+    signal = leadItem
+      ? (getNewsQualityGateSourceSignal({ item: leadItem }) ?? {
+          kind: "category",
+          label: formatCategory(leadItem.category),
+          signal: leadItem.category,
+        })
+      : null;
+  }
+
+  if (!signal) return null;
+
+  return {
+    actionLabel: getNewsEditionQualityGateTrainingActionLabel(check.key),
+    effect,
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
 const formatPercentage = (count: number, totalCount: number) =>
   totalCount > 0 ? `${Math.round((count / totalCount) * 100)}%` : "0%";
 
@@ -11700,6 +13637,16 @@ const getNewsPersonalizationMixActions = ({
   ];
 };
 
+export type NewsPersonalizationMixTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    };
+
 export const getNewsPersonalizationMix = ({
   items,
   profile,
@@ -11766,11 +13713,97 @@ export const getNewsPersonalizationMix = ({
   };
 };
 
+export const getNewsPersonalizationMixTrainingAction = ({
+  action,
+  formatCategory,
+  items,
+}: {
+  action: { label: string };
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+}): NewsPersonalizationMixTrainingAction | null => {
+  if (action.label === "Tune reader match") {
+    const readerMatchItem = items.find(hasReaderRecommendationSignal);
+
+    if (!readerMatchItem) return null;
+
+    return {
+      action: getNewsCategoryPreferenceTrainingAction({
+        actionLabel: "Follow topic",
+        effect: "add",
+        formatCategory,
+        item: readerMatchItem,
+      }),
+      kind: "profile",
+    };
+  }
+
+  if (action.label === "Tune exploration") {
+    return {
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    };
+  }
+
+  if (action.label === "Tune heat") {
+    return {
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    };
+  }
+
+  if (action.label === "Tune trust") {
+    const trustedSourceItem = items.find(
+      (item) => getNewsPersonalizationMixObjective(item) === "Source Trust",
+    );
+    const sourceSignal = trustedSourceItem
+      ? normalizePreferenceSignal(trustedSourceItem.sourceSlug) ||
+        normalizePreferenceSignal(trustedSourceItem.sourceName)
+      : "";
+
+    if (!trustedSourceItem || !sourceSignal) return null;
+
+    return {
+      action: getNewsPreferenceProfileToggleAction({
+        active: false,
+        kind: "source",
+        label: trustedSourceItem.sourceName,
+        signal: sourceSignal,
+      }),
+      kind: "profile",
+    };
+  }
+
+  return null;
+};
+
 type NewsReaderSatisfactionLabel =
   | "At Risk"
   | "Learning"
   | "Satisfied"
   | "Waiting";
+
+type NewsReaderSatisfactionActionLabel =
+  | "Collect signals"
+  | "Open discovery"
+  | "Preserve discovery"
+  | "Reinforce fit"
+  | "Request feedback"
+  | "Review guardrails"
+  | "Watch fatigue";
+
+export interface NewsReaderSatisfactionAction {
+  detail: string;
+  label: NewsReaderSatisfactionActionLabel;
+}
 
 const getNewsReaderSatisfactionScore = ({
   explorationShare,
@@ -11836,7 +13869,7 @@ const getNewsReaderSatisfactionActions = ({
   guardrailCount: number;
   positiveSignalCount: number;
   totalCount: number;
-}) => {
+}): NewsReaderSatisfactionAction[] => {
   if (totalCount === 0 && positiveSignalCount === 0 && guardrailCount === 0) {
     return [
       {
@@ -11927,6 +13960,72 @@ export const getNewsReaderSatisfactionBrief = ({
             label,
           )}.`,
   };
+};
+
+export const getNewsReaderSatisfactionTrainingAction = ({
+  action,
+  formatCategory,
+  historyItems,
+  items,
+  negativeFeedbackItems,
+  positiveFeedbackItems = [],
+  savedItems,
+}: {
+  action: NewsReaderSatisfactionAction;
+  formatCategory: (category: string) => string;
+  historyItems: readonly NewsReaderMemoryItem[];
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  positiveFeedbackItems?: readonly NewsProfilePositiveFeedbackItem[];
+  savedItems: readonly NewsReaderMemoryItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (action.label === "Reinforce fit") {
+    const [positiveItem] = getReaderLearningPositiveItems({
+      historyItems,
+      positiveFeedbackItems,
+      savedItems,
+    });
+
+    if (!positiveItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Reinforce topic",
+      effect: "add",
+      formatCategory,
+      item: positiveItem,
+    });
+  }
+
+  if (
+    action.label === "Open discovery" ||
+    action.label === "Preserve discovery"
+  ) {
+    const explorationItem = getReaderLearningExplorationCandidate(items);
+
+    if (!explorationItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Follow topic",
+      effect: "add",
+      formatCategory,
+      item: explorationItem,
+    });
+  }
+
+  if (action.label === "Review guardrails") {
+    const [negativeItem] = negativeFeedbackItems;
+
+    if (!negativeItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      formatCategory,
+      item: negativeItem,
+    });
+  }
+
+  return null;
 };
 
 type NewsReaderRetentionRisk = "High" | "Low" | "Medium" | "Unknown";
@@ -12089,7 +14188,47 @@ export const getNewsReaderRetentionPlan = ({
   };
 };
 
-type NewsExperimentAllocationArmKey =
+export const getNewsReaderRetentionTrainingAction = ({
+  action,
+  formatCategory,
+  items,
+  negativeFeedbackItems,
+}: {
+  action: { label: string };
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (action.label === "Anchor next visit") {
+    const leadItem = items.find(hasReaderRecommendationSignal) ?? items[0];
+
+    if (!leadItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Follow topic",
+      effect: "add",
+      formatCategory,
+      item: leadItem,
+    });
+  }
+
+  if (action.label === "Repair fatigue") {
+    const [negativeItem] = negativeFeedbackItems;
+
+    if (!negativeItem) return null;
+
+    return getNewsCategoryPreferenceTrainingAction({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      formatCategory,
+      item: negativeItem,
+    });
+  }
+
+  return null;
+};
+
+export type NewsExperimentAllocationArmKey =
   | "collaborative_lift"
   | "exploration"
   | "freshness_probe"
@@ -12102,6 +14241,16 @@ interface NewsExperimentAllocationArmDefinition {
   key: NewsExperimentAllocationArmKey;
   label: string;
   objective: string;
+}
+
+export interface NewsExperimentAllocationArm {
+  action: string;
+  allocationLabel: string;
+  key: NewsExperimentAllocationArmKey;
+  label: string;
+  objective: string;
+  storyCount: number;
+  trigger: string;
 }
 
 const newsExperimentAllocationDefinitions = [
@@ -12256,15 +14405,17 @@ export const getNewsExperimentAllocation = ({
 
   const arms = newsExperimentAllocationDefinitions
     .filter((definition) => armStats[definition.key].active)
-    .map((definition) => ({
-      action: definition.action,
-      allocationLabel: `${definition.allocation}%`,
-      key: definition.key,
-      label: definition.label,
-      objective: definition.objective,
-      storyCount: armStats[definition.key].storyCount,
-      trigger: armStats[definition.key].trigger,
-    }));
+    .map(
+      (definition): NewsExperimentAllocationArm => ({
+        action: definition.action,
+        allocationLabel: `${definition.allocation}%`,
+        key: definition.key,
+        label: definition.label,
+        objective: definition.objective,
+        storyCount: armStats[definition.key].storyCount,
+        trigger: armStats[definition.key].trigger,
+      }),
+    );
   const allocationTotal = arms.reduce((sum, arm) => {
     const allocation = Number.parseInt(arm.allocationLabel, 10);
 
@@ -12287,6 +14438,136 @@ export const getNewsExperimentAllocation = ({
       leadArm?.allocationLabel ?? "0%"
     }.`,
   };
+};
+
+export type NewsExperimentAllocationTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    };
+
+const getNewsExperimentAllocationSourceSignal = ({
+  item,
+}: {
+  item: Pick<NewsHomeItem, "sourceName" | "sourceSlug">;
+}): NewsPreferenceProfileTrainingSignal | null => {
+  if (!item.sourceSlug.trim()) return null;
+
+  return {
+    kind: "source",
+    label: item.sourceName,
+    signal: item.sourceSlug,
+  };
+};
+
+const getNewsExperimentAllocationCategorySignal = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<NewsHomeItem, "category">;
+}): NewsPreferenceProfileTrainingSignal => ({
+  kind: "category",
+  label: formatCategory(item.category),
+  signal: item.category,
+});
+
+const getNewsExperimentAllocationProfileAction = ({
+  actionLabel,
+  effect,
+  signal,
+}: {
+  actionLabel: string;
+  effect: NewsPreferenceProfileTrainingAction["effect"];
+  signal: NewsPreferenceProfileTrainingSignal;
+}): NewsExperimentAllocationTrainingAction => ({
+  action: {
+    actionLabel,
+    effect,
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  },
+  kind: "profile",
+});
+
+export const getNewsExperimentAllocationTrainingAction = ({
+  arm,
+  formatCategory,
+  items,
+  negativeFeedbackItems,
+}: {
+  arm: NewsExperimentAllocationArm;
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  profile: NewsPreferenceProfile;
+}): NewsExperimentAllocationTrainingAction | null => {
+  if (arm.key === "freshness_probe") {
+    return {
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    };
+  }
+
+  if (arm.key === "trust_guard") {
+    const lowTrustItem =
+      items.find((item) => item.sourceScore < 60 && item.trendScore >= 85) ??
+      negativeFeedbackItems[0];
+
+    if (!lowTrustItem) return null;
+
+    return getNewsExperimentAllocationProfileAction({
+      actionLabel: "Train trust guard",
+      effect: "remove",
+      signal:
+        getNewsExperimentAllocationSourceSignal({ item: lowTrustItem }) ??
+        getNewsExperimentAllocationCategorySignal({
+          formatCategory,
+          item: lowTrustItem,
+        }),
+    });
+  }
+
+  const candidate =
+    arm.key === "exploration"
+      ? items.find((item) => item.matchedSignals.includes("exploration"))
+      : (items.find(hasReaderRecommendationSignal) ?? items[0]);
+
+  if (!candidate) return null;
+
+  if (arm.key === "exploration") {
+    return getNewsExperimentAllocationProfileAction({
+      actionLabel: "Train exploration arm",
+      effect: "add",
+      signal: getNewsExperimentAllocationCategorySignal({
+        formatCategory,
+        item: candidate,
+      }),
+    });
+  }
+
+  return getNewsExperimentAllocationProfileAction({
+    actionLabel:
+      arm.key === "collaborative_lift"
+        ? "Train cohort arm"
+        : "Train reader arm",
+    effect: "add",
+    signal:
+      getNewsExperimentAllocationSourceSignal({ item: candidate }) ??
+      getNewsExperimentAllocationCategorySignal({
+        formatCategory,
+        item: candidate,
+      }),
+  });
 };
 
 const getNewsRecommendationAuditEntityBalance = (
@@ -12468,6 +14749,162 @@ export const getNewsRecommendationAudit = ({
   };
 };
 
+export type NewsRecommendationAuditTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    };
+
+const getNewsRecommendationAuditNoveltyAction =
+  (): NewsRecommendationAuditTrainingAction => ({
+    action: {
+      direction: "raise",
+      key: "noveltyBias",
+      label: "Novel",
+    },
+    kind: "bias",
+  });
+
+const getNewsRecommendationAuditDominantSource = (
+  items: readonly RankedNewsItem<NewsHomeItem>[],
+) => {
+  const entries = new Map<string, NewsFeedGovernorEntry>();
+
+  items.forEach((item, index) => {
+    incrementFeedGovernorEntry({
+      index,
+      key: item.sourceSlug,
+      label: item.sourceName,
+      store: entries,
+    });
+  });
+
+  return Array.from(entries.values()).sort(compareFeedGovernorEntries)[0];
+};
+
+const getNewsRecommendationAuditDominantEntity = (
+  items: readonly RankedNewsItem<NewsHomeItem>[],
+) => {
+  const entries = new Map<string, NewsFeedGovernorEntry>();
+
+  items.forEach((item, index) => {
+    const seenEntities = new Set<string>();
+
+    getNormalizedFeedFatigueEntities(item).forEach((entity) => {
+      if (
+        seenEntities.has(entity.key) ||
+        !isFeedGovernorSpecificEntity(entity)
+      ) {
+        return;
+      }
+
+      incrementFeedGovernorEntry({
+        index,
+        key: entity.key,
+        label: entity.label,
+        store: entries,
+      });
+      seenEntities.add(entity.key);
+    });
+  });
+
+  return Array.from(entries.values()).sort(compareFeedGovernorEntries)[0];
+};
+
+export const getNewsRecommendationAuditTrainingAction = ({
+  items,
+  notice,
+  profile,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  notice:
+    | ReturnType<typeof getNewsRecommendationAudit>["notices"][number]
+    | undefined;
+  profile: NewsPreferenceProfile;
+}): NewsRecommendationAuditTrainingAction | null => {
+  if (!notice) return null;
+
+  if (
+    notice.label === "Learning needed" ||
+    notice.label === "Exploration gap" ||
+    notice.label === "Filter-bubble guard"
+  ) {
+    return getNewsRecommendationAuditNoveltyAction();
+  }
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const preferredSourceSignals = new Set(
+    normalizedProfile.preferredSources.map(normalizePreferenceSignal),
+  );
+  const preferredEntitySignals = new Set(
+    normalizedProfile.preferredEntities.map(normalizePreferenceSignal),
+  );
+
+  if (notice.label === "Source concentration") {
+    const source = getNewsRecommendationAuditDominantSource(items);
+
+    if (!source) return getNewsRecommendationAuditNoveltyAction();
+
+    const signal = normalizePreferenceSignal(source.key);
+
+    if (!preferredSourceSignals.has(signal)) {
+      return getNewsRecommendationAuditNoveltyAction();
+    }
+
+    return {
+      action: {
+        actionLabel: "Reduce audit source",
+        effect: "remove",
+        label: source.label,
+        signals: [
+          {
+            kind: "source",
+            label: source.label,
+            signal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  if (notice.label === "Entity concentration") {
+    const entity = getNewsRecommendationAuditDominantEntity(items);
+
+    if (!entity) return getNewsRecommendationAuditNoveltyAction();
+
+    const signal = normalizePreferenceSignal(entity.key);
+
+    if (!preferredEntitySignals.has(signal)) {
+      return getNewsRecommendationAuditNoveltyAction();
+    }
+
+    return {
+      action: {
+        actionLabel: "Reduce audit entity",
+        effect: "remove",
+        label: entity.label,
+        signals: [
+          {
+            kind: "entity",
+            label: entity.label,
+            signal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  return null;
+};
+
 type NewsRecommendationRotationLabel =
   | "Exploration"
   | "Market Heat"
@@ -12549,19 +14986,110 @@ const getNewsRecommendationRotationReason = ({
   return newsRecommendationRotationDisplay.reader_match.reason;
 };
 
+const getNewsRecommendationRotationTrainingSignal = ({
+  formatCategory,
+  item,
+  objective,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  objective: NewsRecommendationRotationObjective;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (objective === "source_trust" && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (
+    objective === "reader_match" &&
+    item.matchedSignals.includes("source") &&
+    item.sourceSlug
+  ) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (objective === "reader_match" && item.matchedSignals.includes("entity")) {
+    const entity = item.entities
+      .map((candidate) => candidate.trim())
+      .find((candidate) => candidate.length > 0);
+
+    if (entity) {
+      return {
+        kind: "entity",
+        label: entity,
+        signal: entity,
+      };
+    }
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsRecommendationRotationTrainingAction = ({
+  formatCategory,
+  item,
+  objective,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  objective: NewsRecommendationRotationObjective;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsRecommendationRotationTrainingSignal({
+    formatCategory,
+    item,
+    objective,
+  });
+  const actionLabel =
+    objective === "reader_match"
+      ? "Train reader match signal"
+      : objective === "exploration"
+        ? "Train exploration signal"
+        : objective === "market_heat"
+          ? "Train market heat signal"
+          : "Train source trust signal";
+
+  return {
+    actionLabel,
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
 export const getNewsRecommendationRotationQueue = ({
   formatCategory,
   items,
   limit,
+  objectiveOrder,
 }: {
   formatCategory: (category: string) => string;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
+  objectiveOrder?: readonly NewsRecommendationRotationObjective[];
   profile: NewsPreferenceProfile;
 }) => {
   const entries = selectNewsRecommendationRotationSlots({
     items,
     limit,
+    objectiveOrder,
   }).map(({ item, objective, score, scoreKind }) => {
     const display = newsRecommendationRotationDisplay[objective];
 
@@ -12569,6 +15097,7 @@ export const getNewsRecommendationRotationQueue = ({
       categoryLabel: formatCategory(item.category),
       id: item.id,
       label: display.label,
+      objective,
       reason: getNewsRecommendationRotationReason({ item, objective }),
       scoreLabel: formatNewsRecommendationRotationScore({
         score,
@@ -12624,13 +15153,61 @@ const getNewsRecommendationSourceSaturationKey = (
   normalizePreferenceSignal(item.sourceSlug) ||
   normalizePreferenceSignal(item.sourceName);
 
+interface NewsRecommendationSaturationTrainingSignal
+  extends NewsPreferenceProfileTrainingSignal {
+  effect: "add" | "remove";
+}
+
+export interface NewsRecommendationSaturationAction {
+  detail: string;
+  label: string;
+  trainingSignal?: NewsRecommendationSaturationTrainingSignal;
+}
+
+export interface NewsRecommendationSaturationReport {
+  actions: NewsRecommendationSaturationAction[];
+  label: string;
+  metrics: { label: string; value: string }[];
+  summary: string;
+}
+
+const getNewsRecommendationSaturationActionLabel = (
+  signal: NewsRecommendationSaturationTrainingSignal,
+) => {
+  const target = getPreferenceTrainingActionTarget(signal.kind);
+
+  return `${signal.effect === "remove" ? "Reduce" : "Follow"} ${target}`;
+};
+
+export const getNewsRecommendationSaturationTrainingAction = (
+  action: NewsRecommendationSaturationAction,
+): NewsPreferenceProfileTrainingAction | null => {
+  const trainingSignal = action.trainingSignal;
+
+  if (!trainingSignal) return null;
+
+  return {
+    actionLabel: getNewsRecommendationSaturationActionLabel(trainingSignal),
+    effect: trainingSignal.effect,
+    label: trainingSignal.label,
+    signals: [
+      {
+        kind: trainingSignal.kind,
+        label: trainingSignal.label,
+        signal: trainingSignal.signal,
+      },
+    ],
+    source: "control",
+  };
+};
+
 export const getNewsRecommendationSourceSaturation = ({
   items,
   limit,
 }: {
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
-}) => {
+}): NewsRecommendationSaturationReport => {
   const slots = items.slice(0, Math.max(0, limit));
   const slotCount = slots.length;
 
@@ -12712,12 +15289,24 @@ export const getNewsRecommendationSourceSaturation = ({
           {
             detail: `${dominantSource.name} owns ${dominantSource.count} of ${slotCount} recommendation slots; bring in independent sources before the next ranking pass.`,
             label: "Expand source mix",
+            trainingSignal: {
+              effect: "remove",
+              kind: "source",
+              label: dominantSource.name,
+              signal: dominantSource.slug,
+            },
           },
           ...(alternativeSource
             ? [
                 {
                   detail: `${alternativeSource.name} is available as the strongest alternative source in this queue.`,
                   label: "Candidate source",
+                  trainingSignal: {
+                    effect: "add" as const,
+                    kind: "source" as const,
+                    label: alternativeSource.name,
+                    signal: alternativeSource.slug,
+                  },
                 },
               ]
             : [
@@ -12759,7 +15348,7 @@ export const getNewsRecommendationTopicSaturation = ({
   formatCategory: (category: string) => string;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
-}) => {
+}): NewsRecommendationSaturationReport => {
   const slots = items.slice(0, Math.max(0, limit));
   const slotCount = slots.length;
 
@@ -12841,12 +15430,24 @@ export const getNewsRecommendationTopicSaturation = ({
           {
             detail: `${dominantTopic.label} occupies ${dominantTopic.count} of ${slotCount} recommendation slots; add adjacent topics before the next ranking pass.`,
             label: "Expand topic mix",
+            trainingSignal: {
+              effect: "remove",
+              kind: "category",
+              label: dominantTopic.label,
+              signal: dominantTopic.slug,
+            },
           },
           ...(alternativeTopic
             ? [
                 {
                   detail: `${alternativeTopic.label} is available as the strongest alternative topic in this queue.`,
                   label: "Candidate topic",
+                  trainingSignal: {
+                    effect: "add" as const,
+                    kind: "category" as const,
+                    label: alternativeTopic.label,
+                    signal: alternativeTopic.slug,
+                  },
                 },
               ]
             : [
@@ -12886,7 +15487,7 @@ export const getNewsRecommendationEntitySaturation = ({
 }: {
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
-}) => {
+}): NewsRecommendationSaturationReport => {
   const slots = items.slice(0, Math.max(0, limit));
   const slotCount = slots.length;
 
@@ -12971,12 +15572,24 @@ export const getNewsRecommendationEntitySaturation = ({
           {
             detail: `${dominantEntity.name} appears in ${dominantEntity.count} of ${slotCount} recommendation slots; add adjacent entities before the next ranking pass.`,
             label: "Expand entity mix",
+            trainingSignal: {
+              effect: "remove",
+              kind: "entity",
+              label: dominantEntity.name,
+              signal: dominantEntity.name,
+            },
           },
           ...(alternativeEntity
             ? [
                 {
                   detail: `${alternativeEntity.name} is available as the strongest alternative entity in this queue.`,
                   label: "Candidate entity",
+                  trainingSignal: {
+                    effect: "add" as const,
+                    kind: "entity" as const,
+                    label: alternativeEntity.name,
+                    signal: alternativeEntity.name,
+                  },
                 },
               ]
             : [
@@ -13012,6 +15625,22 @@ export const getNewsRecommendationEntitySaturation = ({
 
 type NewsRecommendationDiversityDimension = "Entity" | "Source" | "Topic";
 
+export interface NewsRecommendationDiversityGovernorControl {
+  detail: string;
+  dimension: NewsRecommendationDiversityDimension | "All";
+  label: string;
+  shareLabel: string;
+  statusLabel: string;
+  trainingSignal?: NewsRecommendationSaturationTrainingSignal;
+}
+
+interface NewsRecommendationDiversityGovernorReport {
+  controls: NewsRecommendationDiversityGovernorControl[];
+  label: string;
+  metrics: { label: string; value: string }[];
+  summary: string;
+}
+
 const newsRecommendationDiversityDimensionPriority = {
   Source: 0,
   Topic: 1,
@@ -13034,7 +15663,7 @@ export const getNewsRecommendationDiversityGovernor = ({
   formatCategory: (category: string) => string;
   items: readonly RankedNewsItem<NewsHomeItem>[];
   limit: number;
-}) => {
+}): NewsRecommendationDiversityGovernorReport => {
   const slotCount = Math.max(0, Math.min(items.length, limit));
 
   if (slotCount === 0) {
@@ -13106,6 +15735,7 @@ export const getNewsRecommendationDiversityGovernor = ({
           "Dominant share",
         ),
         statusLabel: report.label,
+        trainingSignal: action.trainingSignal,
       };
     })
     .sort((left, right) => {
@@ -13152,6 +15782,11 @@ export const getNewsRecommendationDiversityGovernor = ({
         : `The next ${slotCount} recommendation slots stay below saturation thresholds across source, topic, and entity.`,
   };
 };
+
+export const getNewsRecommendationDiversityGovernorTrainingAction = (
+  control: NewsRecommendationDiversityGovernorControl,
+): NewsPreferenceProfileTrainingAction | null =>
+  getNewsRecommendationSaturationTrainingAction(control);
 
 const isNewsRecommendationDiversityDimension = (
   dimension: string,
@@ -13440,6 +16075,7 @@ const formatRecommendationTraceSentenceStart = (value: string) =>
   value ? `${value[0]?.toUpperCase() ?? ""}${value.slice(1)}` : value;
 
 const recommendationTraceReaderSignalOrder = [
+  "search_memory",
   "semantic_feedback",
   "collaborative_feedback",
   "session_intent",
@@ -13465,6 +16101,11 @@ const recommendationTraceReaderSignalDetails = {
       "Semantic similarity to engaged stories anchors this recommendation.",
     label: "Semantic match",
     scoreLabel: "Semantic signal",
+  },
+  search_memory: {
+    detail: "Recent search memory is lifting this recommendation.",
+    label: "Search memory",
+    scoreLabel: "Search signal",
   },
   session_intent: {
     detail: "Current session intent anchors this recommendation.",
@@ -13567,6 +16208,20 @@ const recommendationTracePositiveFeedbackPriority = {
   click_source: 2,
 } as const satisfies Record<NewsProfilePositiveFeedbackAction, number>;
 
+const getRecommendationTracePositiveFeedbackSignal = (
+  action: NewsProfilePositiveFeedbackAction | undefined,
+): PositiveReaderMemoryActionSignal =>
+  action
+    ? recommendationTracePositiveFeedbackSignals[action]
+    : "positive_read_feedback";
+
+const getRecommendationTracePositiveFeedbackPriority = (
+  action: NewsProfilePositiveFeedbackAction | undefined,
+) =>
+  action === undefined
+    ? 3
+    : recommendationTracePositiveFeedbackPriority[action];
+
 const hasRecommendationTracePositiveFeedbackMatch = ({
   feedbackItem,
   item,
@@ -13604,8 +16259,8 @@ const getRecommendationTracePositiveFeedbackMatch = ({
 }) => {
   const rankedFeedbackItems = [...positiveFeedbackItems].sort((left, right) => {
     const priorityDiff =
-      recommendationTracePositiveFeedbackPriority[left.action] -
-      recommendationTracePositiveFeedbackPriority[right.action];
+      getRecommendationTracePositiveFeedbackPriority(left.action) -
+      getRecommendationTracePositiveFeedbackPriority(right.action);
 
     if (priorityDiff !== 0) return priorityDiff;
 
@@ -13627,7 +16282,7 @@ const getRecommendationTracePositiveFeedbackMatch = ({
     return {
       detail:
         positiveReaderMemoryActionDetails[
-          recommendationTracePositiveFeedbackSignals[feedbackItem.action]
+          getRecommendationTracePositiveFeedbackSignal(feedbackItem.action)
         ],
       item,
     };
@@ -13638,6 +16293,13 @@ const getRecommendationTracePositiveFeedbackMatch = ({
 
 const getRecommendationTraceReaderSignalCount =
   getReaderRecommendationSignalCount;
+
+export interface NewsRecommendationTraceStep {
+  detail: string;
+  label: string;
+  scoreLabel: string;
+  title: string;
+}
 
 export const getNewsRecommendationTrace = ({
   formatCategory,
@@ -13700,12 +16362,7 @@ export const getNewsRecommendationTrace = ({
     };
   }
 
-  const steps: {
-    detail: string;
-    label: string;
-    scoreLabel: string;
-    title: string;
-  }[] = [
+  const steps: NewsRecommendationTraceStep[] = [
     {
       detail: `${leadItem.sourceName} leads because ${leadReaderSignalCount} reader ${
         leadReaderSignalCount === 1 ? "signal" : "signals"
@@ -13939,6 +16596,134 @@ export const getNewsRecommendationTrace = ({
     summary: `Trace explains ${visibleSteps.length} ranking ${
       visibleSteps.length === 1 ? "decision" : "decisions"
     } across ${items.length} ${items.length === 1 ? "story" : "stories"}.`,
+  };
+};
+
+const getNewsRecommendationTraceTrainingActionLabel = (
+  label: string,
+): string => {
+  if (label === "Lead story") return "Train trace lead";
+  if (label === "Reader profile") return "Train trace profile";
+  if (label === "Reader memory") return "Train trace memory";
+  if (label === "Exploration check") return "Train trace exploration";
+  if (label === "Guardrail") return "Train trace guardrail";
+  if (label === "Edition timing") return "Train trace timing";
+  if (label === "Freshness") return "Train trace freshness";
+  if (label.includes("diversity")) return "Train trace diversity";
+
+  return "Train trace signal";
+};
+
+const getNewsRecommendationTraceSourceSignal = ({
+  item,
+}: {
+  item: Pick<NewsHomeItem, "sourceName" | "sourceSlug">;
+}): NewsPreferenceProfileTrainingSignal | null => {
+  if (!item.sourceSlug.trim()) return null;
+
+  return {
+    kind: "source",
+    label: item.sourceName,
+    signal: item.sourceSlug,
+  };
+};
+
+const getNewsRecommendationTraceCategorySignal = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<NewsHomeItem, "category">;
+}): NewsPreferenceProfileTrainingSignal => ({
+  kind: "category",
+  label: formatCategory(item.category),
+  signal: item.category,
+});
+
+const getNewsRecommendationTraceEntitySignal = ({
+  item,
+}: {
+  item: Pick<NewsHomeItem, "entities">;
+}): NewsPreferenceProfileTrainingSignal | null => {
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (!entity) return null;
+
+  return {
+    kind: "entity",
+    label: entity,
+    signal: entity,
+  };
+};
+
+export const getNewsRecommendationTraceTrainingAction = ({
+  formatCategory,
+  items,
+  negativeFeedbackItems,
+  step,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  step: NewsRecommendationTraceStep;
+}): NewsPreferenceProfileTrainingAction | null => {
+  let effect: NewsPreferenceProfileTrainingAction["effect"] = "add";
+  let signal: NewsPreferenceProfileTrainingSignal | null = null;
+
+  if (step.label === "Guardrail") {
+    const guardrailItem =
+      negativeFeedbackItems.find((item) => item.title === step.title) ??
+      negativeFeedbackItems[0];
+    effect = "remove";
+    signal = guardrailItem
+      ? (getNewsRecommendationTraceSourceSignal({ item: guardrailItem }) ??
+        getNewsRecommendationTraceCategorySignal({
+          formatCategory,
+          item: guardrailItem,
+        }))
+      : null;
+  } else {
+    const item = items.find((candidate) => candidate.title === step.title);
+
+    if (!item) return null;
+
+    if (
+      step.label === "Lead story" ||
+      step.label === "Verified coverage" ||
+      step.label === "Source diversity" ||
+      step.label === "Freshness"
+    ) {
+      signal =
+        getNewsRecommendationTraceSourceSignal({ item }) ??
+        getNewsRecommendationTraceCategorySignal({
+          formatCategory,
+          item,
+        });
+    } else if (step.label === "Entity diversity") {
+      signal =
+        getNewsRecommendationTraceEntitySignal({ item }) ??
+        getNewsRecommendationTraceCategorySignal({
+          formatCategory,
+          item,
+        });
+    } else {
+      signal = getNewsRecommendationTraceCategorySignal({
+        formatCategory,
+        item,
+      });
+    }
+  }
+
+  if (!signal) return null;
+
+  return {
+    actionLabel: getNewsRecommendationTraceTrainingActionLabel(step.label),
+    effect,
+    label: signal.label,
+    signals: [signal],
+    source: "control",
   };
 };
 
@@ -14300,6 +17085,155 @@ export const getNewsEditorialGuardrails = ({
             totalCount === 1 ? "story" : "stories"
           }.`,
   };
+};
+
+export type NewsEditorialGuardrailTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    };
+
+const getNewsEditorialGuardrailNoveltyAction =
+  (): NewsEditorialGuardrailTrainingAction => ({
+    action: {
+      direction: "raise",
+      key: "noveltyBias",
+      label: "Novel",
+    },
+    kind: "bias",
+  });
+
+const getNewsEditorialGuardrailRiskItems = ({
+  items,
+  risk,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  risk: ReturnType<typeof getNewsEditorialGuardrails>["risks"][number];
+}) => {
+  const storyIds = new Set(risk.stories.map((story) => story.id));
+
+  return items.filter((item) => storyIds.has(item.id));
+};
+
+const getNewsEditorialGuardrailDominantEntity = (
+  items: readonly RankedNewsItem<NewsHomeItem>[],
+) => {
+  const entries = new Map<string, NewsFeedGovernorEntry>();
+
+  items.forEach((item, index) => {
+    const seenEntities = new Set<string>();
+
+    getNormalizedFeedFatigueEntities(item).forEach((entity) => {
+      if (
+        seenEntities.has(entity.key) ||
+        !isFeedGovernorSpecificEntity(entity)
+      ) {
+        return;
+      }
+
+      incrementFeedGovernorEntry({
+        index,
+        key: entity.key,
+        label: entity.label,
+        store: entries,
+      });
+      seenEntities.add(entity.key);
+    });
+  });
+
+  return Array.from(entries.values()).sort(compareFeedGovernorEntries)[0];
+};
+
+export const getNewsEditorialGuardrailTrainingAction = ({
+  items,
+  profile,
+  risk,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  profile: NewsPreferenceProfile;
+  risk:
+    | ReturnType<typeof getNewsEditorialGuardrails>["risks"][number]
+    | undefined;
+}): NewsEditorialGuardrailTrainingAction | null => {
+  if (!risk) return null;
+
+  const riskItems = getNewsEditorialGuardrailRiskItems({ items, risk });
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const preferredSourceSignals = new Set(
+    normalizedProfile.preferredSources.map(normalizePreferenceSignal),
+  );
+  const preferredEntitySignals = new Set(
+    normalizedProfile.preferredEntities.map(normalizePreferenceSignal),
+  );
+
+  if (
+    risk.label === "Source concentration" ||
+    risk.label === "Single-source thread" ||
+    risk.label === "Low-trust source" ||
+    risk.label === "Negative feedback match"
+  ) {
+    const sourceItem = riskItems[0];
+
+    if (!sourceItem) return getNewsEditorialGuardrailNoveltyAction();
+
+    const signal = normalizePreferenceSignal(sourceItem.sourceSlug);
+
+    if (!preferredSourceSignals.has(signal)) {
+      return getNewsEditorialGuardrailNoveltyAction();
+    }
+
+    return {
+      action: {
+        actionLabel: "Reduce editorial source",
+        effect: "remove",
+        label: sourceItem.sourceName,
+        signals: [
+          {
+            kind: "source",
+            label: sourceItem.sourceName,
+            signal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  if (risk.label === "Entity concentration") {
+    const entity = getNewsEditorialGuardrailDominantEntity(riskItems);
+
+    if (!entity) return getNewsEditorialGuardrailNoveltyAction();
+
+    const signal = normalizePreferenceSignal(entity.key);
+
+    if (!preferredEntitySignals.has(signal)) {
+      return getNewsEditorialGuardrailNoveltyAction();
+    }
+
+    return {
+      action: {
+        actionLabel: "Reduce editorial entity",
+        effect: "remove",
+        label: entity.label,
+        signals: [
+          {
+            kind: "entity",
+            label: entity.label,
+            signal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  return getNewsEditorialGuardrailNoveltyAction();
 };
 
 type NewsFeedRecipeSliceLabel =
@@ -14792,6 +17726,7 @@ export const getNewsExplorationSlots = ({
   profile: NewsPreferenceProfile;
 }) => {
   const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const now = Date.now();
   const scoredCandidates = items
     .filter(
       (item) =>
@@ -14817,8 +17752,8 @@ export const getNewsExplorationSlots = ({
       }
 
       return (
-        new Date(right.item.publishedAt).getTime() -
-        new Date(left.item.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.item.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.item.publishedAt, now)
       );
     });
   const slots = scoredCandidates
@@ -14864,6 +17799,97 @@ export const getNewsExplorationSlots = ({
             guardedCount === 1 ? "signal" : "signals"
           }.`
         : "Exploration slots will appear after stories outside the profile are available.",
+  };
+};
+
+export const getNewsExplorationSlotTrainingAction = ({
+  formatCategory,
+  items,
+  profile,
+  slot,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  profile: NewsPreferenceProfile;
+  slot: ReturnType<typeof getNewsExplorationSlots>["slots"][number] | undefined;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (!slot) return null;
+
+  const item = items.find((candidate) => candidate.id === slot.id);
+
+  if (!item) return null;
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const preferredCategorySignals = new Set(
+    normalizedProfile.preferredCategories.map(normalizePreferenceSignal),
+  );
+  const preferredSourceSignals = new Set(
+    normalizedProfile.preferredSources.map(normalizePreferenceSignal),
+  );
+  const preferredEntitySignals = new Set(
+    normalizedProfile.preferredEntities.map(normalizePreferenceSignal),
+  );
+  const categorySignal = normalizePreferenceSignal(item.category);
+
+  if (!preferredCategorySignals.has(categorySignal)) {
+    const label = formatCategory(categorySignal);
+
+    return {
+      actionLabel: "Follow exploration topic",
+      effect: "add",
+      label,
+      signals: [
+        {
+          kind: "category",
+          label,
+          signal: categorySignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const sourceSignal = normalizePreferenceSignal(item.sourceSlug);
+
+  if (!preferredSourceSignals.has(sourceSignal)) {
+    return {
+      actionLabel: "Follow exploration source",
+      effect: "add",
+      label: item.sourceName,
+      signals: [
+        {
+          kind: "source",
+          label: item.sourceName,
+          signal: sourceSignal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  const entity = item.entities
+    .map((value) => ({
+      label: value.trim(),
+      signal: normalizePreferenceSignal(value),
+    }))
+    .find(
+      ({ signal }) => signal.length > 0 && !preferredEntitySignals.has(signal),
+    );
+
+  if (!entity) return null;
+
+  return {
+    actionLabel: "Follow exploration entity",
+    effect: "add",
+    label: entity.label,
+    signals: [
+      {
+        kind: "entity",
+        label: entity.label,
+        signal: entity.signal,
+      },
+    ],
+    source: "control",
   };
 };
 
@@ -15265,6 +18291,128 @@ const getNextRefreshSlotReason = ({
   if (item.trendScore >= 90) return "Heat check";
 
   return "Fresh candidate";
+};
+
+const getNewsNextRefreshPlanTrainingSignal = ({
+  formatCategory,
+  item,
+  reason,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    | "category"
+    | "entities"
+    | "matchedSignals"
+    | "sourceName"
+    | "sourceSlug"
+    | "tags"
+  >;
+  reason?: string;
+}): NewsPreferenceProfileTrainingSignal => {
+  const categoryLabel = formatCategory(item.category);
+  const normalizedReason = reason ? normalizePreferenceSignal(reason) : "";
+  const matchesBoostReason = (label: string) =>
+    normalizedReason === normalizePreferenceSignal(`${label} boost`);
+  const reasonEntity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0 && matchesBoostReason(candidate));
+
+  if (reasonEntity) {
+    return {
+      kind: "entity",
+      label: reasonEntity,
+      signal: reasonEntity,
+    };
+  }
+
+  if (item.sourceSlug && matchesBoostReason(item.sourceName)) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const reasonTag = item.tags.find(
+    (tag) =>
+      isSpecificNewsAngleTag(tag) &&
+      matchesBoostReason(formatNewsAngleQuery(tag)),
+  );
+
+  if (reasonTag) {
+    return {
+      kind: "tag",
+      label: formatNewsAngleQuery(reasonTag),
+      signal: reasonTag,
+    };
+  }
+
+  if (matchesBoostReason(categoryLabel)) {
+    return {
+      kind: "category",
+      label: categoryLabel,
+      signal: item.category,
+    };
+  }
+
+  if (item.matchedSignals.includes("source") && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (item.matchedSignals.includes("entity") && entity) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: categoryLabel,
+    signal: item.category,
+  };
+};
+
+export const getNewsNextRefreshPlanTrainingAction = ({
+  formatCategory,
+  item,
+  reason,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    | "category"
+    | "entities"
+    | "matchedSignals"
+    | "sourceName"
+    | "sourceSlug"
+    | "tags"
+  >;
+  reason?: string;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsNextRefreshPlanTrainingSignal({
+    formatCategory,
+    item,
+    reason,
+  });
+
+  return {
+    actionLabel: "Train refresh signal",
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
 };
 
 export const getNewsNextRefreshPlan = ({
@@ -15704,6 +18852,25 @@ export const getNewsRefreshSimulation = ({
   };
 };
 
+export const getNewsRefreshSimulationTrainingAction = (move: {
+  actionLabel: string;
+  category: string;
+  categoryLabel: string;
+  statusLabel: NewsRefreshSimulationStatus;
+}): NewsPreferenceProfileTrainingAction => ({
+  actionLabel: move.actionLabel,
+  effect: move.statusLabel === "Dampen" ? "remove" : "add",
+  label: move.categoryLabel,
+  signals: [
+    {
+      kind: "category",
+      label: move.categoryLabel,
+      signal: move.category,
+    },
+  ],
+  source: "control",
+});
+
 type NewsTasteCalibrationStatus = "Aligned" | "Dampen" | "Explore";
 
 const newsTasteCalibrationPriority = {
@@ -15898,6 +19065,42 @@ export const getNewsTasteCalibration = ({
       frictionCount === 1 ? "signal" : "signals"
     }.`,
   };
+};
+
+export const getNewsTasteCalibrationTrainingAction = ({
+  action,
+  formatCategory,
+  items,
+}: {
+  action: NonNullable<ReturnType<typeof getNewsTasteCalibrationAction>>;
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  const actionKeyPrefix =
+    action.statusLabel === "Aligned"
+      ? "aligned-"
+      : action.statusLabel === "Explore"
+        ? "explore-"
+        : "dampen-";
+  const actionItemId = action.key.startsWith(actionKeyPrefix)
+    ? action.key.slice(actionKeyPrefix.length)
+    : "";
+  const item =
+    items.find((candidate) => candidate.id === actionItemId) ??
+    items.find(
+      (candidate) =>
+        candidate.title === action.storyTitle &&
+        formatCategory(candidate.category) === action.signal,
+    );
+
+  if (!item) return null;
+
+  return getNewsCategoryPreferenceTrainingAction({
+    actionLabel: action.actionLabel,
+    effect: action.statusLabel === "Dampen" ? "remove" : "add",
+    formatCategory,
+    item,
+  });
 };
 
 type NewsFeedGovernorAction =
@@ -16720,6 +19923,190 @@ export const getNewsFilterBubbleReport = ({
   };
 };
 
+export type NewsFilterBubbleTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    };
+
+const getNewsFilterBubbleDominantSource = (
+  items: readonly RankedNewsItem<NewsHomeItem>[],
+) => {
+  const entries = new Map<string, NewsFeedGovernorEntry>();
+
+  items.forEach((item, index) => {
+    incrementFeedGovernorEntry({
+      index,
+      key: item.sourceSlug,
+      label: item.sourceName,
+      store: entries,
+    });
+  });
+
+  return Array.from(entries.values()).sort(compareFeedGovernorEntries)[0];
+};
+
+const getNewsFilterBubbleDominantEntity = (
+  items: readonly RankedNewsItem<NewsHomeItem>[],
+) => {
+  const entries = new Map<string, NewsFeedGovernorEntry>();
+
+  items.forEach((item, index) => {
+    const seenEntities = new Set<string>();
+
+    getNormalizedFeedFatigueEntities(item).forEach((entity) => {
+      if (
+        seenEntities.has(entity.key) ||
+        !isFeedGovernorSpecificEntity(entity)
+      ) {
+        return;
+      }
+
+      incrementFeedGovernorEntry({
+        index,
+        key: entity.key,
+        label: entity.label,
+        store: entries,
+      });
+      seenEntities.add(entity.key);
+    });
+  });
+
+  return Array.from(entries.values()).sort(compareFeedGovernorEntries)[0];
+};
+
+const getNewsFilterBubbleNoveltyAction =
+  (): NewsFilterBubbleTrainingAction => ({
+    action: {
+      direction: "raise",
+      key: "noveltyBias",
+      label: "Novel",
+    },
+    kind: "bias",
+  });
+
+export const getNewsFilterBubbleTrainingAction = ({
+  check,
+  formatCategory,
+  items,
+  profile,
+}: {
+  check:
+    | ReturnType<typeof getNewsFilterBubbleReport>["checks"][number]
+    | undefined;
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  profile: NewsPreferenceProfile;
+}): NewsFilterBubbleTrainingAction | null => {
+  if (!check || check.status === "clear") return null;
+
+  if (
+    check.label === "Profile lock" ||
+    check.label === "Exploration floor" ||
+    check.label === "Angle lock"
+  ) {
+    return getNewsFilterBubbleNoveltyAction();
+  }
+
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const preferredSourceSignals = new Set(
+    normalizedProfile.preferredSources.map(normalizePreferenceSignal),
+  );
+  const preferredEntitySignals = new Set(
+    normalizedProfile.preferredEntities.map(normalizePreferenceSignal),
+  );
+  const preferredCategorySignals = new Set(
+    normalizedProfile.preferredCategories.map(normalizePreferenceSignal),
+  );
+
+  if (check.label === "Source narrowness") {
+    const source = getNewsFilterBubbleDominantSource(items);
+
+    if (!source) return null;
+
+    const signal = normalizePreferenceSignal(source.key);
+
+    if (!preferredSourceSignals.has(signal)) {
+      return getNewsFilterBubbleNoveltyAction();
+    }
+
+    return {
+      action: {
+        actionLabel: "Reduce dominant source",
+        effect: "remove",
+        label: source.label,
+        signals: [
+          {
+            kind: "source",
+            label: source.label,
+            signal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  if (check.label === "Entity lock") {
+    const entity = getNewsFilterBubbleDominantEntity(items);
+
+    if (!entity) return null;
+
+    const signal = normalizePreferenceSignal(entity.key);
+
+    if (!preferredEntitySignals.has(signal)) {
+      return getNewsFilterBubbleNoveltyAction();
+    }
+
+    return {
+      action: {
+        actionLabel: "Reduce dominant entity",
+        effect: "remove",
+        label: entity.label,
+        signals: [
+          {
+            kind: "entity",
+            label: entity.label,
+            signal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  const dominantCategory = items
+    .map((item) => normalizePreferenceSignal(item.category))
+    .find((category) => preferredCategorySignals.has(category));
+
+  if (dominantCategory) {
+    return {
+      action: {
+        actionLabel: "Reduce dominant topic",
+        effect: "remove",
+        label: formatCategory(dominantCategory),
+        signals: [
+          {
+            kind: "category",
+            label: formatCategory(dominantCategory),
+            signal: dominantCategory,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  return getNewsFilterBubbleNoveltyAction();
+};
+
 const newsDistributionQueueDefinitions = [
   {
     key: "boost",
@@ -16752,7 +20139,7 @@ const newsDistributionQueueDefinitions = [
   },
 ] as const;
 
-type NewsDistributionQueueKey =
+export type NewsDistributionQueueKey =
   (typeof newsDistributionQueueDefinitions)[number]["key"];
 
 interface NewsDistributionQueueStory {
@@ -17057,6 +20444,81 @@ const toNewsDistributionQueueStory = ({
   title: item.title,
 });
 
+const getNewsDistributionQueueTrainingSignal = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (item.matchedSignals.includes("source") && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (item.matchedSignals.includes("entity")) {
+    const entity = item.entities
+      .map((candidate) => candidate.trim())
+      .find((candidate) => candidate.length > 0);
+
+    if (entity) {
+      return {
+        kind: "entity",
+        label: entity,
+        signal: entity,
+      };
+    }
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsDistributionQueueTrainingAction = ({
+  formatCategory,
+  item,
+  laneKey,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  laneKey: NewsDistributionQueueKey;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (laneKey === "hold") return null;
+
+  const signal = getNewsDistributionQueueTrainingSignal({
+    formatCategory,
+    item,
+  });
+  const actionLabel =
+    laneKey === "suppress"
+      ? "Suppress distribution signal"
+      : laneKey === "balance"
+        ? "Train balance signal"
+        : laneKey === "explore"
+          ? "Train explore signal"
+          : "Boost distribution signal";
+
+  return {
+    actionLabel,
+    effect: laneKey === "suppress" ? "remove" : "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
 export const getNewsDistributionQueue = ({
   hiddenItemIds,
   items,
@@ -17174,7 +20636,8 @@ const newsAlertRoutingDefinitions = [
   },
 ] as const;
 
-type NewsAlertRoutingKey = (typeof newsAlertRoutingDefinitions)[number]["key"];
+export type NewsAlertRoutingKey =
+  (typeof newsAlertRoutingDefinitions)[number]["key"];
 
 interface NewsAlertRoutingStory {
   deliveryLabel: string;
@@ -17304,6 +20767,79 @@ const toNewsAlertRoutingStory = ({
   title: item.title,
 });
 
+const getNewsAlertRoutingTrainingSignal = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (item.matchedSignals.includes("source") && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (item.matchedSignals.includes("entity")) {
+    const entity = item.entities
+      .map((candidate) => candidate.trim())
+      .find((candidate) => candidate.length > 0);
+
+    if (entity) {
+      return {
+        kind: "entity",
+        label: entity,
+        signal: entity,
+      };
+    }
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsAlertRoutingTrainingAction = ({
+  formatCategory,
+  item,
+  laneKey,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  laneKey: NewsAlertRoutingKey;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsAlertRoutingTrainingSignal({
+    formatCategory,
+    item,
+  });
+  const actionLabel =
+    laneKey === "muted"
+      ? "Mute alert signal"
+      : laneKey === "digest"
+        ? "Train digest alert signal"
+        : laneKey === "watch"
+          ? "Train watch alert signal"
+          : "Train live alert signal";
+
+  return {
+    actionLabel,
+    effect: laneKey === "muted" ? "remove" : "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
 export const getNewsAlertRouting = ({
   hiddenItemIds,
   items,
@@ -17423,10 +20959,10 @@ const newsPersonalizedPushQueueDefinitions = [
   },
 ] as const;
 
-type NewsPersonalizedPushQueueKey =
+export type NewsPersonalizedPushQueueKey =
   (typeof newsPersonalizedPushQueueDefinitions)[number]["key"];
 
-interface NewsPersonalizedPushStory {
+export interface NewsPersonalizedPushStory {
   categoryLabel: string;
   deliveryLabel: string;
   id: string;
@@ -17768,6 +21304,109 @@ export const getNewsPersonalizedPushQueue = ({
         : `${items.length} ${
             items.length === 1 ? "story" : "stories"
           } queued for reader push: ${nowCount} now, ${digestCount} digest, ${watchCount} watch, and ${mutedCount} muted.`,
+  };
+};
+
+const getNewsPersonalizedPushQueueTrainingSignal = ({
+  item,
+  laneKey,
+  story,
+}: {
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  laneKey: NewsPersonalizedPushQueueKey;
+  story: NewsPersonalizedPushStory;
+}): NewsPreferenceProfileTrainingSignal | null => {
+  if (laneKey === "muted") {
+    return {
+      kind: "category",
+      label: story.categoryLabel,
+      signal: item.category,
+    };
+  }
+
+  if (laneKey === "watch") return null;
+
+  if (item.matchedSignals.includes("source")) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const [firstEntity] = item.entities
+    .map((entity) => entity.trim())
+    .filter((entity) => entity.length > 0);
+
+  if (item.matchedSignals.includes("entity") && firstEntity) {
+    return {
+      kind: "entity",
+      label: firstEntity,
+      signal: firstEntity,
+    };
+  }
+
+  if (
+    item.matchedSignals.includes("category") ||
+    story.triggerLabel === "session intent"
+  ) {
+    return {
+      kind: "category",
+      label: story.categoryLabel,
+      signal: item.category,
+    };
+  }
+
+  if (
+    story.triggerLabel === "memory match" ||
+    story.triggerLabel === "positive memory"
+  ) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  return null;
+};
+
+export const getNewsPersonalizedPushQueueTrainingAction = ({
+  item,
+  laneKey,
+  story,
+}: {
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  laneKey: NewsPersonalizedPushQueueKey;
+  story: NewsPersonalizedPushStory;
+}): NewsPreferenceProfileTrainingAction | null => {
+  const signal = getNewsPersonalizedPushQueueTrainingSignal({
+    item,
+    laneKey,
+    story,
+  });
+
+  if (!signal) return null;
+
+  const isMuted = laneKey === "muted";
+  const actionLabel = isMuted
+    ? "Mute push signal"
+    : laneKey === "digest"
+      ? "Train digest signal"
+      : "Train push signal";
+
+  return {
+    actionLabel,
+    effect: isMuted ? "remove" : "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
   };
 };
 
@@ -18394,7 +22033,7 @@ const newsModelTrainingBatchDefinitions = [
   },
 ] as const;
 
-type NewsModelTrainingBatchKey =
+export type NewsModelTrainingBatchKey =
   (typeof newsModelTrainingBatchDefinitions)[number]["key"];
 
 interface NewsModelTrainingBatchStory {
@@ -18685,13 +22324,15 @@ type NewsProfileUpdateSignalKind = "Category" | "Entity" | "Source" | "Story";
 
 type NewsProfileUpdateSignalType = "category" | "entity" | "source" | "story";
 
-interface NewsProfileUpdateProposalItem {
+export interface NewsProfileUpdateProposalItem {
   actionLabel: string;
   evidenceLabel: string;
   id: string;
   reason: string;
   signalKind: NewsProfileUpdateSignalKind;
   signalLabel: string;
+  signalType: NewsProfileUpdateSignalType;
+  signalValue: string;
   sourceName: string;
   storyId: string;
   storyTitle: string;
@@ -18725,13 +22366,16 @@ const getNewsProfileUpdateSignal = ({
   profile,
 }: {
   formatCategory: (category: string) => string;
-  item: RankedNewsItem<NewsHomeItem>;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "sourceName" | "sourceSlug"
+  >;
   mode: Extract<NewsProfileUpdateProposalKey, "add" | "explore" | "reduce">;
   profile: NewsPreferenceProfile;
 }): {
   kind: NewsProfileUpdateSignalKind;
   label: string;
-  type: NewsProfileUpdateSignalType;
+  type: Exclude<NewsProfileUpdateSignalType, "story">;
   value: string;
 } => {
   const categorySignal = {
@@ -18869,6 +22513,8 @@ const toNewsProfileUpdateProposalItem = ({
       }),
       signalKind: "Story",
       signalLabel: item.title,
+      signalType: "story",
+      signalValue: item.id,
       sourceName: item.sourceName,
       storyId: item.id,
       storyTitle: item.title,
@@ -18895,9 +22541,79 @@ const toNewsProfileUpdateProposalItem = ({
     }),
     signalKind: signal.kind,
     signalLabel: signal.label,
+    signalType: signal.type,
+    signalValue: signal.value,
     sourceName: item.sourceName,
     storyId: item.id,
     storyTitle: item.title,
+  };
+};
+
+const profileProposalSignalKindMap = {
+  category: "category",
+  entity: "entity",
+  source: "source",
+} as const satisfies Record<
+  Exclude<NewsProfileUpdateSignalType, "story">,
+  NewsPreferenceProfileTrainingSignalKind
+>;
+
+export const getNewsModelTrainingBatchTrainingAction = ({
+  formatCategory,
+  item,
+  laneKey,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "sourceName" | "sourceSlug"
+  >;
+  laneKey: NewsModelTrainingBatchKey;
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (laneKey !== "reinforce" && laneKey !== "suppress") return null;
+
+  const signal = getNewsProfileUpdateSignal({
+    formatCategory,
+    item,
+    mode: laneKey === "suppress" ? "reduce" : "add",
+    profile,
+  });
+
+  return {
+    actionLabel:
+      laneKey === "suppress" ? "Train suppress signal" : "Train lift signal",
+    effect: laneKey === "suppress" ? "remove" : "add",
+    label: signal.label,
+    signals: [
+      {
+        kind: profileProposalSignalKindMap[signal.type],
+        label: signal.label,
+        signal: signal.value,
+      },
+    ],
+    source: "control",
+  };
+};
+
+export const getNewsProfileUpdateProposalTrainingAction = (
+  proposal: NewsProfileUpdateProposalItem,
+): NewsPreferenceProfileTrainingAction | null => {
+  if (proposal.signalType === "story") return null;
+
+  return {
+    actionLabel: "Apply proposal",
+    effect: proposal.actionLabel.startsWith("Reduce") ? "remove" : "add",
+    label: proposal.signalLabel,
+    signals: [
+      {
+        kind: profileProposalSignalKindMap[proposal.signalType],
+        label: proposal.signalLabel,
+        signal: proposal.signalValue,
+      },
+    ],
+    source: "control",
   };
 };
 
@@ -19026,6 +22742,7 @@ type NewsReaderProfileSnapshotCardKey =
   | "profile";
 
 interface NewsReaderProfileSnapshotCard {
+  action?: NewsPreferenceProfileTrainingAction;
   detail: string;
   key: NewsReaderProfileSnapshotCardKey;
   label: string;
@@ -19139,8 +22856,10 @@ const getNewsReaderProfileSnapshotNextUpdateCard = (
   }
 
   const [actionVerb = "Update"] = nextProposal.actionLabel.split(" ");
+  const action = getNewsProfileUpdateProposalTrainingAction(nextProposal);
 
   return {
+    ...(action ? { action } : {}),
     detail: `Next profile patch wants to ${actionVerb.toLowerCase()} ${
       nextProposal.signalLabel
     } from the ranked edition.`,
@@ -19502,6 +23221,197 @@ export const getNewsChannelStrategy = ({
       totalCount === 1 ? "story" : "stories"
     } distributed across 3 AI channels: ${profileLedCount} profile-led, ${explorationCount} exploration, and ${trendLedCount} trend-led.`,
   };
+};
+
+export type NewsChannelStrategyTrainingAction =
+  | {
+      action: NewsPreferenceBiasAction;
+      kind: "bias";
+    }
+  | {
+      action: NewsPreferenceProfileTrainingAction;
+      kind: "profile";
+    };
+
+const isNewsChannelStrategyLessGuardrailItem = (
+  item: RankedNewsItem<NewsHomeItem>,
+) =>
+  item.matchedSignals.includes("collaborative_negative_feedback") ||
+  item.matchedSignals.includes("negative_feedback");
+
+const getNewsChannelStrategyBiasAction = ({
+  key,
+  label,
+}: {
+  key: NewsPreferenceBiasKey;
+  label: string;
+}): NewsChannelStrategyTrainingAction => ({
+  action: {
+    direction: "raise",
+    key,
+    label,
+  },
+  kind: "bias",
+});
+
+const getNewsChannelStrategyProfileAction = ({
+  actionLabel,
+  formatCategory,
+  item,
+  profile,
+}: {
+  actionLabel: string;
+  formatCategory: (category: string) => string;
+  item: RankedNewsItem<NewsHomeItem>;
+  profile: NewsPreferenceProfile;
+}): NewsChannelStrategyTrainingAction | null => {
+  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
+  const preferredCategorySignals = new Set(
+    normalizedProfile.preferredCategories.map(normalizePreferenceSignal),
+  );
+  const preferredSourceSignals = new Set(
+    normalizedProfile.preferredSources.map(normalizePreferenceSignal),
+  );
+  const preferredEntitySignals = new Set(
+    normalizedProfile.preferredEntities.map(normalizePreferenceSignal),
+  );
+  const categorySignal = normalizePreferenceSignal(item.category);
+
+  if (!preferredCategorySignals.has(categorySignal)) {
+    const label = formatCategory(categorySignal);
+
+    return {
+      action: {
+        actionLabel,
+        effect: "add",
+        label,
+        signals: [
+          {
+            kind: "category",
+            label,
+            signal: categorySignal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  const sourceSignal = normalizePreferenceSignal(item.sourceSlug);
+
+  if (!preferredSourceSignals.has(sourceSignal)) {
+    return {
+      action: {
+        actionLabel: "Follow channel source",
+        effect: "add",
+        label: item.sourceName,
+        signals: [
+          {
+            kind: "source",
+            label: item.sourceName,
+            signal: sourceSignal,
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    };
+  }
+
+  const entity = item.entities
+    .map((value) => ({
+      label: value.trim(),
+      signal: normalizePreferenceSignal(value),
+    }))
+    .find(
+      ({ signal }) => signal.length > 0 && !preferredEntitySignals.has(signal),
+    );
+
+  if (!entity) return null;
+
+  return {
+    action: {
+      actionLabel: "Follow channel entity",
+      effect: "add",
+      label: entity.label,
+      signals: [
+        {
+          kind: "entity",
+          label: entity.label,
+          signal: entity.signal,
+        },
+      ],
+      source: "control",
+    },
+    kind: "profile",
+  };
+};
+
+export const getNewsChannelStrategyTrainingAction = ({
+  formatCategory,
+  items,
+  lane,
+  profile,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  lane: ReturnType<typeof getNewsChannelStrategy>["lanes"][number] | undefined;
+  profile: NewsPreferenceProfile;
+}): NewsChannelStrategyTrainingAction | null => {
+  if (!lane) return null;
+
+  if (lane.label === "Trending") {
+    return getNewsChannelStrategyBiasAction({
+      key: "recencyBias",
+      label: "Fresh",
+    });
+  }
+
+  if (lane.label === "Explore") {
+    const explorationItem = items.find(
+      (item) =>
+        item.matchedSignals.includes("exploration") &&
+        !isNewsChannelStrategyLessGuardrailItem(item),
+    );
+
+    if (!explorationItem) {
+      return getNewsChannelStrategyBiasAction({
+        key: "noveltyBias",
+        label: "Novel",
+      });
+    }
+
+    return (
+      getNewsChannelStrategyProfileAction({
+        actionLabel: "Follow channel topic",
+        formatCategory,
+        item: explorationItem,
+        profile,
+      }) ??
+      getNewsChannelStrategyBiasAction({
+        key: "noveltyBias",
+        label: "Novel",
+      })
+    );
+  }
+
+  const profileLedItem =
+    items.find(
+      (item) =>
+        hasReaderRecommendationSignal(item) &&
+        !item.matchedSignals.includes("exploration") &&
+        !isNewsChannelStrategyLessGuardrailItem(item),
+    ) ?? items[0];
+
+  if (!profileLedItem) return null;
+
+  return getNewsChannelStrategyProfileAction({
+    actionLabel: "Follow channel topic",
+    formatCategory,
+    item: profileLedItem,
+    profile,
+  });
 };
 
 type NewsChannelRailStatus = "Discover" | "Following" | "Live" | "Trending";
@@ -19998,6 +23908,34 @@ export const getNewsSourceBalance = ({
   };
 };
 
+export const getNewsSourceBalanceTrainingAction = (
+  sourceBalance: ReturnType<typeof getNewsSourceBalance>,
+): NewsPreferenceProfileTrainingAction | null => {
+  const dominantSource = sourceBalance.dominantSource;
+
+  if (
+    !dominantSource ||
+    (sourceBalance.concentration !== "Concentrated" &&
+      sourceBalance.concentration !== "Single source")
+  ) {
+    return null;
+  }
+
+  return {
+    actionLabel: "Reduce source",
+    effect: "remove",
+    label: dominantSource.name,
+    signals: [
+      {
+        kind: "source",
+        label: dominantSource.name,
+        signal: dominantSource.slug,
+      },
+    ],
+    source: "control",
+  };
+};
+
 export const getNewsSourceTrustLedger = ({
   items,
 }: {
@@ -20080,6 +24018,80 @@ export const getNewsSourceTrustLedger = ({
       lowTrustHeatCount === 1 ? "story is" : "stories are"
     } being guarded.`,
   };
+};
+
+export const getNewsSourceTrustTrainingAction = ({
+  items,
+  notice,
+}: {
+  items: readonly NewsHomeItem[];
+  notice: ReturnType<typeof getNewsSourceTrustLedger>["notices"][number];
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (notice.label === "Trust guard") {
+    const lowerTrustSource = items
+      .filter((item) => item.sourceScore < 60 && item.trendScore >= 80)
+      .sort((left, right) => {
+        if (left.sourceScore !== right.sourceScore) {
+          return left.sourceScore - right.sourceScore;
+        }
+
+        if (right.trendScore !== left.trendScore) {
+          return right.trendScore - left.trendScore;
+        }
+
+        return left.sourceName.localeCompare(right.sourceName);
+      })[0];
+
+    if (!lowerTrustSource) return null;
+
+    return {
+      actionLabel: "Reduce source",
+      effect: "remove",
+      label: lowerTrustSource.sourceName,
+      signals: [
+        {
+          kind: "source",
+          label: lowerTrustSource.sourceName,
+          signal: lowerTrustSource.sourceSlug.trim().toLowerCase(),
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (notice.label === "Source confidence") {
+    const trustedSource = items
+      .filter((item) => item.sourceScore >= 80)
+      .sort((left, right) => {
+        if (right.sourceScore !== left.sourceScore) {
+          return right.sourceScore - left.sourceScore;
+        }
+
+        if (right.trendScore !== left.trendScore) {
+          return right.trendScore - left.trendScore;
+        }
+
+        return left.sourceName.localeCompare(right.sourceName);
+      })[0];
+
+    if (!trustedSource) return null;
+
+    return {
+      actionLabel: "Prefer source",
+      effect: "add",
+      label: trustedSource.sourceName,
+      signals: [
+        {
+          kind: "source",
+          label: trustedSource.sourceName,
+          signal: trustedSource.sourceSlug.trim().toLowerCase(),
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  return null;
 };
 
 type NewsAggregationIntakeLaneKey =
@@ -20324,6 +24336,121 @@ export const getNewsAggregationIntake = ({
   };
 };
 
+type NewsAggregationIntakeLane = ReturnType<
+  typeof getNewsAggregationIntake
+>["lanes"][number];
+
+const getNewsAggregationIntakeLaneItem = ({
+  items,
+  lane,
+}: {
+  items: readonly NewsHomeItem[];
+  lane: NewsAggregationIntakeLane;
+}) => {
+  const [story] = lane.stories;
+
+  if (!story) return null;
+
+  return items.find((item) => item.id === story.id) ?? null;
+};
+
+const getNewsAggregationIntakeCategoryAction = ({
+  actionLabel,
+  effect,
+  formatCategory,
+  item,
+}: {
+  actionLabel: string;
+  effect: NewsPreferenceProfileTrainingAction["effect"];
+  formatCategory: (category: string) => string;
+  item: Pick<NewsHomeItem, "category">;
+}): NewsPreferenceProfileTrainingAction => ({
+  actionLabel,
+  effect,
+  label: formatCategory(item.category),
+  signals: [
+    {
+      kind: "category",
+      label: formatCategory(item.category),
+      signal: item.category,
+    },
+  ],
+  source: "control",
+});
+
+const getNewsAggregationIntakeSourceAction = ({
+  actionLabel,
+  effect,
+  formatCategory,
+  item,
+}: {
+  actionLabel: string;
+  effect: NewsPreferenceProfileTrainingAction["effect"];
+  formatCategory: (category: string) => string;
+  item: Pick<NewsHomeItem, "category" | "sourceName" | "sourceSlug">;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = item.sourceSlug.trim().toLowerCase();
+
+  if (!signal) {
+    return getNewsAggregationIntakeCategoryAction({
+      actionLabel,
+      effect,
+      formatCategory,
+      item,
+    });
+  }
+
+  return {
+    actionLabel,
+    effect,
+    label: item.sourceName,
+    signals: [
+      {
+        kind: "source",
+        label: item.sourceName,
+        signal,
+      },
+    ],
+    source: "control",
+  };
+};
+
+export const getNewsAggregationIntakeTrainingAction = ({
+  formatCategory,
+  items,
+  lane,
+}: {
+  formatCategory: (category: string) => string;
+  items: readonly NewsHomeItem[];
+  lane: NewsAggregationIntakeLane;
+}): NewsPreferenceProfileTrainingAction | null => {
+  const item = getNewsAggregationIntakeLaneItem({ items, lane });
+
+  if (!item) return null;
+
+  if (lane.key === "launch" || lane.key === "research") {
+    return getNewsAggregationIntakeCategoryAction({
+      actionLabel:
+        lane.key === "launch" ? "Train launch lane" : "Train research lane",
+      effect: "add",
+      formatCategory,
+      item,
+    });
+  }
+
+  return getNewsAggregationIntakeSourceAction({
+    actionLabel:
+      lane.key === "community"
+        ? "Guard community signal"
+        : lane.key === "desk"
+          ? "Reduce desk fallback"
+          : "Train primary source",
+    effect: lane.key === "primary" ? "add" : "remove",
+    formatCategory,
+    item,
+  });
+};
+
 interface NewsAggregationRecoveryStory {
   id: string;
   scoreLabel: string;
@@ -20486,6 +24613,73 @@ export const getNewsAggregationRecoveryQueue = ({
   };
 };
 
+type NewsAggregationRecoveryQueueAction = ReturnType<
+  typeof getNewsAggregationRecoveryQueue
+>["actions"][number];
+
+export const getNewsAggregationRecoveryTrainingAction = ({
+  action,
+  items,
+}: {
+  action: NewsAggregationRecoveryQueueAction;
+  items: readonly NewsHomeItem[];
+}): NewsPreferenceProfileTrainingAction | null => {
+  const item = items.find((candidate) => candidate.id === action.story.id);
+  const signal = item?.sourceSlug.trim().toLowerCase();
+
+  if (!item || !signal) return null;
+
+  if (action.actionLabel === "Verify hot signal") {
+    return {
+      actionLabel: "Guard hot signal",
+      effect: "remove",
+      label: item.sourceName,
+      signals: [
+        {
+          kind: "source",
+          label: item.sourceName,
+          signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (action.actionLabel === "Refresh primary sources") {
+    return {
+      actionLabel: "Train primary recovery",
+      effect: "add",
+      label: item.sourceName,
+      signals: [
+        {
+          kind: "source",
+          label: item.sourceName,
+          signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (action.actionLabel === "Replace desk fallback") {
+    return {
+      actionLabel: "Reduce fallback source",
+      effect: "remove",
+      label: item.sourceName,
+      signals: [
+        {
+          kind: "source",
+          label: item.sourceName,
+          signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  return null;
+};
+
 export const getNewsEntityRadar = ({
   items,
   limit,
@@ -20541,6 +24735,7 @@ export const getNewsEntityRadar = ({
       return {
         entity: entry.entity,
         heatScore: averageTrendScore + storyCount * 20 + sourceCount * 6,
+        signal: normalizePreferenceSignal(entry.entity),
         sourceCount,
         storyCount,
       };
@@ -20557,6 +24752,32 @@ export const getNewsEntityRadar = ({
       return left.entity.localeCompare(right.entity);
     })
     .slice(0, limit);
+};
+
+export const getNewsEntityRadarTrainingAction = ({
+  entry,
+  profile,
+}: {
+  entry: ReturnType<typeof getNewsEntityRadar>[number];
+  profile: NewsPreferenceProfile;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = normalizePreferenceSignal(entry.signal);
+  const active =
+    normalizeNewsPreferenceProfile(profile).preferredEntities.includes(signal);
+
+  return {
+    actionLabel: active ? "Reduce entity" : "Follow entity",
+    effect: active ? "remove" : "add",
+    label: entry.entity,
+    signals: [
+      {
+        kind: "entity",
+        label: entry.entity,
+        signal,
+      },
+    ],
+    source: "control",
+  };
 };
 
 export const getNewsEditionBriefing = ({
@@ -20658,6 +24879,100 @@ const toNewsBriefingPackSlot = ({
   title: item.title,
 });
 
+export type NewsBriefingPackSlotLabel = "Lead" | "Latest" | "Heat" | "Explore";
+
+const getNewsBriefingPackTrainingActionLabel = (slotLabel: string): string => {
+  if (slotLabel === "Lead") return "Train lead brief";
+  if (slotLabel === "Latest") return "Train latest brief";
+  if (slotLabel === "Heat") return "Train heat brief";
+  if (slotLabel === "Explore") return "Train explore brief";
+
+  return "Train briefing signal";
+};
+
+const getNewsBriefingPackTrainingSignal = ({
+  formatCategory,
+  item,
+  slotLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  slotLabel: string;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (slotLabel === "Latest" || slotLabel === "Explore") {
+    return {
+      kind: "category",
+      label: formatCategory(item.category),
+      signal: item.category,
+    };
+  }
+
+  if (item.matchedSignals.includes("source") && item.sourceSlug.trim()) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (
+    entity &&
+    (item.matchedSignals.includes("entity") || slotLabel === "Heat")
+  ) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsBriefingPackTrainingAction = ({
+  formatCategory,
+  item,
+  slotLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  slotLabel: string;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsBriefingPackTrainingSignal({
+    formatCategory,
+    item,
+    slotLabel,
+  });
+
+  return {
+    actionLabel: getNewsBriefingPackTrainingActionLabel(slotLabel),
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
+const getPastNewsHomePublishedAtTime = (publishedAt: string, now: number) => {
+  const timestamp = Date.parse(publishedAt);
+
+  return Number.isNaN(timestamp) || timestamp > now ? 0 : timestamp;
+};
+
 const selectUnusedNewsBriefingPackStory = ({
   items,
   score,
@@ -20666,8 +24981,10 @@ const selectUnusedNewsBriefingPackStory = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   score: (item: RankedNewsItem<NewsHomeItem>) => number;
   usedIds: ReadonlySet<string>;
-}) =>
-  [...items]
+}) => {
+  const now = Date.now();
+
+  return [...items]
     .filter((item) => !usedIds.has(item.id))
     .sort((left, right) => {
       const scoreDiff = score(right) - score(left);
@@ -20678,10 +24995,11 @@ const selectUnusedNewsBriefingPackStory = ({
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.publishedAt, now)
       );
     })[0];
+};
 
 export const getNewsBriefingPack = ({
   formatCategory,
@@ -20705,6 +25023,7 @@ export const getNewsBriefingPack = ({
 
   const usedIds = new Set<string>();
   const slots: ReturnType<typeof toNewsBriefingPackSlot>[] = [];
+  const now = Date.now();
   const addSlot = ({
     item,
     label,
@@ -20712,7 +25031,7 @@ export const getNewsBriefingPack = ({
     scoreLabel,
   }: {
     item: RankedNewsItem<NewsHomeItem> | undefined;
-    label: string;
+    label: NewsBriefingPackSlotLabel;
     reason: string;
     scoreLabel: string;
   }) => {
@@ -20740,7 +25059,7 @@ export const getNewsBriefingPack = ({
 
   const latestStory = selectUnusedNewsBriefingPackStory({
     items,
-    score: (item) => new Date(item.publishedAt).getTime(),
+    score: (item) => getPastNewsHomePublishedAtTime(item.publishedAt, now),
     usedIds,
   });
 
@@ -20826,6 +25145,100 @@ const toNewsFrontPageLayoutSection = ({
   treatment,
 });
 
+export type NewsFrontPageLayoutSectionLabel =
+  | "A1 Lead"
+  | "Analysis"
+  | "Brief"
+  | "Watch";
+
+const getNewsFrontPageLayoutTrainingActionLabel = (
+  sectionLabel: string,
+): string => {
+  if (sectionLabel === "A1 Lead") return "Train A1 signal";
+  if (sectionLabel === "Analysis") return "Train analysis signal";
+  if (sectionLabel === "Brief") return "Train brief signal";
+  if (sectionLabel === "Watch") return "Train watch signal";
+
+  return "Train layout signal";
+};
+
+const getNewsFrontPageLayoutTrainingSignal = ({
+  formatCategory,
+  item,
+  sectionLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  sectionLabel: string;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (sectionLabel === "Brief" || sectionLabel === "Watch") {
+    return {
+      kind: "category",
+      label: formatCategory(item.category),
+      signal: item.category,
+    };
+  }
+
+  if (item.matchedSignals.includes("source") && item.sourceSlug.trim()) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (
+    entity &&
+    (item.matchedSignals.includes("entity") || sectionLabel === "Analysis")
+  ) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsFrontPageLayoutTrainingAction = ({
+  formatCategory,
+  item,
+  sectionLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  sectionLabel: string;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsFrontPageLayoutTrainingSignal({
+    formatCategory,
+    item,
+    sectionLabel,
+  });
+
+  return {
+    actionLabel: getNewsFrontPageLayoutTrainingActionLabel(sectionLabel),
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
 export const getNewsFrontPageLayout = ({
   formatCategory,
   items,
@@ -20856,7 +25269,7 @@ export const getNewsFrontPageLayout = ({
     treatment,
   }: {
     item: RankedNewsItem<NewsHomeItem> | undefined;
-    label: string;
+    label: NewsFrontPageLayoutSectionLabel;
     reason: string;
     scoreLabel: string;
     treatment: string;
@@ -20957,7 +25370,104 @@ export const getNewsFrontPageLayout = ({
   };
 };
 
-type NewsFrontPageSlotMixKey = "cooldown" | "explore" | "follow_up" | "lead";
+export type NewsFrontPageSlotMixKey =
+  | "cooldown"
+  | "explore"
+  | "follow_up"
+  | "lead";
+
+const getNewsFrontPageSlotMixTrainingActionLabel = (
+  slotKey: NewsFrontPageSlotMixKey,
+): string => {
+  if (slotKey === "follow_up") return "Train follow-up slot";
+
+  return `Train ${slotKey} slot`;
+};
+
+const getNewsFrontPageSlotMixTrainingSignal = ({
+  formatCategory,
+  item,
+  slotKey,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  slotKey: NewsFrontPageSlotMixKey;
+}): NewsPreferenceProfileTrainingSignal => {
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (slotKey === "explore") {
+    return {
+      kind: "category",
+      label: formatCategory(item.category),
+      signal: item.category,
+    };
+  }
+
+  if (slotKey === "follow_up" && entity) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  if (
+    (slotKey === "cooldown" || item.matchedSignals.includes("source")) &&
+    item.sourceSlug.trim()
+  ) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (entity && item.matchedSignals.includes("entity")) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsFrontPageSlotMixTrainingAction = ({
+  formatCategory,
+  item,
+  slotKey,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  slotKey: NewsFrontPageSlotMixKey;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsFrontPageSlotMixTrainingSignal({
+    formatCategory,
+    item,
+    slotKey,
+  });
+
+  return {
+    actionLabel: getNewsFrontPageSlotMixTrainingActionLabel(slotKey),
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
 
 const getNewsFrontPageSharedEntities = (
   leadItem: RankedNewsItem<NewsHomeItem> | undefined,
@@ -21754,6 +26264,7 @@ export const getNewsSectionFronts = ({
   limit: number;
   storiesPerSection: number;
 }) => {
+  const now = Date.now();
   const sectionsByCategory = new Map<
     string,
     {
@@ -21786,8 +26297,8 @@ export const getNewsSectionFronts = ({
     existing.trendScoreTotal += item.trendScore;
 
     if (
-      new Date(item.publishedAt).getTime() >
-      new Date(existing.latestPublishedAt).getTime()
+      getPastNewsHomePublishedAtTime(item.publishedAt, now) >
+      getPastNewsHomePublishedAtTime(existing.latestPublishedAt, now)
     ) {
       existing.latestPublishedAt = item.publishedAt;
     }
@@ -22286,6 +26797,7 @@ const toNewsClaimTrackerItem = ({
   formatCategory: (category: string) => string;
   storiesPerClaim: number;
 }) => {
+  const now = Date.now();
   const sortedItems = [...cluster.items].sort((left, right) => {
     if (right.personalizedScore !== left.personalizedScore) {
       return right.personalizedScore - left.personalizedScore;
@@ -22296,8 +26808,8 @@ const toNewsClaimTrackerItem = ({
     }
 
     return (
-      new Date(right.publishedAt).getTime() -
-      new Date(left.publishedAt).getTime()
+      getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+      getPastNewsHomePublishedAtTime(left.publishedAt, now)
     );
   });
   const [lead] = sortedItems;
@@ -22476,8 +26988,9 @@ const newsStoryTimelineTimeFormatter = new Intl.DateTimeFormat("en", {
 
 const getNewsStoryTimelineTimestamp = (item: RankedNewsItem<NewsHomeItem>) => {
   const timestamp = new Date(item.publishedAt).getTime();
+  const now = Date.now();
 
-  return Number.isNaN(timestamp) ? 0 : timestamp;
+  return Number.isNaN(timestamp) || timestamp > now ? 0 : timestamp;
 };
 
 const formatNewsStoryTimelineTime = (publishedAt: string) => {
@@ -22697,6 +27210,7 @@ export const getNewsCoverageThreads = ({
     }
   }
 
+  const now = Date.now();
   const threads = Array.from(threadsByEntity.values())
     .filter((thread) => thread.items.length > 1)
     .map((thread) => {
@@ -22710,8 +27224,8 @@ export const getNewsCoverageThreads = ({
         }
 
         return (
-          new Date(right.publishedAt).getTime() -
-          new Date(left.publishedAt).getTime()
+          getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+          getPastNewsHomePublishedAtTime(left.publishedAt, now)
         );
       });
       const [lead] = threadItems;
@@ -22888,6 +27402,7 @@ export const getNewsConsensusBoard = ({
     }
   }
 
+  const now = Date.now();
   const threads = Array.from(threadsByEntity.values())
     .map((thread) => {
       const threadItems = [...thread.items].sort((left, right) => {
@@ -22900,8 +27415,8 @@ export const getNewsConsensusBoard = ({
         }
 
         return (
-          new Date(right.publishedAt).getTime() -
-          new Date(left.publishedAt).getTime()
+          getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+          getPastNewsHomePublishedAtTime(left.publishedAt, now)
         );
       });
       const sourceCount = thread.sources.size;
@@ -22995,6 +27510,185 @@ const toReadingQueueStory = (item: RankedNewsItem<NewsHomeItem>) => ({
   sourceName: item.sourceName,
   title: item.title,
 });
+
+export type NewsPersonalizedReadingQueueIntent =
+  | "Fast Brief"
+  | "Follow Interest"
+  | "Deep Dive"
+  | "Explore"
+  | "Catch Up";
+
+const getNewsPersonalizedReadingQueueTrainingSignal = ({
+  formatCategory,
+  intent,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  intent: NewsPersonalizedReadingQueueIntent;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (intent === "Deep Dive" && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (item.matchedSignals.includes("source") && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (
+    entity &&
+    (item.matchedSignals.includes("entity") || intent === "Follow Interest")
+  ) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsPersonalizedReadingQueueTrainingAction = ({
+  formatCategory,
+  intent,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  intent: NewsPersonalizedReadingQueueIntent;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsPersonalizedReadingQueueTrainingSignal({
+    formatCategory,
+    intent,
+    item,
+  });
+  const actionLabel =
+    intent === "Fast Brief"
+      ? "Train lead signal"
+      : intent === "Follow Interest"
+        ? "Train follow-up signal"
+        : intent === "Deep Dive"
+          ? "Train deep-dive source"
+          : intent === "Explore"
+            ? "Train explore reading signal"
+            : "Train catch-up signal";
+
+  return {
+    actionLabel,
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
+const getNewsContinuationRailTrainingSignal = ({
+  formatCategory,
+  item,
+  reason,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  reason?: string;
+}): NewsPreferenceProfileTrainingSignal => {
+  const categoryLabel = formatCategory(item.category);
+  const normalizedReason = reason ? normalizePreferenceSignal(reason) : "";
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (
+    entity &&
+    (item.matchedSignals.includes("entity") ||
+      normalizedReason.startsWith(normalizePreferenceSignal(entity)))
+  ) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  if (
+    item.sourceSlug &&
+    (item.matchedSignals.includes("source") ||
+      normalizedReason ===
+        normalizePreferenceSignal(`${item.sourceName} follow-up`))
+  ) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (entity) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: categoryLabel,
+    signal: item.category,
+  };
+};
+
+export const getNewsContinuationRailTrainingAction = ({
+  formatCategory,
+  item,
+  reason,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  reason?: string;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsContinuationRailTrainingSignal({
+    formatCategory,
+    item,
+    reason,
+  });
+
+  return {
+    actionLabel: "Train continuation signal",
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
 
 const getContinuationSharedEntities = ({
   anchor,
@@ -23090,6 +27784,7 @@ export const getNewsMissedCoverageShelf = ({
       !item.matchedSignals.includes("collaborative_negative_feedback") &&
       !item.matchedSignals.includes("negative_feedback"),
   );
+  const now = Date.now();
   const scoredStories = unreadTailItems
     .map((item) => {
       const reason = getMissedCoverageReason({ frontPageEntityKeys, item });
@@ -23120,8 +27815,8 @@ export const getNewsMissedCoverageShelf = ({
       }
 
       return (
-        new Date(right.item.publishedAt).getTime() -
-        new Date(left.item.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.item.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.item.publishedAt, now)
       );
     })
     .slice(0, limit);
@@ -23159,6 +27854,10 @@ const continuationPositiveFeedbackPriority = {
   click_source: 2,
 } as const satisfies Record<NewsProfilePositiveFeedbackAction, number>;
 
+const getContinuationPositiveFeedbackPriority = (
+  action: NewsProfilePositiveFeedbackAction | undefined,
+) => (action === undefined ? 3 : continuationPositiveFeedbackPriority[action]);
+
 export const getNewsContinuationRail = ({
   formatCategory,
   historyItems,
@@ -23174,8 +27873,8 @@ export const getNewsContinuationRail = ({
 }) => {
   const positiveAnchors = [...positiveFeedbackItems].sort((left, right) => {
     const priorityDiff =
-      continuationPositiveFeedbackPriority[left.action] -
-      continuationPositiveFeedbackPriority[right.action];
+      getContinuationPositiveFeedbackPriority(left.action) -
+      getContinuationPositiveFeedbackPriority(right.action);
 
     if (priorityDiff !== 0) return priorityDiff;
 
@@ -23215,6 +27914,7 @@ export const getNewsContinuationRail = ({
   const anchorEntityKeys = new Set(
     getNewsAlertRoutingSpecificEntities(anchor).map((entity) => entity.key),
   );
+  const now = Date.now();
   const rankedFollowUps = items
     .filter(
       (item) =>
@@ -23260,8 +27960,8 @@ export const getNewsContinuationRail = ({
       }
 
       return (
-        new Date(right.item.publishedAt).getTime() -
-        new Date(left.item.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.item.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.item.publishedAt, now)
       );
     });
   const scoredFollowUps = rankedFollowUps.slice(0, limit);
@@ -23386,7 +28086,7 @@ export const getNewsPersonalizedReadingQueue = ({
 
   const usedIds = new Set<string>();
   const slots: {
-    intent: string;
+    intent: NewsPersonalizedReadingQueueIntent;
     label: string;
     reason: string;
     story: ReturnType<typeof toReadingQueueStory>;
@@ -23397,7 +28097,7 @@ export const getNewsPersonalizedReadingQueue = ({
     label,
     reason,
   }: {
-    intent: string;
+    intent: NewsPersonalizedReadingQueueIntent;
     item: RankedNewsItem<NewsHomeItem> | undefined;
     label: string;
     reason: string;
@@ -23436,10 +28136,11 @@ export const getNewsPersonalizedReadingQueue = ({
     }),
   ];
   const getPositiveFeedbackAnchorSourceLabel = (
-    action: NewsProfilePositiveFeedbackAction,
+    action: NewsProfilePositiveFeedbackAction | undefined,
   ) => {
     if (action === "share") return "shared stories";
     if (action === "click_source") return "opened sources";
+    if (action === undefined) return "read stories";
 
     return "saved stories";
   };
@@ -23457,6 +28158,7 @@ export const getNewsPersonalizedReadingQueue = ({
       sourceLabel: "reading history",
     })),
   ];
+  const now = Date.now();
   const memoryFollowUp = eligibleItems
     .filter((item) => !usedIds.has(item.id))
     .flatMap((item) =>
@@ -23503,8 +28205,8 @@ export const getNewsPersonalizedReadingQueue = ({
       }
 
       return (
-        new Date(right.item.publishedAt).getTime() -
-        new Date(left.item.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.item.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.item.publishedAt, now)
       );
     })[0];
 
@@ -23599,8 +28301,10 @@ const selectUnusedEditionStory = ({
   items: readonly RankedNewsItem<NewsHomeItem>[];
   score: (item: RankedNewsItem<NewsHomeItem>) => number;
   usedIds: ReadonlySet<string>;
-}) =>
-  [...items]
+}) => {
+  const now = Date.now();
+
+  return [...items]
     .filter((item) => !usedIds.has(item.id))
     .sort((left, right) => {
       const scoreDiff = score(right) - score(left);
@@ -23611,10 +28315,11 @@ const selectUnusedEditionStory = ({
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.publishedAt, now)
       );
     })[0];
+};
 
 const hasNewsItemSharedSpecificEntity = ({
   avoidEntityKeys,
@@ -23657,6 +28362,100 @@ const selectUnusedEditionCounterpointStory = ({
   );
 };
 
+export type NewsEditionScheduleSlotLabel =
+  | "Morning Brief"
+  | "Midday Watch"
+  | "Evening Catch-Up"
+  | "Deep Read";
+
+const getNewsEditionScheduleTrainingActionLabel = (
+  slotLabel: string,
+): string => {
+  if (slotLabel === "Morning Brief") return "Train morning signal";
+  if (slotLabel === "Midday Watch") return "Train heat signal";
+  if (slotLabel === "Evening Catch-Up") return "Train catch-up signal";
+  if (slotLabel === "Deep Read") return "Train deep-read signal";
+
+  return "Train schedule signal";
+};
+
+const getNewsEditionScheduleTrainingSignal = ({
+  formatCategory,
+  item,
+  slotLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  slotLabel: string;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (slotLabel === "Deep Read" && item.sourceSlug.trim()) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (item.matchedSignals.includes("source") && item.sourceSlug.trim()) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  const entity = item.entities
+    .map((candidate) => candidate.trim())
+    .find((candidate) => candidate.length > 0);
+
+  if (
+    entity &&
+    (item.matchedSignals.includes("entity") || slotLabel === "Midday Watch")
+  ) {
+    return {
+      kind: "entity",
+      label: entity,
+      signal: entity,
+    };
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsEditionScheduleTrainingAction = ({
+  formatCategory,
+  item,
+  slotLabel,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  slotLabel: string;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsEditionScheduleTrainingSignal({
+    formatCategory,
+    item,
+    slotLabel,
+  });
+
+  return {
+    actionLabel: getNewsEditionScheduleTrainingActionLabel(slotLabel),
+    effect: "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
+
 export const getNewsEditionSchedule = ({
   items,
 }: {
@@ -23670,9 +28469,10 @@ export const getNewsEditionSchedule = ({
   }
 
   const usedIds = new Set<string>();
+  const now = Date.now();
   const slots: {
     intent: string;
-    label: string;
+    label: NewsEditionScheduleSlotLabel;
     reason: string;
     story: ReturnType<typeof toReadingQueueStory>;
     timeLabel: string;
@@ -23686,7 +28486,7 @@ export const getNewsEditionSchedule = ({
   }: {
     intent: string;
     item: RankedNewsItem<NewsHomeItem> | undefined;
-    label: string;
+    label: NewsEditionScheduleSlotLabel;
     reason: string;
     timeLabel: string;
   }) => {
@@ -23749,7 +28549,7 @@ export const getNewsEditionSchedule = ({
 
   const latestStory = selectUnusedEditionStory({
     items,
-    score: (item) => new Date(item.publishedAt).getTime(),
+    score: (item) => getPastNewsHomePublishedAtTime(item.publishedAt, now),
     usedIds,
   });
 
@@ -23806,11 +28606,13 @@ export const selectNewsFeedModeItems = ({
 }) => {
   if (mode === "for_you") return [...items];
 
+  const now = Date.now();
+
   return [...items].sort((left, right) => {
     if (mode === "latest") {
       const publishedDiff =
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime();
+        getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.publishedAt, now);
 
       if (publishedDiff !== 0) return publishedDiff;
     }
@@ -23824,8 +28626,8 @@ export const selectNewsFeedModeItems = ({
     }
 
     return (
-      new Date(right.publishedAt).getTime() -
-      new Date(left.publishedAt).getTime()
+      getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+      getPastNewsHomePublishedAtTime(left.publishedAt, now)
     );
   });
 };
@@ -23975,7 +28777,10 @@ export const selectReaderFreshNewsHomeItems = ({
   historyItems,
   items,
 }: {
-  historyItems: readonly ({ id: string } & NewsUrlReference)[];
+  historyItems: readonly ({
+    clusterKey?: string | null;
+    id: string;
+  } & NewsUrlReference)[];
   items: readonly RankedNewsItem<NewsHomeItem>[];
 }) =>
   selectReaderFreshNewsFeed(
@@ -24048,6 +28853,9 @@ const normalizeNewsHomeExposureClusterKey = (
 const getNewsHomeExposureClusterKey = (item: { clusterKey?: string | null }) =>
   normalizeNewsHomeExposureClusterKey(item.clusterKey);
 
+const newsHomeDatabaseIdPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export const selectNewsHomeExposureRecords = ({
   feedMode,
   isPreview,
@@ -24089,6 +28897,7 @@ export const selectNewsHomeExposureRecords = ({
       ),
     )
     .filter((item) => !hasRecordedCluster(item))
+    .filter((item) => newsHomeDatabaseIdPattern.test(item.id))
     .slice(0, limit)
     .map((item, exposureSlot) => ({
       action: "view",
@@ -24121,6 +28930,74 @@ const toNewsExposureCooldownStory = ({
   sourceName: item.sourceName,
   title: item.title,
 });
+
+type NewsExposureCooldownTrainingMode = "cooldown" | "replacement";
+
+const getNewsExposureCooldownTrainingSignal = ({
+  formatCategory,
+  item,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+}): NewsPreferenceProfileTrainingSignal => {
+  if (item.matchedSignals.includes("source") && item.sourceSlug) {
+    return {
+      kind: "source",
+      label: item.sourceName,
+      signal: item.sourceSlug,
+    };
+  }
+
+  if (item.matchedSignals.includes("entity")) {
+    const entity = item.entities
+      .map((candidate) => candidate.trim())
+      .find((candidate) => candidate.length > 0);
+
+    if (entity) {
+      return {
+        kind: "entity",
+        label: entity,
+        signal: entity,
+      };
+    }
+  }
+
+  return {
+    kind: "category",
+    label: formatCategory(item.category),
+    signal: item.category,
+  };
+};
+
+export const getNewsExposureCooldownTrainingAction = ({
+  formatCategory,
+  item,
+  mode,
+}: {
+  formatCategory: (category: string) => string;
+  item: Pick<
+    RankedNewsItem<NewsHomeItem>,
+    "category" | "entities" | "matchedSignals" | "sourceName" | "sourceSlug"
+  >;
+  mode: NewsExposureCooldownTrainingMode;
+}): NewsPreferenceProfileTrainingAction => {
+  const signal = getNewsExposureCooldownTrainingSignal({
+    formatCategory,
+    item,
+  });
+
+  return {
+    actionLabel:
+      mode === "cooldown" ? "Cool down exposure" : "Train replacement signal",
+    effect: mode === "cooldown" ? "remove" : "add",
+    label: signal.label,
+    signals: [signal],
+    source: "control",
+  };
+};
 
 export const getNewsExposureCooldownQueue = ({
   historyItems,
@@ -24293,25 +29170,30 @@ const getSharedFeedFatigueEntity = (
 const getLongestFeedFatigueRun = <TItem>({
   getKey,
   getLabel,
+  getSignal,
   items,
 }: {
   getKey: (item: TItem) => string;
   getLabel: (item: TItem) => string;
+  getSignal?: (item: TItem) => string;
   items: readonly TItem[];
 }) => {
   let longestRun = {
     count: 0,
     label: "None",
+    signal: "",
   };
   let currentRun = {
     count: 0,
     key: "",
     label: "None",
+    signal: "",
   };
 
   for (const item of items) {
     const key = normalizePreferenceSignal(getKey(item));
     const label = getLabel(item);
+    const signal = getSignal?.(item) ?? getKey(item);
 
     if (currentRun.key === key) {
       currentRun = {
@@ -24323,6 +29205,7 @@ const getLongestFeedFatigueRun = <TItem>({
         count: 1,
         key,
         label,
+        signal,
       };
     }
 
@@ -24330,6 +29213,7 @@ const getLongestFeedFatigueRun = <TItem>({
       longestRun = {
         count: currentRun.count,
         label: currentRun.label,
+        signal: currentRun.signal,
       };
     }
   }
@@ -24345,17 +29229,25 @@ const getLongestFeedEntityFatigueRun = ({
   let longestRun = {
     count: 0,
     label: "None",
+    signal: "",
   };
-  let activeRuns = new Map<string, { count: number; label: string }>();
+  let activeRuns = new Map<
+    string,
+    { count: number; label: string; signal: string }
+  >();
 
   for (const item of items) {
-    const nextRuns = new Map<string, { count: number; label: string }>();
+    const nextRuns = new Map<
+      string,
+      { count: number; label: string; signal: string }
+    >();
 
     for (const entity of getNormalizedFeedFatigueEntities(item)) {
       const previousRun = activeRuns.get(entity.key);
       const nextRun = {
         count: previousRun ? previousRun.count + 1 : 1,
         label: previousRun?.label ?? entity.label,
+        signal: previousRun?.signal ?? entity.label,
       };
 
       nextRuns.set(entity.key, nextRun);
@@ -24493,6 +29385,86 @@ export const getNewsFeedFatigueReport = ({
       "topic",
     )}, ${formatFeedFatigueRepeatCount(entityRepeatCount, "entity")}.`,
   };
+};
+
+export const getNewsFeedFatigueTrainingAction = ({
+  items,
+  notice,
+}: {
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  notice: ReturnType<typeof getNewsFeedFatigueReport>["notices"][number];
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (notice.label === "Source fatigue") {
+    const run = getLongestFeedFatigueRun({
+      getKey: (item: RankedNewsItem<NewsHomeItem>) => item.sourceSlug,
+      getLabel: (item) => item.sourceName,
+      getSignal: (item) => normalizePreferenceSignal(item.sourceSlug),
+      items,
+    });
+
+    if (run.count <= 1 || !run.signal) return null;
+
+    return {
+      actionLabel: "Reduce source",
+      effect: "remove",
+      label: run.label,
+      signals: [
+        {
+          kind: "source",
+          label: run.label,
+          signal: run.signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (notice.label === "Topic fatigue") {
+    const run = getLongestFeedFatigueRun({
+      getKey: (item: RankedNewsItem<NewsHomeItem>) => item.category,
+      getLabel: (item) => formatFeedFatigueTopic(item.category),
+      getSignal: (item) => item.category.trim(),
+      items,
+    });
+
+    if (run.count <= 1 || !run.signal) return null;
+
+    return {
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: run.label,
+      signals: [
+        {
+          kind: "category",
+          label: run.label,
+          signal: run.signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  if (notice.label === "Entity fatigue") {
+    const run = getLongestFeedEntityFatigueRun({ items });
+
+    if (run.count <= 1 || !run.signal) return null;
+
+    return {
+      actionLabel: "Reduce entity",
+      effect: "remove",
+      label: run.label,
+      signals: [
+        {
+          kind: "entity",
+          label: run.label,
+          signal: run.signal,
+        },
+      ],
+      source: "control",
+    };
+  }
+
+  return null;
 };
 
 export const selectFeedFatigueBalancedNewsHomeItems = ({
@@ -24633,6 +29605,289 @@ export const getNewsHomeLoadMoreState = ({
   };
 };
 
+const getNewsForYouNextQueueSearchMatch = ({
+  item,
+  searchMemoryItems,
+}: {
+  item: NewsHomeItem;
+  searchMemoryItems: readonly NewsSearchMemoryRankingItem[];
+}) =>
+  [...searchMemoryItems]
+    .sort(
+      (left, right) =>
+        getNewsHomeSearchMemoryTimestamp(right) -
+        getNewsHomeSearchMemoryTimestamp(left),
+    )
+    .find((searchItem) =>
+      doesNewsHomeItemMatchSearchMemory({
+        item,
+        query: searchItem.query,
+      }),
+    );
+
+const getNewsForYouNextQueueCandidateReason = ({
+  item,
+  searchMemoryItems,
+}: {
+  item: RankedNewsItem<NewsHomeItem>;
+  searchMemoryItems: readonly NewsSearchMemoryRankingItem[];
+}) => {
+  const searchMatch = getNewsForYouNextQueueSearchMatch({
+    item,
+    searchMemoryItems,
+  });
+
+  if (searchMatch) {
+    return {
+      reason: `Matches recent search "${searchMatch.query}".`,
+      score: item.personalizedScore + 80,
+    };
+  }
+
+  const readerSignalCount = getReaderRecommendationSignalCount(item);
+
+  if (readerSignalCount > 0) {
+    return {
+      reason: `${readerSignalCount} reader ${
+        readerSignalCount === 1 ? "signal makes" : "signals make"
+      } this a strong next-page candidate.`,
+      score: item.personalizedScore + readerSignalCount * 14,
+    };
+  }
+
+  if (item.matchedSignals.includes("exploration")) {
+    return {
+      reason: "Exploration slot keeps the next page from narrowing.",
+      score: item.personalizedScore + 18,
+    };
+  }
+
+  if (item.trendScore >= 85) {
+    return {
+      reason: "Market heat keeps this story in the next-page pool.",
+      score: item.personalizedScore + 10,
+    };
+  }
+
+  return {
+    reason: "Next ranked story keeps the personalized feed moving.",
+    score: item.personalizedScore,
+  };
+};
+
+const sortNewsForYouNextQueueCandidate = (
+  left: {
+    item: RankedNewsItem<NewsHomeItem>;
+    score: number;
+  },
+  right: {
+    item: RankedNewsItem<NewsHomeItem>;
+    score: number;
+  },
+  now: number,
+) => {
+  const scoreDelta = right.score - left.score;
+  if (scoreDelta !== 0) return scoreDelta;
+
+  if (right.item.personalizedScore !== left.item.personalizedScore) {
+    return right.item.personalizedScore - left.item.personalizedScore;
+  }
+
+  if (right.item.trendScore !== left.item.trendScore) {
+    return right.item.trendScore - left.item.trendScore;
+  }
+
+  return (
+    getPastNewsHomePublishedAtTime(right.item.publishedAt, now) -
+    getPastNewsHomePublishedAtTime(left.item.publishedAt, now)
+  );
+};
+
+export const getNewsForYouNextQueue = ({
+  cursor,
+  feedMode,
+  formatCategory = (category) => category,
+  hasMoreItems,
+  isLoadingMore,
+  isPreview,
+  items,
+  limit = 3,
+  negativeFeedbackItems = [],
+  searchMemoryItems = [],
+  visibleItems,
+  visitorKey,
+}: {
+  cursor: string | null;
+  feedMode: NewsFeedMode;
+  formatCategory?: (category: string) => string;
+  hasMoreItems: boolean;
+  isLoadingMore: boolean;
+  isPreview: boolean;
+  items: readonly RankedNewsItem<NewsHomeItem>[];
+  limit?: number;
+  negativeFeedbackItems?: readonly NewsReaderMemoryItem[];
+  searchMemoryItems?: readonly NewsSearchMemoryRankingItem[];
+  visibleItems: readonly NewsHomeItem[];
+  visitorKey: string | null;
+}) => {
+  const visibleItemIds = Array.from(
+    new Set(visibleItems.map((item) => item.id)),
+  );
+  const negativeFeedbackItemIds = Array.from(
+    new Set(negativeFeedbackItems.map((item) => item.id)),
+  );
+  const nonVisibleItems = filterBlockedNewsItems(
+    items,
+    visibleItemIds,
+    visibleItems,
+  );
+  const negativeMatchers = getRefreshSimulationMatchers(negativeFeedbackItems);
+  const eligibleItems =
+    negativeFeedbackItems.length > 0
+      ? nonVisibleItems.filter(
+          (item) =>
+            !hasRefreshSimulationMatch({ item, matchers: negativeMatchers }),
+        )
+      : nonVisibleItems;
+  const now = Date.now();
+  const candidates = eligibleItems
+    .map((item) => {
+      const { reason, score } = getNewsForYouNextQueueCandidateReason({
+        item,
+        searchMemoryItems,
+      });
+
+      return { item, reason, score };
+    })
+    .sort((left, right) => sortNewsForYouNextQueueCandidate(left, right, now))
+    .slice(0, Math.max(0, Math.trunc(limit)))
+    .map(({ item, reason }) => ({
+      categoryLabel: formatCategory(item.category),
+      id: item.id,
+      reason,
+      scoreLabel: `${item.personalizedScore} score / ${item.trendScore} heat`,
+      sourceName: item.sourceName,
+      title: item.title,
+    }));
+  const canLoadMore = shouldAutoLoadMoreNewsHomeItems({
+    cursor,
+    feedMode,
+    hasMoreItems,
+    isFeedEndVisible: true,
+    isLoadingMore,
+    isPreview,
+    visitorKey,
+  });
+  const route = getNewsHomeLoadMoreQueryRoute({ feedMode });
+  const cursorLabel = cursor ? "Ready" : "Waiting";
+  const label =
+    feedMode !== "for_you"
+      ? "Next Queue Idle"
+      : isPreview
+        ? "Preview Queue"
+        : !visitorKey
+          ? "Reader Key Needed"
+          : isLoadingMore
+            ? "Loading Next"
+            : !cursor
+              ? "Cursor Waiting"
+              : !hasMoreItems
+                ? "Feed Complete"
+                : "Next Queue Ready";
+  const guardrailExcludedCount = nonVisibleItems.length - eligibleItems.length;
+  const exclusionCount = visibleItemIds.length + guardrailExcludedCount;
+  const notices = [
+    {
+      detail: `The next personalized request will exclude ${
+        visibleItemIds.length
+      } visible ${visibleItemIds.length === 1 ? "story" : "stories"} and keep ${
+        candidates.length
+      } eligible ${
+        candidates.length === 1 ? "candidate" : "candidates"
+      } after local guardrails.`,
+      label: "Request shape",
+    },
+    ...(guardrailExcludedCount > 0
+      ? [
+          {
+            detail: `Less feedback removes ${guardrailExcludedCount} local memory ${
+              guardrailExcludedCount === 1 ? "match" : "matches"
+            } before the next For You page is explained.`,
+            label: "Guardrail",
+          },
+        ]
+      : []),
+    ...(!visitorKey && feedMode === "for_you"
+      ? [
+          {
+            detail:
+              "For You needs a reader key before it can ask the server for another personalized page.",
+            label: "Reader key",
+          },
+        ]
+      : []),
+    ...(isPreview
+      ? [
+          {
+            detail:
+              "Preview editions use local sample stories, so the next server page stays disabled until live news is available.",
+            label: "Preview",
+          },
+        ]
+      : []),
+  ];
+  const leadCandidate = candidates[0];
+  const summary =
+    candidates.length > 0
+      ? `Next For You page is ready with ${candidates.length} unseen ${
+          candidates.length === 1 ? "candidate" : "candidates"
+        }, anchored by ${leadCandidate?.title}.`
+      : "Next For You page is waiting for unseen candidates outside current guardrails.";
+
+  return {
+    canLoadMore,
+    candidates,
+    label,
+    metrics: [
+      { label: "Visible", value: String(visibleItemIds.length) },
+      { label: "Excluded", value: String(exclusionCount) },
+      { label: "Candidates", value: String(candidates.length) },
+      { label: "Cursor", value: cursorLabel },
+    ],
+    nextRequest: {
+      cursor,
+      excludeNewsItemIds: visibleItemIds,
+      negativeFeedbackItemIds,
+      route,
+    },
+    notices,
+    summary,
+  };
+};
+
+export const getNewsForYouNextQueueTrainingAction = ({
+  formatCategory,
+  negativeFeedbackItems,
+  notice,
+}: {
+  formatCategory: (category: string) => string;
+  negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+  notice: { label: string } | null | undefined;
+}): NewsPreferenceProfileTrainingAction | null => {
+  if (notice?.label !== "Guardrail") return null;
+
+  const [negativeItem] = negativeFeedbackItems;
+
+  if (!negativeItem) return null;
+
+  return getNewsCategoryPreferenceTrainingAction({
+    actionLabel: "Reduce guardrail topic",
+    effect: "remove",
+    formatCategory,
+    item: negativeItem,
+  });
+};
+
 const getNewsHomePaginationResetKeySegment = (
   value: string | null | undefined,
 ) => value?.trim() ?? "";
@@ -24698,8 +29953,12 @@ export const selectRelatedNewsHomeItems = ({
   article: NewsHomeItem;
   limit: number;
   relatedItems: readonly NewsHomeItem[];
-}) =>
-  dedupeNewsItems(filterBlockedNewsItems(relatedItems, [article.id], [article]))
+}) => {
+  const now = Date.now();
+
+  return dedupeNewsItems(
+    filterBlockedNewsItems(relatedItems, [article.id], [article]),
+  )
     .sort((left, right) => {
       const scoreDelta =
         getRelatedNewsScore({ article, item: right }) -
@@ -24716,20 +29975,25 @@ export const selectRelatedNewsHomeItems = ({
       }
 
       return (
-        new Date(right.publishedAt).getTime() -
-        new Date(left.publishedAt).getTime()
+        getPastNewsHomePublishedAtTime(right.publishedAt, now) -
+        getPastNewsHomePublishedAtTime(left.publishedAt, now)
       );
     })
     .slice(0, limit);
+};
 
 export const getNextNewsHomeCursor = (items: readonly NewsHomeItem[]) => {
-  const firstItem = items[0];
-  if (!firstItem) return null;
-
-  let oldest = firstItem.publishedAt;
+  const now = Date.now();
+  let oldest: string | null = null;
 
   for (const item of items) {
-    if (new Date(item.publishedAt).getTime() < new Date(oldest).getTime()) {
+    const timestamp = getPastNewsHomePublishedAtTime(item.publishedAt, now);
+    if (timestamp === 0) continue;
+
+    if (
+      oldest === null ||
+      timestamp < getPastNewsHomePublishedAtTime(oldest, now)
+    ) {
       oldest = item.publishedAt;
     }
   }
@@ -24742,18 +30006,19 @@ export interface NewsHomeCursorState {
   cursorTrendScore?: number;
 }
 
-const isLaterNewsHomeTimestamp = (left: string, right: string) =>
-  new Date(left).getTime() > new Date(right).getTime();
-
 const isLowerTrendingCursorItem = (
   candidate: NewsHomeItem,
   current: NewsHomeItem,
+  now: number,
 ) => {
   if (candidate.trendScore !== current.trendScore) {
     return candidate.trendScore < current.trendScore;
   }
 
-  return !isLaterNewsHomeTimestamp(candidate.publishedAt, current.publishedAt);
+  return (
+    getPastNewsHomePublishedAtTime(candidate.publishedAt, now) <=
+    getPastNewsHomePublishedAtTime(current.publishedAt, now)
+  );
 };
 
 export const getNextNewsHomeCursorState = ({
@@ -24767,11 +30032,15 @@ export const getNextNewsHomeCursorState = ({
     return { cursor: getNextNewsHomeCursor(items) };
   }
 
-  const firstItem = items[0];
+  const now = Date.now();
+  const cursorCandidates = items.filter(
+    (item) => getPastNewsHomePublishedAtTime(item.publishedAt, now) > 0,
+  );
+  const firstItem = cursorCandidates[0];
   if (!firstItem) return { cursor: null };
 
-  const cursorItem = items.reduce((current, candidate) =>
-    isLowerTrendingCursorItem(candidate, current) ? candidate : current,
+  const cursorItem = cursorCandidates.reduce((current, candidate) =>
+    isLowerTrendingCursorItem(candidate, current, now) ? candidate : current,
   );
 
   return {
@@ -24848,11 +30117,29 @@ export const shouldPersistNewsReaderProfile = ({
   visitorKey: string | null;
 }) => status === "ready" && Boolean(visitorKey);
 
+export const shouldPersistNewsHomeItemReaderSignals = ({
+  canPersistProfile,
+  isPreview,
+  itemId,
+  visitorKey,
+}: {
+  canPersistProfile: boolean;
+  isPreview: boolean;
+  itemId: string;
+  visitorKey: string | null;
+}) =>
+  Boolean(visitorKey) &&
+  canPersistProfile &&
+  !isPreview &&
+  newsHomeDatabaseIdPattern.test(itemId);
+
 const newsHomeReaderMemoryResetCacheScopes = [
   "forYou",
   "profile",
   "saved",
   "history",
+  "positiveFeedback",
+  "searchMemory",
   "guardrails",
 ] as const;
 
@@ -24874,6 +30161,11 @@ const newsStoryProofDiversityGuardrails = [
 ] as const;
 
 const newsStoryProofSpecificSignals = [
+  {
+    label: "Search memory",
+    reason: "Personalized from recent searches",
+    signal: "search_memory",
+  },
   {
     label: "Semantic match",
     reason: "Matched to stories you read, saved, shared, or source-clicked",
@@ -24919,6 +30211,9 @@ export const getNewsStoryProofStrip = ({
   const hasHomeExposureCooldown = item.matchedSignals.includes(
     "home_exposure_cooldown",
   );
+  const hasReadingHistoryCooldown = item.matchedSignals.includes(
+    "reading_history_cooldown",
+  );
   const hasNegativeFeedback = item.matchedSignals.includes("negative_feedback");
   const hasCollaborativeNegativeFeedback = item.matchedSignals.includes(
     "collaborative_negative_feedback",
@@ -24945,22 +30240,24 @@ export const getNewsStoryProofStrip = ({
       ? "Guardrail"
       : hasHomeExposureCooldown
         ? "Recently seen"
-        : hasExposureCooldown
-          ? "Fresh angle"
-          : hasSourceTrustGuardrail
-            ? "Source review"
-            : diversityGuardrail
-              ? diversityGuardrail.label
-              : specificProofSignal
-                ? specificProofSignal.label
-                : hasExploration
-                  ? "Exploration"
-                  : readerSignalCount > 0
-                    ? (positiveMemoryDetail?.label ??
-                      `${readerSignalCount} reader ${
-                        readerSignalCount === 1 ? "signal" : "signals"
-                      }`)
-                    : "Learning";
+        : hasReadingHistoryCooldown
+          ? "Recently read"
+          : hasExposureCooldown
+            ? "Fresh angle"
+            : hasSourceTrustGuardrail
+              ? "Source review"
+              : diversityGuardrail
+                ? diversityGuardrail.label
+                : specificProofSignal
+                  ? specificProofSignal.label
+                  : hasExploration
+                    ? "Exploration"
+                    : readerSignalCount > 0
+                      ? (positiveMemoryDetail?.label ??
+                        `${readerSignalCount} reader ${
+                          readerSignalCount === 1 ? "signal" : "signals"
+                        }`)
+                      : "Learning";
   const coverageLabel = hasSourceCorroboration
     ? "Corroborated"
     : "Single source";
@@ -24989,6 +30286,13 @@ export const getNewsStoryProofStrip = ({
     return {
       metrics,
       summary: `Recently seen on the home feed, so the recommender is looking for a fresher angle while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
+    };
+  }
+
+  if (hasReadingHistoryCooldown) {
+    return {
+      metrics,
+      summary: `Moved behind unread stories because this card, URL, or event cluster was already in your reading history, while preserving ${item.sourceScore} source trust and ${item.trendScore} story heat.`,
     };
   }
 

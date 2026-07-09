@@ -1,9 +1,12 @@
 import { readFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import type { RankedNewsItem } from "@acme/validators";
 
 import type {
   NewsHomeItem,
   NewsPositiveFeedbackMemoryItem,
+  NewsPreferenceProfileTrainingAction,
   NewsReaderMemoryItem,
 } from "./news-home-model";
 import {
@@ -16,45 +19,66 @@ import {
   buildNewsHomeSessionIntentFilter,
   createDefaultNewsPreferenceProfile,
   getNewsAggregationIntake,
+  getNewsAggregationIntakeTrainingAction,
   getNewsAggregationRecoveryQueue,
+  getNewsAggregationRecoveryTrainingAction,
   getNewsAlertRouting,
+  getNewsAlertRoutingTrainingAction,
   getNewsAnglePreferenceOptions,
   getNewsBreakingEscalationQueue,
   getNewsBriefingPack,
+  getNewsBriefingPackTrainingAction,
   getNewsChannelComparison,
   getNewsChannelRail,
   getNewsChannelStrategy,
+  getNewsChannelStrategyTrainingAction,
   getNewsClaimTracker,
   getNewsCollaborativeSignals,
+  getNewsCollaborativeSignalTrainingAction,
   getNewsConsensusBoard,
   getNewsContinuationRail,
+  getNewsContinuationRailTrainingAction,
   getNewsCoverageThreads,
   getNewsDeskRunYieldLabel,
   getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
   getNewsDistributionQueue,
+  getNewsDistributionQueueTrainingAction,
   getNewsEditionBriefing,
   getNewsEditionMix,
   getNewsEditionQualityGate,
+  getNewsEditionQualityGateTrainingAction,
   getNewsEditionSchedule,
+  getNewsEditionScheduleTrainingAction,
   getNewsEditorialGuardrails,
+  getNewsEditorialGuardrailTrainingAction,
   getNewsEntityRadar,
   getNewsExperimentAllocation,
+  getNewsExperimentAllocationTrainingAction,
   getNewsExplorationSlots,
+  getNewsExplorationSlotTrainingAction,
   getNewsExposureCooldownQueue,
+  getNewsExposureCooldownTrainingAction,
   getNewsFeedbackCoach,
   getNewsFeedbackCoachActionState,
   getNewsFeedbackTrainingUpdate,
   getNewsFeedFatigueReport,
+  getNewsFeedFatigueTrainingAction,
   getNewsFeedGovernor,
   getNewsFeedGovernorControlTrainingAction,
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
+  getNewsFilterBubbleTrainingAction,
   getNewsForYouControlStrip,
+  getNewsForYouNextQueue,
+  getNewsForYouNextQueueTrainingAction,
   getNewsFrontPageLayout,
+  getNewsFrontPageLayoutTrainingAction,
   getNewsFrontPageSlotMix,
+  getNewsFrontPageSlotMixTrainingAction,
   getNewsGuardrailRecoveryPlan,
+  getNewsGuardrailRecoveryTrainingAction,
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeCollaborativeRankingSignals,
@@ -64,19 +88,32 @@ import {
   getNewsHomePrimaryQueryRoute,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHomeStoryActionPanel,
+  getNewsHomeStoryHistoryItem,
   getNewsHotBoard,
   getNewsInterestDrift,
   getNewsInterestGraph,
+  getNewsInterestGraphNodeTrainingAction,
   getNewsLiveWire,
+  getNewsLiveWireTrainingAction,
   getNewsMembershipMeter,
   getNewsMissedCoverageShelf,
   getNewsModelTrainingBatch,
+  getNewsModelTrainingBatchTrainingAction,
   getNewsNewsletterPlan,
   getNewsNextRefreshPlan,
+  getNewsNextRefreshPlanTrainingAction,
   getNewsPersonalizationDataVault,
+  getNewsPersonalizationDataVaultExport,
+  getNewsPersonalizationDataVaultExportHref,
+  getNewsPersonalizationDataVaultExportJson,
+  getNewsPersonalizationDataVaultProfileImport,
+  getNewsPersonalizationDataVaultTrainingUpdate,
   getNewsPersonalizationMix,
+  getNewsPersonalizationMixTrainingAction,
   getNewsPersonalizedPushQueue,
+  getNewsPersonalizedPushQueueTrainingAction,
   getNewsPersonalizedReadingQueue,
+  getNewsPersonalizedReadingQueueTrainingAction,
   getNewsPreferenceBiasCycleAction,
   getNewsPreferenceBiasResetTrainingUpdate,
   getNewsPreferenceBiasResetUndoTrainingUpdate,
@@ -96,40 +133,55 @@ import {
   getNewsProductionReadinessChecklist,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
+  getNewsProfileSignalLedgerTrainingAction,
   getNewsProfileUpdateProposal,
+  getNewsProfileUpdateProposalTrainingAction,
   getNewsRankingPipeline,
   getNewsReaderCohorts,
+  getNewsReaderCohortTrainingAction,
   getNewsReaderDaypartPlan,
   getNewsReaderDigest,
   getNewsReaderJourneyMap,
   getNewsReaderLearningLoop,
+  getNewsReaderLearningLoopTrainingAction,
   getNewsReaderMemory,
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderProfileSnapshot,
   getNewsReaderRankingFactors,
   getNewsReaderRetentionPlan,
+  getNewsReaderRetentionTrainingAction,
   getNewsReaderSatisfactionBrief,
+  getNewsReaderSatisfactionTrainingAction,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
   getNewsRecommendationAudit,
+  getNewsRecommendationAuditTrainingAction,
   getNewsRecommendationDiversityGovernor,
+  getNewsRecommendationDiversityGovernorTrainingAction,
   getNewsRecommendationDiversityRepairQueue,
   getNewsRecommendationEntitySaturation,
   getNewsRecommendationNudge,
   getNewsRecommendationReasons,
   getNewsRecommendationRotationQueue,
+  getNewsRecommendationRotationTrainingAction,
+  getNewsRecommendationSaturationTrainingAction,
   getNewsRecommendationSourceSaturation,
   getNewsRecommendationTopicSaturation,
   getNewsRecommendationTrace,
+  getNewsRecommendationTraceTrainingAction,
   getNewsRefreshSimulation,
+  getNewsRefreshSimulationTrainingAction,
   getNewsSearchCandidateRail,
   getNewsSearchTrends,
+  getNewsSearchTrendTrainingAction,
   getNewsSectionFronts,
   getNewsServerProfileAuditDisplay,
   getNewsSessionIntent,
+  getNewsSessionIntentTrainingAction,
   getNewsSourceBalance,
+  getNewsSourceBalanceTrainingAction,
   getNewsSourceClusters,
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
@@ -141,7 +193,10 @@ import {
   getNewsStorySourceUrl,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
+  getNewsTasteCalibrationTrainingAction,
+  getNewsTopicHref,
   getNewsTopicMatchMatrix,
+  getNewsTopicMatchTrainingAction,
   getNewsTopicPulse,
   getNextNewsHomeCursor,
   getNextNewsHomeCursorState,
@@ -176,6 +231,7 @@ import {
   selectNewsHomeItems,
   selectNewsHomeLiveSearchCandidateItems,
   selectNewsHomePositiveFeedbackAnchors,
+  selectNewsHomeSearchMemoryAnchoredItems,
   selectNewsHomeSessionScopedItems,
   selectReaderFreshNewsHomeItems,
   selectRelatedNewsHomeItems,
@@ -190,6 +246,7 @@ import {
   shouldFetchNewsHomeLiveSearchCandidates,
   shouldFetchNewsHomePrimaryFeed,
   shouldFetchServerRecommendations,
+  shouldPersistNewsHomeItemReaderSignals,
   shouldPersistNewsReaderProfile,
   shouldTrainNewsHomeProfileFromAction,
   toNewsHomeItemFromPublicFeedItem,
@@ -316,19 +373,50 @@ describe("getNewsForYouControlStrip", () => {
       profile: createDefaultNewsPreferenceProfile(),
       rankedItems: [rankedLocalItem],
       savedItems: [],
+      searchMemoryItems: [],
     });
 
     expect(strip.label).toBe("Train For You");
     expect(strip.summary).toBe(
-      "For You is using 3 topics, 0 sources, 0 entities, Fresh 1/2, Novel 1/2 across 1 ranked story.",
+      "For You is using 3 topics, 0 sources, 0 entities, Fresh 1/2, Novel 1/2, and 0 recent searches across 1 ranked story.",
     );
     expect(strip.metrics).toEqual([
       { label: "Topics", value: "3" },
       { label: "Sources", value: "0" },
       { label: "Entities", value: "0" },
+      { label: "Searches", value: "0" },
       { label: "Saved", value: "0" },
       { label: "Less", value: "0" },
     ]);
+  });
+
+  it("surfaces recent search memory as a For You control signal", () => {
+    const strip = getNewsForYouControlStrip({
+      formatCategory: (category) => category,
+      guardrailItems: [guardrailMemoryItem],
+      profile: createDefaultNewsPreferenceProfile(),
+      rankedItems: [rankedLocalItem],
+      savedItems: [savedMemoryItem],
+      searchMemoryItems: [
+        {
+          query: "model routers",
+          resultCount: 2,
+          searchedAt: "2026-07-06T09:00:00.000Z",
+        },
+        {
+          query: "agent browsers",
+          resultCount: 3,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(strip.metrics).toContainEqual({ label: "Searches", value: "2" });
+    expect(strip.memory).toContainEqual({
+      label: "Searches",
+      value: "2 searches",
+    });
+    expect(strip.summary).toContain("2 recent searches");
   });
 
   it("exposes high-value one-click training actions with active state", () => {
@@ -351,6 +439,7 @@ describe("getNewsForYouControlStrip", () => {
       },
       rankedItems: [rankedLocalItem],
       savedItems: [],
+      searchMemoryItems: [],
     });
 
     expect(
@@ -389,18 +478,20 @@ describe("getNewsForYouControlStrip", () => {
       profile: createDefaultNewsPreferenceProfile(),
       rankedItems: [rankedLocalItem],
       savedItems: [savedMemoryItem],
+      searchMemoryItems: [],
     });
 
     expect(strip.memory).toEqual([
       { label: "Saved", value: "1 saved" },
       { label: "Less", value: "1 less" },
+      { label: "Searches", value: "0 searches" },
       { label: "Reset", value: "Reset memory" },
     ]);
   });
 });
 
 describe("preview news fallback", () => {
-  it("returns a complete AI news preview edition when live crawl data is unavailable", () => {
+  it("returns a complete AI news preview edition when live crawl data is unavailable", async () => {
     const previewItems = getPreviewNewsHomeItems();
 
     expect(previewItems).toHaveLength(12);
@@ -421,19 +512,33 @@ describe("preview news fallback", () => {
     );
     expect(
       previewItems.every((item) =>
-        item.imageUrl?.startsWith("https://picsum.photos/seed/new-ai-times-"),
+        item.imageUrl?.startsWith("/news-images/new-ai-times-"),
       ),
     ).toBe(true);
+    expect(previewItems.every((item) => item.imageUrl?.endsWith(".png"))).toBe(
+      true,
+    );
+    expect(previewItems.some((item) => item.imageUrl?.includes("picsum"))).toBe(
+      false,
+    );
 
     const previewArticle = getPreviewNewsArticleData("preview-agent-browsers");
+    const agentBrowsersImage = await readFile(
+      new URL(
+        "../../../public/news-images/new-ai-times-agent-browsers.png",
+        import.meta.url,
+      ),
+    );
 
     expect(previewArticle.article).toMatchObject({
-      imageUrl:
-        "https://picsum.photos/seed/new-ai-times-agent-browsers/1200/820",
+      imageUrl: "/news-images/new-ai-times-agent-browsers.png",
       id: "preview-agent-browsers",
       sourceName: "Agent Product Desk",
       title: "Agent browsers move from demos into daily software workflows",
     });
+    expect(agentBrowsersImage.subarray(0, 8)).toEqual(
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
     expect(previewArticle.article?.bodyText).toContain(
       "This sample story keeps the empty-database edition readable while live crawl data warms up.",
     );
@@ -500,6 +605,42 @@ describe("getNewsHomeStoryActionPanel", () => {
   });
 });
 
+describe("getNewsHomeStoryHistoryItem", () => {
+  it("converts a front-page read into shared reader history memory", () => {
+    expect(
+      getNewsHomeStoryHistoryItem({
+        item: newsHomeItemWithOriginalUrl,
+        viewedAt: "2026-07-06T11:20:00.000Z",
+      }),
+    ).toEqual({
+      canonicalUrl: "https://example.com/local",
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "local-story",
+      originalUrl: "https://example.com/local?utm=feed",
+      sourceName: "Local Source",
+      sourceSlug: "local-source",
+      tags: ["model"],
+      title: "Local trend fallback",
+      viewedAt: "2026-07-06T11:20:00.000Z",
+    });
+  });
+});
+
+describe("NewsHome story read history memory", () => {
+  it("writes Read actions into shared reader history storage", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsHomeStoryHistoryItem");
+    expect(source).toMatch(
+      /if \(action === "view"\) \{[\s\S]*?setLocalHistoryItems\(\(current\) => \{[\s\S]*?getNewsHomeStoryHistoryItem\({[\s\S]*?viewedAt: occurredAt,[\s\S]*?}\)[\s\S]*?writeStoredMemoryItems\(historyStorageKey, nextItems\);/,
+    );
+  });
+});
+
 describe("getNewsStorySourceUrl", () => {
   it("prefers canonical story URLs and falls back to original source URLs", () => {
     expect(
@@ -540,6 +681,14 @@ describe("getNewsStorySourceUrl", () => {
         originalUrl: "mailto:tips@example.com",
       }),
     ).toBeNull();
+  });
+
+  it("does not render preview article permalinks as external source links", () => {
+    const { article } = getPreviewNewsArticleData("preview-model-shift");
+
+    if (!article) throw new Error("Expected preview article");
+
+    expect(getNewsStorySourceUrl(article)).toBeNull();
   });
 });
 
@@ -1216,6 +1365,154 @@ describe("buildNewsHomeLoadMoreFeedInput", () => {
   });
 });
 
+describe("buildNewsHomeForYouApiRequestBody", () => {
+  it("packages the local profile and reader memory for personalized API pagination", async () => {
+    const modelModule = await import("./news-home-model");
+    const buildRequestBody = (
+      modelModule as {
+        buildNewsHomeForYouApiRequestBody?: (input: {
+          category: string | null;
+          collaborativeSignals: readonly {
+            newsItemId: string;
+            score: number;
+          }[];
+          currentItems: readonly NewsHomeItem[];
+          limit: number;
+          negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+          objective: "reader_match";
+          positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+          profile: ReturnType<typeof createDefaultNewsPreferenceProfile>;
+          q: string;
+          readerLocalHour: number | null;
+          recentExposureItems: readonly NewsReaderMemoryItem[];
+          searchMemoryItems: readonly {
+            query: string;
+            resultCount: number;
+            searchedAt: string;
+          }[];
+          semanticSimilarityMatches: readonly {
+            newsItemId: string;
+            similarity: number;
+          }[];
+          sourceSlug: string | null;
+          tag: string | null;
+        }) => unknown;
+      }
+    ).buildNewsHomeForYouApiRequestBody;
+
+    expect(buildRequestBody).toEqual(expect.any(Function));
+    if (!buildRequestBody) return;
+
+    const body = buildRequestBody({
+      category: "agent_product",
+      collaborativeSignals: [
+        {
+          newsItemId: "cohort-hit",
+          score: 6,
+        },
+      ],
+      currentItems: [
+        localItem,
+        { ...localItem, id: "second-story" },
+        { ...localItem, id: "local-story" },
+      ],
+      limit: 20,
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          hiddenAt: "2026-07-06T09:00:00.000Z",
+          id: "hidden-story",
+        },
+      ],
+      objective: "reader_match",
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "save",
+          id: "saved-story",
+          occurredAt: "2026-07-06T09:30:00.000Z",
+        },
+      ],
+      profile: createDefaultNewsPreferenceProfile(),
+      q: "  browser agents  ",
+      readerLocalHour: 8,
+      recentExposureItems: [
+        {
+          ...localItem,
+          id: "seen-home-story",
+          viewedAt: "2026-07-06T10:15:00.000Z",
+        },
+      ],
+      searchMemoryItems: [
+        {
+          query: "agent browsers",
+          resultCount: 3,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ],
+      semanticSimilarityMatches: [
+        {
+          newsItemId: "semantic-follow-up",
+          similarity: 0.92,
+        },
+      ],
+      sourceSlug: "agent-desk",
+      tag: "workflow automation",
+    });
+
+    expect(body).toMatchObject({
+      category: "agent_product",
+      collaborativeSignals: [{ newsItemId: "cohort-hit", score: 6 }],
+      excludeNewsItemIds: ["local-story", "second-story"],
+      limit: 20,
+      negativeFeedbackItems: [
+        {
+          category: "model_release",
+          hiddenAt: "2026-07-06T09:00:00.000Z",
+          id: "hidden-story",
+          sourceSlug: "local-source",
+        },
+      ],
+      objective: "reader_match",
+      positiveFeedbackItems: [
+        {
+          action: "save",
+          id: "saved-story",
+          occurredAt: "2026-07-06T09:30:00.000Z",
+          sourceSlug: "local-source",
+        },
+      ],
+      profile: createDefaultNewsPreferenceProfile(),
+      q: "browser agents",
+      readerLocalHour: 8,
+      recentExposureItems: [
+        {
+          category: "model_release",
+          id: "seen-home-story",
+          occurredAt: "2026-07-06T10:15:00.000Z",
+          sourceSlug: "local-source",
+          surface: "home_exposure",
+        },
+      ],
+      searchMemoryItems: [
+        {
+          query: "agent browsers",
+          resultCount: 3,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ],
+      semanticSimilarityMatches: [
+        {
+          newsItemId: "semantic-follow-up",
+          similarity: 0.92,
+        },
+      ],
+      sourceSlug: "agent-desk",
+      tag: "workflow automation",
+    });
+  });
+});
+
 describe("getNewsHomeLoadMoreQueryRoute", () => {
   it("uses personalized recommendations only for the For You channel", () => {
     expect(getNewsHomeLoadMoreQueryRoute({ feedMode: "for_you" })).toBe(
@@ -1250,6 +1547,24 @@ describe("getNewsHomePrimaryQueryRoute", () => {
     expect(source).toContain('primaryFeedRoute === "feed"');
     expect(source).toContain(".map(toNewsHomeItemFromPublicFeedItem)");
   });
+
+  it("wires local collaborative hints into the first For You API request", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("const initialForYouCollaborativeSignals");
+    expect(source).toMatch(
+      /const initialForYouCollaborativeSignals = useMemo\([\s\S]*?getNewsHomeCollaborativeRankingSignals\(\{[\s\S]*?items: initialForYouRankingItems/,
+    );
+    expect(source).toMatch(
+      /const forYouApiRequestBody = useMemo\([\s\S]*?collaborativeSignals: initialForYouCollaborativeSignals/,
+    );
+    expect(source).not.toMatch(
+      /const forYouApiRequestBody = useMemo\([\s\S]*?collaborativeSignals: \[\]/,
+    );
+  });
 });
 
 describe("NewsHome live search candidates", () => {
@@ -1268,6 +1583,151 @@ describe("NewsHome live search candidates", () => {
     expect(source).toContain("Live Search Leads");
     expect(source).toContain("searchCandidateRail.leads.map");
     expect(source).toContain("setSearchQuery(lead.query)");
+    expect(source).toContain('action="/search"');
+    expect(source).toContain('method="get"');
+    expect(source).toContain('name="q"');
+    expect(source).toContain("readStoredNewsSearchMemoryItems");
+    expect(source).toContain("selectNewsHomeSearchMemoryAnchoredItems({");
+    expect(source).toContain("getNewsSearchTrendTrainingAction");
+    expect(source).toContain("applySearchTrendAction");
+  });
+});
+
+describe("selectNewsHomeSearchMemoryAnchoredItems", () => {
+  const modelRouterStory = {
+    ...olderItem,
+    id: "model-router-story",
+    category: "market_map",
+    entities: ["Model Routers"],
+    sourceName: "Market Map Desk",
+    sourceSlug: "market-map-desk",
+    summary: "Model router tools help teams pick inference providers.",
+    tags: ["routing", "inference"],
+    title: "Model routers become AI infrastructure control planes",
+  };
+  const unrelatedStory = {
+    ...localItem,
+    id: "general-model-story",
+    summary: "Frontier labs publish a general model release note.",
+    title: "General model release roundup",
+  };
+
+  it("promotes stories matching recent search memory", () => {
+    const items = [
+      {
+        ...unrelatedStory,
+        matchedSignals: [],
+        personalizedScore: 120,
+      },
+      {
+        ...modelRouterStory,
+        matchedSignals: [],
+        personalizedScore: 104,
+      },
+    ];
+
+    const anchoredItems = selectNewsHomeSearchMemoryAnchoredItems({
+      items,
+      searchItems: [
+        {
+          query: "model routers",
+          resultCount: 1,
+          searchedAt: "2026-07-06T09:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(anchoredItems.map((item) => item.id)).toEqual([
+      "model-router-story",
+      "general-model-story",
+    ]);
+    expect(anchoredItems[0]).toMatchObject({
+      matchedSignals: ["search_memory"],
+      personalizedScore: 128,
+    });
+  });
+
+  it("matches recent search memory across hyphenated and underscored topic text", () => {
+    const modelReleaseStory = {
+      ...olderItem,
+      id: "model-release-story",
+      category: "model_release",
+      entities: ["OpenAI"],
+      sourceName: "Model Desk",
+      sourceSlug: "model-desk",
+      summary: "Frontier labs publish release notes for new reasoning models.",
+      tags: ["models"],
+      title: "Reasoning model release shifts the leaderboard",
+    };
+    const neutralStory = {
+      ...localItem,
+      id: "browser-agent-story",
+      category: "agent_product",
+      entities: ["Browser Agent"],
+      summary: "Browser agents automate repetitive workflow handoffs.",
+      tags: ["agents"],
+      title: "Browser agents take over routine operations",
+    };
+    const items = [
+      {
+        ...neutralStory,
+        matchedSignals: [],
+        personalizedScore: 120,
+      },
+      {
+        ...modelReleaseStory,
+        matchedSignals: [],
+        personalizedScore: 104,
+      },
+    ];
+
+    const anchoredItems = selectNewsHomeSearchMemoryAnchoredItems({
+      items,
+      searchItems: [
+        {
+          query: "model-release",
+          resultCount: 1,
+          searchedAt: "2026-07-06T09:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(anchoredItems.map((item) => item.id)).toEqual([
+      "model-release-story",
+      "browser-agent-story",
+    ]);
+    expect(anchoredItems[0]).toMatchObject({
+      matchedSignals: ["search_memory"],
+      personalizedScore: 128,
+    });
+  });
+
+  it("keeps the ranked order when search memory has no matching story", () => {
+    const items = [
+      {
+        ...unrelatedStory,
+        matchedSignals: [],
+        personalizedScore: 120,
+      },
+      {
+        ...modelRouterStory,
+        matchedSignals: [],
+        personalizedScore: 104,
+      },
+    ];
+
+    expect(
+      selectNewsHomeSearchMemoryAnchoredItems({
+        items,
+        searchItems: [
+          {
+            query: "regulation policy",
+            resultCount: 0,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["general-model-story", "model-router-story"]);
   });
 });
 
@@ -1315,6 +1775,25 @@ describe("NewsHome TRPC provider boundary", () => {
   });
 });
 
+describe("NewsHome edition landing links", () => {
+  it("uses hyphenated public topic paths while preserving internal topic values", () => {
+    expect(getNewsTopicHref("agent_product")).toBe("/topics/agent-product");
+    expect(getNewsTopicHref("Model_Release")).toBe("/topics/model-release");
+  });
+
+  it("links homepage topic and source rails to shareable edition pages", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("href={getNewsTopicHref(category)}");
+    expect(source).toContain("href={`/sources/${source.slug}`}");
+    expect(source).toContain("Open topic edition");
+    expect(source).toContain("Open source edition");
+  });
+});
+
 describe("NewsHome For You control strip placement", () => {
   it("renders the trainable For You control strip before Channel Rail", async () => {
     const source = await readFile(
@@ -1342,6 +1821,32 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("{memoryItem.value}");
   });
 
+  it("wires reader-selected For You objectives into recommendation rotation", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("type NewsForYouObjective");
+    expect(source).toContain("const forYouObjectiveOptions");
+    expect(source).toContain('label: "Source trust"');
+    expect(source).toContain("readStoredNewsForYouObjective");
+    expect(source).toContain("writeStoredNewsForYouObjective");
+    expect(source).toContain("const [forYouObjective, setForYouObjective]");
+    expect(source).toContain('useState<NewsForYouObjective>("reader_match")');
+    expect(source).toContain(
+      "setForYouObjective(readStoredNewsForYouObjective())",
+    );
+    expect(source).toContain("const forYouObjectiveOrder = useMemo");
+    expect(source).toContain(
+      'objectiveOrder: feedMode === "for_you" ? forYouObjectiveOrder : undefined',
+    );
+    expect(source).toContain("const applyForYouObjective");
+    expect(source).toContain('applyForYouObjective("reader_match")');
+    expect(source).toContain("forYouObjectiveOptions.map");
+    expect(source).toContain("applyForYouObjective(option.objective)");
+  });
+
   it("renders the reader satisfaction brief from the model helper", async () => {
     const source = await readFile(
       new URL("./news-home.tsx", import.meta.url),
@@ -1351,6 +1856,23 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsReaderSatisfactionBrief({");
     expect(source).toContain("Reader Satisfaction");
     expect(source).toContain("readerSatisfactionBrief.actions.map");
+    expect(source).toContain("getNewsReaderSatisfactionTrainingAction");
+    expect(source).toContain("applyReaderSatisfactionAction");
+    expect(source).toContain("satisfactionAction.actionLabel");
+  });
+
+  it("renders trainable reader learning loop actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsReaderLearningLoop({");
+    expect(source).toContain("Reader Learning Loop");
+    expect(source).toContain("readerLearningLoop.actions.map");
+    expect(source).toContain("getNewsReaderLearningLoopTrainingAction");
+    expect(source).toContain("applyReaderLearningLoopAction");
+    expect(source).toContain("learningLoopAction.actionLabel");
   });
 
   it("renders the reader retention plan from the model helper", async () => {
@@ -1362,6 +1884,23 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsReaderRetentionPlan({");
     expect(source).toContain("Reader Retention");
     expect(source).toContain("readerRetentionPlan.slots.map");
+    expect(source).toContain("getNewsReaderRetentionTrainingAction");
+    expect(source).toContain("applyReaderRetentionAction");
+    expect(source).toContain("retentionAction.actionLabel");
+  });
+
+  it("renders trainable personalization mix actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsPersonalizationMix({");
+    expect(source).toContain("Personalization Mix");
+    expect(source).toContain("personalizationMix.actions.map");
+    expect(source).toContain("getNewsPersonalizationMixTrainingAction");
+    expect(source).toContain("applyPersonalizationMixAction");
+    expect(source).toContain("mixAction.action.actionLabel");
   });
 
   it("renders the personalization data vault from the model helper", async () => {
@@ -1373,6 +1912,132 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsPersonalizationDataVault({");
     expect(source).toContain("Data Vault");
     expect(source).toContain("personalizationDataVault.controls.map");
+    expect(source).toContain("getNewsPersonalizationDataVaultTrainingUpdate");
+    expect(source).toContain("getNewsPersonalizationDataVaultExport");
+    expect(source).toContain("getNewsPersonalizationDataVaultExportHref");
+    expect(source).toContain("getNewsPersonalizationDataVaultProfileImport");
+    expect(source).toContain("applyPersonalizationDataVaultAction");
+    expect(source).toContain("applyPersonalizationDataVaultProfileImport");
+    expect(source).toContain("dataVaultImportDraft");
+    expect(source).toContain("control.action.actionLabel");
+    expect(source).toContain("trainingUpdate.dataVaultExport");
+    expect(source).toContain(
+      "download={trainingUpdate.dataVaultExport.filename}",
+    );
+  });
+
+  it("renders trainable interest graph nodes from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsInterestGraph({");
+    expect(source).toContain("Interest Graph");
+    expect(source).toContain("interestGraph.lanes.map");
+    expect(source).toContain("getNewsInterestGraphNodeTrainingAction");
+    expect(source).toContain("applyInterestGraphNodeAction");
+    expect(source).toContain("graphAction.actionLabel");
+  });
+
+  it("renders trainable fatigue throttle notices from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsFeedFatigueReport({");
+    expect(source).toContain("Fatigue Throttle");
+    expect(source).toContain("fatigueReport.notices.map");
+    expect(source).toContain("getNewsFeedFatigueTrainingAction");
+    expect(source).toContain("applyFeedFatigueAction");
+    expect(source).toContain("fatigueAction.actionLabel");
+  });
+
+  it("renders trainable topic match matrix rows from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsTopicMatchMatrix({");
+    expect(source).toContain("Topic Match Matrix");
+    expect(source).toContain("topicMatchMatrix.rows.map");
+    expect(source).toContain("getNewsTopicMatchTrainingAction");
+    expect(source).toContain("applyTopicMatchAction");
+    expect(source).toContain("topicAction.actionLabel");
+  });
+
+  it("renders trainable source balance actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsSourceBalance({");
+    expect(source).toContain("Source Balance");
+    expect(source).toContain("getNewsSourceBalanceTrainingAction");
+    expect(source).toContain("applySourceBalanceAction");
+    expect(source).toContain("sourceBalanceAction.actionLabel");
+  });
+
+  it("renders trainable source trust actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsSourceTrustLedger({");
+    expect(source).toContain("Source Trust");
+    expect(source).toContain("sourceTrustLedger.notices.map");
+    expect(source).toContain("getNewsSourceTrustTrainingAction");
+    expect(source).toContain("applySourceTrustAction");
+    expect(source).toContain("sourceTrustAction.actionLabel");
+  });
+
+  it("renders trainable entity radar actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsEntityRadar({");
+    expect(source).toContain("Entity Radar");
+    expect(source).toContain("entityRadar.map");
+    expect(source).toContain(
+      "href={`/entities/${encodeURIComponent(entry.entity)}`}",
+    );
+    expect(source).toContain("getNewsEntityRadarTrainingAction");
+    expect(source).toContain("applyEntityRadarAction");
+    expect(source).toContain("entityAction.actionLabel");
+  });
+
+  it("renders trainable topic pulse actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsTopicPulse({");
+    expect(source).toContain("Topic Pulse");
+    expect(source).toContain("topicPulse.map");
+    expect(source).toContain("getNewsTopicPulseTrainingAction");
+    expect(source).toContain("applyTopicPulseAction");
+    expect(source).toContain("pulseAction.actionLabel");
+  });
+
+  it("renders trainable interest drift actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsInterestDrift({");
+    expect(source).toContain("Interest Drift");
+    expect(source).toContain("interestDrift.notices.map");
+    expect(source).toContain("getNewsInterestDriftTrainingAction");
+    expect(source).toContain("applyInterestDriftAction");
+    expect(source).toContain("driftAction.actionLabel");
   });
 
   it("renders the guardrail recovery plan from the model helper", async () => {
@@ -1384,6 +2049,135 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsGuardrailRecoveryPlan({");
     expect(source).toContain("Guardrail Recovery");
     expect(source).toContain("guardrailRecoveryPlan.candidates.map");
+    expect(source).toContain("getNewsGuardrailRecoveryTrainingAction");
+    expect(source).toContain("applyGuardrailRecoveryAction");
+    expect(source).toContain("recoveryAction.actionLabel");
+  });
+
+  it("renders trainable taste calibration actions from the model helper", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsTasteCalibration({");
+    expect(source).toContain("Taste Calibration");
+    expect(source).toContain("tasteCalibration.actions.map");
+    expect(source).toContain("getNewsTasteCalibrationTrainingAction");
+    expect(source).toContain("applyTasteCalibrationAction");
+    expect(source).toContain("tasteAction.actionLabel");
+  });
+
+  it("renders briefing pack slots as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsBriefingPack({");
+    expect(source).toContain("Briefing Pack");
+    expect(source).toContain("briefingPack.slots.map");
+    expect(source).toContain("getNewsBriefingPackTrainingAction");
+    expect(source).toContain("applyBriefingPackAction");
+    expect(source).toContain("briefingAction.actionLabel");
+  });
+
+  it("renders front page layout sections as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsFrontPageLayout({");
+    expect(source).toContain("Front Page Layout");
+    expect(source).toContain("frontPageLayout.sections.map");
+    expect(source).toContain("getNewsFrontPageLayoutTrainingAction");
+    expect(source).toContain("applyFrontPageLayoutAction");
+    expect(source).toContain("layoutAction.actionLabel");
+  });
+
+  it("renders slot mix stories as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsFrontPageSlotMix({");
+    expect(source).toContain("Slot Mix");
+    expect(source).toContain("frontPageSlotMix.slots.map");
+    expect(source).toContain("getNewsFrontPageSlotMixTrainingAction");
+    expect(source).toContain("applyFrontPageSlotMixAction");
+    expect(source).toContain("slotMixAction.actionLabel");
+  });
+
+  it("renders edition quality gate checks as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsEditionQualityGate({");
+    expect(source).toContain("Edition Quality Gate");
+    expect(source).toContain("editionQualityGate.checks.map");
+    expect(source).toContain("getNewsEditionQualityGateTrainingAction");
+    expect(source).toContain("applyEditionQualityGateAction");
+    expect(source).toContain("qualityAction.actionLabel");
+  });
+
+  it("renders recommendation trace steps as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsRecommendationTrace({");
+    expect(source).toContain("Recommendation Trace");
+    expect(source).toContain("recommendationTrace.steps.map");
+    expect(source).toContain("getNewsRecommendationTraceTrainingAction");
+    expect(source).toContain("applyRecommendationTraceAction");
+    expect(source).toContain("traceAction.actionLabel");
+  });
+
+  it("renders experiment allocation arms as trainable controls", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsExperimentAllocation({");
+    expect(source).toContain("Experiment Allocation");
+    expect(source).toContain("experimentAllocation.arms.map");
+    expect(source).toContain("getNewsExperimentAllocationTrainingAction");
+    expect(source).toContain("applyExperimentAllocationAction");
+    expect(source).toContain("experimentAction.action.actionLabel");
+  });
+
+  it("renders aggregation intake lanes as trainable profile controls", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsAggregationIntake({");
+    expect(source).toContain("Aggregation Intake");
+    expect(source).toContain("aggregationIntake.lanes.map");
+    expect(source).toContain("getNewsAggregationIntakeTrainingAction");
+    expect(source).toContain("applyAggregationIntakeAction");
+    expect(source).toContain("intakeAction.actionLabel");
+  });
+
+  it("renders profile ledger signals as trainable profile controls", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsProfileSignalLedger({");
+    expect(source).toContain("Profile Ledger");
+    expect(source).toContain("entry.controls.map");
+    expect(source).toContain("getNewsProfileSignalLedgerTrainingAction");
+    expect(source).toContain("applyProfileSignalLedgerAction");
+    expect(source).toContain("ledgerAction.actionLabel");
   });
 
   it("renders the newsletter studio from the model helper", async () => {
@@ -1395,6 +2189,132 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsNewsletterPlan({");
     expect(source).toContain("Newsletter Studio");
     expect(source).toContain("newsletterPlan.lanes.map");
+  });
+
+  it("renders personalized push queue decisions as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsPersonalizedPushQueue({");
+    expect(source).toContain("Personalized Push Queue");
+    expect(source).toContain("personalizedPushQueue.lanes.map");
+    expect(source).toContain("getNewsPersonalizedPushQueueTrainingAction");
+    expect(source).toContain("applyPersonalizedPushQueueAction");
+    expect(source).toContain("pushAction.actionLabel");
+  });
+
+  it("renders personalized reading queue slots as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsPersonalizedReadingQueue({");
+    expect(source).toContain("Today&apos;s Queue");
+    expect(source).toContain("readingQueue.slots.map");
+    expect(source).toContain("getNewsPersonalizedReadingQueueTrainingAction");
+    expect(source).toContain("applyPersonalizedReadingQueueAction");
+    expect(source).toContain("readingAction.actionLabel");
+  });
+
+  it("renders continuation follow-ups as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsContinuationRail({");
+    expect(source).toContain("Continue Reading");
+    expect(source).toContain("continuationRail.followUps.map");
+    expect(source).toContain("getNewsContinuationRailTrainingAction");
+    expect(source).toContain("applyContinuationRailAction");
+    expect(source).toContain("continuationAction.actionLabel");
+  });
+
+  it("renders next refresh candidate slots as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsNextRefreshPlan({");
+    expect(source).toContain("Next Refresh");
+    expect(source).toContain("nextRefreshPlan.slots.map");
+    expect(source).toContain("getNewsNextRefreshPlanTrainingAction");
+    expect(source).toContain("applyNextRefreshPlanAction");
+    expect(source).toContain("refreshAction.actionLabel");
+  });
+
+  it("renders refresh simulation moves as trainable profile controls", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsRefreshSimulation({");
+    expect(source).toContain("Refresh Simulation");
+    expect(source).toContain("refreshSimulation.moves.map");
+    expect(source).toContain("getNewsRefreshSimulationTrainingAction");
+    expect(source).toContain("applyRefreshSimulationAction");
+    expect(source).toContain("refreshSimulationAction.actionLabel");
+  });
+
+  it("renders edition schedule slots as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsEditionSchedule({");
+    expect(source).toContain("Edition Schedule");
+    expect(source).toContain("editionSchedule.slots.map");
+    expect(source).toContain("getNewsEditionScheduleTrainingAction");
+    expect(source).toContain("applyEditionScheduleAction");
+    expect(source).toContain("scheduleAction.actionLabel");
+  });
+
+  it("renders distribution queue decisions as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsDistributionQueue({");
+    expect(source).toContain("Distribution Queue");
+    expect(source).toContain("distributionQueue.queues.map");
+    expect(source).toContain("getNewsDistributionQueueTrainingAction");
+    expect(source).toContain("applyDistributionQueueAction");
+    expect(source).toContain("distributionAction.actionLabel");
+  });
+
+  it("renders alert routing decisions as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsAlertRouting({");
+    expect(source).toContain("Alert Routing");
+    expect(source).toContain("alertRouting.lanes.map");
+    expect(source).toContain("getNewsAlertRoutingTrainingAction");
+    expect(source).toContain("applyAlertRoutingAction");
+    expect(source).toContain("alertAction.actionLabel");
+  });
+
+  it("renders recommendation rotation entries as trainable profile actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsRecommendationRotationQueue({");
+    expect(source).toContain("Recommendation Rotation");
+    expect(source).toContain("recommendationRotationQueue.entries.map");
+    expect(source).toContain("getNewsRecommendationRotationTrainingAction");
+    expect(source).toContain("applyRecommendationRotationAction");
+    expect(source).toContain("rotationAction.actionLabel");
   });
 
   it("renders the membership meter from the model helper", async () => {
@@ -1417,6 +2337,9 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsModelTrainingBatch({");
     expect(source).toContain("Model Training Batch");
     expect(source).toContain("modelTrainingBatch.lanes.map");
+    expect(source).toContain("getNewsModelTrainingBatchTrainingAction");
+    expect(source).toContain("applyModelTrainingBatchAction");
+    expect(source).toContain("modelAction.actionLabel");
   });
 
   it("renders the profile update proposal from the model helper", async () => {
@@ -1428,6 +2351,22 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsProfileUpdateProposal({");
     expect(source).toContain("Profile Update Proposal");
     expect(source).toContain("profileUpdateProposal.lanes.map");
+    expect(source).toContain("getNewsProfileUpdateProposalTrainingAction");
+    expect(source).toContain("applyProfileUpdateProposal");
+    expect(source).toContain("Apply proposal");
+  });
+
+  it("renders reader watchlist suggestions as profile training actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsReaderWatchlist({");
+    expect(source).toContain("Reader Watchlist");
+    expect(source).toContain("getNewsReaderWatchlistTrainingAction");
+    expect(source).toContain("applyReaderWatchlistAction");
+    expect(source).toContain("watchlistAction.actionLabel");
   });
 
   it("renders the reader profile snapshot from the model helper", async () => {
@@ -1439,6 +2378,9 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsReaderProfileSnapshot({");
     expect(source).toContain("Reader Profile Snapshot");
     expect(source).toContain("readerProfileSnapshot.cards.map");
+    expect(source).toContain("applyReaderProfileSnapshotAction");
+    expect(source).toContain("card.action");
+    expect(source).toContain("Apply next update");
   });
 });
 
@@ -2707,6 +3649,7 @@ describe("getNewsRecommendationRotationQueue", () => {
           categoryLabel: "Models",
           id: "reader-fit",
           label: "Reader Match",
+          objective: "reader_match",
           reason: "Profile signals make this the safest next story.",
           scoreLabel: "172 score",
           sourceName: "Model Desk",
@@ -2716,6 +3659,7 @@ describe("getNewsRecommendationRotationQueue", () => {
           categoryLabel: "Agents",
           id: "explore-adjacent",
           label: "Exploration",
+          objective: "exploration",
           reason: "Adjacent coverage tests what the reader may want next.",
           scoreLabel: "88 heat",
           sourceName: "Agent Scout",
@@ -2725,6 +3669,7 @@ describe("getNewsRecommendationRotationQueue", () => {
           categoryLabel: "Funding",
           id: "market-hot",
           label: "Market Heat",
+          objective: "market_heat",
           reason: "High trend keeps the edition connected to the live market.",
           scoreLabel: "96 heat",
           sourceName: "VentureWire",
@@ -2734,6 +3679,7 @@ describe("getNewsRecommendationRotationQueue", () => {
           categoryLabel: "Research",
           id: "trusted-analysis",
           label: "Source Trust",
+          objective: "source_trust",
           reason: "High-trust coverage stabilizes the recommendation mix.",
           scoreLabel: "97 trust",
           sourceName: "Research Review",
@@ -2842,6 +3788,130 @@ describe("getNewsRecommendationRotationQueue", () => {
       summary: "Recommendation rotation will appear after stories are ranked.",
     });
   });
+
+  it("turns rotation objectives into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          funding: "Funding",
+          model_release: "Models",
+          robotics: "Robotics",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const readerItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "rotation-action-reader",
+      matchedSignals: ["source"],
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+    };
+    const explorationItem = {
+      ...olderItem,
+      category: "robotics",
+      entities: ["Figure"],
+      id: "rotation-action-explore",
+      matchedSignals: ["exploration"],
+      sourceName: "Robotics Desk",
+      sourceSlug: "robotics-desk",
+    };
+    const marketItem = {
+      ...serverItem,
+      category: "funding",
+      entities: ["YC"],
+      id: "rotation-action-market",
+      matchedSignals: [],
+      sourceName: "VentureWire",
+      sourceSlug: "venturewire",
+    };
+    const trustItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "rotation-action-trust",
+      matchedSignals: [],
+      sourceName: "Research Review",
+      sourceSlug: "research-review",
+    };
+
+    expect(
+      getNewsRecommendationRotationTrainingAction({
+        formatCategory,
+        item: readerItem,
+        objective: "reader_match",
+      }),
+    ).toEqual({
+      actionLabel: "Train reader match signal",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsRecommendationRotationTrainingAction({
+        formatCategory,
+        item: explorationItem,
+        objective: "exploration",
+      }),
+    ).toEqual({
+      actionLabel: "Train exploration signal",
+      effect: "add",
+      label: "Robotics",
+      signals: [
+        {
+          kind: "category",
+          label: "Robotics",
+          signal: "robotics",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsRecommendationRotationTrainingAction({
+        formatCategory,
+        item: marketItem,
+        objective: "market_heat",
+      }),
+    ).toEqual({
+      actionLabel: "Train market heat signal",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsRecommendationRotationTrainingAction({
+        formatCategory,
+        item: trustItem,
+        objective: "source_trust",
+      }),
+    ).toEqual({
+      actionLabel: "Train source trust signal",
+      effect: "add",
+      label: "Research Review",
+      signals: [
+        {
+          kind: "source",
+          label: "Research Review",
+          signal: "research-review",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("getNewsRecommendationSourceSaturation", () => {
@@ -2890,11 +3960,23 @@ describe("getNewsRecommendationSourceSaturation", () => {
           detail:
             "Model Desk owns 3 of 4 recommendation slots; bring in independent sources before the next ranking pass.",
           label: "Expand source mix",
+          trainingSignal: {
+            effect: "remove",
+            kind: "source",
+            label: "Model Desk",
+            signal: "model-desk",
+          },
         },
         {
           detail:
             "Agent Scout is available as the strongest alternative source in this queue.",
           label: "Candidate source",
+          trainingSignal: {
+            effect: "add",
+            kind: "source",
+            label: "Agent Scout",
+            signal: "agent-scout",
+          },
         },
       ],
       label: "Source Saturated",
@@ -2906,6 +3988,74 @@ describe("getNewsRecommendationSourceSaturation", () => {
       ],
       summary:
         "Model Desk owns 75% of the next 4 recommendation slots across 2 sources.",
+    });
+  });
+
+  it("turns saturated source controls into profile training actions", () => {
+    const saturation = getNewsRecommendationSourceSaturation({
+      items: [
+        {
+          ...localItem,
+          id: "model-desk-lead",
+          matchedSignals: [],
+          personalizedScore: 120,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        {
+          ...localItem,
+          id: "model-desk-follow-up",
+          matchedSignals: [],
+          personalizedScore: 110,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        {
+          ...localItem,
+          id: "agent-scout-alt",
+          matchedSignals: [],
+          personalizedScore: 100,
+          sourceName: "Agent Scout",
+          sourceSlug: "agent-scout",
+        },
+      ],
+      limit: 3,
+    });
+    const [reduceAction, candidateAction] = saturation.actions;
+
+    expect(reduceAction).toBeDefined();
+    expect(candidateAction).toBeDefined();
+    if (!reduceAction || !candidateAction) return;
+
+    expect(getNewsRecommendationSaturationTrainingAction(reduceAction)).toEqual(
+      {
+        actionLabel: "Reduce source",
+        effect: "remove",
+        label: "Model Desk",
+        signals: [
+          {
+            kind: "source",
+            label: "Model Desk",
+            signal: "model-desk",
+          },
+        ],
+        source: "control",
+      },
+    );
+    expect(
+      getNewsRecommendationSaturationTrainingAction(candidateAction),
+    ).toEqual({
+      actionLabel: "Follow source",
+      effect: "add",
+      label: "Agent Scout",
+      signals: [
+        {
+          kind: "source",
+          label: "Agent Scout",
+          signal: "agent-scout",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -2982,11 +4132,23 @@ describe("getNewsRecommendationEntitySaturation", () => {
           detail:
             "OpenAI appears in 3 of 4 recommendation slots; add adjacent entities before the next ranking pass.",
           label: "Expand entity mix",
+          trainingSignal: {
+            effect: "remove",
+            kind: "entity",
+            label: "OpenAI",
+            signal: "OpenAI",
+          },
         },
         {
           detail:
             "GPT-6 is available as the strongest alternative entity in this queue.",
           label: "Candidate entity",
+          trainingSignal: {
+            effect: "add",
+            kind: "entity",
+            label: "GPT-6",
+            signal: "GPT-6",
+          },
         },
       ],
       label: "Entity Saturated",
@@ -3080,11 +4242,23 @@ describe("getNewsRecommendationTopicSaturation", () => {
           detail:
             "Models occupies 3 of 4 recommendation slots; add adjacent topics before the next ranking pass.",
           label: "Expand topic mix",
+          trainingSignal: {
+            effect: "remove",
+            kind: "category",
+            label: "Models",
+            signal: "model_release",
+          },
         },
         {
           detail:
             "Funding is available as the strongest alternative topic in this queue.",
           label: "Candidate topic",
+          trainingSignal: {
+            effect: "add",
+            kind: "category",
+            label: "Funding",
+            signal: "funding",
+          },
         },
       ],
       label: "Topic Saturated",
@@ -3194,6 +4368,12 @@ describe("getNewsRecommendationDiversityGovernor", () => {
           label: "Expand source mix",
           shareLabel: "75%",
           statusLabel: "Source Saturated",
+          trainingSignal: {
+            effect: "remove",
+            kind: "source",
+            label: "Model Desk",
+            signal: "model-desk",
+          },
         },
         {
           detail:
@@ -3202,6 +4382,12 @@ describe("getNewsRecommendationDiversityGovernor", () => {
           label: "Expand topic mix",
           shareLabel: "75%",
           statusLabel: "Topic Saturated",
+          trainingSignal: {
+            effect: "remove",
+            kind: "category",
+            label: "Models",
+            signal: "model_release",
+          },
         },
         {
           detail:
@@ -3210,6 +4396,12 @@ describe("getNewsRecommendationDiversityGovernor", () => {
           label: "Expand entity mix",
           shareLabel: "75%",
           statusLabel: "Entity Saturated",
+          trainingSignal: {
+            effect: "remove",
+            kind: "entity",
+            label: "OpenAI",
+            signal: "OpenAI",
+          },
         },
       ],
       label: "Diversity At Risk",
@@ -3222,6 +4414,110 @@ describe("getNewsRecommendationDiversityGovernor", () => {
       summary:
         "3 diversity controls need attention across the next 4 recommendation slots; highest concentration is 75%.",
     });
+  });
+
+  it("turns diversity controls into profile training actions", () => {
+    const governor = getNewsRecommendationDiversityGovernor({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "funding"
+            ? "Funding"
+            : category,
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "openai-model-lead",
+          matchedSignals: [],
+          personalizedScore: 120,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "OpenAI model launch leads the feed",
+        },
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI", "Agents"],
+          id: "openai-agent-follow-up",
+          matchedSignals: [],
+          personalizedScore: 110,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "OpenAI agents take the next slot",
+        },
+        {
+          ...localItem,
+          category: "funding",
+          entities: ["OpenAI", "Inference"],
+          id: "openai-funding-angle",
+          matchedSignals: [],
+          personalizedScore: 100,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "OpenAI funding angle keeps the source dominant",
+        },
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["Anthropic", "Claude"],
+          id: "anthropic-model-alt",
+          matchedSignals: [],
+          personalizedScore: 90,
+          sourceName: "Agent Scout",
+          sourceSlug: "agent-scout",
+          title: "Anthropic model analysis gives a counterweight",
+        },
+      ],
+      limit: 4,
+    });
+
+    expect(
+      governor.controls.map((control) =>
+        getNewsRecommendationDiversityGovernorTrainingAction(control),
+      ),
+    ).toEqual([
+      {
+        actionLabel: "Reduce source",
+        effect: "remove",
+        label: "Model Desk",
+        signals: [
+          {
+            kind: "source",
+            label: "Model Desk",
+            signal: "model-desk",
+          },
+        ],
+        source: "control",
+      },
+      {
+        actionLabel: "Reduce topic",
+        effect: "remove",
+        label: "Models",
+        signals: [
+          {
+            kind: "category",
+            label: "Models",
+            signal: "model_release",
+          },
+        ],
+        source: "control",
+      },
+      {
+        actionLabel: "Reduce entity",
+        effect: "remove",
+        label: "OpenAI",
+        signals: [
+          {
+            kind: "entity",
+            label: "OpenAI",
+            signal: "OpenAI",
+          },
+        ],
+        source: "control",
+      },
+    ]);
   });
 
   it("reports healthy diversity when no saturation controls are needed", () => {
@@ -3525,6 +4821,9 @@ describe("NewsHome recommendation source saturation placement", () => {
     expect(source).toContain("getNewsRecommendationSourceSaturation({");
     expect(source).toContain("Source Saturation");
     expect(source).toContain("recommendationSourceSaturation.actions.map");
+    expect(source).toContain("getNewsRecommendationSaturationTrainingAction");
+    expect(source).toContain("applyRecommendationSaturationAction");
+    expect(source).toContain("saturationAction.actionLabel");
   });
 });
 
@@ -3538,6 +4837,11 @@ describe("NewsHome recommendation diversity governor placement", () => {
     expect(source).toContain("getNewsRecommendationDiversityGovernor({");
     expect(source).toContain("Diversity Governor");
     expect(source).toContain("recommendationDiversityGovernor.controls.map");
+    expect(source).toContain(
+      "getNewsRecommendationDiversityGovernorTrainingAction",
+    );
+    expect(source).toContain("applyRecommendationDiversityGovernorAction");
+    expect(source).toContain("diversityAction.actionLabel");
   });
 });
 
@@ -3631,6 +4935,7 @@ describe("getNewsReaderMemory", () => {
             sourceSlug: "venturewire",
           },
         ],
+        searchMemoryItems: [],
       }),
     ).toEqual({
       highlights: [
@@ -3692,6 +4997,7 @@ describe("getNewsReaderMemory", () => {
             tags: ["agents", "prompt_injection"],
           },
         ],
+        searchMemoryItems: [],
       }).highlights,
     ).toContainEqual({
       detail: "prompt injection leads with 2 saved/read stories.",
@@ -3712,6 +5018,7 @@ describe("getNewsReaderMemory", () => {
           recencyBias: 1,
         },
         savedItems: [],
+        searchMemoryItems: [],
       }),
     ).toEqual({
       highlights: [
@@ -3728,6 +5035,47 @@ describe("getNewsReaderMemory", () => {
         { label: "Top topic", value: "None" },
       ],
       summary: "Reader memory will appear after you interact with stories.",
+    });
+  });
+
+  it("treats recent searches as reader memory before saves or reads arrive", () => {
+    expect(
+      getNewsReaderMemory({
+        formatCategory: (category) => category,
+        historyItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+        searchMemoryItems: [
+          {
+            query: "model routers",
+            resultCount: 2,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual({
+      highlights: [
+        {
+          detail: "Latest search: model routers.",
+          label: "Search memory",
+        },
+      ],
+      label: "Learning Memory",
+      metrics: [
+        { label: "Profile signals", value: "0" },
+        { label: "Saved", value: "0" },
+        { label: "Read", value: "0" },
+        { label: "Searches", value: "1" },
+        { label: "Top topic", value: "None" },
+      ],
+      summary:
+        "0 preference signals, 0 saved stories, 0 reads, and 1 recent search are shaping the next edition.",
     });
   });
 });
@@ -4182,10 +5530,70 @@ describe("selectStoredNewsReaderMemoryItems", () => {
       },
     ]);
   });
+
+  it("drops local reader-memory entries with invalid timestamp fields", () => {
+    expect(
+      selectStoredNewsReaderMemoryItems([
+        {
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "valid-legacy-memory",
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Legacy memory without timestamp",
+        },
+        {
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "invalid-viewed-memory",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Invalid viewed timestamp",
+          viewedAt: "not-a-date",
+        },
+        {
+          category: "market_map",
+          entities: ["Anthropic"],
+          hiddenAt: "also-not-a-date",
+          id: "invalid-hidden-memory",
+          sourceName: "Source Desk",
+          sourceSlug: "source-desk",
+          title: "Invalid hidden timestamp",
+        },
+        {
+          category: "funding",
+          entities: ["Runway"],
+          id: "invalid-saved-memory",
+          savedAt: "still-not-a-date",
+          sourceName: "Funding Desk",
+          sourceSlug: "funding-desk",
+          title: "Invalid saved timestamp",
+        },
+        {
+          category: "research",
+          entities: ["Benchmarks"],
+          id: "invalid-occurred-memory",
+          occurredAt: "bad-date",
+          sourceName: "Research Desk",
+          sourceSlug: "research-desk",
+          title: "Invalid occurred timestamp",
+        },
+      ]),
+    ).toEqual([
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        id: "valid-legacy-memory",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        title: "Legacy memory without timestamp",
+      },
+    ]);
+  });
 });
 
 describe("selectStoredNewsPositiveFeedbackItems", () => {
-  it("keeps only action-specific positive feedback entries from storage", () => {
+  it("keeps explicit and read positive feedback entries from storage", () => {
     expect(
       selectStoredNewsPositiveFeedbackItems([
         {
@@ -4210,6 +5618,16 @@ describe("selectStoredNewsPositiveFeedbackItems", () => {
           title: "Source registry covers labs",
         },
         {
+          category: "agent_product",
+          entities: ["OpenAI"],
+          id: "local-deep-read",
+          occurredAt: "2026-07-01T10:45:00.000Z",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          tags: ["agents"],
+          title: "Reader finished an agent story",
+        },
+        {
           action: "hide",
           category: "policy",
           entities: ["Policy"],
@@ -4231,6 +5649,16 @@ describe("selectStoredNewsPositiveFeedbackItems", () => {
         null,
       ]),
     ).toEqual([
+      {
+        category: "agent_product",
+        entities: ["OpenAI"],
+        id: "local-deep-read",
+        occurredAt: "2026-07-01T10:45:00.000Z",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        tags: ["agents"],
+        title: "Reader finished an agent story",
+      },
       {
         action: "click_source",
         category: "market_map",
@@ -4303,6 +5731,101 @@ describe("selectStoredNewsPositiveFeedbackItems", () => {
         { limit: 3 },
       ).map((item) => item.id),
     ).toEqual(["new-share", "recent-save", "recent-source"]);
+  });
+
+  it("drops future-dated positive feedback before it can shape local recommendations", () => {
+    const currentOccurredAt = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      .toISOString()
+      .replace(/\.\d{3}Z$/, ".000Z");
+    const futureOccurredAt = new Date(Date.now() + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .replace(/\.\d{3}Z$/, ".000Z");
+
+    expect(
+      selectStoredNewsPositiveFeedbackItems([
+        {
+          action: "share",
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "current-share",
+          occurredAt: currentOccurredAt,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Current share",
+        },
+        {
+          action: "save",
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "future-save",
+          occurredAt: futureOccurredAt,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Future save",
+        },
+      ]),
+    ).toEqual([
+      {
+        action: "share",
+        category: "model_release",
+        entities: ["OpenAI"],
+        id: "current-share",
+        occurredAt: currentOccurredAt,
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        title: "Current share",
+      },
+    ]);
+  });
+
+  it("drops stale source-click feedback while keeping durable positive feedback", () => {
+    const staleOccurredAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .replace(/\.\d{3}Z$/, ".000Z");
+
+    expect(
+      selectStoredNewsPositiveFeedbackItems([
+        {
+          action: "click_source",
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "stale-source-click",
+          occurredAt: staleOccurredAt,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Stale source click",
+        },
+        {
+          action: "save",
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "durable-save",
+          occurredAt: staleOccurredAt,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Durable save",
+        },
+        {
+          action: "share",
+          category: "funding",
+          entities: ["Runway"],
+          id: "durable-share",
+          occurredAt: staleOccurredAt,
+          sourceName: "Funding Desk",
+          sourceSlug: "funding-desk",
+          title: "Durable share",
+        },
+        {
+          category: "research",
+          entities: ["Benchmarks"],
+          id: "durable-deep-read",
+          occurredAt: staleOccurredAt,
+          sourceName: "Research Desk",
+          sourceSlug: "research-desk",
+          title: "Durable deep read",
+        },
+      ]).map((item) => item.id),
+    ).toEqual(["durable-deep-read", "durable-save", "durable-share"]);
   });
 });
 
@@ -4917,6 +6440,157 @@ describe("getNewsGuardrailRecoveryPlan", () => {
     });
   });
 
+  it("maps recovery actions to executable preference updates", () => {
+    const formatCategory = (category: string) =>
+      category === "agent_product"
+        ? "Agents"
+        : category === "hot_take"
+          ? "Hot Takes"
+          : category;
+    const items: RankedNewsItem<NewsHomeItem>[] = [
+      {
+        ...localItem,
+        category: "agent_product",
+        entities: ["OpenAI"],
+        id: "recovery-restored-follow-up",
+        matchedSignals: ["positive_feedback"],
+        personalizedScore: 132,
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        title: "Agent workflow follow-up returns",
+      },
+    ];
+    const negativeFeedbackItems: NewsReaderMemoryItem[] = [
+      {
+        ...olderItem,
+        category: "agent_product",
+        entities: ["OpenAI"],
+        id: "active-less-agent",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        tags: ["agent"],
+        title: "Active Less agent story",
+      },
+      {
+        ...olderItem,
+        category: "hot_take",
+        entities: ["StealthAI"],
+        id: "active-less-rumor",
+        sourceName: "Rumor Feed",
+        sourceSlug: "rumor-feed",
+        tags: ["rumor"],
+        title: "Active Less rumor story",
+      },
+    ];
+    const positiveFeedbackItems: NewsPositiveFeedbackMemoryItem[] = [
+      {
+        ...localItem,
+        action: "share",
+        category: "agent_product",
+        entities: ["OpenAI"],
+        id: "positive-share-agent",
+        occurredAt: "2026-07-02T10:00:00.000Z",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        tags: ["agent"],
+      },
+    ];
+    const restoredGuardrailItems: NewsReaderMemoryItem[] = [
+      {
+        ...olderItem,
+        category: "agent_product",
+        entities: ["OpenAI"],
+        id: "restored-agent-guardrail",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        tags: ["agent"],
+        title: "Restored agent guardrail",
+      },
+    ];
+    const reviewAction = getNewsGuardrailRecoveryTrainingAction({
+      action: {
+        detail:
+          "1 Less guardrail overlaps positive behavior; restore, narrow, or keep the cooldown before the next ranking pass.",
+        label: "Review conflict",
+      },
+      formatCategory,
+      historyItems: [],
+      items,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      restoredGuardrailItems,
+      savedItems: [],
+    });
+    const laneAction = getNewsGuardrailRecoveryTrainingAction({
+      action: {
+        detail:
+          "Use 1 candidate story to verify restored and conflicted signals before fully lifting cooldowns.",
+        label: "Test recovery lane",
+      },
+      formatCategory,
+      historyItems: [],
+      items,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      restoredGuardrailItems,
+      savedItems: [],
+    });
+    const cooldownAction = getNewsGuardrailRecoveryTrainingAction({
+      action: {
+        detail:
+          "Keep 2 Less guardrails active until positive recovery evidence is stronger.",
+        label: "Keep cooldown",
+      },
+      formatCategory,
+      historyItems: [],
+      items,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      restoredGuardrailItems,
+      savedItems: [],
+    });
+
+    expect(reviewAction).toEqual({
+      actionLabel: "Restore topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(laneAction).toEqual({
+      actionLabel: "Test topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(cooldownAction).toEqual({
+      actionLabel: "Keep cooldown",
+      effect: "remove",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps guardrail recovery explicit before conflicts exist", () => {
     expect(
       getNewsGuardrailRecoveryPlan({
@@ -5275,6 +6949,7 @@ describe("getNewsReaderWatchlist", () => {
           reason: "Already in your profile and active in the edition.",
           score: 172,
           signal: "OpenAI",
+          signalValue: "OpenAI",
           sourceNames: ["OpenAI News", "Research Wire"],
           statusLabel: "Watching",
           supportLabel: "2 stories / 2 sources",
@@ -5290,6 +6965,7 @@ describe("getNewsReaderWatchlist", () => {
           reason: "Already in your profile and active in the edition.",
           score: 172,
           signal: "Models",
+          signalValue: "model_release",
           sourceNames: ["OpenAI News", "Research Wire"],
           statusLabel: "Watching",
           supportLabel: "2 stories / 2 sources",
@@ -5305,6 +6981,7 @@ describe("getNewsReaderWatchlist", () => {
           reason: "Already in your profile and active in the edition.",
           score: 146,
           signal: "OpenAI News",
+          signalValue: "openai-news",
           sourceNames: ["OpenAI News"],
           statusLabel: "Watching",
           supportLabel: "1 story / 1 source",
@@ -5320,6 +6997,7 @@ describe("getNewsReaderWatchlist", () => {
           reason: "High heat suggests adding this signal to the watchlist.",
           score: 132,
           signal: "Agents",
+          signalValue: "agent_product",
           sourceNames: ["Agent Desk"],
           statusLabel: "Suggested",
           supportLabel: "1 story / 1 source",
@@ -5392,6 +7070,7 @@ describe("getNewsReaderWatchlist", () => {
       reason: "High heat suggests adding this signal to the watchlist.",
       score: 160,
       signal: "Anthropic",
+      signalValue: "Anthropic",
       sourceNames: ["Lab Wire", "Market Desk"],
       statusLabel: "Suggested",
       supportLabel: "2 stories / 2 sources",
@@ -5401,6 +7080,65 @@ describe("getNewsReaderWatchlist", () => {
         title: "Anthropic research gains lab momentum",
       },
     });
+  });
+
+  it("does not choose future-dated stories as watchlist top stories", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const watchlist = getNewsReaderWatchlist({
+        formatCategory: (category) =>
+          category === "research" ? "Research" : category,
+        items: [
+          {
+            ...localItem,
+            id: "future-watch-story",
+            category: "research",
+            entities: ["OpenAI"],
+            matchedSignals: ["entity"],
+            personalizedScore: 128,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Lab Wire",
+            sourceSlug: "lab-wire",
+            title: "Future watchlist story should wait",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            id: "current-watch-story",
+            category: "research",
+            entities: ["OpenAI"],
+            matchedSignals: ["entity"],
+            personalizedScore: 128,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            title: "Current watchlist story should lead",
+            trendScore: 92,
+          },
+        ],
+        limit: 4,
+        profile: {
+          preferredCategories: [],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      });
+
+      expect(
+        watchlist.entries.find((entry) => entry.key === "entity:openai")
+          ?.topStory,
+      ).toEqual({
+        id: "current-watch-story",
+        sourceName: "Research Wire",
+        title: "Current watchlist story should lead",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("normalizes watchlist source variants before scoring signal support", () => {
@@ -5443,6 +7181,7 @@ describe("getNewsReaderWatchlist", () => {
       reason: "High heat suggests adding this signal to the watchlist.",
       score: 149,
       signal: "Anthropic",
+      signalValue: "Anthropic",
       sourceNames: ["Lab Wire"],
       statusLabel: "Suggested",
       supportLabel: "2 stories / 1 source",
@@ -5472,6 +7211,57 @@ describe("getNewsReaderWatchlist", () => {
         { label: "Coverage", value: "0" },
       ],
       summary: "Reader watchlist will appear after stories are ranked.",
+    });
+  });
+
+  it("turns suggested watchlist topics into profile training actions", async () => {
+    const watchlist = getNewsReaderWatchlist({
+      formatCategory: (category) =>
+        category === "robotics" ? "Robotics" : category,
+      items: [
+        {
+          ...localItem,
+          category: "robotics",
+          entities: ["Warehouse automation"],
+          id: "watch-action-robotics",
+          matchedSignals: ["exploration"],
+          personalizedScore: 121,
+          sourceName: "Robotics Desk",
+          sourceSlug: "robotics-desk",
+          title: "Robotics launch creates a watchlist candidate",
+          trendScore: 94,
+        },
+      ],
+      limit: 1,
+      profile: createDefaultNewsPreferenceProfile(),
+    });
+    type WatchlistEntry = (typeof watchlist.entries)[number];
+    const [entry] = watchlist.entries;
+    const actionFactory = Reflect.get(
+      await import("./news-home-model"),
+      "getNewsReaderWatchlistTrainingAction",
+    ) as ((entry: WatchlistEntry) => unknown) | undefined;
+
+    expect(entry).toMatchObject({
+      signal: "Robotics",
+      signalValue: "robotics",
+      statusLabel: "Suggested",
+    });
+    expect(actionFactory).toBeTypeOf("function");
+    if (!entry || !actionFactory) return;
+
+    expect(actionFactory(entry)).toEqual({
+      actionLabel: "Add to watchlist",
+      effect: "add",
+      label: "Robotics",
+      signals: [
+        {
+          kind: "category",
+          label: "Robotics",
+          signal: "robotics",
+        },
+      ],
+      source: "control",
     });
   });
 });
@@ -5685,6 +7475,116 @@ describe("getNewsReaderCohorts", () => {
       ],
       summary:
         "Reader profile leans Builder Watch with 2 weighted signals across 1 active cohort.",
+    });
+  });
+
+  it("turns positive reader cohorts into profile training actions", () => {
+    const report = getNewsReaderCohorts({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      limit: 3,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "saved-builder-cohort",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Saved builder workflow",
+        },
+      ],
+    });
+
+    expect(
+      getNewsReaderCohortTrainingAction({
+        cohort: report.cohorts[0],
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Follow cohort topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("turns guardrail-only reader cohorts into source reduction actions", () => {
+    const report = getNewsReaderCohorts({
+      formatCategory: (category) =>
+        category === "hot_take" ? "Hot Takes" : category,
+      historyItems: [],
+      limit: 3,
+      negativeFeedbackItems: [
+        {
+          ...olderItem,
+          category: "hot_take",
+          entities: ["Rumor"],
+          id: "hidden-risk-cohort",
+          sourceName: "Rumor Feed",
+          sourceSlug: "rumor-feed",
+          title: "Hidden rumor story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(
+      getNewsReaderCohortTrainingAction({
+        cohort: report.cohorts[0],
+        formatCategory: (category) =>
+          category === "hot_take" ? "Hot Takes" : category,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Reduce cohort source",
+      effect: "remove",
+      label: "Rumor Feed",
+      signals: [
+        {
+          kind: "source",
+          label: "Rumor Feed",
+          signal: "rumor-feed",
+        },
+      ],
+      source: "control",
     });
   });
 });
@@ -6117,6 +8017,78 @@ describe("getNewsCollaborativeSignals", () => {
     });
   });
 
+  it("turns collaborative cohort lift into profile training actions", () => {
+    const collaborativeSignals = getNewsCollaborativeSignals({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "agent-collaborative-action",
+          matchedSignals: ["exploration"],
+          personalizedScore: 126,
+          sourceName: "Agent Desk",
+          sourceScore: 82,
+          sourceSlug: "agent-desk",
+          title: "Agent teams test shared memory",
+          trendScore: 88,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "shared-agent-collaborative-action",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Shared agent workflow story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(
+      getNewsCollaborativeSignalTrainingAction({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        signal: collaborativeSignals.signals[0],
+      }),
+    ).toEqual({
+      actionLabel: "Follow collaborative topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps collaborative signals cold before stories or cohorts exist", () => {
     expect(
       getNewsCollaborativeSignals({
@@ -6311,6 +8283,65 @@ describe("getNewsSessionIntent", () => {
     });
   });
 
+  it("does not let future-dated candidates become session lead stories", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const session = getNewsSessionIntent({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "future-session-story",
+            matchedSignals: ["category"],
+            personalizedScore: 140,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Future session candidate should wait",
+            trendScore: 88,
+          },
+          {
+            ...serverItem,
+            category: "agent_product",
+            entities: ["Agents"],
+            id: "current-session-story",
+            matchedSignals: ["category"],
+            personalizedScore: 140,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Workflow Wire",
+            sourceSlug: "workflow-wire",
+            title: "Current session candidate should lead",
+            trendScore: 88,
+          },
+        ],
+        limit: 3,
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["agent_product"],
+          preferredEntities: [],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      });
+
+      expect(session.intents[0]?.leadStory).toEqual({
+        id: "current-session-story",
+        sourceName: "Workflow Wire",
+        title: "Current session candidate should lead",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not count guardrail and edition signals as session intent candidates", () => {
     const session = getNewsSessionIntent({
       formatCategory: (category) =>
@@ -6462,6 +8493,114 @@ describe("getNewsSessionIntent", () => {
       }),
     );
   });
+
+  it("turns positive session intents into profile training actions", () => {
+    const session = getNewsSessionIntent({
+      activeIntent: {
+        category: null,
+        query: "",
+        sourceSlug: null,
+        tag: "workflow",
+      },
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      items: [],
+      limit: 3,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(
+      getNewsSessionIntentTrainingAction({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        intent: session.intents[0],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Follow intent topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("turns guardrail-only session intents into source reduction actions", () => {
+    const session = getNewsSessionIntent({
+      formatCategory: (category) =>
+        category === "hot_take" ? "Hot Takes" : category,
+      historyItems: [],
+      items: [],
+      limit: 3,
+      negativeFeedbackItems: [
+        {
+          ...olderItem,
+          category: "hot_take",
+          entities: ["Rumor"],
+          id: "hidden-risk-intent",
+          sourceName: "Rumor Feed",
+          sourceSlug: "rumor-feed",
+          title: "Hidden rumor story",
+        },
+      ],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(
+      getNewsSessionIntentTrainingAction({
+        formatCategory: (category) =>
+          category === "hot_take" ? "Hot Takes" : category,
+        intent: session.intents[0],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Reduce intent source",
+      effect: "remove",
+      label: "Rumor Feed",
+      signals: [
+        {
+          kind: "source",
+          label: "Rumor Feed",
+          signal: "rumor-feed",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("getNewsProfileSignalLedger", () => {
@@ -6541,6 +8680,44 @@ describe("getNewsProfileSignalLedger", () => {
       entries: [
         {
           count: 6,
+          controls: [
+            {
+              active: true,
+              kind: "category",
+              label: "Agents",
+              signal: "agent_product",
+            },
+            {
+              active: true,
+              kind: "category",
+              label: "Open Source",
+              signal: "open_source",
+            },
+            {
+              active: true,
+              kind: "category",
+              label: "Funding",
+              signal: "funding",
+            },
+            {
+              active: true,
+              kind: "source",
+              label: "agent-desk",
+              signal: "agent-desk",
+            },
+            {
+              active: true,
+              kind: "entity",
+              label: "Agents",
+              signal: "Agents",
+            },
+            {
+              active: true,
+              kind: "entity",
+              label: "LangChain",
+              signal: "LangChain",
+            },
+          ],
           detail: "3 topics, 1 source, and 2 entities are active.",
           effect: "Boosts matching stories",
           label: "Explicit profile",
@@ -6549,6 +8726,7 @@ describe("getNewsProfileSignalLedger", () => {
         },
         {
           count: 4,
+          controls: [],
           detail: "2 saved stories and 2 reads are feeding the profile.",
           effect: "Raises related coverage",
           label: "Positive behavior",
@@ -6562,6 +8740,7 @@ describe("getNewsProfileSignalLedger", () => {
         },
         {
           count: 1,
+          controls: [],
           detail: "1 hidden story is acting as a guardrail.",
           effect: "Demotes similar coverage",
           label: "Negative feedback",
@@ -6570,6 +8749,7 @@ describe("getNewsProfileSignalLedger", () => {
         },
         {
           count: 2,
+          controls: [],
           detail: "Novelty is weighted above recency.",
           effect: "Tunes ranking balance",
           label: "Bias tuning",
@@ -6608,6 +8788,7 @@ describe("getNewsProfileSignalLedger", () => {
       entries: [
         {
           count: 0,
+          controls: [],
           detail:
             "No explicit topics, sources, entities, or angles are active.",
           effect: "No direct boost yet",
@@ -6617,6 +8798,7 @@ describe("getNewsProfileSignalLedger", () => {
         },
         {
           count: 0,
+          controls: [],
           detail: "No saves or reads have been recorded in this session.",
           effect: "No behavior lift yet",
           label: "Positive behavior",
@@ -6625,6 +8807,7 @@ describe("getNewsProfileSignalLedger", () => {
         },
         {
           count: 0,
+          controls: [],
           detail: "No Less feedback is currently guarding the feed.",
           effect: "No demotion guard yet",
           label: "Negative feedback",
@@ -6633,6 +8816,7 @@ describe("getNewsProfileSignalLedger", () => {
         },
         {
           count: 2,
+          controls: [],
           detail: "Freshness and novelty are balanced.",
           effect: "Tunes ranking balance",
           label: "Bias tuning",
@@ -6701,6 +8885,7 @@ describe("getNewsProfileSignalLedger", () => {
       }).entries[1],
     ).toEqual({
       count: 4,
+      controls: [],
       detail:
         "1 share, 1 source click, 1 saved story, and 1 read are feeding the profile.",
       effect: "Raises related coverage",
@@ -6752,6 +8937,7 @@ describe("getNewsProfileSignalLedger", () => {
       }).entries[1],
     ).toEqual({
       count: 1,
+      controls: [],
       detail: "1 saved story is feeding the profile.",
       effect: "Raises related coverage",
       label: "Positive behavior",
@@ -6778,11 +8964,125 @@ describe("getNewsProfileSignalLedger", () => {
       }).entries[0],
     ).toEqual({
       count: 5,
+      controls: [
+        {
+          active: true,
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+        {
+          active: true,
+          kind: "source",
+          label: "security-desk",
+          signal: "security-desk",
+        },
+        {
+          active: true,
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+        {
+          active: true,
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt injection",
+        },
+        {
+          active: true,
+          kind: "tag",
+          label: "red team",
+          signal: "red team",
+        },
+      ],
       detail: "1 topic, 1 source, 1 entity, and 2 angles are active.",
       effect: "Boosts matching stories",
       label: "Explicit profile",
       signals: ["Security", "security-desk", "OpenAI", "prompt injection"],
       source: "Reader controls",
+    });
+  });
+
+  it("maps explicit ledger controls to executable profile training actions", () => {
+    const [entry] = getNewsProfileSignalLedger({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      historyItems: [],
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredSources: ["agent-desk"],
+        preferredEntities: ["OpenAI", "prompt_injection"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    }).entries;
+
+    if (!entry) {
+      throw new Error("Expected explicit ledger entry");
+    }
+
+    expect(entry.controls).toEqual([
+      {
+        active: true,
+        kind: "category",
+        label: "Agents",
+        signal: "agent_product",
+      },
+      {
+        active: true,
+        kind: "source",
+        label: "agent-desk",
+        signal: "agent-desk",
+      },
+      {
+        active: true,
+        kind: "entity",
+        label: "OpenAI",
+        signal: "OpenAI",
+      },
+      {
+        active: true,
+        kind: "tag",
+        label: "prompt injection",
+        signal: "prompt injection",
+      },
+    ]);
+
+    const categoryControl = entry.controls[0];
+    const angleControl = entry.controls[3];
+
+    if (!categoryControl || !angleControl) {
+      throw new Error("Expected explicit ledger controls");
+    }
+
+    expect(getNewsProfileSignalLedgerTrainingAction(categoryControl)).toEqual({
+      actionLabel: "Remove topic",
+      effect: "remove",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsProfileSignalLedgerTrainingAction(angleControl)).toEqual({
+      actionLabel: "Remove angle",
+      effect: "remove",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt injection",
+        },
+      ],
+      source: "control",
     });
   });
 });
@@ -6932,6 +9232,180 @@ describe("getNewsInterestDrift", () => {
     });
   });
 
+  it("maps interest drift notices to executable training actions", async () => {
+    const modelModule = await import("./news-home-model");
+    const getInterestDriftAction = (
+      modelModule as {
+        getNewsInterestDriftTrainingAction?: (input: {
+          formatCategory: (category: string) => string;
+          historyItems: readonly NewsReaderMemoryItem[];
+          negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+          notice: ReturnType<typeof getNewsInterestDrift>["notices"][number];
+          positiveFeedbackItems?: readonly NewsPositiveFeedbackMemoryItem[];
+          profile: ReturnType<typeof createDefaultNewsPreferenceProfile>;
+          savedItems: readonly NewsReaderMemoryItem[];
+        }) => NewsPreferenceProfileTrainingAction | null;
+      }
+    ).getNewsInterestDriftTrainingAction;
+    const formatCategory = (category: string) =>
+      category === "agent_product"
+        ? "Agents"
+        : category === "funding"
+          ? "Funding"
+          : "Models";
+    const historyItems = [
+      {
+        ...localItem,
+        id: "read-agent",
+        category: "agent_product",
+        entities: ["Agents", "Anthropic"],
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const savedItems = [
+      {
+        ...localItem,
+        id: "saved-agent",
+        category: "agent_product",
+        entities: ["Agents"],
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const negativeFeedbackItems = [
+      {
+        ...olderItem,
+        id: "hidden-funding",
+        category: "funding",
+        entities: ["Series A"],
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+      },
+    ];
+    const profile = {
+      ...createDefaultNewsPreferenceProfile(),
+      preferredCategories: [],
+      preferredEntities: [],
+      preferredSources: [],
+    };
+    const drift = getNewsInterestDrift({
+      formatCategory,
+      historyItems,
+      negativeFeedbackItems,
+      profile,
+      savedItems,
+    });
+    const topicNotice = drift.notices.find(
+      (notice) => notice.label === "Topic drift",
+    );
+    const sourceNotice = drift.notices.find(
+      (notice) => notice.label === "Source drift",
+    );
+    const guardrailNotice = drift.notices.find(
+      (notice) => notice.label === "Guardrail",
+    );
+
+    expect(getInterestDriftAction).toEqual(expect.any(Function));
+    if (
+      !getInterestDriftAction ||
+      !topicNotice ||
+      !sourceNotice ||
+      !guardrailNotice
+    ) {
+      throw new Error("Expected interest drift action inputs to exist.");
+    }
+
+    expect(
+      getInterestDriftAction({
+        formatCategory,
+        historyItems,
+        negativeFeedbackItems,
+        notice: topicNotice,
+        profile,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getInterestDriftAction({
+        formatCategory,
+        historyItems,
+        negativeFeedbackItems,
+        notice: sourceNotice,
+        profile,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Prefer source",
+      effect: "add",
+      label: "Agent Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Agent Desk",
+          signal: "agent-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getInterestDriftAction({
+        formatCategory,
+        historyItems,
+        negativeFeedbackItems,
+        notice: guardrailNotice,
+        profile,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+
+    const coldDrift = getNewsInterestDrift({
+      formatCategory,
+      historyItems: [],
+      negativeFeedbackItems: [],
+      profile,
+      savedItems: [],
+    });
+    const coldNotice = coldDrift.notices[0];
+
+    if (!coldNotice) throw new Error("Expected cold-start drift notice.");
+
+    expect(
+      getInterestDriftAction({
+        formatCategory,
+        historyItems: [],
+        negativeFeedbackItems: [],
+        notice: coldNotice,
+        profile,
+        savedItems: [],
+      }),
+    ).toBeNull();
+  });
+
   it("keeps cold-start drift explicit before behavior arrives", () => {
     expect(
       getNewsInterestDrift({
@@ -7078,6 +9552,168 @@ describe("getNewsReaderLearningLoop", () => {
       summary:
         "4 learning actions combine 3 positive signals, 1 guardrail, and 1 exploration candidate.",
     });
+  });
+
+  it("turns learning loop actions into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      category === "agent_product"
+        ? "Agents"
+        : category === "robotics"
+          ? "Robotics"
+          : category === "funding"
+            ? "Funding"
+            : "Models";
+    const historyItems = [
+      {
+        ...localItem,
+        id: "read-agent-one",
+        category: "agent_product",
+        entities: ["Agents"],
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+      {
+        ...localItem,
+        id: "read-agent-two",
+        category: "agent_product",
+        entities: ["Agents", "Anthropic"],
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const items = [
+      {
+        ...localItem,
+        id: "learning-explore",
+        category: "robotics",
+        entities: ["Figure"],
+        matchedSignals: ["exploration"],
+        personalizedScore: 119,
+        sourceName: "Robotics Desk",
+        sourceScore: 92,
+        sourceSlug: "robotics-desk",
+        title: "Robotics agent startup tests the explore lane",
+        trendScore: 90,
+      },
+    ];
+    const negativeFeedbackItems = [
+      {
+        ...olderItem,
+        id: "less-funding",
+        category: "funding",
+        entities: ["YC"],
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+      },
+    ];
+    const savedItems = [
+      {
+        ...localItem,
+        id: "saved-model",
+        entities: ["OpenAI", "GPT-6"],
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+      },
+    ];
+    const loop = getNewsReaderLearningLoop({
+      formatCategory,
+      historyItems,
+      items,
+      negativeFeedbackItems,
+      profile: localProfile,
+      savedItems,
+    });
+    const reinforceAction = loop.actions.find(
+      (action) => action.key === "reinforce",
+    );
+    const exploreAction = loop.actions.find(
+      (action) => action.key === "explore",
+    );
+    const dampenAction = loop.actions.find((action) => action.key === "dampen");
+    const balanceAction = loop.actions.find(
+      (action) => action.key === "balance",
+    );
+
+    if (!reinforceAction || !exploreAction || !dampenAction || !balanceAction) {
+      throw new Error("Expected trainable reader learning loop actions");
+    }
+
+    expect(
+      getNewsReaderLearningLoopTrainingAction({
+        action: reinforceAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Reinforce topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderLearningLoopTrainingAction({
+        action: exploreAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Robotics",
+      signals: [
+        {
+          kind: "category",
+          label: "Robotics",
+          signal: "robotics",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderLearningLoopTrainingAction({
+        action: dampenAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderLearningLoopTrainingAction({
+        action: balanceAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        savedItems,
+      }),
+    ).toBeNull();
   });
 
   it("feeds shares and source clicks into the learning loop", () => {
@@ -7662,6 +10298,8 @@ describe("getNewsReaderMemoryResetTrainingUpdate", () => {
         { label: "Profile", value: "Default" },
         { label: "Saved", value: "Cleared" },
         { label: "History", value: "Cleared" },
+        { label: "Positive", value: "Cleared" },
+        { label: "Search", value: "Cleared" },
         { label: "Guardrails", value: "Cleared" },
       ],
       notices: [
@@ -7677,7 +10315,7 @@ describe("getNewsReaderMemoryResetTrainingUpdate", () => {
         { label: "Entities", value: "No saved entities" },
       ],
       summary:
-        "Reader memory was reset across profile, saved stories, reading history, and feedback guardrails.",
+        "Reader memory was reset across profile, saved stories, reading history, positive feedback, search intent, and feedback guardrails.",
     });
   });
 
@@ -7690,6 +10328,8 @@ describe("getNewsReaderMemoryResetTrainingUpdate", () => {
         { label: "Profile", value: "Default" },
         { label: "Saved", value: "Not synced" },
         { label: "History", value: "Not synced" },
+        { label: "Positive", value: "Local only" },
+        { label: "Search", value: "Local only" },
         { label: "Guardrails", value: "Local only" },
       ],
       notices: [
@@ -7705,7 +10345,7 @@ describe("getNewsReaderMemoryResetTrainingUpdate", () => {
         { label: "Entities", value: "No local entities" },
       ],
       summary:
-        "Local reader memory was reset; persisted saved stories, reading history, and feedback guardrails were not contacted.",
+        "Local reader memory was reset; persisted saved stories, reading history, positive feedback, search intent, and feedback guardrails were not contacted.",
     });
   });
 });
@@ -7945,7 +10585,7 @@ describe("getNewsPreferenceStarter", () => {
               label: "prompt injection",
               reason:
                 "2 stories from 2 sources carry the prompt injection angle.",
-              signal: "prompt_injection",
+              signal: "prompt injection",
             },
             {
               actionLabel: "Follow angle",
@@ -7967,6 +10607,42 @@ describe("getNewsPreferenceStarter", () => {
       ],
       summary:
         "2 preference starters can seed the For You model from 2 ranked stories.",
+    });
+  });
+
+  it("does not suggest angle starters already covered by readable profile labels", () => {
+    expect(
+      getNewsPreferenceStarter({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            matchedSignals: [],
+            personalizedScore: 126,
+            sourceSlug: "openai-news",
+            tags: ["prompt_injection"],
+            trendScore: 90,
+          },
+        ],
+        profile: {
+          preferredCategories: [localItem.category],
+          preferredSources: ["openai-news"],
+          preferredEntities: ["OpenAI", "prompt injection"],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      }),
+    ).toMatchObject({
+      groups: [],
+      label: "Profile Covered",
+      metrics: [
+        { label: "Suggestions", value: "0" },
+        { label: "New topics", value: "0" },
+        { label: "New sources", value: "0" },
+        { label: "New entities", value: "0" },
+        { label: "New angles", value: "0" },
+      ],
     });
   });
 });
@@ -8193,70 +10869,70 @@ describe("getNewsPreferenceCoverageDebt", () => {
 
 describe("getNewsPreferenceDecayQueue", () => {
   it("separates stale profile signals from recently reinforced signals", () => {
-    expect(
-      getNewsPreferenceDecayQueue({
-        formatCategory: (category) =>
-          category === "model_release"
-            ? "Models"
-            : category === "agent_product"
-              ? "Agents"
-              : category,
-        generatedAt: "2026-07-05T00:00:00.000Z",
-        historyItems: [
-          {
-            ...localItem,
-            category: "model_release",
-            entities: ["OpenAI"],
-            id: "old-model-read",
-            sourceName: "Model Desk",
-            sourceSlug: "model-desk",
-            viewedAt: "2026-05-01T00:00:00.000Z",
-          },
-          {
-            ...localItem,
-            category: "agent_product",
-            entities: ["OpenAI"],
-            id: "recent-agent-read",
-            sourceName: "Agent Desk",
-            sourceSlug: "agent-desk",
-            viewedAt: "2026-07-03T00:00:00.000Z",
-          },
-        ],
-        items: [
-          {
-            ...localItem,
-            category: "model_release",
-            entities: ["OpenAI"],
-            id: "ranked-model-story",
-            matchedSignals: ["category", "source", "entity"],
-            personalizedScore: 160,
-            sourceName: "Model Desk",
-            sourceSlug: "model-desk",
-          },
-          {
-            ...serverItem,
-            category: "agent_product",
-            entities: ["OpenAI"],
-            id: "ranked-agent-story",
-            matchedSignals: ["category", "entity"],
-            personalizedScore: 142,
-            sourceName: "Agent Desk",
-            sourceSlug: "agent-desk",
-          },
-        ],
-        limit: 2,
-        negativeFeedbackItems: [],
-        positiveFeedbackItems: [],
-        profile: {
-          preferredCategories: ["model_release", "agent_product"],
-          preferredEntities: ["OpenAI"],
-          preferredSources: ["model-desk"],
-          noveltyBias: 1,
-          recencyBias: 1,
+    const decayQueue = getNewsPreferenceDecayQueue({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "agent_product"
+            ? "Agents"
+            : category,
+      generatedAt: "2026-07-05T00:00:00.000Z",
+      historyItems: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "old-model-read",
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          viewedAt: "2026-05-01T00:00:00.000Z",
         },
-        savedItems: [],
-      }),
-    ).toEqual({
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["OpenAI"],
+          id: "recent-agent-read",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          viewedAt: "2026-07-03T00:00:00.000Z",
+        },
+      ],
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "ranked-model-story",
+          matchedSignals: ["category", "source", "entity"],
+          personalizedScore: 160,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        {
+          ...serverItem,
+          category: "agent_product",
+          entities: ["OpenAI"],
+          id: "ranked-agent-story",
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 142,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release", "agent_product"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: ["model-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    expect(decayQueue).toEqual({
       decays: [
         {
           actionLabel: "Cool topic weight",
@@ -8306,6 +10982,72 @@ describe("getNewsPreferenceDecayQueue", () => {
       ],
       summary:
         "2 profile signals need cooling, while 2 recent signals stay warm.",
+    });
+  });
+
+  it("turns stale decay entries into profile removal actions", async () => {
+    const decayQueue = getNewsPreferenceDecayQueue({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      generatedAt: "2026-07-05T00:00:00.000Z",
+      historyItems: [
+        {
+          ...localItem,
+          category: "model_release",
+          id: "old-model-read",
+          viewedAt: "2026-05-01T00:00:00.000Z",
+        },
+      ],
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          id: "ranked-model-story",
+          matchedSignals: ["category"],
+          personalizedScore: 160,
+        },
+      ],
+      limit: 1,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredEntities: [],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+    type DecayEntry = (typeof decayQueue.decays)[number];
+    const [decayEntry] = decayQueue.decays;
+    const actionFactory = Reflect.get(
+      await import("./news-home-model"),
+      "getNewsPreferenceDecayTrainingAction",
+    ) as ((entry: DecayEntry) => unknown) | undefined;
+
+    expect(decayEntry).toMatchObject({
+      actionLabel: "Cool topic weight",
+      kind: "category",
+      label: "Models",
+      signal: "model_release",
+      statusLabel: "Stale",
+    });
+    expect(actionFactory).toBeTypeOf("function");
+    if (!decayEntry || !actionFactory) return;
+
+    expect(actionFactory(decayEntry)).toEqual({
+      actionLabel: "Cool topic weight",
+      effect: "remove",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -8367,6 +11109,9 @@ describe("NewsHome preference decay queue placement", () => {
     expect(source).toContain("getNewsPreferenceDecayQueue({");
     expect(source).toContain("Preference Decay Queue");
     expect(source).toContain("preferenceDecayQueue.decays.map");
+    expect(source).toContain("getNewsPreferenceDecayTrainingAction");
+    expect(source).toContain("applyPreferenceDecayAction");
+    expect(source).toContain("decayAction.actionLabel");
   });
 });
 
@@ -8500,7 +11245,7 @@ describe("getNewsPreferenceProfileTrainingUpdate", () => {
         {
           kind: "tag" as const,
           label: "prompt injection",
-          signal: "prompt_injection",
+          signal: "prompt injection",
         },
       ],
       source: "starter" as const,
@@ -8515,7 +11260,7 @@ describe("getNewsPreferenceProfileTrainingUpdate", () => {
     const afterProfile = {
       preferredCategories: [],
       preferredSources: [],
-      preferredEntities: ["prompt_injection"],
+      preferredEntities: ["prompt injection"],
       noveltyBias: 1,
       recencyBias: 1,
     };
@@ -8542,6 +11287,20 @@ describe("getNewsPreferenceProfileTrainingUpdate", () => {
     expect(
       getNewsPreferenceProfileUndoTrainingUpdate({
         action,
+        afterProfile,
+        beforeProfile,
+      }).metrics,
+    ).toEqual([
+      { label: "Signals", value: "1" },
+      { label: "Topics", value: "0" },
+      { label: "Sources", value: "0" },
+      { label: "Entities", value: "0" },
+      { label: "Angles", value: "1" },
+    ]);
+
+    expect(
+      getNewsPreferenceProfileUndoTrainingUpdate({
+        action,
         afterProfile: beforeProfile,
         beforeProfile: afterProfile,
       }),
@@ -8552,6 +11311,7 @@ describe("getNewsPreferenceProfileTrainingUpdate", () => {
         { label: "Topics", value: "0" },
         { label: "Sources", value: "0" },
         { label: "Entities", value: "0" },
+        { label: "Angles", value: "0" },
       ],
       notices: [
         {
@@ -10986,12 +13746,14 @@ describe("getNewsInterestGraph", () => {
               activeSignal: true,
               label: "Models",
               score: 63,
+              signal: "model_release",
               storyCount: 1,
             },
             {
               activeSignal: true,
               label: "Funding",
               score: 62,
+              signal: "funding",
               storyCount: 1,
             },
           ],
@@ -11004,12 +13766,14 @@ describe("getNewsInterestGraph", () => {
               activeSignal: true,
               label: "OpenAI",
               score: 76,
+              signal: "OpenAI",
               storyCount: 2,
             },
             {
               activeSignal: true,
               label: "Agents",
               score: 74,
+              signal: "Agents",
               storyCount: 2,
             },
           ],
@@ -11022,12 +13786,14 @@ describe("getNewsInterestGraph", () => {
               activeSignal: true,
               label: "OpenAI News",
               score: 56,
+              signal: "openai-news",
               storyCount: 1,
             },
             {
               activeSignal: false,
               label: "VentureWire",
               score: 18,
+              signal: "venturewire",
               storyCount: 1,
             },
           ],
@@ -11040,12 +13806,14 @@ describe("getNewsInterestGraph", () => {
               activeSignal: false,
               label: "agent memory",
               score: 36,
+              signal: "agent memory",
               storyCount: 2,
             },
             {
               activeSignal: false,
               label: "seed round",
               score: 18,
+              signal: "seed round",
               storyCount: 1,
             },
           ],
@@ -11123,6 +13891,7 @@ describe("getNewsInterestGraph", () => {
             activeSignal: true,
             label: "Security",
             score: 85,
+            signal: "security",
             storyCount: 2,
           },
         ],
@@ -11135,18 +13904,21 @@ describe("getNewsInterestGraph", () => {
             activeSignal: true,
             label: "OpenAI",
             score: 58,
+            signal: "OpenAI",
             storyCount: 1,
           },
           {
             activeSignal: false,
             label: "Agent Security",
             score: 20,
+            signal: "Agent Security",
             storyCount: 1,
           },
           {
             activeSignal: false,
             label: "Browser Agents",
             score: 18,
+            signal: "Browser Agents",
             storyCount: 1,
           },
         ],
@@ -11159,12 +13931,14 @@ describe("getNewsInterestGraph", () => {
             activeSignal: false,
             label: "Security Desk",
             score: 21,
+            signal: "security-desk",
             storyCount: 1,
           },
           {
             activeSignal: false,
             label: "Research Wire",
             score: 19,
+            signal: "research-wire",
             storyCount: 1,
           },
         ],
@@ -11177,23 +13951,122 @@ describe("getNewsInterestGraph", () => {
             activeSignal: true,
             label: "prompt injection",
             score: 76,
+            signal: "prompt injection",
             storyCount: 2,
           },
           {
             activeSignal: false,
             label: "red team",
             score: 20,
+            signal: "red team",
             storyCount: 1,
           },
           {
             activeSignal: false,
             label: "mitigation",
             score: 18,
+            signal: "mitigation",
             storyCount: 1,
           },
         ],
       },
     ]);
+  });
+
+  it("maps interest graph nodes to executable profile updates", () => {
+    const topicAction = getNewsInterestGraphNodeTrainingAction({
+      laneKey: "topics",
+      node: {
+        activeSignal: false,
+        label: "Agents",
+        score: 52,
+        signal: "agent_product",
+        storyCount: 2,
+      },
+    });
+    const entityAction = getNewsInterestGraphNodeTrainingAction({
+      laneKey: "entities",
+      node: {
+        activeSignal: true,
+        label: "OpenAI",
+        score: 76,
+        signal: "OpenAI",
+        storyCount: 2,
+      },
+    });
+    const sourceAction = getNewsInterestGraphNodeTrainingAction({
+      laneKey: "sources",
+      node: {
+        activeSignal: false,
+        label: "OpenAI News",
+        score: 56,
+        signal: "openai-news",
+        storyCount: 1,
+      },
+    });
+    const angleAction = getNewsInterestGraphNodeTrainingAction({
+      laneKey: "angles",
+      node: {
+        activeSignal: false,
+        label: "prompt injection",
+        score: 76,
+        signal: "prompt injection",
+        storyCount: 2,
+      },
+    });
+
+    expect(topicAction).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(entityAction).toEqual({
+      actionLabel: "Remove entity",
+      effect: "remove",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(sourceAction).toEqual({
+      actionLabel: "Follow source",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(angleAction).toEqual({
+      actionLabel: "Follow angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt injection",
+        },
+      ],
+      source: "control",
+    });
   });
 
   it("keeps the cold-start graph empty before preferences or stories exist", () => {
@@ -11353,6 +14226,50 @@ describe("getNewsLiveWire", () => {
     });
   });
 
+  it("does not treat future-dated stories as the latest live wire update", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const liveWire = getNewsLiveWire({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...localItem,
+            id: "future-live-wire",
+            matchedSignals: [],
+            personalizedScore: 100,
+            publishedAt: "2026-08-01T09:00:00.000Z",
+            sourceName: "Future Wire",
+            title: "Future live wire update",
+            trendScore: 80,
+          },
+          {
+            ...serverItem,
+            id: "current-live-wire",
+            matchedSignals: [],
+            personalizedScore: 100,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Current Wire",
+            title: "Current live wire update",
+            trendScore: 80,
+          },
+        ],
+        limit: 2,
+      });
+
+      expect(liveWire.updates[0]?.id).toBe("current-live-wire");
+      expect(
+        liveWire.notices.find((notice) => notice.label === "Latest arrival")
+          ?.detail,
+      ).toBe(
+        "Current live wire update is the newest update from Current Wire.",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("normalizes live wire source and topic variants before summarizing coverage", () => {
     const liveWire = getNewsLiveWire({
       formatCategory: (category) =>
@@ -11419,6 +14336,134 @@ describe("getNewsLiveWire", () => {
       summary: "Live wire will appear as stories load.",
       updates: [],
     });
+  });
+
+  it("turns live heat notices into breaking topic training actions", () => {
+    const items = [
+      {
+        ...localItem,
+        id: "heat-spike",
+        category: "funding",
+        matchedSignals: [],
+        personalizedScore: 117,
+        publishedAt: "2026-07-01T09:30:00.000Z",
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+        title: "Funding heat jumps around AI infra",
+        trendScore: 96,
+      },
+      {
+        ...localItem,
+        id: "explore-update",
+        category: "agent_product",
+        matchedSignals: ["exploration"],
+        personalizedScore: 101,
+        publishedAt: "2026-07-01T10:15:00.000Z",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        title: "A new agent workflow lands outside the profile",
+        trendScore: 84,
+      },
+    ];
+    const liveWire = getNewsLiveWire({
+      formatCategory: (category) =>
+        category === "funding"
+          ? "Funding"
+          : category === "agent_product"
+            ? "Agents"
+            : category,
+      items,
+      limit: 2,
+    });
+
+    expect(
+      getNewsLiveWireTrainingAction({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : category,
+        items,
+        notice: liveWire.notices.find(
+          (notice) => notice.label === "Heat spike",
+        ),
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow breaking topic",
+        effect: "add",
+        label: "Funding",
+        signals: [
+          {
+            kind: "category",
+            label: "Funding",
+            signal: "funding",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+  });
+
+  it("turns latest arrival notices into recency training actions", () => {
+    const items = [
+      {
+        ...localItem,
+        id: "older-model",
+        matchedSignals: ["category"],
+        personalizedScore: 140,
+        publishedAt: "2026-07-01T09:00:00.000Z",
+        title: "Older model update remains relevant",
+      },
+      {
+        ...localItem,
+        id: "latest-agent",
+        category: "agent_product",
+        matchedSignals: ["exploration"],
+        personalizedScore: 101,
+        publishedAt: "2026-07-01T10:15:00.000Z",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        title: "A new agent workflow lands outside the profile",
+        trendScore: 84,
+      },
+    ];
+    const liveWire = getNewsLiveWire({
+      formatCategory: (category) => category,
+      items,
+      limit: 2,
+    });
+
+    expect(
+      getNewsLiveWireTrainingAction({
+        formatCategory: (category) => category,
+        items,
+        notice: liveWire.notices.find(
+          (notice) => notice.label === "Latest arrival",
+        ),
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    });
+  });
+
+  it("keeps cold live-wire notices as non-training state", () => {
+    const liveWire = getNewsLiveWire({
+      formatCategory: (category) => category,
+      items: [],
+      limit: 3,
+    });
+
+    expect(
+      getNewsLiveWireTrainingAction({
+        formatCategory: (category) => category,
+        items: [],
+        notice: liveWire.notices[0],
+      }),
+    ).toBeNull();
   });
 
   it("does not label source quota guardrails as For You updates", () => {
@@ -11540,6 +14585,7 @@ describe("getNewsLiveWire", () => {
   it("does not label trust, exposure, or discovery safeguards as For You updates", () => {
     const safeguardSignals = [
       "source_trust",
+      "reading_history_cooldown",
       "home_exposure_cooldown",
       "exposure_cooldown",
       "discovery_slot",
@@ -11575,6 +14621,7 @@ describe("getNewsLiveWire", () => {
       })),
     ).toEqual([
       { id: "source_trust-wire", signal: "Newswire" },
+      { id: "reading_history_cooldown-wire", signal: "Newswire" },
       { id: "home_exposure_cooldown-wire", signal: "Newswire" },
       { id: "exposure_cooldown-wire", signal: "Newswire" },
       { id: "discovery_slot-wire", signal: "Newswire" },
@@ -11963,6 +15010,50 @@ describe("getNewsHotBoard", () => {
       ],
       summary: "Hot board will appear after stories are ranked.",
     });
+  });
+
+  it("does not let future-dated stories win hot-board freshness ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const hotBoard = getNewsHotBoard({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        items: [
+          {
+            ...localItem,
+            id: "future-hot-story",
+            category: "agent_product",
+            matchedSignals: [],
+            personalizedScore: 100,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceScore: 80,
+            title: "Future-dated hot story should wait",
+            trendScore: 90,
+          },
+          {
+            ...localItem,
+            id: "current-hot-story",
+            category: "agent_product",
+            matchedSignals: [],
+            personalizedScore: 100,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceScore: 80,
+            title: "Current hot story should rank first",
+            trendScore: 90,
+          },
+        ],
+        limit: 2,
+      });
+
+      expect(hotBoard.entries.map((entry) => entry.id)).toEqual([
+        "current-hot-story",
+        "future-hot-story",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("does not treat source quota guardrails as reader-matched heat", () => {
@@ -12466,6 +15557,65 @@ describe("getNewsSearchTrends", () => {
     });
   });
 
+  it("does not choose future-dated stories as search trend top stories", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const searchTrends = getNewsSearchTrends({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "future-search-trend",
+            matchedSignals: ["entity"],
+            personalizedScore: 132,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceSlug: "openai-news",
+            title: "Future search trend should wait",
+            trendScore: 88,
+          },
+          {
+            ...serverItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "current-search-trend",
+            matchedSignals: ["entity"],
+            personalizedScore: 132,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Research Wire",
+            sourceSlug: "research-wire",
+            title: "Current search trend should lead",
+            trendScore: 88,
+          },
+        ],
+        limit: 3,
+        profile: {
+          preferredCategories: [],
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+      });
+
+      expect(
+        searchTrends.trends.find((trend) => trend.key === "entity:openai")
+          ?.topStory,
+      ).toEqual({
+        id: "current-search-trend",
+        sourceName: "Research Wire",
+        title: "Current search trend should lead",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not turn Less guardrails into reader search trends", () => {
     expect(
       getNewsSearchTrends({
@@ -12558,6 +15708,118 @@ describe("getNewsSearchTrends", () => {
         sourceName: "Security Desk",
         title: "Prompt injection exploits hit browser agents",
       },
+    });
+  });
+
+  it("turns search trends into durable profile training actions", () => {
+    const trends = getNewsSearchTrends({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          matchedSignals: ["category", "entity", "source", "tag"],
+          personalizedScore: 140,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          tags: ["prompt_injection"],
+          title: "OpenAI prompt injection research drives search interest",
+          trendScore: 92,
+        },
+        {
+          ...serverItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          matchedSignals: ["category", "entity", "tag"],
+          personalizedScore: 130,
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          tags: ["prompt_injection"],
+          title: "Researchers benchmark prompt injection defenses",
+          trendScore: 90,
+        },
+      ],
+      limit: 8,
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: ["openai-news"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+    const topicTrend = trends.trends.find(
+      (trend) => trend.key === "topic:model_release",
+    );
+    const sourceTrend = trends.trends.find(
+      (trend) => trend.key === "source:openai-news",
+    );
+    const entityTrend = trends.trends.find(
+      (trend) => trend.key === "entity:openai",
+    );
+    const angleTrend = trends.trends.find(
+      (trend) => trend.key === "tag:prompt_injection",
+    );
+
+    expect(topicTrend).toBeDefined();
+    expect(sourceTrend).toBeDefined();
+    expect(entityTrend).toBeDefined();
+    expect(angleTrend).toBeDefined();
+    if (!topicTrend || !sourceTrend || !entityTrend || !angleTrend) return;
+
+    expect(getNewsSearchTrendTrainingAction(topicTrend)).toEqual({
+      actionLabel: "Add search trend",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsSearchTrendTrainingAction(sourceTrend)).toEqual({
+      actionLabel: "Add search trend",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsSearchTrendTrainingAction(entityTrend)).toEqual({
+      actionLabel: "Add search trend",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsSearchTrendTrainingAction(angleTrend)).toEqual({
+      actionLabel: "Add search trend",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -12708,19 +15970,23 @@ describe("getNewsSearchCandidateRail", () => {
   });
 
   it("turns live search candidates into distinct story leads", () => {
+    const personalizedSearchLead: RankedNewsItem<NewsHomeItem> = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI", "GPT-6"],
+      matchedSignals: ["category", "entity"],
+      personalizedScore: 146,
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      tags: ["frontier_model"],
+      title: "OpenAI GPT-6 rollout moves into search previews",
+      trendScore: 94,
+    };
+
     expect(
       getNewsSearchCandidateRail({
         candidates: [
-          {
-            ...localItem,
-            category: "model_release",
-            entities: ["OpenAI", "GPT-6"],
-            sourceName: "OpenAI News",
-            sourceSlug: "openai-news",
-            tags: ["frontier_model"],
-            title: "OpenAI GPT-6 rollout moves into search previews",
-            trendScore: 94,
-          },
+          personalizedSearchLead,
           {
             ...serverItem,
             category: "model_release",
@@ -12764,6 +16030,7 @@ describe("getNewsSearchCandidateRail", () => {
           categoryLabel: "Models",
           id: "local-story",
           query: "gpt-6",
+          reasonLabel: "Reader profile match",
           sourceName: "OpenAI News",
           title: "OpenAI GPT-6 rollout moves into search previews",
           topicLabel: "OpenAI / GPT-6",
@@ -12772,12 +16039,50 @@ describe("getNewsSearchCandidateRail", () => {
           categoryLabel: "Research",
           id: "anthropic-search-lead",
           query: "gpt-6",
+          reasonLabel: "Market heat",
           sourceName: "Research Wire",
           title: "Anthropic benchmark draws live search demand",
           topicLabel: "Anthropic / benchmark",
         },
       ],
     });
+  });
+
+  it("does not rank future-dated stories first in live search leads", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNewsSearchCandidateRail({
+          candidates: [
+            {
+              ...localItem,
+              id: "future-search-lead",
+              publishedAt: "2026-08-01T09:00:00.000Z",
+              sourceName: "Future Wire",
+              sourceSlug: "future-wire",
+              title: "Future search lead should wait",
+              trendScore: 90,
+            },
+            {
+              ...serverItem,
+              id: "current-search-lead",
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              sourceName: "Current Wire",
+              sourceSlug: "current-wire",
+              title: "Current search lead should rank first",
+              trendScore: 90,
+            },
+          ],
+          formatCategory: (category) => category,
+          limit: 2,
+          query: "search lead",
+        }).leads.map((lead) => lead.id),
+      ).toEqual(["current-search-lead", "future-search-lead"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps the live search rail idle until the reader types a query", () => {
@@ -12881,6 +16186,113 @@ describe("getNewsTopicPulse", () => {
         storyCount: 2,
       },
     ]);
+  });
+
+  it("does not use future-dated stories as a topic pulse latest timestamp", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNewsTopicPulse({
+          items: [
+            {
+              ...localItem,
+              id: "pulse-current-story",
+              category: "model_release",
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              trendScore: 90,
+            },
+            {
+              ...serverItem,
+              id: "pulse-future-story",
+              category: "model_release",
+              publishedAt: "2026-08-01T09:00:00.000Z",
+              trendScore: 84,
+            },
+          ],
+          limit: 1,
+        })[0]?.latestPublishedAt,
+      ).toBe("2026-07-01T09:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("maps topic pulses to executable category training actions", async () => {
+    const modelModule = await import("./news-home-model");
+    const getTopicPulseAction = (
+      modelModule as {
+        getNewsTopicPulseTrainingAction?: (input: {
+          formatCategory: (category: string) => string;
+          profile: ReturnType<typeof createDefaultNewsPreferenceProfile>;
+          pulse: ReturnType<typeof getNewsTopicPulse>[number];
+        }) => NewsPreferenceProfileTrainingAction;
+      }
+    ).getNewsTopicPulseTrainingAction;
+    const [pulse] = getNewsTopicPulse({
+      items: [
+        localItem,
+        {
+          ...localItem,
+          id: "model-follow-up",
+          trendScore: 92,
+        },
+      ],
+      limit: 1,
+    });
+
+    expect(getTopicPulseAction).toEqual(expect.any(Function));
+    if (!getTopicPulseAction || !pulse) {
+      throw new Error("Expected topic pulse training action inputs to exist.");
+    }
+
+    expect(
+      getTopicPulseAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        profile: {
+          ...createDefaultNewsPreferenceProfile(),
+          preferredCategories: [],
+        },
+        pulse,
+      }),
+    ).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getTopicPulseAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        profile: {
+          ...createDefaultNewsPreferenceProfile(),
+          preferredCategories: ["model_release"],
+        },
+        pulse,
+      }),
+    ).toEqual({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
   });
 
   it("returns no topic pulses for an empty edition", () => {
@@ -13060,6 +16472,110 @@ describe("getNewsTopicMatchMatrix", () => {
     });
   });
 
+  it("maps topic match rows to executable profile actions", () => {
+    const followAction = getNewsTopicMatchTrainingAction({
+      row: {
+        category: "model_release",
+        heatLabel: "80 heat",
+        label: "Models",
+        lead: null,
+        mode: "Follow",
+        readerLabel: "2 signals",
+        reason: "Reader signal and enough heat.",
+        storyCount: 1,
+      },
+    });
+    const exploreAction = getNewsTopicMatchTrainingAction({
+      row: {
+        category: "funding",
+        heatLabel: "97 heat",
+        label: "Funding",
+        lead: null,
+        mode: "Explore",
+        readerLabel: "0 signals",
+        reason: "High heat outside the current profile.",
+        storyCount: 1,
+      },
+    });
+    const watchAction = getNewsTopicMatchTrainingAction({
+      row: {
+        category: "research",
+        heatLabel: "91 heat",
+        label: "Research",
+        lead: null,
+        mode: "Watch",
+        readerLabel: "0 signals",
+        reason: "High heat without a reader signal yet.",
+        storyCount: 1,
+      },
+    });
+    const cooldownAction = getNewsTopicMatchTrainingAction({
+      row: {
+        category: "agent_product",
+        heatLabel: "60 heat",
+        label: "Agents",
+        lead: null,
+        mode: "Cooldown",
+        readerLabel: "1 signal",
+        reason: "Reader signal is present, but heat is lower right now.",
+        storyCount: 1,
+      },
+    });
+
+    expect(followAction).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(exploreAction).toEqual({
+      actionLabel: "Explore topic",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(watchAction).toEqual({
+      actionLabel: "Watch topic",
+      effect: "add",
+      label: "Research",
+      signals: [
+        {
+          kind: "category",
+          label: "Research",
+          signal: "research",
+        },
+      ],
+      source: "control",
+    });
+    expect(cooldownAction).toEqual({
+      actionLabel: "Cool down topic",
+      effect: "remove",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("returns a stable empty matrix before stories load", () => {
     expect(
       getNewsTopicMatchMatrix({
@@ -13141,12 +16657,14 @@ describe("getNewsEditionBriefing", () => {
         {
           entity: "OpenAI",
           heatScore: 161,
+          signal: "openai",
           sourceCount: 2,
           storyCount: 3,
         },
         {
           entity: "Series A",
           heatScore: 122,
+          signal: "series a",
           sourceCount: 1,
           storyCount: 1,
         },
@@ -13235,6 +16753,7 @@ describe("getNewsEditionBriefing", () => {
       {
         entity: "OpenAI",
         heatScore: 133,
+        signal: "openai",
         sourceCount: 1,
         storyCount: 2,
       },
@@ -13270,6 +16789,123 @@ describe("getNewsEditionBriefing", () => {
 });
 
 describe("getNewsBriefingPack", () => {
+  it("turns briefing slots into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          funding: "Funding",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+
+    expect(
+      getNewsBriefingPackTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["source"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        slotLabel: "Lead",
+      }),
+    ).toEqual({
+      actionLabel: "Train lead brief",
+      effect: "add",
+      label: "Model Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Model Desk",
+          signal: "model-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsBriefingPackTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "funding",
+          entities: ["YC"],
+          matchedSignals: [],
+          sourceName: "Launch Feed",
+          sourceSlug: "launch-feed",
+        },
+        slotLabel: "Latest",
+      }),
+    ).toEqual({
+      actionLabel: "Train latest brief",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsBriefingPackTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: ["Anthropic", "Claude"],
+          matchedSignals: [],
+          sourceName: "Heat Wire",
+          sourceSlug: "heat-wire",
+        },
+        slotLabel: "Heat",
+      }),
+    ).toEqual({
+      actionLabel: "Train heat brief",
+      effect: "add",
+      label: "Anthropic",
+      signals: [
+        {
+          kind: "entity",
+          label: "Anthropic",
+          signal: "Anthropic",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsBriefingPackTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agent Startups"],
+          matchedSignals: ["exploration"],
+          sourceName: "Agent Scout",
+          sourceSlug: "agent-scout",
+        },
+        slotLabel: "Explore",
+      }),
+    ).toEqual({
+      actionLabel: "Train explore brief",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("packages the ranked edition into lead, latest, heat, and exploration slots", () => {
     expect(
       getNewsBriefingPack({
@@ -13383,6 +17019,58 @@ describe("getNewsBriefingPack", () => {
     });
   });
 
+  it("does not select a future-dated story for the Latest briefing slot", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const pack = getNewsBriefingPack({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...olderItem,
+            id: "lead-story",
+            matchedSignals: ["category"],
+            personalizedScore: 160,
+            publishedAt: "2026-06-30T08:00:00.000Z",
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Personalized model story leads the pack",
+            trendScore: 72,
+          },
+          {
+            ...localItem,
+            id: "current-latest-story",
+            matchedSignals: [],
+            personalizedScore: 105,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Launch Feed",
+            sourceSlug: "launch-feed",
+            title: "Current launch reaches the wire",
+            trendScore: 65,
+          },
+          {
+            ...serverItem,
+            id: "future-latest-story",
+            matchedSignals: [],
+            personalizedScore: 105,
+            publishedAt: "2026-08-01T09:00:00.000Z",
+            sourceName: "Future Wire",
+            sourceSlug: "future-wire",
+            title: "Future scheduled story should wait",
+            trendScore: 65,
+          },
+        ],
+      });
+
+      expect(pack.slots.find((slot) => slot.label === "Latest")?.id).toBe(
+        "current-latest-story",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns a stable empty briefing pack before stories load", () => {
     expect(
       getNewsBriefingPack({
@@ -13403,6 +17091,123 @@ describe("getNewsBriefingPack", () => {
 });
 
 describe("getNewsFrontPageLayout", () => {
+  it("turns front-page sections into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          funding: "Funding",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+
+    expect(
+      getNewsFrontPageLayoutTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["source"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        sectionLabel: "A1 Lead",
+      }),
+    ).toEqual({
+      actionLabel: "Train A1 signal",
+      effect: "add",
+      label: "Model Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Model Desk",
+          signal: "model-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsFrontPageLayoutTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: ["OpenAI", "Evaluation"],
+          matchedSignals: ["entity"],
+          sourceName: "Research Review",
+          sourceSlug: "research-review",
+        },
+        sectionLabel: "Analysis",
+      }),
+    ).toEqual({
+      actionLabel: "Train analysis signal",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsFrontPageLayoutTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "funding",
+          entities: ["Series B"],
+          matchedSignals: [],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+        sectionLabel: "Brief",
+      }),
+    ).toEqual({
+      actionLabel: "Train brief signal",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsFrontPageLayoutTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agent Startups"],
+          matchedSignals: ["exploration"],
+          sourceName: "Agent Scout",
+          sourceSlug: "agent-scout",
+        },
+        sectionLabel: "Watch",
+      }),
+    ).toEqual({
+      actionLabel: "Train watch signal",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("composes ranked AI stories into an A1-style front page layout", () => {
     expect(
       getNewsFrontPageLayout({
@@ -13545,6 +17350,123 @@ describe("getNewsFrontPageLayout", () => {
 });
 
 describe("getNewsFrontPageSlotMix", () => {
+  it("turns slot mix stories into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          funding: "Funding",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+
+    expect(
+      getNewsFrontPageSlotMixTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["source"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        slotKey: "lead",
+      }),
+    ).toEqual({
+      actionLabel: "Train lead slot",
+      effect: "add",
+      label: "Model Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Model Desk",
+          signal: "model-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsFrontPageSlotMixTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: ["OpenAI", "Evaluation"],
+          matchedSignals: [],
+          sourceName: "Research Review",
+          sourceSlug: "research-review",
+        },
+        slotKey: "follow_up",
+      }),
+    ).toEqual({
+      actionLabel: "Train follow-up slot",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsFrontPageSlotMixTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agent Startups"],
+          matchedSignals: ["exploration"],
+          sourceName: "Agent Scout",
+          sourceSlug: "agent-scout",
+        },
+        slotKey: "explore",
+      }),
+    ).toEqual({
+      actionLabel: "Train explore slot",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsFrontPageSlotMixTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "funding",
+          entities: ["Series A"],
+          matchedSignals: [],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+        slotKey: "cooldown",
+      }),
+    ).toEqual({
+      actionLabel: "Train cooldown slot",
+      effect: "add",
+      label: "VentureWire",
+      signals: [
+        {
+          kind: "source",
+          label: "VentureWire",
+          signal: "venturewire",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("assigns ranked stories to recommendation slots for the front page", () => {
     expect(
       getNewsFrontPageSlotMix({
@@ -13995,6 +17917,45 @@ describe("getNewsSectionFronts", () => {
         ],
       },
     ]);
+  });
+
+  it("does not use future-dated stories as a section front latest timestamp", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNewsSectionFronts({
+          formatCategory: (category) => category,
+          items: [
+            {
+              ...localItem,
+              id: "section-current-story",
+              category: "model_release",
+              matchedSignals: ["category"],
+              personalizedScore: 140,
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              title: "Current model section story",
+              trendScore: 90,
+            },
+            {
+              ...serverItem,
+              id: "section-future-story",
+              category: "model_release",
+              matchedSignals: [],
+              personalizedScore: 120,
+              publishedAt: "2026-08-01T09:00:00.000Z",
+              title: "Future model section story",
+              trendScore: 84,
+            },
+          ],
+          limit: 1,
+          storiesPerSection: 2,
+        })[0]?.latestPublishedAt,
+      ).toBe("2026-07-01T09:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns no section fronts when the edition is empty", () => {
@@ -14482,6 +18443,62 @@ describe("getNewsClaimTracker", () => {
       summary: "Claim tracker will appear after story evidence clusters.",
     });
   });
+
+  it("does not let future-dated stories lead claim evidence", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const claimTracker = getNewsClaimTracker({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "future-claim-story",
+            category: "model_release",
+            entities: ["OpenAI", "GPT-6"],
+            matchedSignals: ["entity"],
+            personalizedScore: 142,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Model Desk",
+            sourceScore: 88,
+            sourceSlug: "model-desk",
+            title: "Future claim evidence should wait",
+            trendScore: 84,
+          },
+          {
+            ...serverItem,
+            id: "current-claim-story",
+            category: "model_release",
+            entities: ["OpenAI", "GPT-6"],
+            matchedSignals: ["entity"],
+            personalizedScore: 142,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Research Wire",
+            sourceScore: 88,
+            sourceSlug: "research-wire",
+            title: "Current claim evidence should lead",
+            trendScore: 84,
+          },
+        ],
+        limit: 1,
+        storiesPerClaim: 2,
+      });
+
+      expect(claimTracker.claims[0]?.lead).toEqual({
+        id: "current-claim-story",
+        sourceName: "Research Wire",
+        title: "Current claim evidence should lead",
+      });
+      expect(claimTracker.claims[0]?.evidence.map((item) => item.id)).toEqual([
+        "current-claim-story",
+        "future-claim-story",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("getNewsStoryTimeline", () => {
@@ -14637,6 +18654,49 @@ describe("getNewsStoryTimeline", () => {
       ],
       summary: "Story timeline will appear after ranked stories are available.",
     });
+  });
+
+  it("does not place future-dated stories first in the story timeline", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const timeline = getNewsStoryTimeline({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...localItem,
+            id: "future-timeline-event",
+            matchedSignals: [],
+            personalizedScore: 100,
+            publishedAt: "2026-08-01T09:00:00.000Z",
+            title: "Future timeline event should wait",
+            trendScore: 80,
+          },
+          {
+            ...serverItem,
+            id: "current-timeline-event",
+            matchedSignals: [],
+            personalizedScore: 100,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            title: "Current timeline event leads",
+            trendScore: 80,
+          },
+        ],
+        limit: 2,
+      });
+
+      expect(timeline.events.map((event) => event.id)).toEqual([
+        "current-timeline-event",
+        "future-timeline-event",
+      ]);
+      expect(timeline.metrics).toContainEqual({
+        label: "Latest",
+        value: "Jul 1, 09:00",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("normalizes timeline source and topic variants before summarizing events", () => {
@@ -14898,6 +18958,59 @@ describe("getNewsCoverageThreads", () => {
     );
   });
 
+  it("does not let future-dated stories lead coverage threads", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const coverage = getNewsCoverageThreads({
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            id: "future-coverage-thread",
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceScore: 88,
+            sourceSlug: "openai-news",
+            title: "Future coverage thread should wait",
+            trendScore: 86,
+          },
+          {
+            ...serverItem,
+            entities: ["OpenAI"],
+            id: "current-coverage-thread",
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Research Wire",
+            sourceScore: 88,
+            sourceSlug: "research-wire",
+            title: "Current coverage thread should lead",
+            trendScore: 86,
+          },
+        ],
+        limit: 1,
+        storiesPerThread: 2,
+      });
+
+      expect(coverage.threads[0]?.lead).toEqual({
+        category: "model_release",
+        id: "current-coverage-thread",
+        personalizedScore: 130,
+        sourceName: "Research Wire",
+        title: "Current coverage thread should lead",
+      });
+      expect(
+        coverage.threads[0]?.supportingStories.map((story) => story.id),
+      ).toEqual(["future-coverage-thread"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns an empty coverage state when no entity repeats", () => {
     expect(
       getNewsCoverageThreads({
@@ -15057,6 +19170,61 @@ describe("getNewsConsensusBoard", () => {
       summary: "Consensus board will appear as stories cluster.",
       threads: [],
     });
+  });
+
+  it("does not let future-dated stories lead consensus threads", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const consensus = getNewsConsensusBoard({
+        items: [
+          {
+            ...localItem,
+            entities: ["OpenAI"],
+            id: "future-consensus-story",
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "OpenAI News",
+            sourceScore: 88,
+            sourceSlug: "openai-news",
+            title: "Future consensus story should wait",
+            trendScore: 86,
+          },
+          {
+            ...serverItem,
+            entities: ["OpenAI"],
+            id: "current-consensus-story",
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Research Wire",
+            sourceScore: 88,
+            sourceSlug: "research-wire",
+            title: "Current consensus story should lead",
+            trendScore: 86,
+          },
+        ],
+        limit: 1,
+        storiesPerThread: 2,
+      });
+
+      expect(consensus.threads[0]?.stories).toEqual([
+        {
+          id: "current-consensus-story",
+          sourceName: "Research Wire",
+          title: "Current consensus story should lead",
+        },
+        {
+          id: "future-consensus-story",
+          sourceName: "OpenAI News",
+          title: "Future consensus story should wait",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("normalizes source variants before labeling consensus threads", () => {
@@ -15249,6 +19417,74 @@ describe("getNewsPersonalizedReadingQueue", () => {
         title: "Agent planner tools pick up from saved coverage",
       },
     });
+  });
+
+  it("does not let future-dated stories win reading queue follow-up ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const queue = getNewsPersonalizedReadingQueue({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        historyItems: [
+          {
+            ...localItem,
+            id: "read-openai-queue",
+            category: "model_release",
+            entities: ["OpenAI"],
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Read OpenAI queue story",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "queue-lead",
+            category: "model_release",
+            entities: ["Anthropic"],
+            matchedSignals: ["category"],
+            personalizedScore: 180,
+            title: "Lead story starts the queue",
+            trendScore: 95,
+          },
+          {
+            ...serverItem,
+            id: "future-queue-follow",
+            category: "funding",
+            entities: ["OpenAI"],
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Future Queue",
+            sourceSlug: "future-queue",
+            title: "Future queue follow-up should wait",
+          },
+          {
+            ...olderItem,
+            id: "current-queue-follow",
+            category: "funding",
+            entities: ["OpenAI"],
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Current Queue",
+            sourceSlug: "current-queue",
+            title: "Current queue follow-up should lead",
+          },
+        ],
+      });
+
+      expect(queue.slots[1]?.story).toEqual({
+        id: "current-queue-follow",
+        personalizedScore: 130,
+        sourceName: "Current Queue",
+        title: "Current queue follow-up should lead",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses shares and source clicks as reading queue follow-up anchors", () => {
@@ -15582,6 +19818,131 @@ describe("getNewsPersonalizedReadingQueue", () => {
       summary: "Queue will appear as stories load.",
     });
   });
+
+  it("turns reading queue intents into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          funding: "Funding",
+          model_release: "Models",
+          open_source: "Open Source",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const leadItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "reading-action-lead",
+      matchedSignals: ["source"],
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+    };
+    const followItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "reading-action-follow",
+      matchedSignals: [],
+      sourceName: "Agent Desk",
+      sourceSlug: "agent-desk",
+    };
+    const deepDiveItem = {
+      ...olderItem,
+      category: "research",
+      entities: ["Anthropic"],
+      id: "reading-action-deep",
+      matchedSignals: [],
+      sourceName: "Research Review",
+      sourceSlug: "research-review",
+    };
+    const exploreItem = {
+      ...serverItem,
+      category: "open_source",
+      entities: ["Mistral"],
+      id: "reading-action-explore",
+      matchedSignals: ["exploration"],
+      sourceName: "Open Source Desk",
+      sourceSlug: "open-source-desk",
+    };
+
+    expect(
+      getNewsPersonalizedReadingQueueTrainingAction({
+        formatCategory,
+        intent: "Fast Brief",
+        item: leadItem,
+      }),
+    ).toEqual({
+      actionLabel: "Train lead signal",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsPersonalizedReadingQueueTrainingAction({
+        formatCategory,
+        intent: "Follow Interest",
+        item: followItem,
+      }),
+    ).toEqual({
+      actionLabel: "Train follow-up signal",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsPersonalizedReadingQueueTrainingAction({
+        formatCategory,
+        intent: "Deep Dive",
+        item: deepDiveItem,
+      }),
+    ).toEqual({
+      actionLabel: "Train deep-dive source",
+      effect: "add",
+      label: "Research Review",
+      signals: [
+        {
+          kind: "source",
+          label: "Research Review",
+          signal: "research-review",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsPersonalizedReadingQueueTrainingAction({
+        formatCategory,
+        intent: "Explore",
+        item: exploreItem,
+      }),
+    ).toEqual({
+      actionLabel: "Train explore reading signal",
+      effect: "add",
+      label: "Open Source",
+      signals: [
+        {
+          kind: "category",
+          label: "Open Source",
+          signal: "open_source",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("getNewsMissedCoverageShelf", () => {
@@ -15779,6 +20140,60 @@ describe("getNewsMissedCoverageShelf", () => {
     });
   });
 
+  it("does not let future-dated stories win missed-coverage ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const shelf = getNewsMissedCoverageShelf({
+        frontPageCount: 1,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            id: "front-lead",
+            entities: ["OpenAI"],
+            matchedSignals: ["category"],
+            personalizedScore: 180,
+            trendScore: 95,
+          },
+          {
+            ...serverItem,
+            id: "future-missed-story",
+            entities: ["Anthropic"],
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Research Wire",
+            sourceScore: 90,
+            title: "Future missed story should wait",
+            trendScore: 90,
+          },
+          {
+            ...olderItem,
+            id: "current-missed-story",
+            entities: ["Mistral"],
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Open Source Desk",
+            sourceScore: 90,
+            title: "Current missed story should lead",
+            trendScore: 90,
+          },
+        ],
+        limit: 2,
+      });
+
+      expect(shelf.stories.map((story) => story.id)).toEqual([
+        "current-missed-story",
+        "future-missed-story",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not resurface tail stories rejected by similar readers", () => {
     expect(
       getNewsMissedCoverageShelf({
@@ -15969,6 +20384,93 @@ describe("getNewsMissedCoverageShelf", () => {
 });
 
 describe("getNewsContinuationRail", () => {
+  it("turns continuation follow-ups into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+
+    expect(
+      getNewsContinuationRailTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["OpenAI", "Agents"],
+          matchedSignals: ["entity"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Train continuation signal",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsContinuationRailTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "model_release",
+          entities: [],
+          matchedSignals: ["source"],
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Train continuation signal",
+      effect: "add",
+      label: "Research Wire",
+      signals: [
+        {
+          kind: "source",
+          label: "Research Wire",
+          signal: "research-wire",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsContinuationRailTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: [],
+          matchedSignals: [],
+          sourceName: "Model Lab",
+          sourceSlug: "model-lab",
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Train continuation signal",
+      effect: "add",
+      label: "Research",
+      signals: [
+        {
+          kind: "category",
+          label: "Research",
+          signal: "research",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps a counterpoint follow-up when one read entity would fill the rail", () => {
     expect(
       getNewsContinuationRail({
@@ -16167,6 +20669,63 @@ describe("getNewsContinuationRail", () => {
       summary:
         "2 follow-ups continue your latest read: Read OpenAI agent story.",
     });
+  });
+
+  it("does not let future-dated stories win continuation follow-up ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const rail = getNewsContinuationRail({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        historyItems: [
+          {
+            ...localItem,
+            id: "read-openai-model",
+            category: "model_release",
+            entities: ["OpenAI"],
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            title: "Read OpenAI model story",
+          },
+        ],
+        items: [
+          {
+            ...localItem,
+            id: "future-continuation-follow",
+            category: "funding",
+            entities: ["OpenAI"],
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Future Wire",
+            sourceSlug: "future-wire",
+            title: "Future continuation should wait",
+          },
+          {
+            ...serverItem,
+            id: "current-continuation-follow",
+            category: "funding",
+            entities: ["OpenAI"],
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Current Wire",
+            sourceSlug: "current-wire",
+            title: "Current continuation should lead",
+          },
+        ],
+        limit: 2,
+      });
+
+      expect(rail.followUps.map((followUp) => followUp.id)).toEqual([
+        "current-continuation-follow",
+        "future-continuation-follow",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("matches continuation source and topic against trimmed follow-up fields", () => {
@@ -16442,6 +21001,122 @@ describe("getNewsContinuationRail", () => {
 });
 
 describe("getNewsEditionSchedule", () => {
+  it("turns timed slots into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+
+    expect(
+      getNewsEditionScheduleTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["source"],
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+        },
+        slotLabel: "Morning Brief",
+      }),
+    ).toEqual({
+      actionLabel: "Train morning signal",
+      effect: "add",
+      label: "Model Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Model Desk",
+          signal: "model-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsEditionScheduleTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Anthropic", "Agents"],
+          matchedSignals: ["exploration"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+        slotLabel: "Midday Watch",
+      }),
+    ).toEqual({
+      actionLabel: "Train heat signal",
+      effect: "add",
+      label: "Anthropic",
+      signals: [
+        {
+          kind: "entity",
+          label: "Anthropic",
+          signal: "Anthropic",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsEditionScheduleTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: ["Agent Evals"],
+          matchedSignals: [],
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+        },
+        slotLabel: "Deep Read",
+      }),
+    ).toEqual({
+      actionLabel: "Train deep-read signal",
+      effect: "add",
+      label: "Research Wire",
+      signals: [
+        {
+          kind: "source",
+          label: "Research Wire",
+          signal: "research-wire",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsEditionScheduleTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: [],
+          matchedSignals: [],
+          sourceName: "Launch Desk",
+          sourceSlug: "launch-desk",
+        },
+        slotLabel: "Evening Catch-Up",
+      }),
+    ).toEqual({
+      actionLabel: "Train catch-up signal",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("uses a counterpoint heat story after a lead entity starts the day", () => {
     expect(
       getNewsEditionSchedule({
@@ -16660,6 +21335,64 @@ describe("getNewsEditionSchedule", () => {
       ],
       summary: "4 timed edition slots from 5 ranked stories.",
     });
+  });
+
+  it("does not schedule a future-dated story as the evening catch-up", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const schedule = getNewsEditionSchedule({
+        items: [
+          {
+            ...localItem,
+            id: "morning-lead",
+            matchedSignals: ["category"],
+            personalizedScore: 160,
+            sourceName: "Model Desk",
+            title: "Morning model lead",
+            trendScore: 74,
+          },
+          {
+            ...serverItem,
+            id: "midday-heat",
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-01T08:30:00.000Z",
+            sourceName: "Heat Wire",
+            title: "Midday heat story",
+            trendScore: 98,
+          },
+          {
+            ...olderItem,
+            id: "current-evening-story",
+            matchedSignals: [],
+            personalizedScore: 105,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Current Wire",
+            title: "Current evening catch-up",
+            trendScore: 64,
+          },
+          {
+            ...olderItem,
+            id: "future-evening-story",
+            matchedSignals: [],
+            personalizedScore: 105,
+            publishedAt: "2026-08-01T09:00:00.000Z",
+            sourceName: "Future Wire",
+            title: "Future scheduled catch-up",
+            trendScore: 64,
+          },
+        ],
+      });
+
+      expect(
+        schedule.slots.find((slot) => slot.label === "Evening Catch-Up")?.story
+          .id,
+      ).toBe("current-evening-story");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns a stable empty schedule before stories load", () => {
@@ -17081,6 +21814,145 @@ describe("getNewsPersonalizationMix", () => {
     });
   });
 
+  it("turns mix tuning recommendations into profile and bias actions", () => {
+    const formatCategory = (category: string) => `Topic ${category}`;
+    const items = [
+      {
+        ...localItem,
+        id: "reader-topic",
+        category: "agent_product",
+        matchedSignals: ["category"],
+        personalizedScore: 148,
+        sourceScore: 78,
+        trendScore: 74,
+      },
+      {
+        ...olderItem,
+        id: "explore-story",
+        category: "robotics",
+        matchedSignals: ["exploration"],
+        personalizedScore: 116,
+        sourceName: "Agent Scout",
+        sourceScore: 76,
+        sourceSlug: "agent-scout",
+        trendScore: 80,
+      },
+      {
+        ...olderItem,
+        id: "heat-story",
+        matchedSignals: [],
+        personalizedScore: 108,
+        sourceName: "Market Heat",
+        sourceScore: 74,
+        sourceSlug: "market-heat",
+        trendScore: 94,
+      },
+      {
+        ...olderItem,
+        id: "trust-story",
+        matchedSignals: [],
+        personalizedScore: 102,
+        sourceName: "Primary Lab",
+        sourceScore: 92,
+        sourceSlug: "primary-lab",
+        trendScore: 64,
+      },
+    ];
+    const mix = getNewsPersonalizationMix({
+      items,
+      profile: localProfile,
+    });
+    const readerAction = mix.actions.find(
+      (action) => action.label === "Tune reader match",
+    );
+    const explorationAction = mix.actions.find(
+      (action) => action.label === "Tune exploration",
+    );
+    const heatAction = mix.actions.find(
+      (action) => action.label === "Tune heat",
+    );
+    const trustAction = mix.actions.find(
+      (action) => action.label === "Tune trust",
+    );
+
+    if (!readerAction || !explorationAction || !heatAction || !trustAction) {
+      throw new Error("Expected personalization mix tuning actions");
+    }
+
+    expect(
+      getNewsPersonalizationMixTrainingAction({
+        action: readerAction,
+        formatCategory,
+        items,
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow topic",
+        effect: "add",
+        label: "Topic agent_product",
+        signals: [
+          {
+            kind: "category",
+            label: "Topic agent_product",
+            signal: "agent_product",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+    expect(
+      getNewsPersonalizationMixTrainingAction({
+        action: explorationAction,
+        formatCategory,
+        items,
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    });
+    expect(
+      getNewsPersonalizationMixTrainingAction({
+        action: heatAction,
+        formatCategory,
+        items,
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    });
+    expect(
+      getNewsPersonalizationMixTrainingAction({
+        action: trustAction,
+        formatCategory,
+        items,
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow source",
+        effect: "add",
+        label: "Primary Lab",
+        signals: [
+          {
+            kind: "source",
+            label: "Primary Lab",
+            signal: "primary-lab",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+  });
+
   it("does not count guardrail signals as reader-match mix objectives", () => {
     expect(
       getNewsPersonalizationMix({
@@ -17328,6 +22200,159 @@ describe("getNewsReaderSatisfactionBrief", () => {
     });
   });
 
+  it("turns satisfaction recommendations into profile training actions", () => {
+    const historyItems = [
+      {
+        ...localItem,
+        id: "satisfaction-read-agent",
+        category: "agent_product",
+        entities: ["Devin"],
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const items = [
+      {
+        ...localItem,
+        id: "satisfaction-reader-match",
+        matchedSignals: ["category"],
+        personalizedScore: 146,
+        sourceScore: 84,
+        trendScore: 82,
+      },
+      {
+        ...localItem,
+        id: "satisfaction-explore",
+        category: "robotics",
+        matchedSignals: ["exploration"],
+        personalizedScore: 118,
+        sourceName: "Robotics Desk",
+        sourceScore: 90,
+        sourceSlug: "robotics-desk",
+        trendScore: 89,
+      },
+    ];
+    const negativeFeedbackItems = [
+      {
+        ...olderItem,
+        id: "satisfaction-less-funding",
+        category: "funding",
+        sourceName: "Funding Wire",
+        sourceSlug: "funding-wire",
+      },
+    ];
+    const positiveFeedbackItems = [
+      {
+        ...localItem,
+        action: "share" as const,
+        id: "satisfaction-shared-agent",
+        category: "agent_product",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const savedItems = [
+      {
+        ...localItem,
+        id: "satisfaction-saved-model",
+        category: "model_release",
+        sourceName: "Model Wire",
+        sourceSlug: "model-wire",
+      },
+    ];
+    const brief = getNewsReaderSatisfactionBrief({
+      historyItems,
+      items,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      savedItems,
+    });
+    const formatCategory = (category: string) => `Topic ${category}`;
+    const reinforceAction = brief.actions.find(
+      (action) => action.label === "Reinforce fit",
+    );
+    const discoveryAction = brief.actions.find(
+      (action) => action.label === "Preserve discovery",
+    );
+    const guardrailAction = brief.actions.find(
+      (action) => action.label === "Review guardrails",
+    );
+
+    if (!reinforceAction || !discoveryAction || !guardrailAction) {
+      throw new Error("Expected satisfaction training recommendations");
+    }
+
+    expect(
+      getNewsReaderSatisfactionTrainingAction({
+        action: reinforceAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        positiveFeedbackItems,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Reinforce topic",
+      effect: "add",
+      label: "Topic agent_product",
+      signals: [
+        {
+          kind: "category",
+          label: "Topic agent_product",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderSatisfactionTrainingAction({
+        action: discoveryAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        positiveFeedbackItems,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Topic robotics",
+      signals: [
+        {
+          kind: "category",
+          label: "Topic robotics",
+          signal: "robotics",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderSatisfactionTrainingAction({
+        action: guardrailAction,
+        formatCategory,
+        historyItems,
+        items,
+        negativeFeedbackItems,
+        positiveFeedbackItems,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: "Topic funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Topic funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps reader satisfaction explicit before behavior or ranked stories exist", () => {
     expect(
       getNewsReaderSatisfactionBrief({
@@ -17494,6 +22519,116 @@ describe("getNewsReaderRetentionPlan", () => {
     });
   });
 
+  it("turns return plan recommendations into profile training actions", () => {
+    const formatCategory = (category: string) => `Topic ${category}`;
+    const items = [
+      {
+        ...localItem,
+        id: "retention-reader-lead",
+        category: "agent_product",
+        matchedSignals: ["category", "positive_feedback"],
+        personalizedScore: 148,
+        sourceName: "Agent Desk",
+        sourceScore: 84,
+        sourceSlug: "agent-desk",
+        title: "Agent workflow story brings the reader back",
+        trendScore: 83,
+      },
+      {
+        ...localItem,
+        id: "retention-explore",
+        category: "robotics",
+        matchedSignals: ["exploration"],
+        personalizedScore: 118,
+        sourceName: "Robotics Desk",
+        sourceScore: 91,
+        sourceSlug: "robotics-desk",
+        title: "Robotics exploration waits for the next visit",
+        trendScore: 89,
+      },
+    ];
+    const negativeFeedbackItems = [
+      {
+        ...olderItem,
+        id: "retention-less-funding",
+        category: "funding",
+        sourceName: "Funding Wire",
+        sourceSlug: "funding-wire",
+      },
+    ];
+    const plan = getNewsReaderRetentionPlan({
+      generatedAt: "2026-07-05T13:00:00.000Z",
+      historyItems: [],
+      items,
+      negativeFeedbackItems,
+      positiveFeedbackItems: [],
+      readerLocalHour: 8,
+      savedItems: [],
+    });
+    const scheduleAction = plan.actions.find(
+      (action) => action.label === "Schedule return",
+    );
+    const anchorAction = plan.actions.find(
+      (action) => action.label === "Anchor next visit",
+    );
+    const repairAction = plan.actions.find(
+      (action) => action.label === "Repair fatigue",
+    );
+
+    if (!scheduleAction || !anchorAction || !repairAction) {
+      throw new Error("Expected return plan recommendations");
+    }
+
+    expect(
+      getNewsReaderRetentionTrainingAction({
+        action: scheduleAction,
+        formatCategory,
+        items,
+        negativeFeedbackItems,
+      }),
+    ).toBeNull();
+    expect(
+      getNewsReaderRetentionTrainingAction({
+        action: anchorAction,
+        formatCategory,
+        items,
+        negativeFeedbackItems,
+      }),
+    ).toEqual({
+      actionLabel: "Follow topic",
+      effect: "add",
+      label: "Topic agent_product",
+      signals: [
+        {
+          kind: "category",
+          label: "Topic agent_product",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderRetentionTrainingAction({
+        action: repairAction,
+        formatCategory,
+        items,
+        negativeFeedbackItems,
+      }),
+    ).toEqual({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: "Topic funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Topic funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps the return plan explicit before stories or behavior arrive", () => {
     expect(
       getNewsReaderRetentionPlan({
@@ -17569,24 +22704,41 @@ describe("getNewsPersonalizationDataVault", () => {
             id: "vault-saved-agent",
           },
         ],
+        searchMemoryItems: [],
       }),
     ).toEqual({
       controls: [
         {
+          action: {
+            actionLabel: "Export profile",
+            kind: "export_profile",
+          },
           detail:
             "Package followed topics, sources, entities, and bias settings for review.",
           label: "Export profile",
         },
         {
+          action: {
+            actionLabel: "Export behavior",
+            kind: "export_behavior",
+          },
           detail: "Package 3 saved, read, shared, or source-clicked memories.",
           label: "Export behavior",
         },
         {
+          action: {
+            actionLabel: "Review guardrails",
+            kind: "review_guardrails",
+          },
           detail:
             "Review 2 Less feedback items before resetting personalization.",
           label: "Review guardrails",
         },
         {
+          action: {
+            actionLabel: "Reset memory",
+            kind: "reset_memory",
+          },
           detail:
             "Clear local reads, saves, positive feedback, and Less guardrails before retraining.",
           label: "Reset memory",
@@ -17618,10 +22770,15 @@ describe("getNewsPersonalizationDataVault", () => {
           recencyBias: 1,
         },
         savedItems: [],
+        searchMemoryItems: [],
       }),
     ).toEqual({
       controls: [
         {
+          action: {
+            actionLabel: "Start training",
+            kind: "start_training",
+          },
           detail:
             "Follow a topic, read a story, save, share, source-click, or press Less to create reviewable data.",
           label: "Start training",
@@ -17638,9 +22795,616 @@ describe("getNewsPersonalizationDataVault", () => {
         "The reader data vault will appear after profile or behavior signals exist.",
     });
   });
+
+  it("treats recent searches as exportable reader data", () => {
+    expect(
+      getNewsPersonalizationDataVault({
+        historyItems: [],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+        searchMemoryItems: [
+          {
+            query: "model routers",
+            resultCount: 2,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual({
+      controls: [
+        {
+          action: {
+            actionLabel: "Export profile",
+            kind: "export_profile",
+          },
+          detail:
+            "Package followed topics, sources, entities, and bias settings for review.",
+          label: "Export profile",
+        },
+        {
+          action: {
+            actionLabel: "Export behavior",
+            kind: "export_behavior",
+          },
+          detail: "Package 0 saved, read, shared, or source-clicked memories.",
+          label: "Export behavior",
+        },
+        {
+          action: {
+            actionLabel: "Export searches",
+            kind: "export_searches",
+          },
+          detail: "Package 1 recent search query.",
+          label: "Export searches",
+        },
+        {
+          action: {
+            actionLabel: "Review guardrails",
+            kind: "review_guardrails",
+          },
+          detail:
+            "Review 0 Less feedback items before resetting personalization.",
+          label: "Review guardrails",
+        },
+        {
+          action: {
+            actionLabel: "Reset memory",
+            kind: "reset_memory",
+          },
+          detail:
+            "Clear local reads, saves, positive feedback, searches, and Less guardrails before retraining.",
+          label: "Reset memory",
+        },
+      ],
+      label: "Data Vault Ready",
+      metrics: [
+        { label: "Profile", value: "0" },
+        { label: "Behavior", value: "0" },
+        { label: "Searches", value: "1" },
+        { label: "Guardrails", value: "0" },
+        { label: "Persistence", value: "Local" },
+      ],
+      summary:
+        "The reader data vault is tracking 0 profile signals, 0 behavior memories, 1 search, and 0 guardrails.",
+    });
+  });
+
+  it("turns data vault controls into visible training loop updates", () => {
+    const [profileControl, behaviorControl] = getNewsPersonalizationDataVault({
+      historyItems: [
+        {
+          ...localItem,
+          id: "vault-read-model",
+        },
+      ],
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+      searchMemoryItems: [],
+    }).controls;
+
+    if (!profileControl || !behaviorControl) {
+      throw new Error("Expected exportable data vault controls");
+    }
+
+    expect(
+      getNewsPersonalizationDataVaultTrainingUpdate(profileControl),
+    ).toEqual({
+      label: "Data Vault Action",
+      metrics: [{ label: "Control", value: "Export profile" }],
+      notices: [
+        {
+          detail:
+            "Package followed topics, sources, entities, and bias settings for review.",
+          label: "Export profile",
+        },
+      ],
+      signals: [
+        {
+          label: "Action",
+          value: "Export profile",
+        },
+      ],
+      summary: "Data Vault exported profile signals for review.",
+    });
+    expect(
+      getNewsPersonalizationDataVaultTrainingUpdate(behaviorControl).summary,
+    ).toBe("Data Vault exported behavior memory for review.");
+  });
+
+  it("packages export controls into reviewable reader data bundles", () => {
+    const controls = getNewsPersonalizationDataVault({
+      historyItems: [
+        {
+          ...localItem,
+          id: "vault-read-model",
+          viewedAt: "2026-07-06T09:30:00.000Z",
+        },
+      ],
+      negativeFeedbackItems: [
+        {
+          ...olderItem,
+          hiddenAt: "2026-07-06T10:30:00.000Z",
+          id: "vault-less-funding",
+        },
+      ],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          id: "vault-shared-agent",
+          occurredAt: "2026-07-06T11:30:00.000Z",
+        },
+      ],
+      profile: {
+        preferredCategories: ["agent_product", "model_release"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: ["agent-desk"],
+        noveltyBias: 1,
+        recencyBias: 2,
+      },
+      savedItems: [
+        {
+          ...localItem,
+          id: "vault-saved-agent",
+          savedAt: "2026-07-06T08:30:00.000Z",
+        },
+      ],
+      searchMemoryItems: [
+        {
+          query: "agent browsers",
+          resultCount: 3,
+          searchedAt: "2026-07-06T12:30:00.000Z",
+        },
+      ],
+    }).controls;
+    const profileControl = controls.find(
+      (control) => control.action.kind === "export_profile",
+    );
+    const behaviorControl = controls.find(
+      (control) => control.action.kind === "export_behavior",
+    );
+    const searchControl = controls.find(
+      (control) => control.action.kind === "export_searches",
+    );
+    const guardrailControl = controls.find(
+      (control) => control.action.kind === "review_guardrails",
+    );
+
+    if (
+      !profileControl ||
+      !behaviorControl ||
+      !searchControl ||
+      !guardrailControl
+    ) {
+      throw new Error("Expected exportable data vault controls");
+    }
+
+    expect(
+      getNewsPersonalizationDataVaultExport({
+        control: profileControl,
+        historyItems: [],
+        negativeFeedbackItems: [],
+        profile: {
+          preferredCategories: ["agent_product", "model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["agent-desk"],
+          noveltyBias: 1,
+          recencyBias: 2,
+        },
+        savedItems: [],
+      }),
+    ).toEqual({
+      filename: "new-ai-times-data-vault-profile.json",
+      label: "Profile Export",
+      sections: [
+        {
+          label: "Profile",
+          records: [
+            { label: "Topics", value: "agent_product, model_release" },
+            { label: "Sources", value: "agent-desk" },
+            { label: "Entities", value: "OpenAI" },
+            { label: "Recency bias", value: "2/2" },
+            { label: "Novelty bias", value: "1/2" },
+          ],
+        },
+      ],
+      summary: "Profile export includes 4 explicit preference signals.",
+    });
+    expect(
+      getNewsPersonalizationDataVaultExport({
+        control: behaviorControl,
+        historyItems: [
+          {
+            ...localItem,
+            id: "vault-read-model",
+            viewedAt: "2026-07-06T09:30:00.000Z",
+          },
+        ],
+        negativeFeedbackItems: [],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            id: "vault-shared-agent",
+            occurredAt: "2026-07-06T11:30:00.000Z",
+          },
+        ],
+        profile: createDefaultNewsPreferenceProfile(),
+        savedItems: [
+          {
+            ...localItem,
+            id: "vault-saved-agent",
+            savedAt: "2026-07-06T08:30:00.000Z",
+          },
+        ],
+      })?.summary,
+    ).toBe(
+      "Behavior export includes 3 saved, read, shared, or source-clicked memories.",
+    );
+    expect(
+      getNewsPersonalizationDataVaultExport({
+        control: searchControl,
+        historyItems: [],
+        negativeFeedbackItems: [],
+        profile: createDefaultNewsPreferenceProfile(),
+        savedItems: [],
+        searchMemoryItems: [
+          {
+            query: "agent browsers",
+            resultCount: 3,
+            searchedAt: "2026-07-06T12:30:00.000Z",
+          },
+        ],
+      })?.sections,
+    ).toEqual([
+      {
+        label: "Searches",
+        records: [
+          {
+            label: "agent browsers",
+            value: "3 results / 2026-07-06T12:30:00.000Z",
+          },
+        ],
+      },
+    ]);
+    expect(
+      getNewsPersonalizationDataVaultExport({
+        control: guardrailControl,
+        historyItems: [],
+        negativeFeedbackItems: [
+          {
+            ...olderItem,
+            hiddenAt: "2026-07-06T10:30:00.000Z",
+            id: "vault-less-funding",
+          },
+        ],
+        profile: createDefaultNewsPreferenceProfile(),
+        savedItems: [],
+      })?.summary,
+    ).toBe("Guardrail review includes 1 Less feedback item.");
+  });
+
+  it("serializes data vault exports into downloadable JSON", () => {
+    const [profileControl] = getNewsPersonalizationDataVault({
+      historyItems: [],
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: [],
+        noveltyBias: 2,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    }).controls;
+
+    if (!profileControl) {
+      throw new Error("Expected profile export control");
+    }
+
+    const dataVaultExport = getNewsPersonalizationDataVaultExport({
+      control: profileControl,
+      historyItems: [],
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredEntities: ["OpenAI"],
+        preferredSources: [],
+        noveltyBias: 2,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+
+    if (!dataVaultExport) {
+      throw new Error("Expected data vault export package");
+    }
+
+    const json = getNewsPersonalizationDataVaultExportJson(dataVaultExport);
+
+    expect(JSON.parse(json) as unknown).toEqual({
+      exportedBy: "The New AI Times",
+      filename: "new-ai-times-data-vault-profile.json",
+      label: "Profile Export",
+      schemaVersion: 1,
+      sections: [
+        {
+          label: "Profile",
+          records: [
+            { label: "Topics", value: "agent_product" },
+            { label: "Sources", value: "None" },
+            { label: "Entities", value: "OpenAI" },
+            { label: "Recency bias", value: "1/2" },
+            { label: "Novelty bias", value: "2/2" },
+          ],
+        },
+      ],
+      summary: "Profile export includes 2 explicit preference signals.",
+    });
+    expect(getNewsPersonalizationDataVaultExportHref(dataVaultExport)).toBe(
+      `data:application/json;charset=utf-8,${encodeURIComponent(json)}`,
+    );
+  });
+
+  it("imports profile data vault JSON back into a normalized profile", () => {
+    const dataVaultImport = getNewsPersonalizationDataVaultProfileImport(
+      JSON.stringify({
+        exportedBy: "The New AI Times",
+        filename: "new-ai-times-data-vault-profile.json",
+        label: "Profile Export",
+        schemaVersion: 1,
+        sections: [
+          {
+            label: "Profile",
+            records: [
+              { label: "Topics", value: "agent_product, model_release" },
+              { label: "Sources", value: "agent-desk" },
+              { label: "Entities", value: "OpenAI, Anthropic" },
+              { label: "Recency bias", value: "2/2" },
+              { label: "Novelty bias", value: "0/2" },
+            ],
+          },
+        ],
+        summary: "Profile export includes 5 explicit preference signals.",
+      }),
+    );
+
+    expect(dataVaultImport).toEqual({
+      label: "Profile Import",
+      metrics: [
+        { label: "Topics", value: "2" },
+        { label: "Sources", value: "1" },
+        { label: "Entities", value: "2" },
+        { label: "Bias", value: "R2/N0" },
+      ],
+      notices: [
+        {
+          detail:
+            "Imported agent_product, model_release, agent-desk, OpenAI, Anthropic from a Data Vault profile package.",
+          label: "Profile package",
+        },
+      ],
+      profile: {
+        preferredCategories: ["agent_product", "model_release"],
+        preferredEntities: ["OpenAI", "Anthropic"],
+        preferredSources: ["agent-desk"],
+        noveltyBias: 0,
+        recencyBias: 2,
+      },
+      signals: [
+        { label: "Imported", value: "agent_product" },
+        { label: "Imported", value: "model_release" },
+        { label: "Imported", value: "agent-desk" },
+        { label: "Imported", value: "OpenAI" },
+        { label: "Imported", value: "Anthropic" },
+      ],
+      summary: "Imported 5 Data Vault profile signals.",
+    });
+    expect(getNewsPersonalizationDataVaultProfileImport("{")).toBeNull();
+    expect(
+      getNewsPersonalizationDataVaultProfileImport(
+        JSON.stringify({
+          exportedBy: "Someone Else",
+          label: "Profile Export",
+          schemaVersion: 1,
+          sections: [],
+        }),
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("getNewsExperimentAllocation", () => {
+  it("turns active experiment arms into executable training controls", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          hot_take: "Hot Takes",
+          model_release: "Models",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const items = [
+      {
+        ...localItem,
+        id: "experiment-reader-match",
+        category: "model_release",
+        entities: ["OpenAI"],
+        matchedSignals: ["category", "source", "entity"],
+        personalizedScore: 150,
+        sourceName: "Model Desk",
+        sourceScore: 94,
+        sourceSlug: "model-desk",
+        title: "Model story anchors reader experiments",
+        trendScore: 88,
+      },
+      {
+        ...serverItem,
+        id: "experiment-explore",
+        category: "agent_product",
+        entities: ["Agents"],
+        matchedSignals: ["exploration"],
+        personalizedScore: 126,
+        sourceName: "Agent Desk",
+        sourceScore: 82,
+        sourceSlug: "agent-desk",
+        title: "Agent story tests exploration",
+        trendScore: 87,
+      },
+      {
+        ...olderItem,
+        id: "experiment-rumor",
+        category: "hot_take",
+        entities: ["StealthAI"],
+        matchedSignals: [],
+        personalizedScore: 91,
+        sourceName: "Rumor Feed",
+        sourceScore: 45,
+        sourceSlug: "rumor-feed",
+        title: "Rumor feed stays guarded",
+        trendScore: 92,
+      },
+    ];
+    const negativeFeedbackItems = [
+      {
+        ...olderItem,
+        category: "hot_take",
+        entities: ["StealthAI"],
+        id: "hidden-rumor-experiment",
+        sourceName: "Rumor Feed",
+        sourceSlug: "rumor-feed",
+        title: "Hidden rumor experiment",
+      },
+    ];
+    const profile = {
+      preferredCategories: ["model_release"],
+      preferredSources: ["model-desk"],
+      preferredEntities: ["OpenAI"],
+      noveltyBias: 1.4,
+      recencyBias: 1.3,
+    };
+    const allocation = getNewsExperimentAllocation({
+      formatCategory,
+      historyItems: [],
+      items,
+      negativeFeedbackItems,
+      profile,
+      savedItems: [],
+    });
+    const findArm = (
+      key:
+        | "collaborative_lift"
+        | "exploration"
+        | "freshness_probe"
+        | "reader_match"
+        | "trust_guard",
+    ) => {
+      const arm = allocation.arms.find((candidate) => candidate.key === key);
+
+      if (!arm) {
+        throw new Error(`Missing experiment allocation arm: ${key}`);
+      }
+
+      return arm;
+    };
+    const commonInput = {
+      arm: findArm("reader_match"),
+      formatCategory,
+      items,
+      negativeFeedbackItems,
+      profile,
+    };
+
+    expect(getNewsExperimentAllocationTrainingAction(commonInput)).toEqual({
+      action: {
+        actionLabel: "Train reader arm",
+        effect: "add",
+        label: "Model Desk",
+        signals: [
+          {
+            kind: "source",
+            label: "Model Desk",
+            signal: "model-desk",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+    expect(
+      getNewsExperimentAllocationTrainingAction({
+        ...commonInput,
+        arm: findArm("exploration"),
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Train exploration arm",
+        effect: "add",
+        label: "Agents",
+        signals: [
+          {
+            kind: "category",
+            label: "Agents",
+            signal: "agent_product",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+    expect(
+      getNewsExperimentAllocationTrainingAction({
+        ...commonInput,
+        arm: findArm("freshness_probe"),
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    });
+    expect(
+      getNewsExperimentAllocationTrainingAction({
+        ...commonInput,
+        arm: findArm("trust_guard"),
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Train trust guard",
+        effect: "remove",
+        label: "Rumor Feed",
+        signals: [
+          {
+            kind: "source",
+            label: "Rumor Feed",
+            signal: "rumor-feed",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+  });
+
   it("allocates For You traffic across reader, cohort, exploration, freshness, and trust experiments", () => {
     expect(
       getNewsExperimentAllocation({
@@ -18357,9 +24121,261 @@ describe("getNewsRecommendationAudit", () => {
         "1 story: 0 personalized, 0 exploratory, and 1 trend-led across 1 source and 1 entity.",
     });
   });
+
+  it("turns recommendation audit gaps into novelty training actions", () => {
+    const items = [
+      {
+        ...localItem,
+        matchedSignals: ["category"],
+        personalizedScore: 142,
+      },
+    ];
+    const audit = getNewsRecommendationAudit({
+      items,
+      profile: localProfile,
+    });
+
+    expect(
+      getNewsRecommendationAuditTrainingAction({
+        items,
+        notice: audit.notices.find(
+          (notice) => notice.label === "Exploration gap",
+        ),
+        profile: localProfile,
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    });
+  });
+
+  it("turns recommendation audit concentration into profile reduction actions", () => {
+    const items = [
+      {
+        ...localItem,
+        id: "source-heavy-one",
+        matchedSignals: ["source"],
+        personalizedScore: 142,
+      },
+      {
+        ...localItem,
+        id: "source-heavy-two",
+        matchedSignals: ["source"],
+        personalizedScore: 130,
+      },
+      {
+        ...olderItem,
+        id: "other-source",
+        matchedSignals: ["exploration"],
+        personalizedScore: 104,
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const audit = getNewsRecommendationAudit({
+      items,
+      profile: localProfile,
+    });
+
+    expect(
+      getNewsRecommendationAuditTrainingAction({
+        items,
+        notice: audit.notices.find(
+          (notice) => notice.label === "Source concentration",
+        ),
+        profile: localProfile,
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Reduce audit source",
+        effect: "remove",
+        label: "Local Source",
+        signals: [
+          {
+            kind: "source",
+            label: "Local Source",
+            signal: "local-source",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+  });
 });
 
 describe("getNewsRecommendationTrace", () => {
+  it("turns recommendation trace steps into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          funding: "Funding",
+          model_release: "Models",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const items = [
+      {
+        ...localItem,
+        id: "trace-lead",
+        category: "model_release",
+        entities: ["OpenAI"],
+        matchedSignals: ["category"],
+        personalizedScore: 168,
+        sourceName: "Model Desk",
+        sourceSlug: "model-desk",
+        title: "Model launch leads the trace",
+      },
+      {
+        ...serverItem,
+        id: "trace-explore",
+        category: "agent_product",
+        entities: ["Agents"],
+        matchedSignals: ["exploration"],
+        personalizedScore: 117,
+        sourceName: "Agent Scout",
+        sourceSlug: "agent-scout",
+        title: "Agent story tests adjacent interest",
+      },
+    ];
+    const negativeFeedbackItems = [
+      {
+        ...olderItem,
+        category: "funding",
+        entities: ["YC"],
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+        title: "Funding rumor is guarded",
+      },
+    ];
+    const trace = getNewsRecommendationTrace({
+      formatCategory,
+      historyItems: [],
+      items,
+      limit: 4,
+      negativeFeedbackItems,
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredEntities: [],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+    const findStep = (label: string) => {
+      const step = trace.steps.find((candidate) => candidate.label === label);
+
+      if (!step) {
+        throw new Error(`Missing recommendation trace step: ${label}`);
+      }
+
+      return step;
+    };
+    const commonInput = {
+      formatCategory,
+      items,
+      negativeFeedbackItems,
+    };
+
+    expect(
+      getNewsRecommendationTraceTrainingAction({
+        ...commonInput,
+        step: findStep("Lead story"),
+      }),
+    ).toEqual({
+      actionLabel: "Train trace lead",
+      effect: "add",
+      label: "Model Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Model Desk",
+          signal: "model-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsRecommendationTraceTrainingAction({
+        ...commonInput,
+        step: findStep("Exploration check"),
+      }),
+    ).toEqual({
+      actionLabel: "Train trace exploration",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsRecommendationTraceTrainingAction({
+        ...commonInput,
+        step: findStep("Guardrail"),
+      }),
+    ).toEqual({
+      actionLabel: "Train trace guardrail",
+      effect: "remove",
+      label: "VentureWire",
+      signals: [
+        {
+          kind: "source",
+          label: "VentureWire",
+          signal: "venturewire",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("explains search-memory lifts as a reader signal in the ranking trace", () => {
+    const trace = getNewsRecommendationTrace({
+      formatCategory: (category) =>
+        category === "market_map" ? "Market Maps" : category,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "model-router-search-memory",
+          category: "market_map",
+          matchedSignals: ["search_memory"],
+          personalizedScore: 128,
+          sourceName: "Market Map Desk",
+          title: "Model routers become AI infrastructure control planes",
+        },
+      ],
+      limit: 4,
+      negativeFeedbackItems: [],
+      profile: {
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(trace.metrics).toContainEqual({
+      label: "Reader matches",
+      value: "1",
+    });
+    expect(trace.steps).toContainEqual({
+      detail: "Recent search memory is lifting this recommendation.",
+      label: "Search memory",
+      scoreLabel: "Search signal",
+      title: "Model routers become AI infrastructure control planes",
+    });
+  });
+
   it("explains verified coverage and edition timing without counting them as reader profile matches", () => {
     const trace = getNewsRecommendationTrace({
       formatCategory: (category) =>
@@ -19371,6 +25387,153 @@ describe("getNewsEditorialGuardrails", () => {
         },
       ],
       summary: "4 editorial guardrails active across 4 ranked stories.",
+    });
+  });
+
+  it("turns editorial concentration risks into profile reduction actions", () => {
+    const sourceItems = [
+      {
+        ...localItem,
+        id: "openai-release-one",
+        matchedSignals: ["category"],
+        personalizedScore: 160,
+        title: "OpenAI release one",
+      },
+      {
+        ...localItem,
+        id: "openai-release-two",
+        matchedSignals: ["source"],
+        personalizedScore: 150,
+        title: "OpenAI release two",
+      },
+      {
+        ...localItem,
+        id: "openai-release-three",
+        matchedSignals: ["entity"],
+        personalizedScore: 140,
+        title: "OpenAI release three",
+      },
+      {
+        ...olderItem,
+        category: "agent_product",
+        entities: ["Anthropic"],
+        id: "agent-alternate",
+        matchedSignals: ["exploration"],
+        personalizedScore: 120,
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        title: "Agent alternate",
+      },
+    ];
+    const sourceGuardrails = getNewsEditorialGuardrails({
+      items: sourceItems,
+      limit: 2,
+      negativeFeedbackItems: [],
+    });
+
+    expect(
+      getNewsEditorialGuardrailTrainingAction({
+        items: sourceItems,
+        profile: localProfile,
+        risk: sourceGuardrails.risks.find(
+          (risk) => risk.label === "Source concentration",
+        ),
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Reduce editorial source",
+        effect: "remove",
+        label: "Local Source",
+        signals: [
+          {
+            kind: "source",
+            label: "Local Source",
+            signal: "local-source",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+
+    const entityItems = [
+      {
+        ...localItem,
+        id: "openai-primary",
+        entities: ["OpenAI", "Agents"],
+        matchedSignals: ["entity"],
+        personalizedScore: 160,
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        title: "OpenAI primary source update",
+      },
+      {
+        ...serverItem,
+        id: "openai-market",
+        category: "funding",
+        entities: ["OpenAI", "Series A"],
+        matchedSignals: ["entity"],
+        personalizedScore: 150,
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+        title: "OpenAI market follow-up",
+      },
+      {
+        ...olderItem,
+        id: "openai-analysis",
+        category: "research",
+        entities: ["OpenAI", "Benchmarks"],
+        matchedSignals: ["entity"],
+        personalizedScore: 140,
+        sourceName: "Research Lab",
+        sourceSlug: "research-lab",
+        title: "OpenAI benchmark analysis",
+      },
+      {
+        ...olderItem,
+        id: "anthropic-agent",
+        category: "agent_product",
+        entities: ["Anthropic", "Claude"],
+        matchedSignals: ["exploration"],
+        personalizedScore: 120,
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        title: "Anthropic agent update",
+      },
+    ];
+    const entityGuardrails = getNewsEditorialGuardrails({
+      items: entityItems,
+      limit: 2,
+      negativeFeedbackItems: [],
+    });
+
+    expect(
+      getNewsEditorialGuardrailTrainingAction({
+        items: entityItems,
+        profile: {
+          ...localProfile,
+          preferredEntities: ["OpenAI"],
+          preferredSources: [],
+        },
+        risk: entityGuardrails.risks.find(
+          (risk) => risk.label === "Entity concentration",
+        ),
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Reduce editorial entity",
+        effect: "remove",
+        label: "OpenAI",
+        signals: [
+          {
+            kind: "entity",
+            label: "OpenAI",
+            signal: "openai",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
     });
   });
 
@@ -20549,6 +26712,58 @@ describe("getNewsExplorationSlots", () => {
     });
   });
 
+  it("does not let future-dated stories win exploration slot ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const explorationSlots = getNewsExplorationSlots({
+        formatCategory: (category) =>
+          category === "policy" ? "Policy" : category,
+        items: [
+          {
+            ...localItem,
+            id: "future-exploration-slot",
+            category: "policy",
+            entities: ["Regulators"],
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Policy Desk",
+            sourceScore: 91,
+            sourceSlug: "policy-desk",
+            title: "Future exploration slot should wait",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            id: "current-exploration-slot",
+            category: "policy",
+            entities: ["Regulators"],
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Policy Wire",
+            sourceScore: 91,
+            sourceSlug: "policy-wire",
+            title: "Current exploration slot should lead",
+            trendScore: 92,
+          },
+        ],
+        limit: 2,
+        negativeFeedbackItems: [],
+        profile: localProfile,
+      });
+
+      expect(explorationSlots.slots.map((slot) => slot.id)).toEqual([
+        "current-exploration-slot",
+        "future-exploration-slot",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps verified outside-profile stories eligible while excluding Less feedback guardrails", () => {
     expect(
       getNewsExplorationSlots({
@@ -20623,6 +26838,61 @@ describe("getNewsExplorationSlots", () => {
       ],
       summary:
         "1 exploration slot open 1 topic and 1 source beyond the current profile while guarding 0 negative signals.",
+    });
+  });
+
+  it("turns exploration slots into follow-topic training actions", () => {
+    const items = [
+      {
+        ...localItem,
+        matchedSignals: ["category", "entity"],
+        personalizedScore: 160,
+        title: "Profile model story",
+        trendScore: 76,
+      },
+      {
+        ...localItem,
+        id: "explore-oss",
+        category: "open_source",
+        entities: ["LangChain"],
+        matchedSignals: ["exploration"],
+        personalizedScore: 126,
+        sourceName: "OSS Desk",
+        sourceScore: 82,
+        sourceSlug: "oss-desk",
+        title: "Open-source exploration",
+        trendScore: 78,
+      },
+    ];
+    const slots = getNewsExplorationSlots({
+      formatCategory: (category) =>
+        category === "open_source" ? "Open Source" : category,
+      items,
+      limit: 3,
+      negativeFeedbackItems: [],
+      profile: localProfile,
+    });
+
+    expect(
+      getNewsExplorationSlotTrainingAction({
+        formatCategory: (category) =>
+          category === "open_source" ? "Open Source" : category,
+        items,
+        profile: localProfile,
+        slot: slots.slots[0],
+      }),
+    ).toEqual({
+      actionLabel: "Follow exploration topic",
+      effect: "add",
+      label: "Open Source",
+      signals: [
+        {
+          kind: "category",
+          label: "Open Source",
+          signal: "open_source",
+        },
+      ],
+      source: "control",
     });
   });
 });
@@ -20816,6 +27086,126 @@ describe("getNewsDiscoveryLadder", () => {
 });
 
 describe("getNewsNextRefreshPlan", () => {
+  it("turns candidate slot reasons into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+
+    expect(
+      getNewsNextRefreshPlanTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "agent_product",
+          entities: ["OpenAI", "Agents"],
+          matchedSignals: ["entity"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          tags: ["workflow"],
+        },
+        reason: "OpenAI boost",
+      }),
+    ).toEqual({
+      actionLabel: "Train refresh signal",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsNextRefreshPlanTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: [],
+          matchedSignals: ["source"],
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          tags: ["paper"],
+        },
+        reason: "Research Wire boost",
+      }),
+    ).toEqual({
+      actionLabel: "Train refresh signal",
+      effect: "add",
+      label: "Research Wire",
+      signals: [
+        {
+          kind: "source",
+          label: "Research Wire",
+          signal: "research-wire",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsNextRefreshPlanTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: [],
+          matchedSignals: [],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+        reason: "prompt injection boost",
+      }),
+    ).toEqual({
+      actionLabel: "Train refresh signal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsNextRefreshPlanTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "model_release",
+          entities: [],
+          matchedSignals: [],
+          sourceName: "Model Lab",
+          sourceSlug: "model-lab",
+          tags: [],
+        },
+        reason: "Fresh candidate",
+      }),
+    ).toEqual({
+      actionLabel: "Train refresh signal",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("turns saved, read, and hidden signals into the next refresh plan", () => {
     expect(
       getNewsNextRefreshPlan({
@@ -21650,6 +28040,155 @@ describe("getNewsRefreshSimulation", () => {
     });
   });
 
+  it("maps refresh simulation moves to executable profile training actions", () => {
+    const simulation = getNewsRefreshSimulation({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "agent_product"
+            ? "Agents"
+            : category === "funding"
+              ? "Funding"
+              : category,
+      historyItems: [
+        {
+          ...localItem,
+          id: "read-openai-training",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          tags: [],
+          title: "Read OpenAI story",
+        },
+      ],
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "refresh-model",
+          matchedSignals: ["category"],
+          personalizedScore: 148,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          tags: [],
+          title: "Model refresh candidate",
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "refresh-agent",
+          matchedSignals: ["exploration"],
+          personalizedScore: 121,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          tags: [],
+          title: "Agent refresh candidate",
+        },
+        {
+          ...localItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "refresh-funding",
+          matchedSignals: [],
+          personalizedScore: 119,
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          tags: [],
+          title: "Funding refresh candidate",
+        },
+      ],
+      limit: 3,
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "hidden-funding",
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          tags: [],
+          title: "Hidden funding story",
+        },
+      ],
+      profile: {
+        preferredCategories: ["model_release"],
+        preferredSources: ["openai-news"],
+        preferredEntities: ["OpenAI"],
+        noveltyBias: 1.4,
+        recencyBias: 1,
+      },
+      savedItems: [
+        {
+          ...localItem,
+          id: "saved-openai-training",
+          category: "model_release",
+          entities: ["OpenAI"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          tags: [],
+          title: "Saved OpenAI story",
+        },
+      ],
+    });
+
+    const boostMove = simulation.moves.find(
+      (move) => move.statusLabel === "Boost",
+    );
+    const exploreMove = simulation.moves.find(
+      (move) => move.statusLabel === "Explore",
+    );
+    const dampenMove = simulation.moves.find(
+      (move) => move.statusLabel === "Dampen",
+    );
+
+    if (!boostMove || !exploreMove || !dampenMove) {
+      throw new Error("Expected boost, explore, and dampen simulation moves");
+    }
+
+    expect(getNewsRefreshSimulationTrainingAction(boostMove)).toEqual({
+      actionLabel: "Raise weight",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsRefreshSimulationTrainingAction(exploreMove)).toEqual({
+      actionLabel: "Keep exploring",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsRefreshSimulationTrainingAction(dampenMove)).toEqual({
+      actionLabel: "Lower weight",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps refresh simulation empty before stories are ranked", () => {
     expect(
       getNewsRefreshSimulation({
@@ -21993,6 +28532,119 @@ describe("getNewsTasteCalibration", () => {
       ],
       summary:
         "1 story calibrates this taste model: 1 profile fit, 0 explorations, and 0 friction signals.",
+    });
+  });
+
+  it("maps calibration actions to executable preference updates", () => {
+    const alignedAction = getNewsTasteCalibrationTrainingAction({
+      action: {
+        actionLabel: "Keep signal",
+        detail:
+          "OpenAI model calibration story reinforces saved/read behavior.",
+        key: "aligned-calibrate-model",
+        label: "Strengthen Models",
+        signal: "Models",
+        statusLabel: "Aligned",
+        storyTitle: "OpenAI model calibration story",
+      },
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          id: "calibrate-model",
+          matchedSignals: ["category"],
+          personalizedScore: 150,
+          title: "OpenAI model calibration story",
+        },
+      ],
+    });
+    const exploreAction = getNewsTasteCalibrationTrainingAction({
+      action: {
+        actionLabel: "Keep slot",
+        detail: "Agent exploration calibration story tests adjacent coverage.",
+        key: "explore-calibrate-agent",
+        label: "Keep exploring Agents",
+        signal: "Agents",
+        statusLabel: "Explore",
+        storyTitle: "Agent exploration calibration story",
+      },
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          id: "calibrate-agent",
+          matchedSignals: ["exploration"],
+          personalizedScore: 123,
+          title: "Agent exploration calibration story",
+        },
+      ],
+    });
+    const dampenAction = getNewsTasteCalibrationTrainingAction({
+      action: {
+        actionLabel: "Reduce weight",
+        detail: "Funding story to dampen overlaps hidden feedback.",
+        key: "dampen-calibrate-funding",
+        label: "Reduce Funding",
+        signal: "Funding",
+        statusLabel: "Dampen",
+        storyTitle: "Funding story to dampen",
+      },
+      formatCategory: (category) =>
+        category === "funding" ? "Funding" : category,
+      items: [
+        {
+          ...localItem,
+          category: "funding",
+          id: "calibrate-funding",
+          matchedSignals: [],
+          personalizedScore: 118,
+          title: "Funding story to dampen",
+        },
+      ],
+    });
+
+    expect(alignedAction).toEqual({
+      actionLabel: "Keep signal",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(exploreAction).toEqual({
+      actionLabel: "Keep slot",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(dampenAction).toEqual({
+      actionLabel: "Reduce weight",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -22894,6 +29546,275 @@ describe("getNewsFilterBubbleReport", () => {
     expect(report.summary).not.toContain("dominating the angle mix");
   });
 
+  it("turns profile lock and missing exploration into novelty training actions", () => {
+    const report = getNewsFilterBubbleReport({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "openai-model-1",
+          matchedSignals: ["category", "source", "entity"],
+          personalizedScore: 150,
+          title: "OpenAI ships a new reasoning model",
+        },
+        {
+          ...localItem,
+          id: "openai-model-2",
+          matchedSignals: ["category", "source"],
+          personalizedScore: 143,
+          title: "Model pricing changes for developers",
+        },
+        {
+          ...localItem,
+          id: "openai-model-3",
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 136,
+          title: "OpenAI expands model evals",
+        },
+      ],
+      profile: localProfile,
+    });
+
+    expect(
+      getNewsFilterBubbleTrainingAction({
+        check: report.checks.find((check) => check.label === "Profile lock"),
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [],
+        profile: localProfile,
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    });
+  });
+
+  it("turns source and entity bubble risks into profile reduction actions", () => {
+    const sourceReport = getNewsFilterBubbleReport({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items: [
+        {
+          ...localItem,
+          id: "openai-model-1",
+          matchedSignals: ["category", "source", "entity"],
+          personalizedScore: 150,
+          title: "OpenAI ships a new reasoning model",
+        },
+        {
+          ...localItem,
+          id: "openai-model-2",
+          matchedSignals: ["category", "source"],
+          personalizedScore: 143,
+          title: "Model pricing changes for developers",
+        },
+        {
+          ...localItem,
+          id: "openai-model-3",
+          matchedSignals: ["category", "entity"],
+          personalizedScore: 136,
+          title: "OpenAI expands model evals",
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "agent-explore",
+          matchedSignals: ["exploration"],
+          personalizedScore: 118,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "Agent teams test memory workflows",
+        },
+      ],
+      profile: localProfile,
+    });
+    const sourceCheck = sourceReport.checks.find(
+      (check) => check.label === "Source narrowness",
+    );
+
+    expect(
+      getNewsFilterBubbleTrainingAction({
+        check: sourceCheck,
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "openai-model-1",
+            matchedSignals: ["category", "source", "entity"],
+            personalizedScore: 150,
+          },
+          {
+            ...localItem,
+            id: "openai-model-2",
+            matchedSignals: ["category", "source"],
+            personalizedScore: 143,
+          },
+          {
+            ...localItem,
+            id: "openai-model-3",
+            matchedSignals: ["category", "entity"],
+            personalizedScore: 136,
+          },
+        ],
+        profile: localProfile,
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Reduce dominant source",
+        effect: "remove",
+        label: "Local Source",
+        signals: [
+          {
+            kind: "source",
+            label: "Local Source",
+            signal: "local-source",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+
+    const entityReport = getNewsFilterBubbleReport({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "funding"
+            ? "Funding"
+            : category === "agent_product"
+              ? "Agents"
+              : category,
+      items: [
+        {
+          ...localItem,
+          id: "openai-model-release",
+          matchedSignals: ["entity"],
+          personalizedScore: 150,
+          sourceName: "Model Wire",
+          sourceSlug: "model-wire",
+          title: "OpenAI ships a faster reasoning model",
+        },
+        {
+          ...localItem,
+          category: "funding",
+          id: "anthropic-funding",
+          matchedSignals: ["exploration"],
+          personalizedScore: 142,
+          sourceName: "Funding Desk",
+          sourceSlug: "funding-desk",
+          title: "Anthropic closes an enterprise expansion round",
+          entities: ["Anthropic"],
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          id: "openai-agent",
+          matchedSignals: ["entity"],
+          personalizedScore: 139,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          title: "OpenAI agent workflows roll into team plans",
+        },
+        {
+          ...localItem,
+          category: "research",
+          id: "mistral-research",
+          matchedSignals: ["exploration"],
+          personalizedScore: 131,
+          sourceName: "Research Notes",
+          sourceSlug: "research-notes",
+          title: "Mistral publishes a new evaluation suite",
+          entities: ["Mistral"],
+        },
+        {
+          ...localItem,
+          category: "big_tech",
+          id: "openai-platform",
+          matchedSignals: ["entity"],
+          personalizedScore: 126,
+          sourceName: "Platform Brief",
+          sourceSlug: "platform-brief",
+          title: "OpenAI platform tooling gains new safety hooks",
+        },
+      ],
+      profile: {
+        ...localProfile,
+        preferredCategories: [],
+        preferredSources: [],
+        preferredEntities: ["OpenAI"],
+      },
+    });
+
+    expect(
+      getNewsFilterBubbleTrainingAction({
+        check: entityReport.checks.find(
+          (check) => check.label === "Entity lock",
+        ),
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        items: [
+          {
+            ...localItem,
+            id: "openai-model-release",
+            matchedSignals: ["entity"],
+            personalizedScore: 150,
+            sourceName: "Model Wire",
+            sourceSlug: "model-wire",
+            title: "OpenAI ships a faster reasoning model",
+          },
+          {
+            ...localItem,
+            category: "agent_product",
+            id: "openai-agent",
+            matchedSignals: ["entity"],
+            personalizedScore: 139,
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "OpenAI agent workflows roll into team plans",
+          },
+          {
+            ...localItem,
+            category: "big_tech",
+            id: "openai-platform",
+            matchedSignals: ["entity"],
+            personalizedScore: 126,
+            sourceName: "Platform Brief",
+            sourceSlug: "platform-brief",
+            title: "OpenAI platform tooling gains new safety hooks",
+          },
+        ],
+        profile: {
+          ...localProfile,
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: ["OpenAI"],
+        },
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Reduce dominant entity",
+        effect: "remove",
+        label: "OpenAI",
+        signals: [
+          {
+            kind: "entity",
+            label: "OpenAI",
+            signal: "openai",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+  });
+
   it("keeps the report empty while ranked stories are unavailable", () => {
     expect(
       getNewsFilterBubbleReport({
@@ -23638,6 +30559,148 @@ describe("getNewsDistributionQueue", () => {
       summary: "Distribution queue will appear after stories are ranked.",
     });
   });
+
+  it("turns distribution lanes into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          funding: "Funding",
+          market_map: "Market map",
+          model_release: "Models",
+          robotics: "Robotics",
+          security: "Security",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const boostItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "distribution-action-boost",
+      matchedSignals: ["category"],
+      sourceName: "Model Desk",
+      sourceSlug: "model-desk",
+    };
+    const balanceItem = {
+      ...olderItem,
+      category: "security",
+      entities: ["Agent Security"],
+      id: "distribution-action-balance",
+      matchedSignals: ["exploration"],
+      sourceName: "Security Desk",
+      sourceSlug: "security-desk",
+    };
+    const exploreItem = {
+      ...olderItem,
+      category: "robotics",
+      entities: ["Figure"],
+      id: "distribution-action-explore",
+      matchedSignals: ["exploration"],
+      sourceName: "Robotics Desk",
+      sourceSlug: "robotics-desk",
+    };
+    const suppressItem = {
+      ...serverItem,
+      category: "funding",
+      entities: ["YC"],
+      id: "distribution-action-suppress",
+      matchedSignals: ["category"],
+      sourceName: "VentureWire",
+      sourceSlug: "venturewire",
+    };
+    const holdItem = {
+      ...localItem,
+      category: "market_map",
+      entities: ["AI Market"],
+      id: "distribution-action-hold",
+      matchedSignals: [],
+      sourceName: "Market Desk",
+      sourceSlug: "market-desk",
+    };
+
+    expect(
+      getNewsDistributionQueueTrainingAction({
+        formatCategory,
+        item: boostItem,
+        laneKey: "boost",
+      }),
+    ).toEqual({
+      actionLabel: "Boost distribution signal",
+      effect: "add",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsDistributionQueueTrainingAction({
+        formatCategory,
+        item: balanceItem,
+        laneKey: "balance",
+      }),
+    ).toEqual({
+      actionLabel: "Train balance signal",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsDistributionQueueTrainingAction({
+        formatCategory,
+        item: exploreItem,
+        laneKey: "explore",
+      }),
+    ).toEqual({
+      actionLabel: "Train explore signal",
+      effect: "add",
+      label: "Robotics",
+      signals: [
+        {
+          kind: "category",
+          label: "Robotics",
+          signal: "robotics",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsDistributionQueueTrainingAction({
+        formatCategory,
+        item: suppressItem,
+        laneKey: "suppress",
+      }),
+    ).toEqual({
+      actionLabel: "Suppress distribution signal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsDistributionQueueTrainingAction({
+        formatCategory,
+        item: holdItem,
+        laneKey: "hold",
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("getNewsAlertRouting", () => {
@@ -24110,6 +31173,132 @@ describe("getNewsAlertRouting", () => {
       summary: "Alert routing will appear after stories are ranked.",
     });
   });
+
+  it("turns alert lanes into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          funding: "Funding",
+          model_release: "Models",
+          robotics: "Robotics",
+          security: "Security",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const immediateItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "alert-action-immediate",
+      matchedSignals: ["source"],
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+    };
+    const digestItem = {
+      ...localItem,
+      category: "security",
+      entities: ["Agent Security"],
+      id: "alert-action-digest",
+      matchedSignals: ["entity"],
+      sourceName: "Security Desk",
+      sourceSlug: "security-desk",
+    };
+    const watchItem = {
+      ...olderItem,
+      category: "robotics",
+      entities: ["Figure"],
+      id: "alert-action-watch",
+      matchedSignals: ["exploration"],
+      sourceName: "Robotics Desk",
+      sourceSlug: "robotics-desk",
+    };
+    const mutedItem = {
+      ...serverItem,
+      category: "funding",
+      entities: ["YC"],
+      id: "alert-action-muted",
+      matchedSignals: ["category"],
+      sourceName: "VentureWire",
+      sourceSlug: "venturewire",
+    };
+
+    expect(
+      getNewsAlertRoutingTrainingAction({
+        formatCategory,
+        item: immediateItem,
+        laneKey: "immediate",
+      }),
+    ).toEqual({
+      actionLabel: "Train live alert signal",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAlertRoutingTrainingAction({
+        formatCategory,
+        item: digestItem,
+        laneKey: "digest",
+      }),
+    ).toEqual({
+      actionLabel: "Train digest alert signal",
+      effect: "add",
+      label: "Agent Security",
+      signals: [
+        {
+          kind: "entity",
+          label: "Agent Security",
+          signal: "Agent Security",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAlertRoutingTrainingAction({
+        formatCategory,
+        item: watchItem,
+        laneKey: "watch",
+      }),
+    ).toEqual({
+      actionLabel: "Train watch alert signal",
+      effect: "add",
+      label: "Robotics",
+      signals: [
+        {
+          kind: "category",
+          label: "Robotics",
+          signal: "robotics",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAlertRoutingTrainingAction({
+        formatCategory,
+        item: mutedItem,
+        laneKey: "muted",
+      }),
+    ).toEqual({
+      actionLabel: "Mute alert signal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("getNewsPersonalizedPushQueue", () => {
@@ -24480,6 +31669,182 @@ describe("getNewsPersonalizedPushQueue", () => {
       ],
       summary:
         "4 stories queued for reader push: 1 now, 1 digest, 1 watch, and 1 muted.",
+    });
+  });
+
+  it("turns push queue decisions into profile training actions", () => {
+    const pushNowItem = {
+      ...localItem,
+      id: "train-push-openai",
+      category: "model_release",
+      entities: ["OpenAI", "Agents"],
+      matchedSignals: ["category", "entity"],
+      personalizedScore: 168,
+      sourceName: "OpenAI News",
+      sourceScore: 94,
+      sourceSlug: "openai-news",
+      title: "OpenAI ships an urgent agent runtime",
+      trendScore: 96,
+    };
+    const digestItem = {
+      ...localItem,
+      id: "train-push-agent-digest",
+      category: "agent_product",
+      entities: ["Agents"],
+      matchedSignals: ["source"],
+      personalizedScore: 128,
+      sourceName: "Agent Desk",
+      sourceScore: 84,
+      sourceSlug: "agent-desk",
+      title: "Agent teams add workflow memory",
+      trendScore: 74,
+    };
+    const watchItem = {
+      ...olderItem,
+      id: "train-push-robotics-watch",
+      category: "robotics",
+      entities: ["Figure"],
+      matchedSignals: ["exploration"],
+      personalizedScore: 118,
+      sourceName: "Robotics Desk",
+      sourceScore: 88,
+      sourceSlug: "robotics-desk",
+      title: "Robotics agent startup enters the explore lane",
+      trendScore: 89,
+    };
+    const mutedItem = {
+      ...serverItem,
+      id: "train-push-muted-funding",
+      category: "funding",
+      entities: ["YC"],
+      matchedSignals: ["category"],
+      personalizedScore: 151,
+      sourceName: "VentureWire",
+      sourceScore: 88,
+      sourceSlug: "venturewire",
+      title: "Funding rumor repeats a hidden thread",
+      trendScore: 89,
+    };
+    const queue = getNewsPersonalizedPushQueue({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "agent_product"
+            ? "Agents"
+            : category === "robotics"
+              ? "Robotics"
+              : category === "funding"
+                ? "Funding"
+                : category,
+      hiddenItemIds: [],
+      historyItems: [
+        {
+          ...localItem,
+          id: "train-read-agent-history",
+          category: "agent_product",
+          entities: ["Agents"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+      ],
+      items: [pushNowItem, digestItem, watchItem, mutedItem],
+      limit: 2,
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          id: "train-negative-funding",
+          category: "funding",
+          entities: ["YC"],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+      ],
+      profile: localProfile,
+      savedItems: [
+        {
+          ...localItem,
+          id: "train-saved-agent-source",
+          category: "agent_product",
+          entities: ["Agents"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+      ],
+    });
+    const pushNowStory = queue.lanes[0]?.stories[0];
+    const digestStory = queue.lanes[1]?.stories[0];
+    const watchStory = queue.lanes[2]?.stories[0];
+    const mutedStory = queue.lanes[3]?.stories[0];
+
+    expect(pushNowStory).toBeDefined();
+    expect(digestStory).toBeDefined();
+    expect(watchStory).toBeDefined();
+    expect(mutedStory).toBeDefined();
+    if (!pushNowStory || !digestStory || !watchStory || !mutedStory) return;
+
+    expect(
+      getNewsPersonalizedPushQueueTrainingAction({
+        item: pushNowItem,
+        laneKey: "push_now",
+        story: pushNowStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train push signal",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsPersonalizedPushQueueTrainingAction({
+        item: digestItem,
+        laneKey: "digest",
+        story: digestStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train digest signal",
+      effect: "add",
+      label: "Agent Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Agent Desk",
+          signal: "agent-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsPersonalizedPushQueueTrainingAction({
+        item: watchItem,
+        laneKey: "watch",
+        story: watchStory,
+      }),
+    ).toBeNull();
+    expect(
+      getNewsPersonalizedPushQueueTrainingAction({
+        item: mutedItem,
+        laneKey: "muted",
+        story: mutedStory,
+      }),
+    ).toEqual({
+      actionLabel: "Mute push signal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -25811,6 +33176,129 @@ describe("getNewsModelTrainingBatch", () => {
       summary: "Model training batch will appear after stories are ranked.",
     });
   });
+
+  it("turns reinforce and suppress training lanes into profile actions", () => {
+    const profile = {
+      preferredCategories: ["funding"],
+      preferredEntities: [],
+      preferredSources: [],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+    const reinforceItem = {
+      ...localItem,
+      category: "security",
+      entities: ["Agent Security"],
+      id: "training-action-reinforce",
+      matchedSignals: ["category"],
+      personalizedScore: 148,
+      sourceName: "Security Desk",
+      sourceScore: 91,
+      sourceSlug: "security-desk",
+      title: "Security story should train the reader profile",
+      trendScore: 84,
+    };
+    const suppressItem = {
+      ...serverItem,
+      category: "funding",
+      entities: ["Series A"],
+      id: "training-action-suppress",
+      matchedSignals: ["category"],
+      personalizedScore: 132,
+      sourceName: "VentureWire",
+      sourceScore: 82,
+      sourceSlug: "venturewire",
+      title: "Funding story should dampen the reader profile",
+      trendScore: 89,
+    };
+    const exploreItem = {
+      ...olderItem,
+      category: "robotics",
+      entities: ["Figure"],
+      id: "training-action-explore",
+      matchedSignals: ["exploration"],
+      personalizedScore: 109,
+      sourceName: "Robotics Desk",
+      sourceScore: 84,
+      sourceSlug: "robotics-desk",
+      title: "Robotics story should stay exploratory",
+      trendScore: 80,
+    };
+    const holdoutItem = {
+      ...localItem,
+      category: "market_map",
+      entities: ["AI Market"],
+      id: "training-action-holdout",
+      matchedSignals: [],
+      personalizedScore: 88,
+      sourceName: "Market Desk",
+      sourceScore: 76,
+      sourceSlug: "market-desk",
+      title: "Market map story should stay in holdout",
+      trendScore: 70,
+    };
+
+    expect(
+      getNewsModelTrainingBatchTrainingAction({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: reinforceItem,
+        laneKey: "reinforce",
+        profile,
+      }),
+    ).toEqual({
+      actionLabel: "Train lift signal",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsModelTrainingBatchTrainingAction({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : category,
+        item: suppressItem,
+        laneKey: "suppress",
+        profile,
+      }),
+    ).toEqual({
+      actionLabel: "Train suppress signal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsModelTrainingBatchTrainingAction({
+        formatCategory: (category) =>
+          category === "robotics" ? "Robotics" : category,
+        item: exploreItem,
+        laneKey: "explore",
+        profile,
+      }),
+    ).toBeNull();
+    expect(
+      getNewsModelTrainingBatchTrainingAction({
+        formatCategory: (category) =>
+          category === "market_map" ? "Market Map" : category,
+        item: holdoutItem,
+        laneKey: "holdout",
+        profile,
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("getNewsProfileUpdateProposal", () => {
@@ -25919,6 +33407,8 @@ describe("getNewsProfileUpdateProposal", () => {
               reason: "Reader signals make this category a profile candidate.",
               signalKind: "Category",
               signalLabel: "Security",
+              signalType: "category",
+              signalValue: "security",
               sourceName: "Security Desk",
               storyId: "proposal-add-security",
               storyTitle: "Security story should update the profile",
@@ -25941,6 +33431,8 @@ describe("getNewsProfileUpdateProposal", () => {
                 "Guardrail feedback makes this category a dampening candidate.",
               signalKind: "Category",
               signalLabel: "Funding",
+              signalType: "category",
+              signalValue: "funding",
               sourceName: "VentureWire",
               storyId: "proposal-reduce-funding",
               storyTitle: "Funding story matches a rejected pattern",
@@ -25963,6 +33455,8 @@ describe("getNewsProfileUpdateProposal", () => {
                 "Exploration samples should be watched before becoming profile preferences.",
               signalKind: "Category",
               signalLabel: "Robotics",
+              signalType: "category",
+              signalValue: "robotics",
               sourceName: "Robotics Desk",
               storyId: "proposal-explore-robotics",
               storyTitle: "Robotics story should remain exploratory",
@@ -25985,6 +33479,8 @@ describe("getNewsProfileUpdateProposal", () => {
                 "Holdout stories stay in evaluation without changing the profile.",
               signalKind: "Story",
               signalLabel: "Market map story should stay in holdout",
+              signalType: "story",
+              signalValue: "proposal-hold-market",
               sourceName: "Market Desk",
               storyId: "proposal-hold-market",
               storyTitle: "Market map story should stay in holdout",
@@ -26061,12 +33557,127 @@ describe("getNewsProfileUpdateProposal", () => {
         reason: "Positive memory makes this category a profile candidate.",
         signalKind: "Category",
         signalLabel: "Security",
+        signalType: "category",
+        signalValue: "security",
         sourceName: "Security Desk",
         storyId: "proposal-positive-security",
         storyTitle: "Positive memory should create a profile update",
       },
     ]);
     expect(proposal.metrics).toContainEqual({ label: "Add", value: "1" });
+  });
+
+  it("turns add and reduce proposals into existing profile training actions", () => {
+    const proposal = getNewsProfileUpdateProposal({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "funding"
+            ? "Funding"
+            : category,
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "proposal-action-add-security",
+          matchedSignals: ["category"],
+          personalizedScore: 148,
+          sourceName: "Security Desk",
+          sourceScore: 90,
+          sourceSlug: "security-desk",
+          title: "Security story should update the profile",
+          trendScore: 84,
+        },
+        {
+          ...serverItem,
+          category: "funding",
+          entities: ["Series A"],
+          id: "proposal-action-reduce-funding",
+          matchedSignals: ["category"],
+          personalizedScore: 132,
+          sourceName: "VentureWire",
+          sourceScore: 82,
+          sourceSlug: "venturewire",
+          title: "Funding story matches a rejected pattern",
+          trendScore: 89,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [
+        {
+          ...serverItem,
+          category: "funding",
+          entities: ["Series A"],
+          id: "negative-proposal-action-funding",
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+      ],
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["funding"],
+        preferredEntities: ["Series A"],
+        preferredSources: ["venturewire"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+    const addProposal = proposal.lanes[0]?.proposals[0];
+    const reduceProposal = proposal.lanes[1]?.proposals[0];
+
+    expect(addProposal).toBeDefined();
+    expect(reduceProposal).toBeDefined();
+    if (!addProposal || !reduceProposal) return;
+
+    expect(getNewsProfileUpdateProposalTrainingAction(addProposal)).toEqual({
+      actionLabel: "Apply proposal",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsProfileUpdateProposalTrainingAction(reduceProposal)).toEqual({
+      actionLabel: "Apply proposal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("does not turn hold proposals into profile-changing actions", () => {
+    expect(
+      getNewsProfileUpdateProposalTrainingAction({
+        actionLabel: "Hold profile",
+        evidenceLabel: "88 score / 70 heat",
+        id: "hold:story:proposal-hold-market",
+        reason:
+          "Holdout stories stay in evaluation without changing the profile.",
+        signalKind: "Story",
+        signalLabel: "Market map story should stay in holdout",
+        signalType: "story",
+        signalValue: "proposal-hold-market",
+        sourceName: "Market Desk",
+        storyId: "proposal-hold-market",
+        storyTitle: "Market map story should stay in holdout",
+      }),
+    ).toBeNull();
   });
 
   it("keeps profile proposals cold before training signals exist", () => {
@@ -26241,6 +33852,19 @@ describe("getNewsReaderProfileSnapshot", () => {
           value: "1 guardrail",
         },
         {
+          action: {
+            actionLabel: "Apply proposal",
+            effect: "add",
+            label: "Security",
+            signals: [
+              {
+                kind: "category",
+                label: "Security",
+                signal: "security",
+              },
+            ],
+            source: "control",
+          },
           detail:
             "Next profile patch wants to add Security from the ranked edition.",
           key: "next_update",
@@ -26563,6 +34187,155 @@ describe("getNewsChannelStrategy", () => {
     expect(strategy.summary).toBe(
       "4 stories distributed across 3 AI channels: 1 profile-led, 1 exploration, and 2 trend-led.",
     );
+  });
+
+  it("turns channel lanes into profile and bias training actions", () => {
+    const items = [
+      {
+        ...localItem,
+        id: "reader-match-source",
+        matchedSignals: ["category", "entity"],
+        personalizedScore: 142,
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+      },
+      {
+        ...olderItem,
+        category: "funding",
+        id: "explore-story",
+        matchedSignals: ["exploration"],
+        personalizedScore: 104,
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+      },
+      {
+        ...localItem,
+        category: "research",
+        id: "trend-story",
+        matchedSignals: [],
+        personalizedScore: 95,
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+      },
+    ];
+    const profile = {
+      preferredCategories: ["model_release"],
+      preferredSources: [],
+      preferredEntities: ["OpenAI"],
+      noveltyBias: 1,
+      recencyBias: 1,
+    };
+    const strategy = getNewsChannelStrategy({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "funding"
+            ? "Funding"
+            : category,
+      items,
+      profile,
+    });
+
+    expect(
+      getNewsChannelStrategyTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "funding"
+              ? "Funding"
+              : category,
+        items,
+        lane: strategy.lanes.find((lane) => lane.label === "For You"),
+        profile,
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow channel source",
+        effect: "add",
+        label: "OpenAI News",
+        signals: [
+          {
+            kind: "source",
+            label: "OpenAI News",
+            signal: "openai-news",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+    expect(
+      getNewsChannelStrategyTrainingAction({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : category,
+        items,
+        lane: strategy.lanes.find((lane) => lane.label === "Explore"),
+        profile,
+      }),
+    ).toEqual({
+      action: {
+        actionLabel: "Follow channel topic",
+        effect: "add",
+        label: "Funding",
+        signals: [
+          {
+            kind: "category",
+            label: "Funding",
+            signal: "funding",
+          },
+        ],
+        source: "control",
+      },
+      kind: "profile",
+    });
+    expect(
+      getNewsChannelStrategyTrainingAction({
+        formatCategory: (category) => category,
+        items,
+        lane: strategy.lanes.find((lane) => lane.label === "Trending"),
+        profile,
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "recencyBias",
+        label: "Fresh",
+      },
+      kind: "bias",
+    });
+  });
+
+  it("raises novelty when the explore lane is empty", () => {
+    const items = [
+      {
+        ...localItem,
+        id: "reader-match",
+        matchedSignals: ["category"],
+        personalizedScore: 142,
+      },
+    ];
+    const strategy = getNewsChannelStrategy({
+      formatCategory: (category) =>
+        category === "model_release" ? "Models" : category,
+      items,
+      profile: localProfile,
+    });
+
+    expect(
+      getNewsChannelStrategyTrainingAction({
+        formatCategory: (category) => category,
+        items,
+        lane: strategy.lanes.find((lane) => lane.label === "Explore"),
+        profile: localProfile,
+      }),
+    ).toEqual({
+      action: {
+        direction: "raise",
+        key: "noveltyBias",
+        label: "Novel",
+      },
+      kind: "bias",
+    });
   });
 
   it("keeps the channel strategy useful before stories or reader signals exist", () => {
@@ -26946,6 +34719,39 @@ describe("selectNewsFeedModeItems", () => {
       "latest-lead",
       "trending-lead",
     ]);
+  });
+
+  it("does not rank future-dated stories first in Latest mode", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        selectNewsFeedModeItems({
+          items: [
+            {
+              ...localItem,
+              id: "future-latest-lead",
+              matchedSignals: [],
+              personalizedScore: 100,
+              publishedAt: "2026-08-01T12:00:00.000Z",
+              trendScore: 80,
+            },
+            {
+              ...serverItem,
+              id: "current-latest-lead",
+              matchedSignals: [],
+              personalizedScore: 100,
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              trendScore: 80,
+            },
+          ],
+          mode: "latest",
+        }).map((item) => item.id),
+      ).toEqual(["current-latest-lead", "future-latest-lead"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("sorts the edition by heat for Trending mode", () => {
@@ -27492,6 +35298,211 @@ describe("getNewsChannelComparison", () => {
 });
 
 describe("getNewsEditionQualityGate", () => {
+  it("turns edition quality checks into profile training actions", () => {
+    const formatCategory = (category: string) =>
+      (
+        ({
+          agent_product: "Agents",
+          funding: "Funding",
+          model_release: "Models",
+          research: "Research",
+        }) satisfies Record<string, string>
+      )[category] ?? category;
+    const gate = getNewsEditionQualityGate({
+      formatCategory,
+      items: [
+        {
+          ...localItem,
+          id: "quality-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Model Desk",
+          sourceScore: 94,
+          sourceSlug: "model-desk",
+          title: "Model desk leads the edition",
+          trendScore: 88,
+        },
+        {
+          ...serverItem,
+          id: "quality-reader",
+          category: "research",
+          entities: ["Evaluation"],
+          matchedSignals: ["entity"],
+          personalizedScore: 121,
+          sourceName: "Research Wire",
+          sourceScore: 91,
+          sourceSlug: "research-wire",
+          title: "Research follow-up adds reader fit",
+          trendScore: 80,
+        },
+        {
+          ...olderItem,
+          id: "quality-explore",
+          category: "agent_product",
+          entities: ["Agents"],
+          matchedSignals: ["exploration"],
+          personalizedScore: 112,
+          sourceName: "Agent Scout",
+          sourceScore: 84,
+          sourceSlug: "agent-scout",
+          title: "Agent story keeps discovery open",
+          trendScore: 86,
+        },
+      ],
+      negativeFeedbackItems: [
+        {
+          ...olderItem,
+          category: "funding",
+          entities: ["Series A"],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "Funding rumor gets less feedback",
+        },
+      ],
+      profile: localProfile,
+    });
+    const findCheck = (
+      key: "exploration" | "guardrail" | "lead" | "reader_fit" | "source_mix",
+    ) => {
+      const check = gate.checks.find((candidate) => candidate.key === key);
+
+      if (!check) {
+        throw new Error(`Missing quality gate check: ${key}`);
+      }
+
+      return check;
+    };
+    const commonInput = {
+      formatCategory,
+      items: [
+        {
+          ...localItem,
+          id: "quality-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Model Desk",
+          sourceScore: 94,
+          sourceSlug: "model-desk",
+          title: "Model desk leads the edition",
+          trendScore: 88,
+        },
+        {
+          ...serverItem,
+          id: "quality-reader",
+          category: "research",
+          entities: ["Evaluation"],
+          matchedSignals: ["entity"],
+          personalizedScore: 121,
+          sourceName: "Research Wire",
+          sourceScore: 91,
+          sourceSlug: "research-wire",
+          title: "Research follow-up adds reader fit",
+          trendScore: 80,
+        },
+        {
+          ...olderItem,
+          id: "quality-explore",
+          category: "agent_product",
+          entities: ["Agents"],
+          matchedSignals: ["exploration"],
+          personalizedScore: 112,
+          sourceName: "Agent Scout",
+          sourceScore: 84,
+          sourceSlug: "agent-scout",
+          title: "Agent story keeps discovery open",
+          trendScore: 86,
+        },
+      ],
+      negativeFeedbackItems: [
+        {
+          ...olderItem,
+          category: "funding",
+          entities: ["Series A"],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "Funding rumor gets less feedback",
+        },
+      ],
+    };
+
+    expect(
+      getNewsEditionQualityGateTrainingAction({
+        ...commonInput,
+        check: findCheck("reader_fit"),
+      }),
+    ).toEqual({
+      actionLabel: "Train reader fit",
+      effect: "add",
+      label: "Research",
+      signals: [
+        {
+          kind: "category",
+          label: "Research",
+          signal: "research",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsEditionQualityGateTrainingAction({
+        ...commonInput,
+        check: findCheck("exploration"),
+      }),
+    ).toEqual({
+      actionLabel: "Train exploration lane",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsEditionQualityGateTrainingAction({
+        ...commonInput,
+        check: findCheck("source_mix"),
+      }),
+    ).toEqual({
+      actionLabel: "Train source mix",
+      effect: "add",
+      label: "Research Wire",
+      signals: [
+        {
+          kind: "source",
+          label: "Research Wire",
+          signal: "research-wire",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsEditionQualityGateTrainingAction({
+        ...commonInput,
+        check: findCheck("guardrail"),
+      }),
+    ).toEqual({
+      actionLabel: "Train guardrail",
+      effect: "remove",
+      label: "VentureWire",
+      signals: [
+        {
+          kind: "source",
+          label: "VentureWire",
+          signal: "venturewire",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("checks front-page lead, source spread, personalization, exploration, and guardrails", () => {
     expect(
       getNewsEditionQualityGate({
@@ -27787,6 +35798,60 @@ describe("getNewsSourceBalance", () => {
     ).toBe("Concentrated");
   });
 
+  it("maps concentrated source balance to an executable source dampening action", () => {
+    const concentratedBalance = getNewsSourceBalance({
+      items: [
+        localItem,
+        {
+          ...localItem,
+          id: "local-follow-up",
+        },
+        {
+          ...serverItem,
+          id: "server-story",
+          sourceName: "Server Source",
+          sourceSlug: "server-source",
+        },
+      ],
+    });
+    const balancedSource = getNewsSourceBalance({
+      items: [
+        localItem,
+        serverItem,
+        {
+          ...localItem,
+          id: "deepmind-story",
+          sourceName: "DeepMind",
+          sourceSlug: "deepmind",
+        },
+        {
+          ...localItem,
+          id: "venture-story",
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+      ],
+    });
+
+    expect(getNewsSourceBalanceTrainingAction(concentratedBalance)).toEqual({
+      actionLabel: "Reduce source",
+      effect: "remove",
+      label: "Local Source",
+      signals: [
+        {
+          kind: "source",
+          label: "Local Source",
+          signal: "local-source",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsSourceBalanceTrainingAction(balancedSource)).toBeNull();
+    expect(
+      getNewsSourceBalanceTrainingAction(getNewsSourceBalance({ items: [] })),
+    ).toBeNull();
+  });
+
   it("collapses padded source slug variants before measuring source balance", () => {
     expect(
       getNewsSourceBalance({
@@ -27891,6 +35956,96 @@ describe("getNewsSourceTrustLedger", () => {
       summary:
         "2 of 4 stories come from high-trust sources; 1 low-trust high-heat story is being guarded.",
     });
+  });
+
+  it("maps source trust notices to executable source training actions", async () => {
+    const modelModule = await import("./news-home-model");
+    const getSourceTrustAction = (
+      modelModule as {
+        getNewsSourceTrustTrainingAction?: (input: {
+          items: readonly NewsHomeItem[];
+          notice: ReturnType<
+            typeof getNewsSourceTrustLedger
+          >["notices"][number];
+        }) => NewsPreferenceProfileTrainingAction | null;
+      }
+    ).getNewsSourceTrustTrainingAction;
+    const items = [
+      {
+        ...localItem,
+        sourceScore: 92,
+        trendScore: 82,
+      },
+      {
+        ...localItem,
+        id: "low-trust-heat",
+        sourceName: "Rumor Desk",
+        sourceScore: 42,
+        sourceSlug: "rumor-desk",
+        trendScore: 91,
+      },
+    ];
+    const ledger = getNewsSourceTrustLedger({ items });
+    const trustGuardNotice = ledger.notices.find(
+      (notice) => notice.label === "Trust guard",
+    );
+    const sourceConfidenceNotice = ledger.notices.find(
+      (notice) => notice.label === "Source confidence",
+    );
+
+    expect(getSourceTrustAction).toEqual(expect.any(Function));
+    if (!getSourceTrustAction || !trustGuardNotice || !sourceConfidenceNotice) {
+      throw new Error("Expected source trust action inputs to exist.");
+    }
+
+    expect(getSourceTrustAction({ items, notice: trustGuardNotice })).toEqual({
+      actionLabel: "Reduce source",
+      effect: "remove",
+      label: "Rumor Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Rumor Desk",
+          signal: "rumor-desk",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getSourceTrustAction({ items, notice: sourceConfidenceNotice }),
+    ).toEqual({
+      actionLabel: "Prefer source",
+      effect: "add",
+      label: "Local Source",
+      signals: [
+        {
+          kind: "source",
+          label: "Local Source",
+          signal: "local-source",
+        },
+      ],
+      source: "control",
+    });
+    const neutralItems = [
+      {
+        ...localItem,
+        sourceScore: 68,
+        trendScore: 74,
+      },
+    ];
+    const neutralLedger = getNewsSourceTrustLedger({ items: neutralItems });
+    const neutralNotice = neutralLedger.notices[0];
+
+    if (!neutralNotice) {
+      throw new Error("Expected a neutral trust guard notice.");
+    }
+
+    expect(
+      getSourceTrustAction({
+        items: neutralItems,
+        notice: neutralNotice,
+      }),
+    ).toBeNull();
   });
 
   it("returns a stable empty trust ledger before stories load", () => {
@@ -28100,6 +36255,172 @@ describe("getNewsAggregationIntake", () => {
       summary: "Aggregation intake will appear after sources deliver stories.",
     });
   });
+
+  it("maps intake lanes to executable profile training actions", () => {
+    const formatCategory = (category: string) =>
+      category === "product_hunt"
+        ? "Product Hunt"
+        : category === "research"
+          ? "Research"
+          : category;
+    const items = [
+      {
+        ...localItem,
+        id: "openai-model",
+        sourceName: "OpenAI News",
+        sourceScore: 94,
+        sourceSlug: "openai-news",
+        sourceType: "vendor_blog",
+        title: "OpenAI ships a new reasoning model",
+        trendScore: 88,
+      },
+      {
+        ...localItem,
+        id: "hn-agents",
+        sourceName: "Hacker News AI",
+        sourceScore: 72,
+        sourceSlug: "hacker-news-ai",
+        sourceType: "hacker_news",
+        title: "Developers debate agent memory",
+        trendScore: 91,
+      },
+      {
+        ...localItem,
+        category: "product_hunt",
+        id: "ph-launch",
+        sourceName: "Product Hunt AI",
+        sourceScore: 70,
+        sourceSlug: "product-hunt-ai",
+        sourceType: "product_hunt",
+        title: "New AI workspace launches",
+        trendScore: 84,
+      },
+      {
+        ...localItem,
+        category: "research",
+        id: "research-paper",
+        sourceName: "Research Wire",
+        sourceScore: 87,
+        sourceSlug: "research-wire",
+        sourceType: "research",
+        title: "Researchers benchmark inference agents",
+        trendScore: 69,
+      },
+      {
+        ...localItem,
+        id: "desk-note",
+        sourceName: "Editor's Desk",
+        sourceScore: 70,
+        sourceSlug: "editor-desk",
+        sourceType: "manual",
+        title: "Desk note keeps the edition alive",
+        trendScore: 58,
+      },
+    ];
+    const intake = getNewsAggregationIntake({ items, limit: 2 });
+    const findLane = (
+      key: "community" | "desk" | "launch" | "primary" | "research",
+    ) => {
+      const lane = intake.lanes.find((candidate) => candidate.key === key);
+
+      if (!lane) {
+        throw new Error(`Missing aggregation intake lane: ${key}`);
+      }
+
+      return lane;
+    };
+    const commonInput = {
+      formatCategory,
+      items,
+      lane: findLane("primary"),
+    };
+
+    expect(getNewsAggregationIntakeTrainingAction(commonInput)).toEqual({
+      actionLabel: "Train primary source",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAggregationIntakeTrainingAction({
+        ...commonInput,
+        lane: findLane("community"),
+      }),
+    ).toEqual({
+      actionLabel: "Guard community signal",
+      effect: "remove",
+      label: "Hacker News AI",
+      signals: [
+        {
+          kind: "source",
+          label: "Hacker News AI",
+          signal: "hacker-news-ai",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAggregationIntakeTrainingAction({
+        ...commonInput,
+        lane: findLane("launch"),
+      }),
+    ).toEqual({
+      actionLabel: "Train launch lane",
+      effect: "add",
+      label: "Product Hunt",
+      signals: [
+        {
+          kind: "category",
+          label: "Product Hunt",
+          signal: "product_hunt",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAggregationIntakeTrainingAction({
+        ...commonInput,
+        lane: findLane("research"),
+      }),
+    ).toEqual({
+      actionLabel: "Train research lane",
+      effect: "add",
+      label: "Research",
+      signals: [
+        {
+          kind: "category",
+          label: "Research",
+          signal: "research",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAggregationIntakeTrainingAction({
+        ...commonInput,
+        lane: findLane("desk"),
+      }),
+    ).toEqual({
+      actionLabel: "Reduce desk fallback",
+      effect: "remove",
+      label: "Editor's Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Editor's Desk",
+          signal: "editor-desk",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("getNewsAggregationRecoveryQueue", () => {
@@ -28267,6 +36588,129 @@ describe("getNewsAggregationRecoveryQueue", () => {
         "Aggregation intake is balanced enough for the next ranking pass.",
     });
   });
+
+  it("maps recovery queue actions to executable profile training actions", () => {
+    const items = [
+      {
+        ...localItem,
+        id: "openai-model",
+        sourceName: "OpenAI News",
+        sourceScore: 94,
+        sourceSlug: "openai-news",
+        sourceType: "vendor_blog",
+        title: "OpenAI ships a new reasoning model",
+        trendScore: 88,
+      },
+      {
+        ...localItem,
+        id: "hn-agents",
+        sourceName: "Hacker News AI",
+        sourceScore: 68,
+        sourceSlug: "hacker-news-ai",
+        sourceType: "hacker_news",
+        title: "Developers debate agent memory",
+        trendScore: 94,
+      },
+      {
+        ...localItem,
+        category: "product_hunt",
+        id: "ph-launch",
+        sourceName: "Product Hunt AI",
+        sourceScore: 70,
+        sourceSlug: "product-hunt-ai",
+        sourceType: "product_hunt",
+        title: "New AI workspace launches",
+        trendScore: 84,
+      },
+      {
+        ...localItem,
+        id: "desk-note",
+        sourceName: "Editor's Desk",
+        sourceScore: 70,
+        sourceSlug: "editor-desk",
+        sourceType: "manual",
+        title: "Desk note keeps the edition alive",
+        trendScore: 58,
+      },
+      {
+        ...localItem,
+        category: "research",
+        id: "research-paper",
+        sourceName: "Research Wire",
+        sourceScore: 87,
+        sourceSlug: "research-wire",
+        sourceType: "research",
+        title: "Researchers benchmark inference agents",
+        trendScore: 69,
+      },
+    ];
+    const queue = getNewsAggregationRecoveryQueue({ items, limit: 3 });
+    const findAction = (actionLabel: string) => {
+      const action = queue.actions.find(
+        (candidate) => candidate.actionLabel === actionLabel,
+      );
+
+      if (!action) {
+        throw new Error(`Missing aggregation recovery action: ${actionLabel}`);
+      }
+
+      return action;
+    };
+    const commonInput = {
+      action: findAction("Verify hot signal"),
+      items,
+    };
+
+    expect(getNewsAggregationRecoveryTrainingAction(commonInput)).toEqual({
+      actionLabel: "Guard hot signal",
+      effect: "remove",
+      label: "Hacker News AI",
+      signals: [
+        {
+          kind: "source",
+          label: "Hacker News AI",
+          signal: "hacker-news-ai",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAggregationRecoveryTrainingAction({
+        ...commonInput,
+        action: findAction("Refresh primary sources"),
+      }),
+    ).toEqual({
+      actionLabel: "Train primary recovery",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsAggregationRecoveryTrainingAction({
+        ...commonInput,
+        action: findAction("Replace desk fallback"),
+      }),
+    ).toEqual({
+      actionLabel: "Reduce fallback source",
+      effect: "remove",
+      label: "Editor's Desk",
+      signals: [
+        {
+          kind: "source",
+          label: "Editor's Desk",
+          signal: "editor-desk",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("NewsHome aggregation recovery queue placement", () => {
@@ -28279,6 +36723,9 @@ describe("NewsHome aggregation recovery queue placement", () => {
     expect(source).toContain("getNewsAggregationRecoveryQueue({");
     expect(source).toContain("Aggregation Recovery Queue");
     expect(source).toContain("aggregationRecoveryQueue.actions.map");
+    expect(source).toContain("getNewsAggregationRecoveryTrainingAction");
+    expect(source).toContain("applyAggregationRecoveryAction");
+    expect(source).toContain("recoveryAction.actionLabel");
   });
 });
 
@@ -28318,22 +36765,96 @@ describe("getNewsEntityRadar", () => {
       {
         entity: "OpenAI",
         heatScore: 153,
+        signal: "openai",
         sourceCount: 3,
         storyCount: 3,
       },
       {
         entity: "Agents",
         heatScore: 121,
+        signal: "agents",
         sourceCount: 1,
         storyCount: 2,
       },
       {
         entity: "Anthropic",
         heatScore: 101,
+        signal: "anthropic",
         sourceCount: 1,
         storyCount: 1,
       },
     ]);
+  });
+
+  it("maps entity radar entries to executable entity training actions", async () => {
+    const modelModule = await import("./news-home-model");
+    const getEntityAction = (
+      modelModule as {
+        getNewsEntityRadarTrainingAction?: (input: {
+          entry: ReturnType<typeof getNewsEntityRadar>[number];
+          profile: ReturnType<typeof createDefaultNewsPreferenceProfile>;
+        }) => NewsPreferenceProfileTrainingAction;
+      }
+    ).getNewsEntityRadarTrainingAction;
+    const entries = getNewsEntityRadar({
+      items: [
+        localItem,
+        {
+          ...localItem,
+          id: "openai-agent",
+          entities: ["OpenAI", "Agents"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+      ],
+      limit: 1,
+    });
+    const entry = entries[0];
+
+    expect(getEntityAction).toEqual(expect.any(Function));
+    if (!getEntityAction || !entry) {
+      throw new Error("Expected entity radar training action inputs to exist.");
+    }
+
+    expect(
+      getEntityAction({
+        entry,
+        profile: createDefaultNewsPreferenceProfile(),
+      }),
+    ).toEqual({
+      actionLabel: "Follow entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "openai",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getEntityAction({
+        entry,
+        profile: {
+          ...createDefaultNewsPreferenceProfile(),
+          preferredEntities: ["openai"],
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Reduce entity",
+      effect: "remove",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "openai",
+        },
+      ],
+      source: "control",
+    });
   });
 
   it("returns no entity radar entries for an empty edition", () => {
@@ -28397,6 +36918,44 @@ describe("selectReaderFreshNewsHomeItems", () => {
         ],
       }).map((item) => item.id),
     ).toEqual(["unread-story", "read-syndicated"]);
+  });
+
+  it("moves same-cluster read variants behind unread stories and marks them", () => {
+    const feed = selectReaderFreshNewsHomeItems({
+      historyItems: [
+        {
+          canonicalUrl: "https://example.com/openai-gpt6",
+          clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:GPT-6 ",
+          id: "read-cluster-source",
+          originalUrl: "https://example.com/openai-gpt6",
+        },
+      ],
+      items: [
+        {
+          ...serverItem,
+          canonicalUrl: "https://wire.example/openai-reasoning-release",
+          clusterKey: "2026-07-01:model_release:openai:gpt-6",
+          id: "read-cluster-wire",
+          matchedSignals: ["category"],
+          originalUrl: "https://wire.example/openai-reasoning-release",
+          personalizedScore: 140,
+        },
+        {
+          ...localItem,
+          canonicalUrl: "https://example.com/unread-story",
+          id: "unread-story",
+          matchedSignals: ["entity"],
+          originalUrl: "https://example.com/unread-story",
+          personalizedScore: 130,
+        },
+      ],
+    });
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "unread-story",
+      "read-cluster-wire",
+    ]);
+    expect(feed[1]?.matchedSignals).toContain("reading_history_cooldown");
   });
 
   it("keeps ranked order when there is no matching read history", () => {
@@ -28636,6 +37195,37 @@ describe("selectSourceCorroboratedNewsHomeItems", () => {
 });
 
 describe("selectNewsHomeExposureRecords", () => {
+  const exposureServerStoryId = "7c8c33ef-4f20-4f78-93ea-9400c4023902";
+  const exposureLocalStoryId = "8c8c33ef-4f20-4f78-93ea-9400c4023902";
+  const exposureOlderStoryId = "9c8c33ef-4f20-4f78-93ea-9400c4023902";
+  const exposureMirrorStoryId = "ac8c33ef-4f20-4f78-93ea-9400c4023902";
+
+  it("keeps non-database story ids out of server home exposure records", () => {
+    expect(
+      selectNewsHomeExposureRecords({
+        feedMode: "for_you",
+        isPreview: false,
+        items: [
+          {
+            ...serverItem,
+            id: "preview-story",
+            matchedSignals: ["category"],
+            personalizedScore: 140,
+          },
+          {
+            ...localItem,
+            id: "7c8c33ef-4f20-4f78-93ea-9400c4023902",
+            matchedSignals: ["entity"],
+            personalizedScore: 130,
+          },
+        ],
+        limit: 2,
+        recordedItems: [],
+        visitorKey: "visitor-test-123",
+      }).map((record) => record.newsItemId),
+    ).toEqual(["7c8c33ef-4f20-4f78-93ea-9400c4023902"]);
+  });
+
   it("records bounded home exposures for unseen live feed items", () => {
     const records = selectNewsHomeExposureRecords({
       feedMode: "for_you",
@@ -28643,16 +37233,19 @@ describe("selectNewsHomeExposureRecords", () => {
       items: [
         {
           ...serverItem,
+          id: exposureServerStoryId,
           matchedSignals: ["category"],
           personalizedScore: 140,
         },
         {
           ...localItem,
+          id: exposureLocalStoryId,
           matchedSignals: ["entity"],
           personalizedScore: 130,
         },
         {
           ...olderItem,
+          id: exposureOlderStoryId,
           matchedSignals: [],
           personalizedScore: 120,
         },
@@ -28674,7 +37267,7 @@ describe("selectNewsHomeExposureRecords", () => {
           rankSlot: 0,
           surface: "home_exposure",
         },
-        newsItemId: "server-story",
+        newsItemId: exposureServerStoryId,
         visitorKey: "visitor-test-123",
       },
       {
@@ -28688,7 +37281,7 @@ describe("selectNewsHomeExposureRecords", () => {
           rankSlot: 1,
           surface: "home_exposure",
         },
-        newsItemId: "local-story",
+        newsItemId: exposureLocalStoryId,
         visitorKey: "visitor-test-123",
       },
     ]);
@@ -28744,13 +37337,14 @@ describe("selectNewsHomeExposureRecords", () => {
           {
             ...serverItem,
             canonicalUrl: "https://mirror.example/read-story",
-            id: "read-syndicated",
+            id: exposureMirrorStoryId,
             matchedSignals: ["category"],
             originalUrl: "https://example.com/read-story?utm=home",
             personalizedScore: 140,
           },
           {
             ...localItem,
+            id: exposureLocalStoryId,
             matchedSignals: ["entity"],
             personalizedScore: 130,
           },
@@ -28759,7 +37353,7 @@ describe("selectNewsHomeExposureRecords", () => {
         recordedItems: [readVariant],
         visitorKey: "visitor-test-123",
       }).map((record) => record.newsItemId),
-    ).toEqual(["local-story"]);
+    ).toEqual([exposureLocalStoryId]);
   });
 
   it("keeps the original home rank slot after skipping recorded exposures", () => {
@@ -28770,17 +37364,19 @@ describe("selectNewsHomeExposureRecords", () => {
         items: [
           {
             ...serverItem,
+            id: exposureServerStoryId,
             matchedSignals: ["category"],
             personalizedScore: 140,
           },
           {
             ...localItem,
+            id: exposureLocalStoryId,
             matchedSignals: ["entity"],
             personalizedScore: 130,
           },
         ],
         limit: 2,
-        recordedItems: [{ id: "server-story" }],
+        recordedItems: [{ id: exposureServerStoryId }],
         visitorKey: "visitor-test-123",
       }),
     ).toEqual([
@@ -28795,7 +37391,7 @@ describe("selectNewsHomeExposureRecords", () => {
           rankSlot: 1,
           surface: "home_exposure",
         },
-        newsItemId: "local-story",
+        newsItemId: exposureLocalStoryId,
         visitorKey: "visitor-test-123",
       },
     ]);
@@ -28810,12 +37406,14 @@ describe("selectNewsHomeExposureRecords", () => {
           {
             ...serverItem,
             canonicalUrl: "https://openai.com/news/agent-model",
+            id: exposureServerStoryId,
             matchedSignals: ["category"],
             originalUrl: "https://openai.com/news/agent-model",
             personalizedScore: 140,
           },
           {
             ...localItem,
+            id: exposureLocalStoryId,
             matchedSignals: ["entity"],
             personalizedScore: 130,
           },
@@ -28830,7 +37428,7 @@ describe("selectNewsHomeExposureRecords", () => {
         ],
         visitorKey: "visitor-test-123",
       }).map((record) => record.newsItemId),
-    ).toEqual(["local-story"]);
+    ).toEqual([exposureLocalStoryId]);
   });
 
   it("skips already exposed story clusters across changed URLs", () => {
@@ -28843,13 +37441,14 @@ describe("selectNewsHomeExposureRecords", () => {
             ...serverItem,
             canonicalUrl: "https://wire.example/openai-reasoning-release",
             clusterKey: "2026-07-01:model_release:openai:gpt-6",
-            id: "same-cluster-wire-story",
+            id: exposureServerStoryId,
             matchedSignals: ["category"],
             originalUrl: "https://wire.example/openai-reasoning-release",
             personalizedScore: 140,
           },
           {
             ...localItem,
+            id: exposureLocalStoryId,
             matchedSignals: ["entity"],
             personalizedScore: 130,
           },
@@ -28865,7 +37464,7 @@ describe("selectNewsHomeExposureRecords", () => {
         ],
         visitorKey: "visitor-test-123",
       }).map((record) => record.newsItemId),
-    ).toEqual(["local-story"]);
+    ).toEqual([exposureLocalStoryId]);
   });
 });
 
@@ -29064,6 +37663,70 @@ describe("getNewsExposureCooldownQueue", () => {
         "Exposure cooldown will appear after home impressions are recorded.",
     });
   });
+
+  it("turns exposure cooldown and replacement stories into profile actions", () => {
+    const cooldownItem = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "cooldown-training-model",
+      matchedSignals: ["category"],
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      title: "Repeated OpenAI model story should cool down",
+    };
+    const replacementItem = {
+      ...olderItem,
+      category: "security",
+      entities: ["Agent Security"],
+      id: "replacement-training-security",
+      matchedSignals: ["exploration"],
+      sourceName: "Security Desk",
+      sourceSlug: "security-desk",
+      title: "Security story can replace repeated exposure",
+    };
+
+    expect(
+      getNewsExposureCooldownTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        item: cooldownItem,
+        mode: "cooldown",
+      }),
+    ).toEqual({
+      actionLabel: "Cool down exposure",
+      effect: "remove",
+      label: "Models",
+      signals: [
+        {
+          kind: "category",
+          label: "Models",
+          signal: "model_release",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsExposureCooldownTrainingAction({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: replacementItem,
+        mode: "replacement",
+      }),
+    ).toEqual({
+      actionLabel: "Train replacement signal",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("NewsHome exposure cooldown queue placement", () => {
@@ -29076,6 +37739,9 @@ describe("NewsHome exposure cooldown queue placement", () => {
     expect(source).toContain("getNewsExposureCooldownQueue({");
     expect(source).toContain("Exposure Cooldown Queue");
     expect(source).toContain("exposureCooldownQueue.cooldowns.map");
+    expect(source).toContain("getNewsExposureCooldownTrainingAction");
+    expect(source).toContain("applyExposureCooldownAction");
+    expect(source).toContain("exposureAction.actionLabel");
   });
 });
 
@@ -30260,6 +38926,76 @@ describe("selectFreshnessQuotaBalancedNewsHomeItems", () => {
       },
     ]);
   });
+
+  it("uses clean fresh alternates before fresh stories already in reading history", () => {
+    expect(
+      selectFreshnessQuotaBalancedNewsHomeItems({
+        items: [
+          {
+            ...localItem,
+            id: "older-model-lead",
+            matchedSignals: ["category"],
+            personalizedScore: 210,
+            publishedAt: "2026-06-28T08:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "older-model-follow",
+            matchedSignals: ["entity"],
+            personalizedScore: 205,
+            publishedAt: "2026-06-28T09:00:00.000Z",
+          },
+          {
+            ...localItem,
+            id: "older-model-analysis",
+            matchedSignals: ["source"],
+            personalizedScore: 200,
+            publishedAt: "2026-06-28T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            id: "fresh-already-read",
+            matchedSignals: ["reading_history_cooldown"],
+            personalizedScore: 190,
+            publishedAt: "2026-07-01T08:00:00.000Z",
+          },
+          {
+            ...olderItem,
+            id: "fresh-clean-alternate",
+            matchedSignals: [],
+            personalizedScore: 180,
+            publishedAt: "2026-07-01T07:00:00.000Z",
+          },
+        ],
+        limit: 5,
+        now: new Date("2026-07-01T12:00:00.000Z"),
+      }).map((item) => ({
+        id: item.id,
+        signals: item.matchedSignals,
+      })),
+    ).toEqual([
+      {
+        id: "older-model-lead",
+        signals: ["category"],
+      },
+      {
+        id: "older-model-follow",
+        signals: ["entity"],
+      },
+      {
+        id: "older-model-analysis",
+        signals: ["source"],
+      },
+      {
+        id: "fresh-clean-alternate",
+        signals: ["freshness_quota"],
+      },
+      {
+        id: "fresh-already-read",
+        signals: ["reading_history_cooldown"],
+      },
+    ]);
+  });
 });
 
 describe("getNewsFeedFatigueReport", () => {
@@ -30390,6 +39126,120 @@ describe("getNewsFeedFatigueReport", () => {
       ],
       summary:
         "4 stories checked for source, topic, and entity fatigue: 1 source repeat, 1 topic repeat, 0 entity repeats.",
+    });
+  });
+
+  it("maps fatigue notices to executable preference dampening actions", () => {
+    const sourceAction = getNewsFeedFatigueTrainingAction({
+      items: [
+        {
+          ...localItem,
+          id: "openai-source-lead",
+          matchedSignals: ["source"],
+          personalizedScore: 180,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+        },
+        {
+          ...serverItem,
+          id: "openai-source-follow",
+          matchedSignals: ["source"],
+          personalizedScore: 170,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+        },
+      ],
+      notice: {
+        detail:
+          "OpenAI News repeats across 2 adjacent stories before the next source appears.",
+        label: "Source fatigue",
+      },
+    });
+    const topicAction = getNewsFeedFatigueTrainingAction({
+      items: [
+        {
+          ...localItem,
+          category: "agent_product",
+          id: "agent-topic-lead",
+          matchedSignals: ["category"],
+          personalizedScore: 160,
+        },
+        {
+          ...serverItem,
+          category: "agent_product",
+          id: "agent-topic-follow",
+          matchedSignals: ["category"],
+          personalizedScore: 150,
+        },
+      ],
+      notice: {
+        detail:
+          "Agents repeats across 2 adjacent stories before the next topic appears.",
+        label: "Topic fatigue",
+      },
+    });
+    const entityAction = getNewsFeedFatigueTrainingAction({
+      items: [
+        {
+          ...localItem,
+          entities: ["OpenAI", "Agents"],
+          id: "openai-entity-lead",
+          matchedSignals: ["entity"],
+          personalizedScore: 180,
+        },
+        {
+          ...serverItem,
+          entities: ["OpenAI", "Benchmarks"],
+          id: "openai-entity-follow",
+          matchedSignals: ["entity"],
+          personalizedScore: 170,
+        },
+      ],
+      notice: {
+        detail:
+          "OpenAI repeats across 2 adjacent stories before the next entity appears.",
+        label: "Entity fatigue",
+      },
+    });
+
+    expect(sourceAction).toEqual({
+      actionLabel: "Reduce source",
+      effect: "remove",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(topicAction).toEqual({
+      actionLabel: "Reduce topic",
+      effect: "remove",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+    expect(entityAction).toEqual({
+      actionLabel: "Reduce entity",
+      effect: "remove",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -30629,6 +39479,336 @@ describe("getNewsHomeLoadMoreState", () => {
   });
 });
 
+describe("getNewsForYouNextQueue", () => {
+  it("builds the next personalized page from unseen, unguardrailed candidates", () => {
+    const queue = getNewsForYouNextQueue({
+      cursor: "2026-06-30T08:00:00.000Z",
+      feedMode: "for_you",
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : "Models",
+      hasMoreItems: true,
+      isLoadingMore: false,
+      isPreview: false,
+      items: [
+        {
+          ...localItem,
+          matchedSignals: ["category"],
+          personalizedScore: 180,
+          title: "Already visible model story",
+        },
+        {
+          ...serverItem,
+          canonicalUrl: "https://example.com/local",
+          id: "visible-syndicated-copy",
+          matchedSignals: ["source"],
+          originalUrl: "https://example.com/local?utm=next",
+          personalizedScore: 172,
+          title: "Syndicated copy of visible story",
+        },
+        {
+          ...localItem,
+          canonicalUrl: "https://example.com/agent-memory-next",
+          category: "agent_product",
+          entities: ["Agent Memory"],
+          id: "agent-memory-next",
+          matchedSignals: [],
+          originalUrl: "https://example.com/agent-memory-next",
+          personalizedScore: 126,
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          tags: ["agent-memory"],
+          title: "Agent memory systems shape the next queue",
+          trendScore: 82,
+        },
+        {
+          ...localItem,
+          canonicalUrl: "https://example.com/guardrailed-next",
+          category: "funding",
+          entities: ["YC"],
+          id: "guardrailed-next",
+          matchedSignals: ["category"],
+          originalUrl: "https://example.com/guardrailed-next",
+          personalizedScore: 170,
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "YC funding story should stay out of next queue",
+          trendScore: 94,
+        },
+        {
+          ...localItem,
+          canonicalUrl: "https://example.com/reader-signal-next",
+          id: "reader-signal-next",
+          matchedSignals: ["entity", "positive_feedback"],
+          originalUrl: "https://example.com/reader-signal-next",
+          personalizedScore: 150,
+          sourceName: "Model Desk",
+          title: "OpenAI model follow-up remains eligible",
+          trendScore: 88,
+        },
+      ],
+      negativeFeedbackItems: [
+        {
+          ...localItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "hidden-yc-funding",
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "Hidden YC funding story",
+        },
+      ],
+      searchMemoryItems: [
+        {
+          query: "agent memory",
+          resultCount: 4,
+          searchedAt: "2026-07-02T10:00:00.000Z",
+        },
+      ],
+      visibleItems: [localItem],
+      visitorKey: "visitor-123",
+    });
+
+    expect(queue).toEqual({
+      canLoadMore: true,
+      candidates: [
+        {
+          categoryLabel: "Agents",
+          id: "agent-memory-next",
+          reason: 'Matches recent search "agent memory".',
+          scoreLabel: "126 score / 82 heat",
+          sourceName: "Agent Desk",
+          title: "Agent memory systems shape the next queue",
+        },
+        {
+          categoryLabel: "Models",
+          id: "reader-signal-next",
+          reason: "2 reader signals make this a strong next-page candidate.",
+          scoreLabel: "150 score / 88 heat",
+          sourceName: "Model Desk",
+          title: "OpenAI model follow-up remains eligible",
+        },
+      ],
+      label: "Next Queue Ready",
+      metrics: [
+        { label: "Visible", value: "1" },
+        { label: "Excluded", value: "2" },
+        { label: "Candidates", value: "2" },
+        { label: "Cursor", value: "Ready" },
+      ],
+      nextRequest: {
+        cursor: "2026-06-30T08:00:00.000Z",
+        excludeNewsItemIds: ["local-story"],
+        negativeFeedbackItemIds: ["hidden-yc-funding"],
+        route: "forYou",
+      },
+      notices: [
+        {
+          detail:
+            "The next personalized request will exclude 1 visible story and keep 2 eligible candidates after local guardrails.",
+          label: "Request shape",
+        },
+        {
+          detail:
+            "Less feedback removes 1 local memory match before the next For You page is explained.",
+          label: "Guardrail",
+        },
+      ],
+      summary:
+        "Next For You page is ready with 2 unseen candidates, anchored by Agent memory systems shape the next queue.",
+    });
+  });
+
+  it("explains why anonymous For You pagination cannot run", () => {
+    const queue = getNewsForYouNextQueue({
+      cursor: "2026-06-30T08:00:00.000Z",
+      feedMode: "for_you",
+      hasMoreItems: true,
+      isLoadingMore: false,
+      isPreview: false,
+      items: [
+        {
+          ...localItem,
+          id: "next-reader-match",
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+        },
+      ],
+      negativeFeedbackItems: [],
+      searchMemoryItems: [],
+      visibleItems: [],
+      visitorKey: null,
+    });
+
+    expect(queue.canLoadMore).toBe(false);
+    expect(queue.label).toBe("Reader Key Needed");
+    expect(queue.metrics).toContainEqual({ label: "Cursor", value: "Ready" });
+    expect(queue.nextRequest).toEqual({
+      cursor: "2026-06-30T08:00:00.000Z",
+      excludeNewsItemIds: [],
+      negativeFeedbackItemIds: [],
+      route: "forYou",
+    });
+    expect(queue.notices).toContainEqual({
+      detail:
+        "For You needs a reader key before it can ask the server for another personalized page.",
+      label: "Reader key",
+    });
+  });
+
+  it("does not let future-dated stories win next-queue candidate ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      const queue = getNewsForYouNextQueue({
+        cursor: "2026-06-30T08:00:00.000Z",
+        feedMode: "for_you",
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : "Models",
+        hasMoreItems: true,
+        isLoadingMore: false,
+        isPreview: false,
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            id: "future-next-queue",
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-02T08:00:00.000Z",
+            sourceName: "Future Queue",
+            title: "Future next queue should wait",
+            trendScore: 90,
+          },
+          {
+            ...serverItem,
+            category: "agent_product",
+            id: "current-next-queue",
+            matchedSignals: [],
+            personalizedScore: 120,
+            publishedAt: "2026-07-01T09:00:00.000Z",
+            sourceName: "Current Queue",
+            title: "Current next queue should lead",
+            trendScore: 90,
+          },
+        ],
+        negativeFeedbackItems: [],
+        searchMemoryItems: [],
+        visibleItems: [],
+        visitorKey: "visitor-123",
+      });
+
+      expect(queue.candidates.map((candidate) => candidate.id)).toEqual([
+        "current-next-queue",
+        "future-next-queue",
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("turns next-page guardrail notices into profile reduction actions", () => {
+    const negativeFeedbackItems = [
+      {
+        ...localItem,
+        category: "funding",
+        entities: ["YC"],
+        id: "hidden-yc-funding",
+        sourceName: "VentureWire",
+        sourceSlug: "venturewire",
+        title: "Hidden YC funding story",
+      },
+    ];
+    const queue = getNewsForYouNextQueue({
+      cursor: "2026-06-30T08:00:00.000Z",
+      feedMode: "for_you",
+      formatCategory: (category) =>
+        category === "funding" ? "Funding" : category,
+      hasMoreItems: true,
+      isLoadingMore: false,
+      isPreview: false,
+      items: [
+        {
+          ...localItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "guardrailed-next",
+          matchedSignals: ["category"],
+          personalizedScore: 170,
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          title: "YC funding story should stay out of next queue",
+        },
+      ],
+      negativeFeedbackItems,
+      visibleItems: [],
+      visitorKey: "visitor-123",
+    });
+
+    expect(
+      getNewsForYouNextQueueTrainingAction({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : category,
+        negativeFeedbackItems,
+        notice: queue.notices.find((notice) => notice.label === "Guardrail"),
+      }),
+    ).toEqual({
+      actionLabel: "Reduce guardrail topic",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("keeps next-page reader-key notices as non-training state", () => {
+    const queue = getNewsForYouNextQueue({
+      cursor: "2026-06-30T08:00:00.000Z",
+      feedMode: "for_you",
+      hasMoreItems: true,
+      isLoadingMore: false,
+      isPreview: false,
+      items: [
+        {
+          ...localItem,
+          id: "next-reader-match",
+          matchedSignals: ["category"],
+          personalizedScore: 140,
+        },
+      ],
+      negativeFeedbackItems: [],
+      searchMemoryItems: [],
+      visibleItems: [],
+      visitorKey: null,
+    });
+
+    expect(
+      getNewsForYouNextQueueTrainingAction({
+        formatCategory: (category) => category,
+        negativeFeedbackItems: [],
+        notice: queue.notices.find((notice) => notice.label === "Reader key"),
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("NewsHome Next For You queue request disclosure", () => {
+  it("shows Less guardrail ids as part of the next request shape", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("negativeFeedbackItemIds.length");
+  });
+});
+
 describe("getNewsHomePaginationResetKey", () => {
   it("changes when the reader switches feed modes or active filters", () => {
     const baseKey = getNewsHomePaginationResetKey({
@@ -30827,6 +40007,50 @@ describe("selectRelatedNewsHomeItems", () => {
       }).map((item) => item.id),
     ).toEqual(["prompt-injection-follow-up", "topic-only-security"]);
   });
+
+  it("does not let future-dated stories win related-news ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        selectRelatedNewsHomeItems({
+          article: {
+            ...localItem,
+            entities: ["OpenAI"],
+            tags: ["agents"],
+          },
+          limit: 2,
+          relatedItems: [
+            {
+              ...serverItem,
+              canonicalUrl: "https://example.com/future-related",
+              entities: ["OpenAI"],
+              id: "future-related-story",
+              originalUrl: "https://example.com/future-related",
+              publishedAt: "2026-07-02T08:00:00.000Z",
+              sourceScore: 84,
+              tags: ["models"],
+              trendScore: 72,
+            },
+            {
+              ...olderItem,
+              canonicalUrl: "https://example.com/current-related",
+              entities: ["OpenAI"],
+              id: "current-related-story",
+              originalUrl: "https://example.com/current-related",
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              sourceScore: 84,
+              tags: ["models"],
+              trendScore: 72,
+            },
+          ],
+        }).map((item) => item.id),
+      ).toEqual(["current-related-story", "future-related-story"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("getNextNewsHomeCursor", () => {
@@ -30834,6 +40058,39 @@ describe("getNextNewsHomeCursor", () => {
     expect(getNextNewsHomeCursor([localItem, olderItem, serverItem])).toBe(
       "2026-06-30T08:00:00.000Z",
     );
+  });
+
+  it("ignores invalid and future story timestamps when choosing the next cursor", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNextNewsHomeCursor([
+          { ...localItem, publishedAt: "not-a-date" },
+          { ...serverItem, publishedAt: "2026-07-02T08:00:00.000Z" },
+          { ...olderItem, publishedAt: "2026-07-01T09:00:00.000Z" },
+        ]),
+      ).toBe("2026-07-01T09:00:00.000Z");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns null when no valid past story timestamp can paginate", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNextNewsHomeCursor([
+          { ...localItem, publishedAt: "not-a-date" },
+          { ...serverItem, publishedAt: "2026-07-02T08:00:00.000Z" },
+        ]),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("returns null when there are no stories to paginate from", () => {
@@ -30886,6 +40143,67 @@ describe("getNextNewsHomeCursorState", () => {
       cursor: "2026-06-30T08:00:00.000Z",
       cursorTrendScore: 82,
     });
+  });
+
+  it("ignores invalid and future timestamps when choosing the Trending cursor", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNextNewsHomeCursorState({
+          items: [
+            {
+              ...localItem,
+              id: "invalid-coolest",
+              publishedAt: "not-a-date",
+              trendScore: 60,
+            },
+            {
+              ...serverItem,
+              id: "future-cooler",
+              publishedAt: "2026-07-02T08:00:00.000Z",
+              trendScore: 70,
+            },
+            {
+              ...olderItem,
+              id: "current-cool",
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              trendScore: 82,
+            },
+          ],
+          mode: "trending",
+        }),
+      ).toEqual({
+        cursor: "2026-07-01T09:00:00.000Z",
+        cursorTrendScore: 82,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("returns an empty Trending cursor when no valid past timestamp exists", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNextNewsHomeCursorState({
+          items: [
+            { ...localItem, publishedAt: "not-a-date", trendScore: 60 },
+            {
+              ...serverItem,
+              publishedAt: "2026-07-02T08:00:00.000Z",
+              trendScore: 70,
+            },
+          ],
+          mode: "trending",
+        }),
+      ).toEqual({ cursor: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses only a time cursor for personalized pagination", () => {
@@ -31128,8 +40446,8 @@ describe("shouldFetchNewsHomePrimaryFeed", () => {
     expect(source).toContain(
       'enabled: primaryFeedEnabled && primaryFeedRoute === "feed"',
     );
-    expect(source).toContain(
-      'enabled: primaryFeedEnabled && primaryFeedRoute === "forYou"',
+    expect(source).toMatch(
+      /const forYouApiQuery = useQuery\(\{[\s\S]*?primaryFeedEnabled &&[\s\S]*?primaryFeedRoute === "forYou" &&[\s\S]*?readerStateHydrated/,
     );
   });
 });
@@ -31163,6 +40481,30 @@ describe("shouldPersistNewsReaderProfile", () => {
   });
 });
 
+describe("shouldPersistNewsHomeItemReaderSignals", () => {
+  it("keeps non-database home story ids out of server reader-memory calls", () => {
+    expect(
+      shouldPersistNewsHomeItemReaderSignals({
+        canPersistProfile: true,
+        isPreview: false,
+        itemId: "preview-story",
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(false);
+  });
+
+  it("persists live database home story ids after the reader key exists", () => {
+    expect(
+      shouldPersistNewsHomeItemReaderSignals({
+        canPersistProfile: true,
+        isPreview: false,
+        itemId: "7c8c33ef-4f20-4f78-93ea-9400c4023902",
+        visitorKey: "visitor-123",
+      }),
+    ).toBe(true);
+  });
+});
+
 describe("getNewsHomeReaderMemoryResetCacheScopes", () => {
   it("refreshes every persisted reader-memory surface after a reset", () => {
     expect(getNewsHomeReaderMemoryResetCacheScopes()).toEqual([
@@ -31170,6 +40512,8 @@ describe("getNewsHomeReaderMemoryResetCacheScopes", () => {
       "profile",
       "saved",
       "history",
+      "positiveFeedback",
+      "searchMemory",
       "guardrails",
     ]);
   });
@@ -31194,6 +40538,38 @@ describe("NewsHome reader-memory removal mutations", () => {
     );
     expect(source).toMatch(
       /const restoreGuardrail = useMutation\([\s\S]*?trpc\.news\.profile\.pathFilter\(\)/,
+    );
+  });
+
+  it("refreshes positive feedback after restoring Less guardrails", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+    const restoreGuardrailBlock =
+      source
+        .split("const restoreGuardrail = useMutation(")[1]
+        ?.split("const removeSaved =")[0] ?? "";
+
+    expect(restoreGuardrailBlock).toContain(
+      "trpc.news.positiveFeedback.pathFilter()",
+    );
+  });
+});
+
+describe("NewsHome reader interaction cache invalidation", () => {
+  it("refreshes positive feedback after persisted Share and Source actions", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+    const recordInteractionBlock =
+      source
+        .split("const recordInteraction = useMutation(")[1]
+        ?.split("const recordHomeExposure =")[0] ?? "";
+
+    expect(recordInteractionBlock).toContain(
+      "trpc.news.positiveFeedback.pathFilter()",
     );
   });
 });
@@ -31708,6 +41084,29 @@ describe("getNewsStoryProofStrip", () => {
     });
   });
 
+  it("summarizes search-memory recommendations as search follow-ups", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["search_memory"],
+          personalizedScore: 128,
+          sourceScore: 86,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Search memory" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "86" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Personalized from recent searches, with 86 source trust and 73 story heat.",
+    });
+  });
+
   it("summarizes read-anchored recommendations as read follow-ups", () => {
     expect(
       getNewsStoryProofStrip({
@@ -31820,6 +41219,29 @@ describe("getNewsStoryProofStrip", () => {
       ],
       summary:
         "Already covered by recent reading, so the recommender is looking for a fresher angle while preserving 82 source trust and 73 story heat.",
+    });
+  });
+
+  it("labels persisted reading-history repeats as recently read guardrails", () => {
+    expect(
+      getNewsStoryProofStrip({
+        item: {
+          ...localItem,
+          matchedSignals: ["reading_history_cooldown"],
+          personalizedScore: 72,
+          sourceScore: 82,
+          trendScore: 73,
+        },
+      }),
+    ).toEqual({
+      metrics: [
+        { label: "Fit", value: "Recently read" },
+        { label: "Coverage", value: "Single source" },
+        { label: "Trust", value: "82" },
+        { label: "Heat", value: "73" },
+      ],
+      summary:
+        "Moved behind unread stories because this card, URL, or event cluster was already in your reading history, while preserving 82 source trust and 73 story heat.",
     });
   });
 

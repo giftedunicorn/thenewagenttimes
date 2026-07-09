@@ -1,6 +1,19 @@
-import { and, desc, eq, sql } from "@acme/db";
+import type {
+  NewsCollaborativeSignal,
+  NewsSemanticSimilarityMatch,
+  NewsUrlReference,
+} from "@acme/validators";
+import { and, desc, eq, ilike, inArray, or, sql } from "@acme/db";
 import { db } from "@acme/db/client";
-import { IngestionRun, NewsItem, NewsSource } from "@acme/db/schema";
+import {
+  IngestionRun,
+  NewsCategorySchema,
+  NewsItem,
+  NewsItemVector,
+  NewsReaderInteraction,
+  NewsSource,
+} from "@acme/db/schema";
+import { buildNewsSemanticSimilarityMatches } from "@acme/validators";
 
 import type {
   NewsDeskStatus,
@@ -26,6 +39,94 @@ export interface NewsArticleItem extends NewsHomeItem {
   authorName: string | null;
   collectedAt: string;
 }
+
+type NewsSemanticFeedbackAction = "click_source" | "save" | "share";
+
+export interface NewsSemanticFeedbackItem extends NewsUrlReference {
+  action?: NewsSemanticFeedbackAction;
+  clusterKey?: string | null;
+  newsItemId: string;
+  occurredAt?: string;
+  strength?: number;
+}
+
+interface NewsCollaborativeSignalRow {
+  canonicalUrl?: string | null;
+  category: string;
+  clusterKey?: string | null;
+  deepReadCount: number;
+  entities: readonly string[];
+  hideCount: number;
+  newsItemId: string;
+  originalUrl?: string | null;
+  readerCount: number;
+  saveCount: number;
+  shareCount: number;
+  sourceClickCount: number;
+  sourceSlug: string;
+  tags: readonly string[];
+}
+
+const collaborativeSignalWindowMs = 1000 * 60 * 60 * 24 * 14;
+
+const getNewsSemanticFeedbackItemStrength = (
+  item: NewsSemanticFeedbackItem,
+) => {
+  if (typeof item.strength === "number" && Number.isFinite(item.strength)) {
+    return item.strength;
+  }
+
+  if (item.action === "share") return 3;
+  if (item.action === "save") return 2;
+
+  return 1;
+};
+
+const getNewsCollaborativeSignalWindowStart = (now = new Date()) =>
+  new Date(now.getTime() - collaborativeSignalWindowMs);
+
+const getNewsCollaborativeSignalScore = ({
+  deepReadCount,
+  hideCount = 0,
+  readerCount,
+  saveCount,
+  shareCount,
+  sourceClickCount,
+}: {
+  deepReadCount: number;
+  hideCount?: number;
+  readerCount: number;
+  saveCount: number;
+  shareCount: number;
+  sourceClickCount: number;
+}) =>
+  readerCount >= 2
+    ? shareCount * 3 +
+      saveCount * 2 +
+      deepReadCount * 2 +
+      sourceClickCount -
+      hideCount * 3
+    : 0;
+
+const toNewsCollaborativeSignal = (
+  row: NewsCollaborativeSignalRow,
+): NewsCollaborativeSignal | null => {
+  const score = getNewsCollaborativeSignalScore(row);
+
+  return score !== 0
+    ? {
+        ...(row.canonicalUrl ? { canonicalUrl: row.canonicalUrl } : {}),
+        category: row.category,
+        ...(row.clusterKey ? { clusterKey: row.clusterKey } : {}),
+        entities: row.entities,
+        newsItemId: row.newsItemId,
+        ...(row.originalUrl ? { originalUrl: row.originalUrl } : {}),
+        score,
+        sourceSlug: row.sourceSlug,
+        tags: row.tags,
+      }
+    : null;
+};
 
 const textArraySql = (values: readonly string[]) =>
   values.length > 0
@@ -99,6 +200,216 @@ interface NewsHomeData {
   deskStatus: NewsDeskStatus;
 }
 
+export type NewsEditionPageKind = "entity" | "search" | "source" | "topic";
+
+export interface NewsEditionPageData {
+  filter: {
+    kind: NewsEditionPageKind;
+    title: string;
+    value: string;
+  };
+  items: NewsHomeItem[];
+  status: NewsHomeStatus;
+}
+
+const normalizeNewsEditionTopicCategoryValue = (value: string) =>
+  value.trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/_+/g, "_");
+
+export const parseNewsEditionTopicCategory = (value: string) =>
+  NewsCategorySchema.safeParse(normalizeNewsEditionTopicCategoryValue(value));
+
+const normalizeNewsEditionValue = ({
+  kind,
+  value,
+}: {
+  kind: NewsEditionPageKind;
+  value: string;
+}) => {
+  const trimmedValue = value.trim();
+
+  if (kind !== "topic") return trimmedValue;
+
+  const parsedCategory = parseNewsEditionTopicCategory(trimmedValue);
+
+  return parsedCategory.success ? parsedCategory.data : trimmedValue;
+};
+
+const newsEditionTopicTitles: Record<string, string> = {
+  agent_product: "Agents",
+  big_tech: "Big Tech",
+  funding: "Funding",
+  hot_take: "Hot Takes",
+  market_map: "Market Maps",
+  model_release: "Models",
+  musk_ai: "Musk AI",
+  new_concept: "New Concepts",
+  open_source: "Open Source",
+  other: "Other",
+  policy: "Policy",
+  product_hunt: "Product Hunt",
+  research: "Research",
+  security: "Security",
+  yc_ai: "YC AI",
+};
+
+const formatNewsEditionFilterTitle = (value: string) =>
+  value
+    .trim()
+    .replace(/[-_]+/g, " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
+const getNewsEditionFallbackTitle = ({
+  kind,
+  value,
+}: {
+  kind: NewsEditionPageKind;
+  value: string;
+}) =>
+  kind === "search"
+    ? value
+      ? `Search: ${value}`
+      : "Search"
+    : kind === "topic"
+      ? (newsEditionTopicTitles[value] ?? formatNewsEditionFilterTitle(value))
+      : formatNewsEditionFilterTitle(value);
+
+const normalizeNewsSearchValue = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const getNewsSearchTokens = (value: string) =>
+  normalizeNewsSearchValue(value).split(/\s+/).filter(Boolean);
+
+const getNewsEditionSearchText = (item: NewsHomeItem) =>
+  normalizeNewsSearchValue(
+    [
+      item.title,
+      item.summary,
+      item.sourceName,
+      item.sourceSlug,
+      item.category,
+      ...item.tags,
+      ...item.entities,
+    ].join(" "),
+  );
+
+const doesNewsEditionItemMatchSearch = ({
+  item,
+  value,
+}: {
+  item: NewsHomeItem;
+  value: string;
+}) => {
+  const tokens = getNewsSearchTokens(value);
+
+  if (tokens.length === 0) return false;
+
+  const searchText = getNewsEditionSearchText(item);
+
+  return tokens.every((token) => searchText.includes(token));
+};
+
+const filterPreviewNewsEditionItems = ({
+  kind,
+  value,
+}: {
+  kind: NewsEditionPageKind;
+  value: string;
+}) => {
+  const normalizedValue = value.trim().toLowerCase();
+
+  return getPreviewNewsHomeItems().filter((item) =>
+    kind === "search"
+      ? doesNewsEditionItemMatchSearch({ item, value })
+      : kind === "topic"
+        ? item.category.toLowerCase() === normalizedValue
+        : kind === "entity"
+          ? item.entities.some(
+              (entity) => entity.trim().toLowerCase() === normalizedValue,
+            )
+          : item.sourceSlug.toLowerCase() === normalizedValue,
+  );
+};
+
+const selectPreviewNewsEditionItems = ({
+  kind,
+  value,
+}: {
+  kind: NewsEditionPageKind;
+  value: string;
+}) =>
+  selectInitialNewsHomeItems({
+    items: filterPreviewNewsEditionItems({ kind, value }),
+    limit: 30,
+  });
+
+const buildNewsSearchTokenCondition = (token: string) => {
+  const pattern = `%${token}%`;
+
+  return or(
+    ilike(NewsItem.title, pattern),
+    ilike(NewsItem.summary, pattern),
+    ilike(NewsItem.category, pattern),
+    ilike(NewsSource.name, pattern),
+    ilike(NewsSource.slug, pattern),
+    sql`exists (select 1 from unnest(${NewsItem.entities}) as entity where entity ilike ${pattern})`,
+    sql`exists (select 1 from unnest(${NewsItem.tags}) as tag where tag ilike ${pattern})`,
+  );
+};
+
+export const buildNewsSearchEditionCondition = (value: string) => {
+  const tokenConditions = getNewsSearchTokens(value)
+    .map(buildNewsSearchTokenCondition)
+    .filter((condition) => condition !== undefined);
+
+  return tokenConditions.length > 0
+    ? and(eq(NewsItem.status, "published"), ...tokenConditions)
+    : sql`false`;
+};
+
+const buildNewsEditionCondition = ({
+  kind,
+  value,
+}: {
+  kind: NewsEditionPageKind;
+  value: string;
+}) => {
+  if (kind === "search") {
+    return buildNewsSearchEditionCondition(value);
+  }
+
+  if (kind === "topic") {
+    const category = parseNewsEditionTopicCategory(value);
+
+    if (!category.success) return sql`false`;
+
+    return and(
+      eq(NewsItem.status, "published"),
+      eq(NewsItem.category, category.data),
+    );
+  }
+
+  if (kind === "entity") {
+    const normalizedEntity = value.trim().toLowerCase();
+
+    if (!normalizedEntity) return sql`false`;
+
+    return and(
+      eq(NewsItem.status, "published"),
+      sql`exists (select 1 from unnest(${NewsItem.entities}) as entity where lower(entity) = ${normalizedEntity})`,
+    );
+  }
+
+  return and(eq(NewsItem.status, "published"), eq(NewsSource.slug, value));
+};
+
 export const getNewsHomeData = async (): Promise<NewsHomeData> => {
   try {
     const [rows, deskStatus] = await Promise.all([
@@ -151,6 +462,246 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
       items: getPreviewNewsHomeItems(),
       status: "unavailable",
       deskStatus: getUnavailableNewsDeskStatus(),
+    };
+  }
+};
+
+export const getNewsCollaborativeSignals = async ({
+  items,
+}: {
+  items: readonly Pick<
+    NewsHomeItem,
+    "category" | "clusterKey" | "entities" | "id" | "sourceSlug" | "tags"
+  >[];
+}): Promise<NewsCollaborativeSignal[]> => {
+  const candidateNewsItemIds = Array.from(
+    new Set(
+      items
+        .map((item) => item.id.trim())
+        .filter(shouldReadNewsArticleFromDatabase)
+        .filter((newsItemId) => newsItemId.length > 0),
+    ),
+  );
+
+  if (candidateNewsItemIds.length === 0) return [];
+
+  try {
+    const since = getNewsCollaborativeSignalWindowStart();
+    const rows = await db
+      .select({
+        canonicalUrl: NewsItem.canonicalUrl,
+        category: NewsItem.category,
+        clusterKey: NewsItem.clusterKey,
+        deepReadCount: sql<number>`count(*) filter (where ${
+          NewsReaderInteraction.action
+        } = 'view' and coalesce(${NewsReaderInteraction.metadata}->>'surface', '') = 'article' and coalesce((${NewsReaderInteraction.metadata}->>'readPercent')::double precision, 0) >= 0.8)::int`,
+        entities: NewsItem.entities,
+        hideCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'hide')::int`,
+        newsItemId: NewsReaderInteraction.newsItemId,
+        originalUrl: NewsItem.originalUrl,
+        readerCount: sql<number>`count(distinct ${NewsReaderInteraction.readerProfileId})::int`,
+        saveCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'save')::int`,
+        shareCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'share')::int`,
+        sourceClickCount: sql<number>`count(*) filter (where ${NewsReaderInteraction.action} = 'click_source')::int`,
+        sourceSlug: NewsSource.slug,
+        tags: NewsItem.tags,
+      })
+      .from(NewsReaderInteraction)
+      .innerJoin(NewsItem, eq(NewsReaderInteraction.newsItemId, NewsItem.id))
+      .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+      .where(
+        and(
+          inArray(NewsReaderInteraction.newsItemId, candidateNewsItemIds),
+          sql`${NewsReaderInteraction.occurredAt} >= ${since}`,
+        ),
+      )
+      .groupBy(
+        NewsReaderInteraction.newsItemId,
+        NewsItem.canonicalUrl,
+        NewsItem.category,
+        NewsItem.clusterKey,
+        NewsItem.entities,
+        NewsItem.originalUrl,
+        NewsSource.slug,
+        NewsItem.tags,
+      );
+
+    return rows.flatMap((row) => {
+      const signal = toNewsCollaborativeSignal(row);
+
+      return signal ? [signal] : [];
+    });
+  } catch (error: unknown) {
+    console.warn(
+      "Unable to load news collaborative signals",
+      error instanceof Error ? error.message : String(error),
+    );
+
+    return [];
+  }
+};
+
+export const getNewsSemanticSimilarityMatches = async ({
+  feedbackItems,
+  items,
+}: {
+  feedbackItems: readonly NewsSemanticFeedbackItem[];
+  items: readonly Pick<
+    NewsHomeItem,
+    "canonicalUrl" | "clusterKey" | "id" | "originalUrl"
+  >[];
+}): Promise<NewsSemanticSimilarityMatch[]> => {
+  const candidateItems = items.filter((item) =>
+    shouldReadNewsArticleFromDatabase(item.id),
+  );
+  const semanticFeedbackItems = feedbackItems
+    .filter((item) => item.newsItemId.trim().length > 0)
+    .filter((item) => shouldReadNewsArticleFromDatabase(item.newsItemId))
+    .map((item) => ({
+      canonicalUrl: item.canonicalUrl,
+      clusterKey: item.clusterKey,
+      newsItemId: item.newsItemId,
+      occurredAt: item.occurredAt,
+      originalUrl: item.originalUrl,
+      strength: getNewsSemanticFeedbackItemStrength(item),
+    }));
+
+  if (candidateItems.length === 0 || semanticFeedbackItems.length === 0) {
+    return [];
+  }
+
+  const vectorNewsItemIds = Array.from(
+    new Set([
+      ...candidateItems.map((item) => item.id),
+      ...semanticFeedbackItems.map((item) => item.newsItemId),
+    ]),
+  );
+
+  if (vectorNewsItemIds.length === 0) return [];
+
+  try {
+    const vectorRows = await db
+      .select({
+        createdAt: NewsItemVector.createdAt,
+        embedding: NewsItemVector.embedding,
+        newsItemId: NewsItemVector.newsItemId,
+      })
+      .from(NewsItemVector)
+      .where(inArray(NewsItemVector.newsItemId, vectorNewsItemIds))
+      .orderBy(desc(NewsItemVector.createdAt))
+      .limit(vectorNewsItemIds.length * 3);
+    const latestEmbeddingByNewsItemId = new Map<string, readonly number[]>();
+
+    for (const vectorRow of vectorRows) {
+      if (latestEmbeddingByNewsItemId.has(vectorRow.newsItemId)) continue;
+      if (!vectorRow.embedding || vectorRow.embedding.length === 0) continue;
+
+      latestEmbeddingByNewsItemId.set(
+        vectorRow.newsItemId,
+        vectorRow.embedding,
+      );
+    }
+
+    return buildNewsSemanticSimilarityMatches({
+      candidateVectors: candidateItems.map((item) => ({
+        canonicalUrl: item.canonicalUrl,
+        clusterKey: item.clusterKey,
+        embedding: latestEmbeddingByNewsItemId.get(item.id) ?? null,
+        newsItemId: item.id,
+        originalUrl: item.originalUrl,
+      })),
+      feedbackVectors: semanticFeedbackItems.map((item) => ({
+        ...item,
+        embedding: latestEmbeddingByNewsItemId.get(item.newsItemId) ?? null,
+      })),
+    });
+  } catch (error: unknown) {
+    console.warn(
+      "Unable to load news semantic vectors",
+      error instanceof Error ? error.message : String(error),
+    );
+
+    return [];
+  }
+};
+
+export const getNewsEditionPageData = async ({
+  kind,
+  value,
+}: {
+  kind: NewsEditionPageKind;
+  value: string;
+}): Promise<NewsEditionPageData> => {
+  const normalizedValue = normalizeNewsEditionValue({ kind, value });
+  const fallbackTitle = getNewsEditionFallbackTitle({
+    kind,
+    value: normalizedValue,
+  });
+
+  try {
+    const rows = await db
+      .select({
+        id: NewsItem.id,
+        title: NewsItem.title,
+        summary: NewsItem.summary,
+        canonicalUrl: NewsItem.canonicalUrl,
+        clusterKey: NewsItem.clusterKey,
+        imageUrl: NewsItem.imageUrl,
+        originalUrl: NewsItem.originalUrl,
+        publishedAt: NewsItem.publishedAt,
+        category: NewsItem.category,
+        tags: NewsItem.tags,
+        entities: NewsItem.entities,
+        sourceScore: NewsItem.sourceScore,
+        trendScore: NewsItem.trendScore,
+        sourceName: NewsSource.name,
+        sourceSlug: NewsSource.slug,
+        sourceType: NewsSource.sourceType,
+      })
+      .from(NewsItem)
+      .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+      .where(buildNewsEditionCondition({ kind, value: normalizedValue }))
+      .orderBy(...buildNewsHomeCandidateOrderByExpressions())
+      .limit(90);
+    const liveItems = selectInitialNewsHomeItems({
+      items: rows.map((row) => ({
+        ...row,
+        publishedAt: row.publishedAt.toISOString(),
+      })),
+      limit: 30,
+    });
+    const fallbackItems =
+      liveItems.length > 0
+        ? []
+        : selectPreviewNewsEditionItems({ kind, value: normalizedValue });
+    const items = liveItems.length > 0 ? liveItems : fallbackItems;
+    const firstSourceName = items[0]?.sourceName.trim();
+    const sourceTitle =
+      kind === "source" && firstSourceName ? firstSourceName : undefined;
+
+    return {
+      filter: {
+        kind,
+        title: sourceTitle ?? fallbackTitle,
+        value: normalizedValue,
+      },
+      items,
+      status: liveItems.length > 0 ? "ready" : "empty",
+    };
+  } catch (error: unknown) {
+    console.warn(
+      "Unable to load news edition data",
+      error instanceof Error ? error.message : String(error),
+    );
+
+    return {
+      filter: {
+        kind,
+        title: fallbackTitle,
+        value: normalizedValue,
+      },
+      items: selectPreviewNewsEditionItems({ kind, value: normalizedValue }),
+      status: "unavailable",
     };
   }
 };

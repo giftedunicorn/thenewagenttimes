@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { RouterInputs } from "@acme/api";
 import type {
   NewsPreferenceProfile,
   ReaderInteractionAction,
@@ -13,7 +12,6 @@ import { Button } from "@acme/ui/button";
 import {
   dedupeNewsItems,
   getNewsExplorationInterval,
-  normalizeNewsPreferenceProfile,
   rankNewsForReader,
   selectDiverseNewsFeed,
   updateReaderProfileWithInteraction,
@@ -23,11 +21,14 @@ import type {
   NewsPositiveFeedbackMemoryItem,
   NewsReaderMemoryItem,
 } from "../../_components/news-home-model";
+import type { NewsSearchMemoryItem } from "../../_components/news-reader-memory-storage";
 import type { NewsArticleItem, NewsHomeItem } from "../../_data/news";
 import type { NewsArticleReadMilestone } from "./news-article-model";
 import { useTRPC } from "~/trpc/react";
+import { NewsEditionStoryActions } from "../../_components/news-edition-story-actions";
 import {
   createDefaultNewsPreferenceProfile,
+  getNewsTopicHref,
   mergeNewsHomePositiveFeedbackItems,
   mergeNewsReaderMemoryItems,
   removeNewsHomePositiveFeedbackItem,
@@ -35,10 +36,28 @@ import {
   selectActiveNewsGuardrailItems,
   selectActiveNewsSavedItems,
   selectHydratedNewsPreferenceProfile,
-  selectStoredNewsPositiveFeedbackItems,
-  selectStoredNewsReaderMemoryItems,
   stripPersistedNewsPreferenceProfile,
 } from "../../_components/news-home-model";
+import {
+  newsGuardrailStorageKey as guardrailStorageKey,
+  newsHistoryStorageKey as historyStorageKey,
+  readStoredNewsPositiveFeedbackItems,
+  readStoredNewsReaderMemoryItems,
+  readStoredNewsSearchMemoryItems,
+  newsSavedStorageKey as savedStorageKey,
+  subscribeToNewsReaderMemoryStorage,
+  writeStoredNewsPositiveFeedbackItems,
+  writeStoredNewsReaderMemoryItems,
+} from "../../_components/news-reader-memory-storage";
+import {
+  areNewsPreferenceProfilesEqual,
+  getNewsPreferenceProfileStorageValue,
+  readOrCreateNewsVisitorKey,
+  readStoredNewsPreferenceProfile,
+  subscribeToNewsPreferenceProfileStorage,
+  toNewsServerPreferenceProfileInput,
+  writeStoredNewsPreferenceProfile,
+} from "../../_components/news-reader-profile-storage";
 import {
   getNewsArticleCorroboration,
   getNewsArticleDeepReadTrainingState,
@@ -46,14 +65,17 @@ import {
   getNewsArticleFeedbackLoop,
   getNewsArticleFormattedDate,
   getNewsArticleGuardrailSignalState,
+  getNewsArticleGuardrailStorageUpdate,
   getNewsArticleHeroVisual,
   getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
   getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
   getNewsArticleLocalMemoryItemForAction,
+  getNewsArticleLocalReadFeedbackItem,
   getNewsArticleLocalSavedItem,
   getNewsArticleNextReads,
+  getNewsArticlePositiveStorageUpdate,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
   getNewsArticleReaderSignalCacheScopes,
@@ -65,6 +87,7 @@ import {
   getNewsArticleSourceFollowState,
   getNewsArticleSourceLens,
   getNewsArticleSourceUrl,
+  selectNewsArticleEligibleRelatedItems,
   selectNewsArticleReadMilestone,
   shouldApplyNewsArticleLocalProfileFromMilestone,
   shouldApplyNewsArticleServerProfileFromInteraction,
@@ -76,18 +99,6 @@ interface NewsArticleProps {
   article: NewsArticleItem;
   related: NewsHomeItem[];
 }
-
-type NewsArticleServerProfile =
-  RouterInputs["news"]["updateProfile"]["profile"];
-type NewsArticleServerProfileCategory =
-  NewsArticleServerProfile["preferredCategories"][number];
-
-const profileStorageKey = "new-ai-times-profile";
-const savedStorageKey = "new-ai-times-saved";
-const historyStorageKey = "new-ai-times-history";
-const guardrailStorageKey = "new-ai-times-guardrails";
-const positiveFeedbackStorageKey = "new-ai-times-positive-feedback";
-const visitorStorageKey = "new-ai-times-visitor-key";
 
 const categoryLabels: Record<string, string> = {
   funding: "Funding",
@@ -110,84 +121,17 @@ const categoryLabels: Record<string, string> = {
 const formatCategory = (category: string) =>
   categoryLabels[category] ?? category;
 
-const isNewsArticleServerProfileCategory = (
-  category: string,
-): category is NewsArticleServerProfileCategory => category in categoryLabels;
-
-const toNewsArticleServerProfile = (
-  profile: NewsPreferenceProfile,
-): NewsArticleServerProfile => {
-  const normalizedProfile = normalizeNewsPreferenceProfile(profile);
-
-  return {
-    preferredCategories: normalizedProfile.preferredCategories.filter(
-      isNewsArticleServerProfileCategory,
-    ),
-    preferredEntities: [...normalizedProfile.preferredEntities],
-    preferredSources: [...normalizedProfile.preferredSources],
-    noveltyBias: normalizedProfile.noveltyBias,
-    recencyBias: normalizedProfile.recencyBias,
-  };
-};
-
 const readStoredProfile = (): NewsPreferenceProfile => {
-  const defaultProfile = createDefaultNewsPreferenceProfile();
-
-  if (typeof window === "undefined") return defaultProfile;
-  const stored = window.localStorage.getItem(profileStorageKey);
-  if (!stored) return defaultProfile;
-
-  try {
-    const parsed = JSON.parse(stored) as Partial<NewsPreferenceProfile>;
-    return normalizeNewsPreferenceProfile({
-      preferredCategories: Array.isArray(parsed.preferredCategories)
-        ? parsed.preferredCategories.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : defaultProfile.preferredCategories,
-      preferredSources: Array.isArray(parsed.preferredSources)
-        ? parsed.preferredSources.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : defaultProfile.preferredSources,
-      preferredEntities: Array.isArray(parsed.preferredEntities)
-        ? parsed.preferredEntities.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : defaultProfile.preferredEntities,
-      noveltyBias:
-        typeof parsed.noveltyBias === "number"
-          ? parsed.noveltyBias
-          : defaultProfile.noveltyBias,
-      recencyBias:
-        typeof parsed.recencyBias === "number"
-          ? parsed.recencyBias
-          : defaultProfile.recencyBias,
-    });
-  } catch {
-    return defaultProfile;
-  }
+  return readStoredNewsPreferenceProfile({
+    defaultProfile: createDefaultNewsPreferenceProfile(),
+  });
 };
 
 const writeStoredProfile = (profile: NewsPreferenceProfile) => {
-  window.localStorage.setItem(
-    profileStorageKey,
-    JSON.stringify(normalizeNewsPreferenceProfile(profile)),
-  );
+  writeStoredNewsPreferenceProfile(profile);
 };
 
-const readStoredMemoryItems = (storageKey: string) => {
-  if (typeof window === "undefined") return [];
-
-  const stored = window.localStorage.getItem(storageKey);
-  if (!stored) return [];
-
-  try {
-    return selectStoredNewsReaderMemoryItems(JSON.parse(stored) as unknown);
-  } catch {
-    return [];
-  }
-};
+const readStoredMemoryItems = readStoredNewsReaderMemoryItems;
 
 const writeStoredMemoryItems = ({
   items,
@@ -196,7 +140,7 @@ const writeStoredMemoryItems = ({
   items: readonly NewsReaderMemoryItem[];
   storageKey: string;
 }) => {
-  window.localStorage.setItem(storageKey, JSON.stringify(items));
+  writeStoredNewsReaderMemoryItems(storageKey, items);
 };
 
 const writeStoredMemoryItem = ({
@@ -219,42 +163,26 @@ const writeStoredMemoryItem = ({
   return nextItems;
 };
 
-const readStoredPositiveFeedbackItems = () => {
-  if (typeof window === "undefined") return [];
-
-  const stored = window.localStorage.getItem(positiveFeedbackStorageKey);
-  if (!stored) return [];
-
-  try {
-    return selectStoredNewsPositiveFeedbackItems(JSON.parse(stored) as unknown);
-  } catch {
-    return [];
-  }
-};
+const readStoredPositiveFeedbackItems = readStoredNewsPositiveFeedbackItems;
+const readStoredSearchMemoryItems = readStoredNewsSearchMemoryItems;
 
 const writeStoredPositiveFeedbackItem = ({
   item,
 }: {
   item: NewsPositiveFeedbackMemoryItem;
 }) => {
-  window.localStorage.setItem(
-    positiveFeedbackStorageKey,
-    JSON.stringify(
-      mergeNewsHomePositiveFeedbackItems({
-        currentItems: readStoredPositiveFeedbackItems(),
-        nextItem: item,
-      }),
-    ),
+  writeStoredNewsPositiveFeedbackItems(
+    mergeNewsHomePositiveFeedbackItems({
+      currentItems: readStoredPositiveFeedbackItems(),
+      nextItem: item,
+    }),
   );
 };
 
 const writeStoredPositiveFeedbackItems = (
   items: readonly NewsPositiveFeedbackMemoryItem[],
 ) => {
-  window.localStorage.setItem(
-    positiveFeedbackStorageKey,
-    JSON.stringify(items),
-  );
+  writeStoredNewsPositiveFeedbackItems(items);
 };
 
 const writeStoredHistoryItem = ({
@@ -271,20 +199,6 @@ const writeStoredHistoryItem = ({
     }),
     storageKey: historyStorageKey,
   });
-};
-
-const readOrCreateVisitorKey = () => {
-  if (typeof window === "undefined") return null;
-
-  const stored = window.localStorage.getItem(visitorStorageKey);
-  if (stored) return stored;
-
-  const next =
-    typeof window.crypto.randomUUID === "function"
-      ? window.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  window.localStorage.setItem(visitorStorageKey, next);
-  return next;
 };
 
 const paragraphsFromArticle = (article: NewsArticleItem) => {
@@ -322,7 +236,11 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   const [readTrainingMilestones, setReadTrainingMilestones] = useState<
     NewsArticleReadMilestone[]
   >([]);
+  const [searchMemoryItems, setSearchMemoryItems] = useState<
+    NewsSearchMemoryItem[]
+  >([]);
   const recordedReadMilestonesRef = useRef<NewsArticleReadMilestone[]>([]);
+  const serverProfileSyncSnapshotRef = useRef<string | null>(null);
   const articleReadCheckpointRefs = useRef(
     new Map<NewsArticleReadMilestone, HTMLSpanElement>(),
   );
@@ -349,6 +267,18 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       { enabled: canPersistReaderSignals && Boolean(visitorKey) },
     ),
   );
+  const historyQuery = useQuery(
+    trpc.news.history.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistReaderSignals && Boolean(visitorKey) },
+    ),
+  );
+  const positiveFeedbackQuery = useQuery(
+    trpc.news.positiveFeedback.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistReaderSignals && Boolean(visitorKey) },
+    ),
+  );
   const guardrailsQuery = useQuery(
     trpc.news.guardrails.queryOptions(
       { limit: 6, visitorKey: visitorKey ?? undefined },
@@ -370,6 +300,10 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           case "history":
             return queryClient.invalidateQueries(
               trpc.news.history.pathFilter(),
+            );
+          case "positiveFeedback":
+            return queryClient.invalidateQueries(
+              trpc.news.positiveFeedback.pathFilter(),
             );
           case "guardrails":
             return queryClient.invalidateQueries(
@@ -433,7 +367,28 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     setProfile(readStoredProfile());
     setLocalSavedItems(readStoredMemoryItems(savedStorageKey));
     setLocalGuardrailItems(readStoredMemoryItems(guardrailStorageKey));
-    setVisitorKey(readOrCreateVisitorKey());
+    setSearchMemoryItems(readStoredSearchMemoryItems());
+    setVisitorKey(readOrCreateNewsVisitorKey());
+  }, []);
+
+  useEffect(() => {
+    return subscribeToNewsPreferenceProfileStorage(() => {
+      const nextProfile = readStoredProfile();
+
+      setProfile((currentProfile) =>
+        areNewsPreferenceProfilesEqual(currentProfile, nextProfile)
+          ? currentProfile
+          : nextProfile,
+      );
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeToNewsReaderMemoryStorage(() => {
+      setLocalSavedItems(readStoredMemoryItems(savedStorageKey));
+      setLocalGuardrailItems(readStoredMemoryItems(guardrailStorageKey));
+      setSearchMemoryItems(readStoredSearchMemoryItems());
+    });
   }, []);
 
   useEffect(() => {
@@ -448,6 +403,95 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       return nextProfile;
     });
   }, [profileQuery.data]);
+
+  useEffect(() => {
+    if (!visitorKey || !canPersistReaderSignals) return;
+    if (!profileQuery.data || profileQuery.data.persisted) return;
+    if (
+      areNewsPreferenceProfilesEqual(
+        profile,
+        createDefaultNewsPreferenceProfile(),
+      )
+    ) {
+      return;
+    }
+
+    const localProfileSnapshot = getNewsPreferenceProfileStorageValue(profile);
+
+    if (serverProfileSyncSnapshotRef.current === localProfileSnapshot) return;
+
+    serverProfileSyncSnapshotRef.current = localProfileSnapshot;
+    updateProfile.mutate({
+      visitorKey,
+      profile: toNewsServerPreferenceProfileInput(profile),
+    });
+  }, [
+    canPersistReaderSignals,
+    profile,
+    profileQuery.data,
+    updateProfile,
+    visitorKey,
+  ]);
+
+  useEffect(() => {
+    if (!savedQuery.data || savedQuery.data.length === 0) return;
+
+    const nextSavedItems = mergeNewsReaderMemoryItems({
+      localItems: readStoredMemoryItems(savedStorageKey),
+      serverItems: savedQuery.data,
+    });
+
+    writeStoredMemoryItems({
+      items: nextSavedItems,
+      storageKey: savedStorageKey,
+    });
+  }, [savedQuery.data]);
+
+  useEffect(() => {
+    if (!historyQuery.data || historyQuery.data.length === 0) return;
+
+    const nextHistoryItems = mergeNewsReaderMemoryItems({
+      localItems: readStoredMemoryItems(historyStorageKey),
+      serverItems: historyQuery.data,
+    });
+
+    writeStoredMemoryItems({
+      items: nextHistoryItems,
+      storageKey: historyStorageKey,
+    });
+  }, [historyQuery.data]);
+
+  useEffect(() => {
+    if (!positiveFeedbackQuery.data || positiveFeedbackQuery.data.length === 0)
+      return;
+
+    const nextPositiveFeedbackItems = positiveFeedbackQuery.data.reduce<
+      NewsPositiveFeedbackMemoryItem[]
+    >(
+      (currentItems, nextItem) =>
+        mergeNewsHomePositiveFeedbackItems({
+          currentItems,
+          nextItem,
+        }),
+      readStoredPositiveFeedbackItems(),
+    );
+
+    writeStoredPositiveFeedbackItems(nextPositiveFeedbackItems);
+  }, [positiveFeedbackQuery.data]);
+
+  useEffect(() => {
+    if (!guardrailsQuery.data || guardrailsQuery.data.length === 0) return;
+
+    const nextGuardrailItems = mergeNewsReaderMemoryItems({
+      localItems: readStoredMemoryItems(guardrailStorageKey),
+      serverItems: guardrailsQuery.data,
+    });
+
+    writeStoredMemoryItems({
+      items: nextGuardrailItems,
+      storageKey: guardrailStorageKey,
+    });
+  }, [guardrailsQuery.data]);
 
   useEffect(() => {
     recordedReadMilestonesRef.current = [];
@@ -552,10 +596,17 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           if (milestone.shouldShowFeedback) {
             setFeedbackLoop(trainingState.feedbackLoop);
           }
+          const occurredAt = new Date().toISOString();
           writeStoredProfile(trainingState.profile);
           writeStoredHistoryItem({
             article,
-            viewedAt: new Date().toISOString(),
+            viewedAt: occurredAt,
+          });
+          writeStoredPositiveFeedbackItem({
+            item: getNewsArticleLocalReadFeedbackItem({
+              article,
+              occurredAt,
+            }),
           });
           return trainingState.profile;
         });
@@ -611,89 +662,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     visitorKey,
   ]);
 
-  const rankedRelated = useMemo(
-    () =>
-      selectDiverseNewsFeed(
-        rankNewsForReader(dedupeNewsItems(related), profile),
-        {
-          explorationInterval: getNewsExplorationInterval(profile),
-          limit: related.length,
-        },
-      ),
-    [profile, related],
-  );
-  const readingPath = useMemo(
-    () =>
-      getNewsArticleReadingPath({
-        article,
-        formatCategory,
-        limit: 5,
-        relatedItems: rankedRelated,
-      }),
-    [article, rankedRelated],
-  );
-  const readerFit = useMemo(
-    () =>
-      getNewsArticleReaderFit({
-        article,
-        formatCategory,
-        profile,
-        relatedItems: rankedRelated,
-      }),
-    [article, profile, rankedRelated],
-  );
-  const learningImpact = useMemo(
-    () =>
-      getNewsArticleLearningImpact({
-        article,
-        formatCategory,
-        profile,
-        relatedItems: rankedRelated,
-      }),
-    [article, profile, rankedRelated],
-  );
-  const readTrainingReceipt = useMemo(
-    () =>
-      getNewsArticleReadTrainingReceipt({
-        article,
-        formatCategory,
-        recordedMilestones: readTrainingMilestones,
-      }),
-    [article, readTrainingMilestones],
-  );
-  const nextReads = useMemo(
-    () =>
-      getNewsArticleNextReads({
-        article,
-        formatCategory,
-        limit: 4,
-        profile,
-        relatedItems: rankedRelated,
-      }),
-    [article, profile, rankedRelated],
-  );
-  const articleDigest = useMemo(
-    () => getNewsArticleDigest({ article }),
-    [article],
-  );
-  const sourceLens = useMemo(
-    () => getNewsArticleSourceLens({ article }),
-    [article],
-  );
-  const sourceFollowState = useMemo(
-    () => getNewsArticleSourceFollowState({ article, profile }),
-    [article, profile],
-  );
-  const articleCorroboration = useMemo(
-    () =>
-      getNewsArticleCorroboration({
-        article,
-        formatCategory,
-        limit: 3,
-        relatedItems: rankedRelated,
-      }),
-    [article, rankedRelated],
-  );
   const serverProfileAudit = getNewsArticleServerProfileAuditDisplay(
     profileQuery.data?.audit,
   );
@@ -736,6 +704,105 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       }),
     [activeLocalGuardrailItems, serverGuardrailItems],
   );
+  const eligibleRelatedItems = useMemo(
+    () =>
+      selectNewsArticleEligibleRelatedItems({
+        guardrailItems,
+        relatedItems: related,
+      }),
+    [guardrailItems, related],
+  );
+  const rankedRelated = useMemo(
+    () =>
+      selectDiverseNewsFeed(
+        rankNewsForReader(dedupeNewsItems(eligibleRelatedItems), profile),
+        {
+          explorationInterval: getNewsExplorationInterval(profile),
+          limit: eligibleRelatedItems.length,
+        },
+      ),
+    [eligibleRelatedItems, profile],
+  );
+  const rankedRelatedById = useMemo(
+    () => new Map(rankedRelated.map((item) => [item.id, item])),
+    [rankedRelated],
+  );
+  const readingPath = useMemo(
+    () =>
+      getNewsArticleReadingPath({
+        article,
+        formatCategory,
+        limit: 5,
+        relatedItems: rankedRelated,
+        searchMemoryItems,
+      }),
+    [article, rankedRelated, searchMemoryItems],
+  );
+  const readerFit = useMemo(
+    () =>
+      getNewsArticleReaderFit({
+        article,
+        formatCategory,
+        profile,
+        relatedItems: rankedRelated,
+        searchMemoryItems,
+      }),
+    [article, profile, rankedRelated, searchMemoryItems],
+  );
+  const learningImpact = useMemo(
+    () =>
+      getNewsArticleLearningImpact({
+        article,
+        formatCategory,
+        profile,
+        relatedItems: rankedRelated,
+        searchMemoryItems,
+      }),
+    [article, profile, rankedRelated, searchMemoryItems],
+  );
+  const readTrainingReceipt = useMemo(
+    () =>
+      getNewsArticleReadTrainingReceipt({
+        article,
+        formatCategory,
+        recordedMilestones: readTrainingMilestones,
+      }),
+    [article, readTrainingMilestones],
+  );
+  const nextReads = useMemo(
+    () =>
+      getNewsArticleNextReads({
+        article,
+        formatCategory,
+        limit: 4,
+        profile,
+        relatedItems: rankedRelated,
+        searchMemoryItems,
+      }),
+    [article, profile, rankedRelated, searchMemoryItems],
+  );
+  const articleDigest = useMemo(
+    () => getNewsArticleDigest({ article }),
+    [article],
+  );
+  const sourceLens = useMemo(
+    () => getNewsArticleSourceLens({ article }),
+    [article],
+  );
+  const sourceFollowState = useMemo(
+    () => getNewsArticleSourceFollowState({ article, profile }),
+    [article, profile],
+  );
+  const articleCorroboration = useMemo(
+    () =>
+      getNewsArticleCorroboration({
+        article,
+        formatCategory,
+        limit: 3,
+        relatedItems: rankedRelated,
+      }),
+    [article, rankedRelated],
+  );
   const savedItems = useMemo(() => {
     const mergedSavedItems = mergeNewsReaderMemoryItems({
       localItems: localSavedItems,
@@ -773,6 +840,9 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     articleId: article.id,
     guardrailItems,
   });
+  const readerFitNextStepItem = readerFit.nextStep
+    ? (rankedRelatedById.get(readerFit.nextStep.id) ?? null)
+    : null;
 
   const removeSavedSignal = () => {
     const savedMemoryItem = getNewsArticleLocalSavedItem({
@@ -855,11 +925,15 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   };
 
   const followArticleSource = () => {
-    if (sourceFollowState.isFollowing) return;
-
+    const occurredAt = new Date().toISOString();
     const nextProfile = getNewsArticleSourceFollowProfile({
       article,
       profile,
+    });
+    const sourceFeedbackItem = getNewsArticleLocalMemoryItemForAction({
+      action: "click_source",
+      article,
+      occurredAt,
     });
 
     setFeedbackLoop(
@@ -874,9 +948,46 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     setProfile(nextProfile);
     writeStoredProfile(nextProfile);
 
+    if (
+      !sourceFollowState.isFollowing &&
+      sourceFeedbackItem?.storage === "positive"
+    ) {
+      const storageUpdate = getNewsArticlePositiveStorageUpdate({
+        action: "click_source",
+        article,
+        guardrailItems: readStoredMemoryItems(guardrailStorageKey),
+        occurredAt,
+        positiveFeedbackItems: readStoredPositiveFeedbackItems(),
+        savedItems: readStoredMemoryItems(savedStorageKey),
+      });
+
+      writeStoredMemoryItems({
+        items: storageUpdate.guardrailItems,
+        storageKey: guardrailStorageKey,
+      });
+      writeStoredPositiveFeedbackItems(storageUpdate.positiveFeedbackItems);
+      setRestoredGuardrailItems((current) =>
+        removeNewsReaderMemoryItem({
+          item: sourceFeedbackItem.item,
+          itemId: article.id,
+          items: current,
+        }),
+      );
+      setLocalGuardrailItems(storageUpdate.guardrailItems);
+    }
+
     if (canPersistReaderSignals && visitorKey) {
+      if (!sourceFollowState.isFollowing) {
+        recordInteraction.mutate({
+          visitorKey,
+          newsItemId: article.id,
+          action: "click_source",
+          metadata: getNewsArticleInteractionMetadata("click_source"),
+        });
+      }
+
       updateProfile.mutate({
-        profile: toNewsArticleServerProfile(nextProfile),
+        profile: toNewsServerPreferenceProfileInput(nextProfile),
         visitorKey,
       });
     }
@@ -906,38 +1017,95 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     });
 
     if (localMemoryItem) {
-      if (localMemoryItem.storage === "positive") {
-        writeStoredPositiveFeedbackItem({ item: localMemoryItem.item });
-      } else {
-        const nextItems = writeStoredMemoryItem({
-          item: localMemoryItem.item,
-          storageKey:
-            localMemoryItem.storage === "saved"
-              ? savedStorageKey
-              : guardrailStorageKey,
+      if (
+        localMemoryItem.storage === "positive" &&
+        (action === "share" || action === "click_source")
+      ) {
+        const storageUpdate = getNewsArticlePositiveStorageUpdate({
+          action,
+          article,
+          guardrailItems: readStoredMemoryItems(guardrailStorageKey),
+          occurredAt,
+          positiveFeedbackItems: readStoredPositiveFeedbackItems(),
+          savedItems: readStoredMemoryItems(savedStorageKey),
         });
 
-        if (localMemoryItem.storage === "saved") {
-          setRemovedSavedItems((current) =>
-            removeNewsReaderMemoryItem({
-              item: localMemoryItem.item,
-              itemId: article.id,
-              items: current,
-            }),
-          );
-          setLocalSavedItems(nextItems);
-        }
+        writeStoredMemoryItems({
+          items: storageUpdate.guardrailItems,
+          storageKey: guardrailStorageKey,
+        });
+        writeStoredPositiveFeedbackItems(storageUpdate.positiveFeedbackItems);
+        setRestoredGuardrailItems((current) =>
+          removeNewsReaderMemoryItem({
+            item: localMemoryItem.item,
+            itemId: article.id,
+            items: current,
+          }),
+        );
+        setLocalGuardrailItems(storageUpdate.guardrailItems);
+      } else if (localMemoryItem.storage === "guardrail") {
+        const storageUpdate = getNewsArticleGuardrailStorageUpdate({
+          article,
+          guardrailItems: readStoredMemoryItems(guardrailStorageKey),
+          occurredAt,
+          positiveFeedbackItems: readStoredPositiveFeedbackItems(),
+          savedItems: readStoredMemoryItems(savedStorageKey),
+        });
 
-        if (localMemoryItem.storage === "guardrail") {
-          setRestoredGuardrailItems((current) =>
-            removeNewsReaderMemoryItem({
-              item: localMemoryItem.item,
-              itemId: article.id,
-              items: current,
-            }),
-          );
-          setLocalGuardrailItems(nextItems);
-        }
+        writeStoredMemoryItems({
+          items: storageUpdate.guardrailItems,
+          storageKey: guardrailStorageKey,
+        });
+        writeStoredMemoryItems({
+          items: storageUpdate.savedItems,
+          storageKey: savedStorageKey,
+        });
+        writeStoredPositiveFeedbackItems(storageUpdate.positiveFeedbackItems);
+        setRestoredGuardrailItems((current) =>
+          removeNewsReaderMemoryItem({
+            item: localMemoryItem.item,
+            itemId: article.id,
+            items: current,
+          }),
+        );
+        setLocalGuardrailItems(storageUpdate.guardrailItems);
+        setLocalSavedItems(storageUpdate.savedItems);
+      } else if (localMemoryItem.storage === "saved" && action === "save") {
+        const storageUpdate = getNewsArticlePositiveStorageUpdate({
+          action,
+          article,
+          guardrailItems: readStoredMemoryItems(guardrailStorageKey),
+          occurredAt,
+          positiveFeedbackItems: readStoredPositiveFeedbackItems(),
+          savedItems: readStoredMemoryItems(savedStorageKey),
+        });
+
+        writeStoredMemoryItems({
+          items: storageUpdate.guardrailItems,
+          storageKey: guardrailStorageKey,
+        });
+        writeStoredMemoryItems({
+          items: storageUpdate.savedItems,
+          storageKey: savedStorageKey,
+        });
+        writeStoredPositiveFeedbackItems(storageUpdate.positiveFeedbackItems);
+
+        setRemovedSavedItems((current) =>
+          removeNewsReaderMemoryItem({
+            item: localMemoryItem.item,
+            itemId: article.id,
+            items: current,
+          }),
+        );
+        setRestoredGuardrailItems((current) =>
+          removeNewsReaderMemoryItem({
+            item: localMemoryItem.item,
+            itemId: article.id,
+            items: current,
+          }),
+        );
+        setLocalGuardrailItems(storageUpdate.guardrailItems);
+        setLocalSavedItems(storageUpdate.savedItems);
       }
     }
 
@@ -971,9 +1139,19 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       <article className="container grid gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div>
           <div className="mb-5 flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-            <span>{formatCategory(article.category)}</span>
+            <Link
+              className="hover:underline"
+              href={getNewsTopicHref(article.category)}
+            >
+              {formatCategory(article.category)}
+            </Link>
             <span>/</span>
-            <span>{article.sourceName}</span>
+            <Link
+              className="hover:underline"
+              href={`/sources/${article.sourceSlug}`}
+            >
+              {article.sourceName}
+            </Link>
             <span>/</span>
             <span>{getNewsArticleFormattedDate(article.publishedAt)}</span>
           </div>
@@ -1065,9 +1243,7 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             ) : null}
             <Button
               className="rounded-none"
-              disabled={
-                sourceFollowState.isFollowing || updateProfile.isPending
-              }
+              disabled={updateProfile.isPending}
               type="button"
               variant={sourceFollowState.isFollowing ? "outline" : undefined}
               onClick={followArticleSource}
@@ -1137,16 +1313,24 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
               ))}
             </ol>
             <div className="mt-4 flex flex-wrap gap-2 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15">
-              {[...articleDigest.entities, ...articleDigest.tags].map(
-                (signal) => (
-                  <span
-                    key={signal}
-                    className="border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/30"
-                  >
-                    {signal}
-                  </span>
-                ),
-              )}
+              {articleDigest.entities.map((entity) => (
+                <Link
+                  key={`entity-${entity}`}
+                  className="border border-[#161616]/30 px-2 py-1 hover:underline dark:border-[#f4f1ea]/30"
+                  href={`/entities/${encodeURIComponent(entity)}`}
+                >
+                  {entity}
+                </Link>
+              ))}
+              {articleDigest.tags.map((tag) => (
+                <Link
+                  key={`tag-${tag}`}
+                  className="border border-[#161616]/30 px-2 py-1 hover:underline dark:border-[#f4f1ea]/30"
+                  href={`/search?q=${encodeURIComponent(tag)}`}
+                >
+                  {tag}
+                </Link>
+              ))}
             </div>
           </section>
 
@@ -1200,26 +1384,41 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             </dl>
             <div className="mt-4 grid gap-3">
               {articleCorroboration.sources.length > 0 ? (
-                articleCorroboration.sources.map((source) => (
-                  <Link
-                    className="border-t border-[#161616]/20 pt-3 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${source.id}`}
-                    key={source.id}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="font-semibold">{source.title}</span>
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {source.scoreLabel}
-                      </span>
-                    </div>
-                    <span className="mt-1 block font-mono text-xs">
-                      {source.sourceName} / {source.categoryLabel}
-                    </span>
-                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {source.evidenceLabel}
-                    </span>
-                  </Link>
-                ))
+                articleCorroboration.sources.map((source, index) => {
+                  const rankedItem = rankedRelatedById.get(source.id);
+
+                  return (
+                    <article
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm leading-5 dark:border-[#f4f1ea]/15"
+                      key={source.id}
+                    >
+                      <Link
+                        className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${source.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="font-semibold">{source.title}</span>
+                          <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                            {source.scoreLabel}
+                          </span>
+                        </div>
+                        <span className="mt-1 block font-mono text-xs">
+                          {source.sourceName} / {source.categoryLabel}
+                        </span>
+                        <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {source.evidenceLabel}
+                        </span>
+                      </Link>
+                      {rankedItem ? (
+                        <NewsEditionStoryActions
+                          isPreview={!canPersistReaderSignals}
+                          item={rankedItem}
+                          rankSlot={index + 1}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Related independent sources will appear after the crawler
@@ -1303,18 +1502,27 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
               ))}
             </div>
             {readerFit.nextStep ? (
-              <Link
-                className="mt-4 block border-t border-[#161616]/20 pt-4 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                href={`/news/${readerFit.nextStep.id}`}
-              >
-                <span className="block font-mono text-xs">
-                  {readerFit.nextStep.label} / {readerFit.nextStep.scoreLabel}
-                </span>
-                <span className="font-bold">{readerFit.nextStep.title}</span>
-                <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                  {readerFit.nextStep.reason}
-                </span>
-              </Link>
+              <article className="mt-4 grid gap-2 border-t border-[#161616]/20 pt-4 text-sm leading-5 dark:border-[#f4f1ea]/15">
+                <Link
+                  className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                  href={`/news/${readerFit.nextStep.id}`}
+                >
+                  <span className="block font-mono text-xs">
+                    {readerFit.nextStep.label} / {readerFit.nextStep.scoreLabel}
+                  </span>
+                  <span className="font-bold">{readerFit.nextStep.title}</span>
+                  <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                    {readerFit.nextStep.reason}
+                  </span>
+                </Link>
+                {readerFitNextStepItem ? (
+                  <NewsEditionStoryActions
+                    isPreview={!canPersistReaderSignals}
+                    item={readerFitNextStepItem}
+                    rankSlot={1}
+                  />
+                ) : null}
+              </article>
             ) : (
               <p className="mt-4 border-t border-[#161616]/20 pt-4 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                 Open another story or save this one to train the article queue.
@@ -1461,18 +1669,33 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
               <div className="mt-4 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
                 <h3 className="text-sm font-black">Next Recommendation</h3>
                 <div className="mt-2 grid gap-3">
-                  {learningImpact.nextStories.slice(0, 2).map((item) => (
-                    <Link
-                      className="text-sm leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                      href={`/news/${item.id}`}
-                      key={item.id}
-                    >
-                      <span className="block font-mono text-xs">
-                        {item.reason} / {item.scoreLabel}
-                      </span>
-                      <span className="font-bold">{item.title}</span>
-                    </Link>
-                  ))}
+                  {learningImpact.nextStories.slice(0, 2).map((item, index) => {
+                    const rankedItem = rankedRelatedById.get(item.id);
+
+                    return (
+                      <article
+                        className="grid gap-2 text-sm leading-5"
+                        key={item.id}
+                      >
+                        <Link
+                          className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${item.id}`}
+                        >
+                          <span className="block font-mono text-xs">
+                            {item.reason} / {item.scoreLabel}
+                          </span>
+                          <span className="font-bold">{item.title}</span>
+                        </Link>
+                        {rankedItem ? (
+                          <NewsEditionStoryActions
+                            isPreview={!canPersistReaderSignals}
+                            item={rankedItem}
+                            rankSlot={index + 1}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
@@ -1505,27 +1728,42 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             </dl>
             <div className="mt-4 grid gap-3">
               {nextReads.reads.length > 0 ? (
-                nextReads.reads.map((item) => (
-                  <Link
-                    className="border-t border-[#161616]/20 pt-3 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
-                    key={item.id}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="font-semibold">{item.title}</span>
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {item.statusLabel}
-                      </span>
-                    </div>
-                    <span className="mt-1 block font-mono text-xs">
-                      {item.categoryLabel} / {item.sourceName} /{" "}
-                      {item.scoreLabel}
-                    </span>
-                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.reason}
-                    </span>
-                  </Link>
-                ))
+                nextReads.reads.map((item, index) => {
+                  const rankedItem = rankedRelatedById.get(item.id);
+
+                  return (
+                    <article
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm leading-5 dark:border-[#f4f1ea]/15"
+                      key={item.id}
+                    >
+                      <Link
+                        className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${item.id}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <span className="font-semibold">{item.title}</span>
+                          <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                            {item.statusLabel}
+                          </span>
+                        </div>
+                        <span className="mt-1 block font-mono text-xs">
+                          {item.categoryLabel} / {item.sourceName} /{" "}
+                          {item.scoreLabel}
+                        </span>
+                        <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {item.reason}
+                        </span>
+                      </Link>
+                      {rankedItem ? (
+                        <NewsEditionStoryActions
+                          isPreview={!canPersistReaderSignals}
+                          item={rankedItem}
+                          rankSlot={index + 1}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Continue reading and saving stories to unlock the article
@@ -1566,21 +1804,36 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             </div>
             <div className="mt-4 grid gap-4">
               {readingPath.recommendations.length > 0 ? (
-                readingPath.recommendations.map((item) => (
-                  <Link
-                    className="border-t border-[#161616]/20 pt-4 text-sm leading-5 hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
-                    key={item.id}
-                  >
-                    <span className="block font-mono text-xs">
-                      {item.scoreLabel}
-                    </span>
-                    <span className="font-bold">{item.title}</span>
-                    <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.reason}
-                    </span>
-                  </Link>
-                ))
+                readingPath.recommendations.map((item, index) => {
+                  const rankedItem = rankedRelatedById.get(item.id);
+
+                  return (
+                    <article
+                      className="grid gap-2 border-t border-[#161616]/20 pt-4 text-sm leading-5 dark:border-[#f4f1ea]/15"
+                      key={item.id}
+                    >
+                      <Link
+                        className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${item.id}`}
+                      >
+                        <span className="block font-mono text-xs">
+                          {item.scoreLabel}
+                        </span>
+                        <span className="font-bold">{item.title}</span>
+                        <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {item.reason}
+                        </span>
+                      </Link>
+                      {rankedItem ? (
+                        <NewsEditionStoryActions
+                          isPreview={!canPersistReaderSignals}
+                          item={rankedItem}
+                          rankSlot={index + 1}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                   Related stories will appear once the ingestion run has more

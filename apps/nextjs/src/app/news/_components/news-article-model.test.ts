@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   getNewsArticleCorroboration,
@@ -8,14 +8,19 @@ import {
   getNewsArticleFeedbackLoop,
   getNewsArticleFormattedDate,
   getNewsArticleGuardrailSignalState,
+  getNewsArticleGuardrailStorageUpdate,
   getNewsArticleHeroVisual,
   getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
   getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
   getNewsArticleLocalMemoryItemForAction,
+  getNewsArticleLocalPositiveFeedbackItem,
+  getNewsArticleLocalReadFeedbackItem,
   getNewsArticleLocalSavedItem,
+  getNewsArticleMetadata,
   getNewsArticleNextReads,
+  getNewsArticlePositiveStorageUpdate,
   getNewsArticleReadDepthCheckpoints,
   getNewsArticleReaderFit,
   getNewsArticleReaderSignalCacheScopes,
@@ -28,6 +33,8 @@ import {
   getNewsArticleSourceFollowState,
   getNewsArticleSourceLens,
   getNewsArticleSourceUrl,
+  getNewsArticleStructuredData,
+  selectNewsArticleEligibleRelatedItems,
   selectNewsArticleReadMilestone,
   shouldApplyNewsArticleLocalProfileFromMilestone,
   shouldApplyNewsArticleServerProfileFromInteraction,
@@ -118,6 +125,161 @@ describe("getNewsArticleFormattedDate", () => {
     expect(getNewsArticleFormattedDate("2026-07-04T17:13:00.000Z")).toBe(
       "July 4, 2026 at 5:13 PM",
     );
+  });
+});
+
+describe("getNewsArticleMetadata", () => {
+  it("turns an article into article-specific metadata and social cards", () => {
+    expect(
+      getNewsArticleMetadata({
+        article: {
+          ...article,
+          imageUrl: "https://cdn.example.com/openai-agents.png",
+        },
+      }),
+    ).toEqual({
+      alternates: {
+        canonical: "/news/article-openai-agents",
+      },
+      description: "OpenAI ships a new agent platform for enterprise teams.",
+      openGraph: {
+        authors: ["News Desk"],
+        description: "OpenAI ships a new agent platform for enterprise teams.",
+        images: ["https://cdn.example.com/openai-agents.png"],
+        publishedTime: "2026-07-01T08:00:00.000Z",
+        siteName: "The New AI Times",
+        title: "OpenAI releases a new agent stack",
+        type: "article",
+        url: "/news/article-openai-agents",
+      },
+      title: "OpenAI releases a new agent stack | The New AI Times",
+      twitter: {
+        card: "summary_large_image",
+        description: "OpenAI ships a new agent platform for enterprise teams.",
+        images: ["https://cdn.example.com/openai-agents.png"],
+        title: "OpenAI releases a new agent stack",
+      },
+    });
+  });
+
+  it("uses publication defaults when an article is missing", () => {
+    expect(getNewsArticleMetadata({ article: null })).toMatchObject({
+      description:
+        "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.",
+      title: "The New AI Times",
+    });
+  });
+});
+
+describe("getNewsArticleStructuredData", () => {
+  it("turns an article into NewsArticle JSON-LD data", () => {
+    expect(
+      getNewsArticleStructuredData({
+        article: {
+          ...article,
+          imageUrl: "https://cdn.example.com/openai-agents.png",
+        },
+        baseUrl: "https://thenewagenttimes.test",
+      }),
+    ).toEqual({
+      "@context": "https://schema.org",
+      "@type": "NewsArticle",
+      about: [
+        {
+          "@type": "Thing",
+          name: "OpenAI",
+        },
+        {
+          "@type": "Thing",
+          name: "Agents",
+        },
+      ],
+      articleSection: "Models",
+      author: {
+        "@type": "Person",
+        name: "News Desk",
+      },
+      dateModified: "2026-07-01T08:00:00.000Z",
+      datePublished: "2026-07-01T08:00:00.000Z",
+      description: "OpenAI ships a new agent platform for enterprise teams.",
+      headline: "OpenAI releases a new agent stack",
+      image: ["https://cdn.example.com/openai-agents.png"],
+      isAccessibleForFree: true,
+      keywords: ["model", "agent", "OpenAI", "Agents"],
+      mainEntityOfPage:
+        "https://thenewagenttimes.test/news/article-openai-agents",
+      publisher: {
+        "@type": "Organization",
+        name: "The New AI Times",
+      },
+      url: "https://thenewagenttimes.test/news/article-openai-agents",
+    });
+  });
+
+  it("normalizes local article images to absolute JSON-LD URLs", () => {
+    expect(
+      getNewsArticleStructuredData({
+        article: {
+          ...article,
+          imageUrl: "/news-images/new-ai-times-agent-browsers.png",
+        },
+        baseUrl: "https://thenewagenttimes.test",
+      }),
+    ).toMatchObject({
+      image: [
+        "https://thenewagenttimes.test/news-images/new-ai-times-agent-browsers.png",
+      ],
+    });
+  });
+
+  it("keeps optional image and author data out when the article does not have it", () => {
+    expect(
+      getNewsArticleStructuredData({
+        article: {
+          ...article,
+          authorName: null,
+          imageUrl: null,
+        },
+      }),
+    ).toMatchObject({
+      "@type": "NewsArticle",
+      headline: "OpenAI releases a new agent stack",
+      publisher: {
+        "@type": "Organization",
+        name: "The New AI Times",
+      },
+    });
+    expect(
+      getNewsArticleStructuredData({
+        article: {
+          ...article,
+          authorName: null,
+          imageUrl: null,
+        },
+      }),
+    ).not.toHaveProperty("author");
+    expect(
+      getNewsArticleStructuredData({
+        article: {
+          ...article,
+          authorName: null,
+          imageUrl: null,
+        },
+      }),
+    ).not.toHaveProperty("image");
+  });
+
+  it("renders article structured data from the dynamic article route", async () => {
+    const pageSource = await readFile(
+      new URL("../[id]/page.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(pageSource).toContain("getNewsArticleStructuredData({");
+    expect(pageSource).toContain("stringifyNewsStructuredData(");
+    expect(pageSource).toContain('type="application/ld+json"');
   });
 });
 
@@ -284,6 +446,28 @@ describe("getNewsArticleLocalHistoryItem", () => {
   });
 });
 
+describe("getNewsArticleLocalReadFeedbackItem", () => {
+  it("converts a deep article read into a positive read feedback anchor", () => {
+    expect(
+      getNewsArticleLocalReadFeedbackItem({
+        article,
+        occurredAt: "2026-07-01T09:40:00.000Z",
+      }),
+    ).toEqual({
+      canonicalUrl: "https://example.com/openai-agents",
+      category: "model_release",
+      entities: ["OpenAI", "Agents"],
+      id: "article-openai-agents",
+      occurredAt: "2026-07-01T09:40:00.000Z",
+      originalUrl: "https://source.example/openai-agents",
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      tags: ["model", "agent"],
+      title: "OpenAI releases a new agent stack",
+    });
+  });
+});
+
 describe("getNewsArticleLocalSavedItem", () => {
   it("converts an article save into a homepage saved-memory item", () => {
     expect(
@@ -401,6 +585,44 @@ describe("getNewsArticleGuardrailSignalState", () => {
   });
 });
 
+describe("selectNewsArticleEligibleRelatedItems", () => {
+  it("removes guardrailed related stories by id and URL before article recommendations", () => {
+    const hiddenById = {
+      ...relatedItem,
+      canonicalUrl: "https://example.com/hidden-by-id",
+      id: "hidden-by-id",
+    };
+    const hiddenByUrl = {
+      ...relatedItem,
+      canonicalUrl: "https://www.example.com/hidden-by-url?utm=article",
+      id: "hidden-by-url-variant",
+      originalUrl: "https://source.example/hidden-by-url",
+    };
+    const visibleNextRead = {
+      ...relatedItem,
+      canonicalUrl: "https://example.com/visible-next-read",
+      id: "visible-next-read",
+      originalUrl: "https://source.example/visible-next-read",
+    };
+
+    expect(
+      selectNewsArticleEligibleRelatedItems({
+        guardrailItems: [
+          {
+            id: "hidden-by-id",
+          },
+          {
+            canonicalUrl: "https://example.com/hidden-by-url",
+            id: "stored-hidden-by-url",
+            originalUrl: "https://source.example/hidden-by-url?ref=memory",
+          },
+        ],
+        relatedItems: [hiddenById, hiddenByUrl, visibleNextRead],
+      }).map((item) => item.id),
+    ).toEqual(["visible-next-read"]);
+  });
+});
+
 describe("getNewsArticleLocalGuardrailItem", () => {
   it("converts Less article feedback into a homepage guardrail-memory item", () => {
     expect(
@@ -421,6 +643,174 @@ describe("getNewsArticleLocalGuardrailItem", () => {
       tags: ["model", "agent"],
       title: "OpenAI releases a new agent stack",
     });
+  });
+});
+
+describe("getNewsArticleGuardrailStorageUpdate", () => {
+  it("writes Less feedback while clearing saved and positive article anchors", () => {
+    const savedVariant = {
+      ...getNewsArticleLocalSavedItem({
+        article,
+        savedAt: "2026-07-01T09:45:00.000Z",
+      }),
+      canonicalUrl: null,
+      id: "saved-openai-agents-variant",
+      originalUrl: "https://example.com/openai-agents?utm=saved",
+    };
+    const unrelatedSaved = {
+      ...getNewsArticleLocalSavedItem({
+        article: {
+          ...article,
+          canonicalUrl: "https://example.com/agent-runtime",
+          id: "saved-agent-runtime",
+          originalUrl: "https://source.example/agent-runtime",
+          title: "Agent runtime saved story",
+        },
+        savedAt: "2026-07-01T09:30:00.000Z",
+      }),
+    };
+    const readFeedbackVariant = {
+      ...getNewsArticleLocalReadFeedbackItem({
+        article,
+        occurredAt: "2026-07-01T09:55:00.000Z",
+      }),
+      canonicalUrl: "https://example.com/openai-agents#read",
+      id: "read-openai-agents-variant",
+      originalUrl: "https://source.example/openai-agents?utm=read",
+    };
+    const shareFeedbackVariant = {
+      ...getNewsArticleLocalPositiveFeedbackItem({
+        action: "share",
+        article,
+        occurredAt: "2026-07-01T10:00:00.000Z",
+      }),
+      canonicalUrl: "https://example.com/openai-agents#share",
+      id: "share-openai-agents-variant",
+      originalUrl: "https://source.example/openai-agents?utm=share",
+    };
+    const sourceFeedbackVariant = {
+      ...getNewsArticleLocalPositiveFeedbackItem({
+        action: "click_source",
+        article,
+        occurredAt: "2026-07-01T10:05:00.000Z",
+      }),
+      canonicalUrl: null,
+      id: "source-openai-agents-variant",
+      originalUrl: "https://source.example/openai-agents?utm=source",
+    };
+    const unrelatedPositiveFeedback = {
+      ...getNewsArticleLocalReadFeedbackItem({
+        article: {
+          ...article,
+          canonicalUrl: "https://example.com/agent-runtime",
+          id: "positive-agent-runtime",
+          originalUrl: "https://source.example/agent-runtime",
+          title: "Agent runtime read story",
+        },
+        occurredAt: "2026-07-01T09:25:00.000Z",
+      }),
+    };
+
+    const update = getNewsArticleGuardrailStorageUpdate({
+      article,
+      guardrailItems: [
+        {
+          ...unrelatedSaved,
+          hiddenAt: "2026-07-01T09:35:00.000Z",
+        },
+      ],
+      occurredAt: "2026-07-01T10:15:00.000Z",
+      positiveFeedbackItems: [
+        readFeedbackVariant,
+        shareFeedbackVariant,
+        sourceFeedbackVariant,
+        unrelatedPositiveFeedback,
+      ],
+      savedItems: [savedVariant, unrelatedSaved],
+    });
+
+    expect(update.guardrailItems.map((item) => item.id)).toEqual([
+      "article-openai-agents",
+      "saved-agent-runtime",
+    ]);
+    expect(update.savedItems.map((item) => item.id)).toEqual([
+      "saved-agent-runtime",
+    ]);
+    expect(update.positiveFeedbackItems.map((item) => item.id)).toEqual([
+      "positive-agent-runtime",
+    ]);
+  });
+});
+
+describe("getNewsArticlePositiveStorageUpdate", () => {
+  it("stores article Save feedback while clearing the article Less guardrail", () => {
+    const guardrailVariant = {
+      ...getNewsArticleLocalGuardrailItem({
+        article,
+        hiddenAt: "2026-07-01T10:15:00.000Z",
+      }),
+      canonicalUrl: "https://example.com/openai-agents#less",
+      id: "hidden-openai-agents-variant",
+      originalUrl: "https://source.example/openai-agents?utm=less",
+    };
+    const unrelatedGuardrail = {
+      ...getNewsArticleLocalGuardrailItem({
+        article: {
+          ...article,
+          canonicalUrl: "https://example.com/agent-runtime",
+          id: "hidden-agent-runtime",
+          originalUrl: "https://source.example/agent-runtime",
+          title: "Agent runtime hidden story",
+        },
+        hiddenAt: "2026-07-01T09:35:00.000Z",
+      }),
+    };
+    const unrelatedSaved = {
+      ...getNewsArticleLocalSavedItem({
+        article: {
+          ...article,
+          canonicalUrl: "https://example.com/agent-runtime",
+          id: "saved-agent-runtime",
+          originalUrl: "https://source.example/agent-runtime",
+          title: "Agent runtime saved story",
+        },
+        savedAt: "2026-07-01T09:30:00.000Z",
+      }),
+    };
+    const unrelatedPositiveFeedback = {
+      ...getNewsArticleLocalReadFeedbackItem({
+        article: {
+          ...article,
+          canonicalUrl: "https://example.com/agent-runtime",
+          id: "positive-agent-runtime",
+          originalUrl: "https://source.example/agent-runtime",
+          title: "Agent runtime read story",
+        },
+        occurredAt: "2026-07-01T09:25:00.000Z",
+      }),
+    };
+
+    const update = getNewsArticlePositiveStorageUpdate({
+      action: "save",
+      article,
+      guardrailItems: [guardrailVariant, unrelatedGuardrail],
+      occurredAt: "2026-07-01T10:30:00.000Z",
+      positiveFeedbackItems: [unrelatedPositiveFeedback],
+      savedItems: [unrelatedSaved],
+    });
+
+    expect(update.guardrailItems.map((item) => item.id)).toEqual([
+      "hidden-agent-runtime",
+    ]);
+    expect(update.savedItems.map((item) => item.id)).toEqual([
+      "article-openai-agents",
+      "saved-agent-runtime",
+    ]);
+    expect(
+      update.positiveFeedbackItems.map(
+        (item) => `${item.id}:${item.action ?? "read"}`,
+      ),
+    ).toEqual(["article-openai-agents:save", "positive-agent-runtime:read"]);
   });
 });
 
@@ -673,6 +1063,7 @@ describe("getNewsArticleReaderSignalCacheScopes", () => {
       "profile",
       "saved",
       "history",
+      "positiveFeedback",
       "guardrails",
     ]);
   });
@@ -714,6 +1105,188 @@ describe("NewsArticle persisted reader memory hydration", () => {
       /getNewsArticleGuardrailSignalState\({[\s\S]*?guardrailItems,[\s\S]*?}\)/,
     );
   });
+
+  it("hydrates server saved and Less memory into shared local storage", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /if \(!savedQuery\.data \|\| savedQuery\.data\.length === 0\) return;[\s\S]*?const nextSavedItems = mergeNewsReaderMemoryItems\({[\s\S]*?localItems: readStoredMemoryItems\(savedStorageKey\),[\s\S]*?serverItems: savedQuery\.data,[\s\S]*?}\);[\s\S]*?writeStoredMemoryItems\({[\s\S]*?items: nextSavedItems,[\s\S]*?storageKey: savedStorageKey,[\s\S]*?}\);/,
+    );
+    expect(source).toMatch(
+      /if \(!guardrailsQuery\.data \|\| guardrailsQuery\.data\.length === 0\) return;[\s\S]*?const nextGuardrailItems = mergeNewsReaderMemoryItems\({[\s\S]*?localItems: readStoredMemoryItems\(guardrailStorageKey\),[\s\S]*?serverItems: guardrailsQuery\.data,[\s\S]*?}\);[\s\S]*?writeStoredMemoryItems\({[\s\S]*?items: nextGuardrailItems,[\s\S]*?storageKey: guardrailStorageKey,[\s\S]*?}\);/,
+    );
+  });
+
+  it("refreshes article saved and Less state from shared memory changes", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /subscribeToNewsReaderMemoryStorage\(\(\) => \{[\s\S]*?setLocalSavedItems\(readStoredMemoryItems\(savedStorageKey\)\);[\s\S]*?setLocalGuardrailItems\(readStoredMemoryItems\(guardrailStorageKey\)\);[\s\S]*?setSearchMemoryItems\(readStoredSearchMemoryItems\(\)\);[\s\S]*?\}\)/,
+    );
+  });
+
+  it("filters guardrailed stories before ranking article next reads", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+    const eligibleRelatedBlock =
+      source
+        .split("const eligibleRelatedItems = useMemo(")[1]
+        ?.split("const rankedRelated = useMemo(")[0] ?? "";
+    const rankedRelatedBlock =
+      source
+        .split("const rankedRelated = useMemo(")[1]
+        ?.split("const readingPath = useMemo(")[0] ?? "";
+
+    expect(source).toContain("selectNewsArticleEligibleRelatedItems");
+    expect(eligibleRelatedBlock).toContain("guardrailItems");
+    expect(eligibleRelatedBlock).toContain("relatedItems: related");
+    expect(rankedRelatedBlock).toContain(
+      "dedupeNewsItems(eligibleRelatedItems)",
+    );
+    expect(rankedRelatedBlock).toContain("[eligibleRelatedItems, profile]");
+  });
+});
+
+describe("NewsArticle search memory fit", () => {
+  it("passes local search memory into the article Reader Fit model", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("readStoredNewsSearchMemoryItems");
+    expect(source).toContain("subscribeToNewsReaderMemoryStorage");
+    expect(source).toContain("searchMemoryItems");
+    expect(source).toMatch(
+      /subscribeToNewsReaderMemoryStorage\(\(\) => \{[\s\S]*?setSearchMemoryItems\(readStoredSearchMemoryItems\(\)\);[\s\S]*?\}\)/,
+    );
+    const readingPathBlock =
+      source
+        .split("const readingPath = useMemo(")[1]
+        ?.split("const readerFit = useMemo(")[0] ?? "";
+
+    expect(readingPathBlock).toContain("searchMemoryItems");
+    expect(source).toMatch(
+      /getNewsArticleReaderFit\({[\s\S]*?searchMemoryItems,[\s\S]*?}\)/,
+    );
+    expect(source).toMatch(
+      /getNewsArticleNextReads\({[\s\S]*?searchMemoryItems,[\s\S]*?}\)/,
+    );
+    const learningImpactBlock =
+      source
+        .split("const learningImpact = useMemo(")[1]
+        ?.split("const readTrainingReceipt = useMemo(")[0] ?? "";
+
+    expect(learningImpactBlock).toContain("searchMemoryItems");
+  });
+});
+
+describe("NewsArticle read feedback memory", () => {
+  it("persists deep article reads as positive read feedback for For You", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsArticleLocalReadFeedbackItem");
+    const deepReadTrainingBlock =
+      source
+        .split(
+          "if (shouldApplyNewsArticleLocalProfileFromMilestone(milestone))",
+        )[1]
+        ?.split("if (canPersistReaderSignals)")[0] ?? "";
+    const historyWriteIndex = deepReadTrainingBlock.indexOf(
+      "writeStoredHistoryItem({",
+    );
+    const positiveWriteIndex = deepReadTrainingBlock.indexOf(
+      "writeStoredPositiveFeedbackItem({",
+    );
+
+    expect(historyWriteIndex).toBeGreaterThan(-1);
+    expect(positiveWriteIndex).toBeGreaterThan(historyWriteIndex);
+    expect(deepReadTrainingBlock).toContain("viewedAt: occurredAt");
+    expect(deepReadTrainingBlock).toContain(
+      "item: getNewsArticleLocalReadFeedbackItem({",
+    );
+    expect(deepReadTrainingBlock).toContain("occurredAt,");
+  });
+});
+
+describe("NewsArticle guardrail cleanup memory", () => {
+  it("clears conflicting saved and positive article memory when Less is recorded", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+    const guardrailActionBlock =
+      source
+        .split('} else if (localMemoryItem.storage === "guardrail") {')[1]
+        ?.split("      } else {")[0] ?? "";
+
+    expect(source).toContain("getNewsArticleGuardrailStorageUpdate");
+    expect(guardrailActionBlock).toContain(
+      "getNewsArticleGuardrailStorageUpdate({",
+    );
+    expect(guardrailActionBlock).toContain(
+      "guardrailItems: readStoredMemoryItems(guardrailStorageKey)",
+    );
+    expect(guardrailActionBlock).toContain(
+      "positiveFeedbackItems: readStoredPositiveFeedbackItems()",
+    );
+    expect(guardrailActionBlock).toContain(
+      "savedItems: readStoredMemoryItems(savedStorageKey)",
+    );
+    expect(guardrailActionBlock).toContain("setLocalSavedItems");
+    expect(guardrailActionBlock).toContain("writeStoredPositiveFeedbackItems");
+    expect(guardrailActionBlock).toContain("storageKey: savedStorageKey");
+  });
+});
+
+describe("NewsArticle positive cleanup memory", () => {
+  it("clears conflicting Less memory when article positive feedback is recorded", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+    const positiveActionBlock =
+      source
+        .split('localMemoryItem.storage === "positive" &&')[1]
+        ?.split('} else if (localMemoryItem.storage === "guardrail") {')[0] ??
+      "";
+    const savedActionBlock =
+      source
+        .split(
+          '} else if (localMemoryItem.storage === "saved" && action === "save") {',
+        )[1]
+        ?.split("    if (canPersistReaderSignals && visitorKey)")[0] ?? "";
+
+    expect(source).toContain("getNewsArticlePositiveStorageUpdate");
+    expect(positiveActionBlock).toContain(
+      "getNewsArticlePositiveStorageUpdate({",
+    );
+    expect(positiveActionBlock).toContain(
+      "guardrailItems: readStoredMemoryItems(guardrailStorageKey)",
+    );
+    expect(positiveActionBlock).toContain(
+      "positiveFeedbackItems: readStoredPositiveFeedbackItems()",
+    );
+    expect(positiveActionBlock).toContain(
+      "savedItems: readStoredMemoryItems(savedStorageKey)",
+    );
+    expect(positiveActionBlock).toContain("writeStoredPositiveFeedbackItems");
+    expect(positiveActionBlock).toContain("setLocalGuardrailItems");
+    expect(savedActionBlock).toContain("getNewsArticlePositiveStorageUpdate({");
+    expect(savedActionBlock).toContain("storageUpdate.savedItems");
+    expect(savedActionBlock).toContain("writeStoredPositiveFeedbackItems");
+  });
 });
 
 describe("NewsArticle source follow action", () => {
@@ -733,6 +1306,76 @@ describe("NewsArticle source follow action", () => {
     expect(source).toContain("sourceFollowState.summary");
     expect(source).toContain("writeStoredProfile(nextProfile)");
     expect(source).toContain("invalidateReaderSignalQueries");
+    expect(source).not.toContain("if (sourceFollowState.isFollowing) return;");
+    expect(source).not.toContain(
+      "sourceFollowState.isFollowing || updateProfile.isPending",
+    );
+  });
+
+  it("records source follows as source-click positive feedback for For You", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+    const followSourceBlock =
+      source
+        .split("const followArticleSource = () => {")[1]
+        ?.split("const recordAction =")[0] ?? "";
+
+    expect(followSourceBlock).toContain("const occurredAt = new Date()");
+    expect(followSourceBlock).toContain("!sourceFollowState.isFollowing");
+    expect(followSourceBlock).toContain(
+      "getNewsArticleLocalMemoryItemForAction",
+    );
+    expect(followSourceBlock).toContain('action: "click_source"');
+    expect(followSourceBlock).toContain(
+      "getNewsArticlePositiveStorageUpdate({",
+    );
+    expect(followSourceBlock).toContain("writeStoredMemoryItems({");
+    expect(followSourceBlock).toContain("storageKey: guardrailStorageKey");
+    expect(followSourceBlock).toContain("writeStoredPositiveFeedbackItems");
+    expect(followSourceBlock).toContain(
+      "setLocalGuardrailItems(storageUpdate.guardrailItems)",
+    );
+    expect(followSourceBlock).toContain("recordInteraction.mutate({");
+    expect(followSourceBlock).toContain(
+      'metadata: getNewsArticleInteractionMetadata("click_source")',
+    );
+  });
+});
+
+describe("NewsArticle shared reader profile helpers", () => {
+  it("reuses the shared visitor key and server profile input helpers", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("readOrCreateNewsVisitorKey");
+    expect(source).toContain("toNewsServerPreferenceProfileInput");
+    expect(source).not.toContain(
+      'import type { RouterInputs } from "@acme/api"',
+    );
+    expect(source).not.toContain("const visitorStorageKey");
+    expect(source).not.toContain("const readOrCreateVisitorKey");
+    expect(source).not.toContain("type NewsArticleServerProfile");
+    expect(source).not.toContain("const toNewsArticleServerProfile");
+    expect(source).toMatch(
+      /updateProfile\.mutate\({[\s\S]*?profile: toNewsServerPreferenceProfileInput\(nextProfile\),[\s\S]*?visitorKey,[\s\S]*?}\)/,
+    );
+  });
+});
+
+describe("NewsArticle route metadata", () => {
+  it("generates per-article metadata from the same article data loader", async () => {
+    const source = await readFile(
+      new URL("../[id]/page.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("generateMetadata");
+    expect(source).toContain("getNewsArticleData(id)");
+    expect(source).toContain("getNewsArticleMetadata({");
   });
 });
 
@@ -823,6 +1466,94 @@ describe("getNewsArticleReadingPath", () => {
       summary:
         "3 follow-ups ranked by article overlap, shared entities, and reader signals.",
     });
+  });
+
+  it("uses recent search memory as an article reading path signal", () => {
+    expect(
+      getNewsArticleReadingPath({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "generic-openai-follow-up",
+            matchedSignals: [],
+            personalizedScore: 120,
+            title: "OpenAI publishes a broad platform update",
+          },
+          {
+            ...relatedItem,
+            category: "market_map",
+            entities: ["LangChain"],
+            id: "model-router-reading-path",
+            matchedSignals: [],
+            personalizedScore: 92,
+            sourceName: "Market Map Desk",
+            sourceSlug: "market-map-desk",
+            summary: "Model router tools steer inference between providers.",
+            tags: ["inference", "routing"],
+            title: "Model routers become the new agent stack switchboard",
+          },
+        ],
+        searchMemoryItems: [
+          {
+            query: "model routers",
+            resultCount: 1,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }).recommendations[0],
+    ).toEqual({
+      id: "model-router-reading-path",
+      reason: "Search memory",
+      scoreLabel: "1 signal / 92 score",
+      signalCount: 1,
+      title: "Model routers become the new agent stack switchboard",
+    });
+  });
+
+  it("does not let future-dated stories win reading-path ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNewsArticleReadingPath({
+          article,
+          formatCategory: formatArticleCategory,
+          limit: 2,
+          relatedItems: [
+            {
+              ...relatedItem,
+              category: "funding",
+              entities: ["OpenAI"],
+              id: "future-reading-path",
+              personalizedScore: 120,
+              publishedAt: "2026-07-02T08:00:00.000Z",
+              sourceName: "Future Desk",
+              sourceSlug: "future-desk",
+              tags: ["funding"],
+              title: "Future reading path should wait",
+            },
+            {
+              ...relatedItem,
+              category: "funding",
+              entities: ["OpenAI"],
+              id: "current-reading-path",
+              personalizedScore: 120,
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              sourceName: "Current Desk",
+              sourceSlug: "current-desk",
+              tags: ["funding"],
+              title: "Current reading path should lead",
+            },
+          ],
+        }).recommendations.map((item) => item.id),
+      ).toEqual(["current-reading-path", "future-reading-path"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("normalizes angle tag variants in the article reading path", () => {
@@ -1070,6 +1801,46 @@ describe("getNewsArticleReaderFit", () => {
     });
   });
 
+  it("explains article fit from recent search memory", () => {
+    expect(
+      getNewsArticleReaderFit({
+        article,
+        formatCategory: formatArticleCategory,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        relatedItems: [],
+        searchMemoryItems: [
+          {
+            query: "openai agents",
+            resultCount: 2,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }),
+    ).toMatchObject({
+      label: "Reader Fit",
+      metrics: [
+        { label: "Profile matches", value: "0" },
+        { label: "Follow-ups", value: "0" },
+        { label: "Reader bias", value: "Balanced" },
+        { label: "Search memory", value: "1" },
+      ],
+      reasons: [
+        {
+          detail: 'Recent search "openai agents" points at this article.',
+          label: "Search memory",
+        },
+      ],
+      summary:
+        "1 reader signal matches this article; 0 follow-ups keep the thread moving.",
+    });
+  });
+
   it("labels same-event article follow-ups as event continuations", () => {
     expect(
       getNewsArticleReaderFit({
@@ -1230,6 +2001,108 @@ describe("getNewsArticleNextReads", () => {
       ],
       summary: "3 next reads: 1 continue, 1 explore, and 1 verify.",
     });
+  });
+
+  it("anchors next reads to recent search memory", () => {
+    expect(
+      getNewsArticleNextReads({
+        article,
+        formatCategory: formatArticleCategory,
+        limit: 2,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "generic-openai-follow-up",
+            matchedSignals: [],
+            personalizedScore: 120,
+            title: "OpenAI publishes a broad platform update",
+          },
+          {
+            ...relatedItem,
+            category: "market_map",
+            entities: ["LangChain"],
+            id: "model-router-follow-up",
+            matchedSignals: [],
+            personalizedScore: 92,
+            sourceName: "Market Map Desk",
+            sourceSlug: "market-map-desk",
+            summary: "Model router tools steer inference between providers.",
+            tags: ["inference", "routing"],
+            title: "Model routers become the new agent stack switchboard",
+          },
+        ],
+        searchMemoryItems: [
+          {
+            query: "model routers",
+            resultCount: 1,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }).reads[0],
+    ).toMatchObject({
+      id: "model-router-follow-up",
+      reason: "Search memory",
+      scoreLabel: "1 signal / 92 score",
+      statusLabel: "Explore",
+      title: "Model routers become the new agent stack switchboard",
+    });
+  });
+
+  it("does not let future-dated stories win next-read ties", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
+
+    try {
+      expect(
+        getNewsArticleNextReads({
+          article,
+          formatCategory: formatArticleCategory,
+          limit: 2,
+          profile: {
+            preferredCategories: [],
+            preferredEntities: [],
+            preferredSources: [],
+            noveltyBias: 1,
+            recencyBias: 1,
+          },
+          relatedItems: [
+            {
+              ...relatedItem,
+              category: "funding",
+              entities: ["OpenAI"],
+              id: "future-next-read",
+              personalizedScore: 120,
+              publishedAt: "2026-07-02T08:00:00.000Z",
+              sourceName: "Future Desk",
+              sourceSlug: "future-desk",
+              tags: ["funding"],
+              title: "Future next read should wait",
+            },
+            {
+              ...relatedItem,
+              category: "funding",
+              entities: ["OpenAI"],
+              id: "current-next-read",
+              personalizedScore: 120,
+              publishedAt: "2026-07-01T09:00:00.000Z",
+              sourceName: "Current Desk",
+              sourceSlug: "current-desk",
+              tags: ["funding"],
+              title: "Current next read should lead",
+            },
+          ],
+        }).reads.map((item) => item.id),
+      ).toEqual(["current-next-read", "future-next-read"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps an exploration next read when one article entity would fill the queue", () => {
@@ -1667,6 +2540,55 @@ describe("getNewsArticleFeedbackLoop", () => {
     });
   });
 
+  it("separates learned angle memory from entity memory in article feedback", () => {
+    expect(
+      getNewsArticleFeedbackLoop({
+        action: "view",
+        afterProfile: {
+          preferredCategories: ["agent_product"],
+          preferredSources: [],
+          preferredEntities: ["OpenAI", "workflow automation"],
+          noveltyBias: 1.1,
+          recencyBias: 1.1,
+        },
+        article: {
+          ...article,
+          category: "agent_product",
+          entities: ["OpenAI"],
+          tags: ["workflow automation"],
+        },
+        beforeProfile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+      }),
+    ).toMatchObject({
+      notices: [
+        {
+          detail: "Agents will rank higher after this article signal.",
+          label: "Topic learned",
+        },
+        {
+          detail: "OpenAI News gained source weight from this article.",
+          label: "Source learned",
+        },
+        {
+          detail: "OpenAI was added to related coverage memory.",
+          label: "Entities learned",
+        },
+        {
+          detail: "workflow automation was added to angle memory.",
+          label: "Angles learned",
+        },
+      ],
+    });
+  });
+
   it("keeps the article feedback loop idle before explicit feedback", () => {
     expect(
       getNewsArticleFeedbackLoop({
@@ -1946,6 +2868,56 @@ describe("getNewsArticleLearningImpact", () => {
         "This article can start reader-memory signals; follow-up recommendations will appear after related stories load.",
     });
   });
+
+  it("forecasts search-memory follow-up recommendations", () => {
+    expect(
+      getNewsArticleLearningImpact({
+        article,
+        formatCategory: formatArticleCategory,
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        relatedItems: [
+          {
+            ...relatedItem,
+            id: "generic-openai-follow-up",
+            matchedSignals: [],
+            personalizedScore: 120,
+            title: "OpenAI publishes a broad platform update",
+          },
+          {
+            ...relatedItem,
+            category: "market_map",
+            entities: ["LangChain"],
+            id: "model-router-learning-impact",
+            matchedSignals: [],
+            personalizedScore: 92,
+            sourceName: "Market Map Desk",
+            sourceSlug: "market-map-desk",
+            summary: "Model router tools steer inference between providers.",
+            tags: ["inference", "routing"],
+            title: "Model routers become the new agent stack switchboard",
+          },
+        ],
+        searchMemoryItems: [
+          {
+            query: "model routers",
+            resultCount: 1,
+            searchedAt: "2026-07-06T09:00:00.000Z",
+          },
+        ],
+      }).nextStories[0],
+    ).toEqual({
+      id: "model-router-learning-impact",
+      reason: "Search memory",
+      scoreLabel: "1 signal / 92 score",
+      title: "Model routers become the new agent stack switchboard",
+    });
+  });
 });
 
 describe("getNewsArticleServerProfileAuditDisplay", () => {
@@ -2131,14 +3103,36 @@ describe("getNewsArticleSourceFollowState", () => {
       }),
     ).toEqual({
       isFollowing: true,
-      label: "Following Source",
-      summary: "OpenAI News is already a durable For You signal.",
+      label: "Unfollow Source",
+      summary:
+        "OpenAI News is a durable For You signal; unfollow to stop lifting it.",
     });
   });
 });
 
 describe("getNewsArticleSourceFollowProfile", () => {
   it("adds the article source as a durable preference without duplicating it", () => {
+    expect(
+      getNewsArticleSourceFollowProfile({
+        article,
+        profile: {
+          preferredCategories: ["model_release"],
+          preferredEntities: ["OpenAI"],
+          preferredSources: ["venturewire"],
+          noveltyBias: 1.5,
+          recencyBias: 0.5,
+        },
+      }),
+    ).toEqual({
+      preferredCategories: ["model_release"],
+      preferredEntities: ["OpenAI"],
+      preferredSources: ["venturewire", "openai-news"],
+      noveltyBias: 1.5,
+      recencyBias: 0.5,
+    });
+  });
+
+  it("removes the article source when it is already a durable preference", () => {
     expect(
       getNewsArticleSourceFollowProfile({
         article,
@@ -2153,7 +3147,7 @@ describe("getNewsArticleSourceFollowProfile", () => {
     ).toEqual({
       preferredCategories: ["model_release"],
       preferredEntities: ["OpenAI"],
-      preferredSources: ["venturewire", "openai-news"],
+      preferredSources: ["venturewire"],
       noveltyBias: 1.5,
       recencyBias: 0.5,
     });

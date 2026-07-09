@@ -7,8 +7,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type {
   NewsPreferenceProfile,
+  NewsRecommendationRotationObjective,
   RankedNewsItem,
   ReaderInteractionAction,
+  RecentExposureNewsItem,
 } from "@acme/validators";
 import { cn } from "@acme/ui";
 import { Button } from "@acme/ui/button";
@@ -40,10 +42,12 @@ import type {
   NewsReaderMemoryItem,
   PersistedNewsPreferenceProfile,
 } from "./news-home-model";
+import type { NewsSearchMemoryItem } from "./news-reader-memory-storage";
 import { TRPCReactProvider, useTRPC } from "~/trpc/react";
 import {
   applyNewsStoryQuickTuneAction,
   buildNewsHomeFeedInput,
+  buildNewsHomeForYouApiRequestBody,
   buildNewsHomeInteractionMetadata,
   buildNewsHomeLoadMoreFeedInput,
   buildNewsHomeReaderInteraction,
@@ -52,45 +56,67 @@ import {
   formatNewsEditionDate,
   formatNewsTime,
   getNewsAggregationIntake,
+  getNewsAggregationIntakeTrainingAction,
   getNewsAggregationRecoveryQueue,
+  getNewsAggregationRecoveryTrainingAction,
   getNewsAlertRouting,
+  getNewsAlertRoutingTrainingAction,
   getNewsAnglePreferenceOptions,
   getNewsBreakingEscalationQueue,
   getNewsBriefingPack,
+  getNewsBriefingPackTrainingAction,
   getNewsChannelComparison,
   getNewsChannelRail,
   getNewsChannelStrategy,
+  getNewsChannelStrategyTrainingAction,
   getNewsClaimTracker,
   getNewsCollaborativeSignals,
+  getNewsCollaborativeSignalTrainingAction,
   getNewsConsensusBoard,
   getNewsContinuationRail,
+  getNewsContinuationRailTrainingAction,
   getNewsCoverageThreads,
   getNewsDeskRunYieldLabel,
   getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
   getNewsDistributionQueue,
+  getNewsDistributionQueueTrainingAction,
   getNewsEditionBriefing,
   getNewsEditionMix,
   getNewsEditionQualityGate,
+  getNewsEditionQualityGateTrainingAction,
   getNewsEditionSchedule,
+  getNewsEditionScheduleTrainingAction,
   getNewsEditorialGuardrails,
+  getNewsEditorialGuardrailTrainingAction,
   getNewsEntityRadar,
+  getNewsEntityRadarTrainingAction,
   getNewsExperimentAllocation,
+  getNewsExperimentAllocationTrainingAction,
   getNewsExplorationSlots,
+  getNewsExplorationSlotTrainingAction,
   getNewsExposureCooldownQueue,
+  getNewsExposureCooldownTrainingAction,
   getNewsFeedbackCoach,
   getNewsFeedbackCoachActionState,
   getNewsFeedbackTrainingUpdate,
   getNewsFeedFatigueReport,
+  getNewsFeedFatigueTrainingAction,
   getNewsFeedGovernor,
   getNewsFeedGovernorControlTrainingAction,
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
+  getNewsFilterBubbleTrainingAction,
   getNewsForYouControlStrip,
+  getNewsForYouNextQueue,
+  getNewsForYouNextQueueTrainingAction,
   getNewsFrontPageLayout,
+  getNewsFrontPageLayoutTrainingAction,
   getNewsFrontPageSlotMix,
+  getNewsFrontPageSlotMixTrainingAction,
   getNewsGuardrailRecoveryPlan,
+  getNewsGuardrailRecoveryTrainingAction,
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeCollaborativeRankingSignals,
@@ -100,19 +126,32 @@ import {
   getNewsHomePrimaryQueryRoute,
   getNewsHomeReaderMemoryResetCacheScopes,
   getNewsHomeStoryActionPanel,
+  getNewsHomeStoryHistoryItem,
   getNewsHotBoard,
   getNewsInterestDrift,
+  getNewsInterestDriftTrainingAction,
   getNewsInterestGraph,
+  getNewsInterestGraphNodeTrainingAction,
   getNewsLiveWire,
+  getNewsLiveWireTrainingAction,
   getNewsMembershipMeter,
   getNewsMissedCoverageShelf,
   getNewsModelTrainingBatch,
+  getNewsModelTrainingBatchTrainingAction,
   getNewsNewsletterPlan,
   getNewsNextRefreshPlan,
+  getNewsNextRefreshPlanTrainingAction,
   getNewsPersonalizationDataVault,
+  getNewsPersonalizationDataVaultExport,
+  getNewsPersonalizationDataVaultExportHref,
+  getNewsPersonalizationDataVaultProfileImport,
+  getNewsPersonalizationDataVaultTrainingUpdate,
   getNewsPersonalizationMix,
+  getNewsPersonalizationMixTrainingAction,
   getNewsPersonalizedPushQueue,
+  getNewsPersonalizedPushQueueTrainingAction,
   getNewsPersonalizedReadingQueue,
+  getNewsPersonalizedReadingQueueTrainingAction,
   getNewsPreferenceBiasCycleAction,
   getNewsPreferenceBiasResetTrainingUpdate,
   getNewsPreferenceBiasResetUndoTrainingUpdate,
@@ -121,6 +160,7 @@ import {
   getNewsPreferenceControlPanel,
   getNewsPreferenceCoverageDebt,
   getNewsPreferenceDecayQueue,
+  getNewsPreferenceDecayTrainingAction,
   getNewsPreferencePresets,
   getNewsPreferenceProfileToggleAction,
   getNewsPreferenceProfileTrainingUpdate,
@@ -132,42 +172,59 @@ import {
   getNewsProductionReadinessChecklist,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
+  getNewsProfileSignalLedgerTrainingAction,
   getNewsProfileUpdateProposal,
+  getNewsProfileUpdateProposalTrainingAction,
   getNewsRankingPipeline,
   getNewsReaderCohorts,
+  getNewsReaderCohortTrainingAction,
   getNewsReaderDaypartPlan,
   getNewsReaderDigest,
   getNewsReaderJourneyMap,
   getNewsReaderLearningLoop,
+  getNewsReaderLearningLoopTrainingAction,
   getNewsReaderMemory,
   getNewsReaderMemoryResetPersistence,
   getNewsReaderMemoryResetTrainingUpdate,
   getNewsReaderProfileSnapshot,
   getNewsReaderRankingFactors,
   getNewsReaderRetentionPlan,
+  getNewsReaderRetentionTrainingAction,
   getNewsReaderSatisfactionBrief,
+  getNewsReaderSatisfactionTrainingAction,
   getNewsReaderScorecards,
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
+  getNewsReaderWatchlistTrainingAction,
   getNewsRecommendationAudit,
+  getNewsRecommendationAuditTrainingAction,
   getNewsRecommendationDiversityGovernor,
+  getNewsRecommendationDiversityGovernorTrainingAction,
   getNewsRecommendationDiversityRepairQueue,
   getNewsRecommendationEntitySaturation,
   getNewsRecommendationNudge,
   getNewsRecommendationRotationQueue,
+  getNewsRecommendationRotationTrainingAction,
+  getNewsRecommendationSaturationTrainingAction,
   getNewsRecommendationSourceSaturation,
   getNewsRecommendationTopicSaturation,
   getNewsRecommendationTrace,
+  getNewsRecommendationTraceTrainingAction,
   getNewsRefreshSimulation,
+  getNewsRefreshSimulationTrainingAction,
   getNewsSearchCandidateRail,
   getNewsSearchTrends,
+  getNewsSearchTrendTrainingAction,
   getNewsSectionFronts,
   getNewsServerProfileAuditDisplay,
   getNewsSessionIntent,
+  getNewsSessionIntentTrainingAction,
   getNewsSourceBalance,
+  getNewsSourceBalanceTrainingAction,
   getNewsSourceClusters,
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
+  getNewsSourceTrustTrainingAction,
   getNewsStoryProofStrip,
   getNewsStoryQuickTuneActions,
   getNewsStoryQuickTuneTrainingUpdate,
@@ -176,8 +233,12 @@ import {
   getNewsStorySourceUrl,
   getNewsStoryTimeline,
   getNewsTasteCalibration,
+  getNewsTasteCalibrationTrainingAction,
+  getNewsTopicHref,
   getNewsTopicMatchMatrix,
+  getNewsTopicMatchTrainingAction,
   getNewsTopicPulse,
+  getNewsTopicPulseTrainingAction,
   getNextNewsHomeCursorState,
   getPreviewNewsHomeItems,
   hasNewsHomeExploreFilters,
@@ -208,24 +269,54 @@ import {
   selectNewsHomeItems,
   selectNewsHomeLiveSearchCandidateItems,
   selectNewsHomePositiveFeedbackAnchors,
+  selectNewsHomeSearchMemoryAnchoredItems,
   selectNewsHomeSessionScopedItems,
   selectReaderFreshNewsHomeItems,
   selectSessionIntentNewsHomeItems,
   selectSourceCorroboratedNewsHomeItems,
   selectSourceQuotaBalancedNewsHomeItems,
-  selectStoredNewsPositiveFeedbackItems,
-  selectStoredNewsReaderMemoryItems,
   selectVisibleNewsHomeItems,
   shouldAutoLoadMoreNewsHomeItems,
   shouldDisableNewsHomeLoadMoreButton,
   shouldFetchNewsHomeLiveSearchCandidates,
   shouldFetchNewsHomePrimaryFeed,
   shouldFetchServerRecommendations,
+  shouldPersistNewsHomeItemReaderSignals,
   shouldPersistNewsReaderProfile,
   shouldTrainNewsHomeProfileFromAction,
   stripPersistedNewsPreferenceProfile,
   toNewsHomeItemFromPublicFeedItem,
 } from "./news-home-model";
+import {
+  clearStoredNewsReaderMemoryItems as clearStoredMemoryItems,
+  newsGuardrailStorageKey as guardrailStorageKey,
+  newsHistoryStorageKey as historyStorageKey,
+  newsHomeExposureStorageKey as homeExposureStorageKey,
+  newsPositiveFeedbackStorageKey as positiveFeedbackStorageKey,
+  readStoredNewsReaderMemoryItems as readStoredMemoryItems,
+  readStoredNewsSearchMemoryItems,
+  readStoredNewsPositiveFeedbackItems as readStoredPositiveFeedbackItems,
+  recordStoredNewsSearchMemoryItem,
+  newsRestoredGuardrailStorageKey as restoredGuardrailStorageKey,
+  newsSavedStorageKey as savedStorageKey,
+  newsSearchStorageKey as searchStorageKey,
+  selectStoredNewsSearchMemoryItems,
+  subscribeToNewsReaderMemoryStorage,
+  writeStoredNewsReaderMemoryItems as writeStoredMemoryItems,
+  writeStoredNewsPositiveFeedbackItems as writeStoredPositiveFeedbackItems,
+  writeStoredNewsSearchMemoryItems as writeStoredSearchItems,
+} from "./news-reader-memory-storage";
+import {
+  areNewsPreferenceProfilesEqual,
+  getNewsPreferenceProfileStorageValue,
+  readOrCreateNewsVisitorKey,
+  readStoredNewsForYouObjective,
+  readStoredNewsPreferenceProfile,
+  subscribeToNewsForYouObjectiveStorage,
+  subscribeToNewsPreferenceProfileStorage,
+  writeStoredNewsForYouObjective,
+  writeStoredNewsPreferenceProfile,
+} from "./news-reader-profile-storage";
 
 type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
 type NewsStoryQuickTuneAction = ReturnType<
@@ -237,7 +328,13 @@ type NewsPreferenceTuningSuggestion = ReturnType<
 type NewsPreferenceCoverageDebtAction = ReturnType<
   typeof getNewsPreferenceCoverageDebt
 >["debts"][number]["action"];
+type NewsPersonalizationDataVaultAction = ReturnType<
+  typeof getNewsPersonalizationDataVault
+>["controls"][number];
 type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
+  dataVaultExport?: NonNullable<
+    ReturnType<typeof getNewsPersonalizationDataVaultExport>
+  >;
   guardrailReviewAction?: {
     actionLabel: string;
     query: string;
@@ -276,6 +373,38 @@ interface NewsHomeProps {
   refreshConfigured: boolean;
   status: NewsHomeStatus;
   generatedAt: string;
+}
+
+interface NewsHomeForYouApiNextRequest {
+  recentExposureItems?: readonly RecentExposureNewsItem[];
+}
+
+interface NewsHomeForYouApiContext {
+  degradedSignals: readonly string[];
+  filters: {
+    category: string | null;
+    q: string | null;
+    sourceSlug: string | null;
+    tag: string | null;
+  };
+  memory: {
+    collaborativeSignals: number;
+    negativeFeedback: number;
+    positiveFeedback: number;
+    recentExposure: number;
+    searches: number;
+    semanticSimilarity: number;
+  };
+  objective: NewsForYouObjective;
+  profileSignalCount: number;
+  readerLocalHour: number | null;
+}
+
+interface NewsHomeForYouApiResponse {
+  context?: NewsHomeForYouApiContext;
+  items: NewsHomeItem[];
+  nextRequest?: NewsHomeForYouApiNextRequest;
+  ok: boolean;
 }
 
 const categoryLabels = {
@@ -323,83 +452,57 @@ const feedModeOptions = [
   mode: NewsFeedMode;
 }[];
 
+type NewsForYouObjective = NewsRecommendationRotationObjective;
+
+const forYouObjectiveOptions = [
+  {
+    detail: "Profile and behavior first",
+    label: "Reader match",
+    objective: "reader_match",
+  },
+  {
+    detail: "Adjacent stories earlier",
+    label: "Explore",
+    objective: "exploration",
+  },
+  {
+    detail: "High-velocity stories earlier",
+    label: "Market heat",
+    objective: "market_heat",
+  },
+  {
+    detail: "High-trust sources earlier",
+    label: "Source trust",
+    objective: "source_trust",
+  },
+] as const satisfies readonly {
+  detail: string;
+  label: string;
+  objective: NewsForYouObjective;
+}[];
+
+const getNewsForYouObjectiveOrder = (
+  objective: NewsForYouObjective,
+): readonly NewsRecommendationRotationObjective[] => [
+  objective,
+  ...forYouObjectiveOptions
+    .map((option) => option.objective)
+    .filter((candidate) => candidate !== objective),
+];
+
 const getCategoryLabel = (category: string) =>
   isNewsCategoryKey(category) ? categoryLabels[category] : category;
 
-const profileStorageKey = "new-ai-times-profile";
-const savedStorageKey = "new-ai-times-saved";
-const historyStorageKey = "new-ai-times-history";
-const guardrailStorageKey = "new-ai-times-guardrails";
-const positiveFeedbackStorageKey = "new-ai-times-positive-feedback";
-const restoredGuardrailStorageKey = "new-ai-times-restored-guardrails";
-const visitorStorageKey = "new-ai-times-visitor-key";
 const previewItems = getPreviewNewsHomeItems();
 
 const readStoredProfile = (): NewsPreferenceProfile => {
-  const defaultProfile = createDefaultNewsPreferenceProfile();
-
-  if (typeof window === "undefined") return defaultProfile;
-
-  const stored = window.localStorage.getItem(profileStorageKey);
-  if (!stored) return defaultProfile;
-
-  try {
-    const parsed = JSON.parse(stored) as Partial<NewsPreferenceProfile>;
-    return normalizeNewsPreferenceProfile({
-      preferredCategories: Array.isArray(parsed.preferredCategories)
-        ? parsed.preferredCategories.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : defaultProfile.preferredCategories,
-      preferredSources: Array.isArray(parsed.preferredSources)
-        ? parsed.preferredSources.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : defaultProfile.preferredSources,
-      preferredEntities: Array.isArray(parsed.preferredEntities)
-        ? parsed.preferredEntities.filter(
-            (value): value is string => typeof value === "string",
-          )
-        : defaultProfile.preferredEntities,
-      noveltyBias:
-        typeof parsed.noveltyBias === "number"
-          ? parsed.noveltyBias
-          : defaultProfile.noveltyBias,
-      recencyBias:
-        typeof parsed.recencyBias === "number"
-          ? parsed.recencyBias
-          : defaultProfile.recencyBias,
-    });
-  } catch {
-    return defaultProfile;
-  }
+  return readStoredNewsPreferenceProfile({
+    defaultProfile: createDefaultNewsPreferenceProfile(),
+  });
 };
 
 const writeStoredProfile = (profile: NewsPreferenceProfile) => {
-  window.localStorage.setItem(
-    profileStorageKey,
-    JSON.stringify(normalizeNewsPreferenceProfile(profile)),
-  );
-};
-
-const readStoredMemoryItems = (storageKey: string): NewsReaderMemoryItem[] => {
-  if (typeof window === "undefined") return [];
-
-  const stored = window.localStorage.getItem(storageKey);
-  if (!stored) return [];
-
-  try {
-    return selectStoredNewsReaderMemoryItems(JSON.parse(stored) as unknown);
-  } catch {
-    return [];
-  }
-};
-
-const writeStoredMemoryItems = (
-  storageKey: string,
-  items: readonly NewsReaderMemoryItem[],
-) => {
-  window.localStorage.setItem(storageKey, JSON.stringify(items));
+  writeStoredNewsPreferenceProfile(profile);
 };
 
 const readStoredItemIds = (storageKey: string) => {
@@ -424,10 +527,6 @@ const readStoredItemIds = (storageKey: string) => {
 
 const writeStoredItemIds = (storageKey: string, itemIds: readonly string[]) => {
   window.localStorage.setItem(storageKey, JSON.stringify(itemIds));
-};
-
-const clearStoredMemoryItems = (storageKey: string) => {
-  window.localStorage.removeItem(storageKey);
 };
 
 const toLocalSavedMemoryItem = ({
@@ -469,58 +568,81 @@ const toLocalGuardrailMemoryItem = ({
   title: item.title,
 });
 
+const toLocalHomeExposureMemoryItem = ({
+  item,
+  viewedAt,
+}: {
+  item: NewsHomeItem;
+  viewedAt: string;
+}): NewsReaderMemoryItem => ({
+  canonicalUrl: item.canonicalUrl,
+  category: item.category,
+  entities: [...item.entities],
+  id: item.id,
+  originalUrl: item.originalUrl,
+  sourceName: item.sourceName,
+  sourceSlug: item.sourceSlug,
+  tags: [...item.tags],
+  title: item.title,
+  viewedAt,
+});
+
+const readNewsForYouApiExposureItems = (
+  items: readonly RecentExposureNewsItem[] | undefined,
+): NewsReaderMemoryItem[] => {
+  if (!items) return [];
+
+  return items.flatMap((item) => {
+    const viewedAt = item.occurredAt;
+
+    if (!item.id || !viewedAt || !Number.isFinite(Date.parse(viewedAt))) {
+      return [];
+    }
+
+    return [
+      {
+        category: item.category,
+        entities: [...item.entities],
+        id: item.id,
+        sourceName: item.sourceSlug,
+        sourceSlug: item.sourceSlug,
+        tags: [...(item.tags ?? [])],
+        title: item.title ?? item.id,
+        viewedAt,
+        ...(item.canonicalUrl !== undefined
+          ? { canonicalUrl: item.canonicalUrl }
+          : {}),
+        ...(item.originalUrl !== undefined
+          ? { originalUrl: item.originalUrl }
+          : {}),
+      },
+    ];
+  });
+};
+
 const readStoredHistoryItems = () => readStoredMemoryItems(historyStorageKey);
+
+const readStoredHomeExposureItems = () =>
+  readStoredMemoryItems(homeExposureStorageKey);
 
 const readStoredSavedItems = () => readStoredMemoryItems(savedStorageKey);
 
 const readStoredGuardrailItems = () =>
   readStoredMemoryItems(guardrailStorageKey);
 
-const readStoredPositiveFeedbackItems = () => {
-  if (typeof window === "undefined") return [];
-
-  const stored = window.localStorage.getItem(positiveFeedbackStorageKey);
-  if (!stored) return [];
-
-  try {
-    return selectStoredNewsPositiveFeedbackItems(JSON.parse(stored) as unknown);
-  } catch {
-    return [];
-  }
-};
-
-const writeStoredPositiveFeedbackItems = (
-  items: readonly NewsPositiveFeedbackMemoryItem[],
-) => {
-  window.localStorage.setItem(
-    positiveFeedbackStorageKey,
-    JSON.stringify(items),
-  );
-};
-
 const readStoredRestoredGuardrailItemIds = () =>
   readStoredItemIds(restoredGuardrailStorageKey);
 
+const readStoredSearchItems = () => readStoredNewsSearchMemoryItems();
+
 const clearReaderMemoryStorage = () => {
   clearStoredMemoryItems(guardrailStorageKey);
+  clearStoredMemoryItems(homeExposureStorageKey);
   clearStoredMemoryItems(historyStorageKey);
   clearStoredMemoryItems(positiveFeedbackStorageKey);
   clearStoredMemoryItems(restoredGuardrailStorageKey);
   clearStoredMemoryItems(savedStorageKey);
-};
-
-const readOrCreateVisitorKey = () => {
-  if (typeof window === "undefined") return null;
-
-  const stored = window.localStorage.getItem(visitorStorageKey);
-  if (stored) return stored;
-
-  const next =
-    typeof window.crypto.randomUUID === "function"
-      ? window.crypto.randomUUID()
-      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  window.localStorage.setItem(visitorStorageKey, next);
-  return next;
+  clearStoredMemoryItems(searchStorageKey);
 };
 
 const toServerProfile = (profile: NewsPreferenceProfile) => {
@@ -560,6 +682,51 @@ const addValue = (values: readonly string[], value: string) =>
 const removeValue = (values: readonly string[], value: string) =>
   values.filter((item) => item !== value);
 
+const normalizeEntityPreferenceValue = (value: string) =>
+  value.trim().toLowerCase();
+
+const hasEntityValue = (values: readonly string[], value: string) => {
+  const normalizedValue = normalizeEntityPreferenceValue(value);
+
+  return values.some(
+    (item) => normalizeEntityPreferenceValue(item) === normalizedValue,
+  );
+};
+
+const addEntityValue = (values: readonly string[], value: string) =>
+  hasEntityValue(values, value) ? [...values] : [...values, value];
+
+const removeEntityValue = (values: readonly string[], value: string) => {
+  const normalizedValue = normalizeEntityPreferenceValue(value);
+
+  return values.filter(
+    (item) => normalizeEntityPreferenceValue(item) !== normalizedValue,
+  );
+};
+
+const normalizeAnglePreferenceValue = (value: string) =>
+  value.replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
+
+const hasAngleValue = (values: readonly string[], value: string) => {
+  const normalizedValue = normalizeAnglePreferenceValue(value);
+
+  return values.some(
+    (item) => normalizeAnglePreferenceValue(item) === normalizedValue,
+  );
+};
+
+const addAngleValue = (values: readonly string[], value: string) => {
+  return hasAngleValue(values, value) ? [...values] : [...values, value];
+};
+
+const removeAngleValue = (values: readonly string[], value: string) => {
+  const normalizedValue = normalizeAnglePreferenceValue(value);
+
+  return values.filter(
+    (item) => normalizeAnglePreferenceValue(item) !== normalizedValue,
+  );
+};
+
 const increaseProfileBias = (value: number) =>
   Math.min(Math.round((value + 0.5) * 10) / 10, 2);
 
@@ -571,6 +738,27 @@ const getUniqueValues = (items: readonly NewsHomeItem[], key: "sourceSlug") =>
 
 const getTopEntities = (items: readonly NewsHomeItem[]) =>
   Array.from(new Set(items.flatMap((item) => item.entities))).slice(0, 10);
+
+const fetchNewsHomeForYouApiPayload = async (
+  body: ReturnType<typeof buildNewsHomeForYouApiRequestBody>,
+): Promise<NewsHomeForYouApiResponse> => {
+  const response = await fetch("/api/news/for-you", {
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to load personalized stories");
+  }
+
+  const payload = (await response.json()) as NewsHomeForYouApiResponse;
+
+  return {
+    ...payload,
+    items: payload.ok && Array.isArray(payload.items) ? payload.items : [],
+  };
+};
 
 export function NewsHome(props: NewsHomeProps) {
   return (
@@ -611,8 +799,14 @@ function NewsHomeContent({
   const [localHistoryItems, setLocalHistoryItems] = useState<
     NewsReaderMemoryItem[]
   >([]);
+  const [localHomeExposureItems, setLocalHomeExposureItems] = useState<
+    NewsReaderMemoryItem[]
+  >([]);
   const [localGuardrailItems, setLocalGuardrailItems] = useState<
     NewsReaderMemoryItem[]
+  >([]);
+  const [searchMemoryItems, setSearchMemoryItems] = useState<
+    NewsSearchMemoryItem[]
   >([]);
   const [restoredGuardrailItemIds, setRestoredGuardrailItemIds] = useState<
     string[]
@@ -627,11 +821,14 @@ function NewsHomeContent({
   const [searchQuery, setSearchQuery] = useState("");
   const [reviewHiddenAngleQuery, setReviewHiddenAngleQuery] = useState("");
   const [feedMode, setFeedMode] = useState<NewsFeedMode>("for_you");
+  const [forYouObjective, setForYouObjective] =
+    useState<NewsForYouObjective>("reader_match");
   const [trainingUpdate, setTrainingUpdate] =
     useState<NewsTrainingUpdate | null>(null);
   const [trainingUpdateHistory, setTrainingUpdateHistory] = useState<
     NewsTrainingUpdate[]
   >([]);
+  const [dataVaultImportDraft, setDataVaultImportDraft] = useState("");
   const [activeCategory, setActiveCategory] = useState<NewsCategoryKey | null>(
     null,
   );
@@ -639,7 +836,9 @@ function NewsHomeContent({
   const [activeAngleTag, setActiveAngleTag] = useState<string | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
-  const recordedHomeExposureItemsRef = useRef<NewsHomeItem[]>([]);
+  const pendingForYouLoadMoreRetryRef = useRef(false);
+  const recordedHomeExposureItemsRef = useRef<NewsReaderMemoryItem[]>([]);
+  const serverProfileSyncSnapshotRef = useRef<string | null>(null);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = shouldPersistNewsReaderProfile({
     status,
@@ -652,6 +851,10 @@ function NewsHomeContent({
     tag: activeAngleTag,
   });
   const liveSearchQuery = searchDraft.trim();
+  const forYouObjectiveOrder = useMemo(
+    () => getNewsForYouObjectiveOrder(forYouObjective),
+    [forYouObjective],
+  );
   const shouldFetchLiveSearchCandidates =
     shouldFetchNewsHomeLiveSearchCandidates({
       query: liveSearchQuery,
@@ -683,6 +886,70 @@ function NewsHomeContent({
     },
     [],
   );
+  const { mutate: recordSearchMemory } = useMutation(
+    trpc.news.recordSearchMemory.mutationOptions({
+      onSuccess: async () => {
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.searchMemory.pathFilter()),
+        ]);
+      },
+    }),
+  );
+  const recordHomeSearchIntent = useCallback(
+    ({ query, resultCount }: { query: string; resultCount: number }) => {
+      const trimmedQuery = query.trim();
+
+      if (!trimmedQuery) return;
+
+      recordStoredNewsSearchMemoryItem({
+        query: trimmedQuery,
+        resultCount,
+      });
+      setSearchMemoryItems(readStoredSearchItems());
+
+      if (!visitorKey) return;
+
+      recordSearchMemory({
+        query: trimmedQuery,
+        resultCount,
+        visitorKey,
+      });
+    },
+    [recordSearchMemory, visitorKey],
+  );
+  const applyForYouApiExposureMemory = useCallback(
+    (recentExposureItems: readonly RecentExposureNewsItem[] | undefined) => {
+      const nextExposureItems =
+        readNewsForYouApiExposureItems(recentExposureItems);
+      const unseenExposureItems = nextExposureItems.filter(
+        (item) =>
+          !selectActiveNewsReaderMemoryItem({
+            item,
+            memoryItems: recordedHomeExposureItemsRef.current,
+          }),
+      );
+
+      if (unseenExposureItems.length === 0) return;
+
+      recordedHomeExposureItemsRef.current = mergeNewsReaderMemoryItems({
+        limit: 24,
+        localItems: unseenExposureItems,
+        serverItems: recordedHomeExposureItemsRef.current,
+      });
+      setLocalHomeExposureItems((currentItems) => {
+        const nextItems = mergeNewsReaderMemoryItems({
+          limit: 24,
+          localItems: unseenExposureItems,
+          serverItems: currentItems,
+        });
+
+        writeStoredMemoryItems(homeExposureStorageKey, nextItems);
+        return nextItems;
+      });
+    },
+    [],
+  );
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -701,20 +968,45 @@ function NewsHomeContent({
       { enabled: canPersistProfile && Boolean(visitorKey) },
     ),
   );
+  const positiveFeedbackQuery = useQuery(
+    trpc.news.positiveFeedback.queryOptions(
+      { limit: 6, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
   const guardrailsQuery = useQuery(
     trpc.news.guardrails.queryOptions(
       { limit: 6, visitorKey: visitorKey ?? undefined },
       { enabled: canPersistProfile && Boolean(visitorKey) },
     ),
   );
+  const searchMemoryQuery = useQuery(
+    trpc.news.searchMemory.queryOptions(
+      { limit: 20, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistProfile && Boolean(visitorKey) },
+    ),
+  );
+  const serverReaderMemoryReady =
+    !canPersistProfile ||
+    !visitorKey ||
+    !(
+      profileQuery.isPending ||
+      savedQuery.isPending ||
+      historyQuery.isPending ||
+      positiveFeedbackQuery.isPending ||
+      guardrailsQuery.isPending ||
+      searchMemoryQuery.isPending
+    );
   const searchCandidatesQuery = useQuery(
     trpc.news.searchCandidates.queryOptions(
       {
         category: activeCategory ?? undefined,
         limit: 5,
+        profile: toServerProfile(profile),
         q: liveSearchQuery,
         sourceSlug: activeSourceSlug ?? undefined,
         tag: activeAngleTag ?? undefined,
+        visitorKey: visitorKey ?? undefined,
       },
       { enabled: shouldFetchLiveSearchCandidates },
     ),
@@ -736,11 +1028,6 @@ function NewsHomeContent({
     status,
     visitorKey,
   });
-  const forYouQuery = useQuery(
-    trpc.news.forYou.queryOptions(primaryFeedInput, {
-      enabled: primaryFeedEnabled && primaryFeedRoute === "forYou",
-    }),
-  );
   const publicFeedQuery = useQuery(
     trpc.news.feed.queryOptions(primaryFeedInput, {
       enabled: primaryFeedEnabled && primaryFeedRoute === "feed",
@@ -784,6 +1071,7 @@ function NewsHomeContent({
         applyServerProfile(serverProfile);
         setHiddenItemIds([]);
         setLocalGuardrailItems([]);
+        setLocalHomeExposureItems([]);
         setLocalHistoryItems([]);
         setLocalSavedItems([]);
         setRemovedSavedItems([]);
@@ -791,6 +1079,8 @@ function NewsHomeContent({
         setPositiveFeedbackItems([]);
         setRestoredGuardrailItemIds([]);
         setRestoredGuardrailItems([]);
+        setSearchMemoryItems([]);
+        recordedHomeExposureItemsRef.current = [];
         clearReaderMemoryStorage();
         const invalidations = getNewsHomeReaderMemoryResetCacheScopes().map(
           (scope) => {
@@ -810,6 +1100,14 @@ function NewsHomeContent({
               case "history":
                 return queryClient.invalidateQueries(
                   trpc.news.history.pathFilter(),
+                );
+              case "positiveFeedback":
+                return queryClient.invalidateQueries(
+                  trpc.news.positiveFeedback.pathFilter(),
+                );
+              case "searchMemory":
+                return queryClient.invalidateQueries(
+                  trpc.news.searchMemory.pathFilter(),
                 );
               case "guardrails":
                 return queryClient.invalidateQueries(
@@ -832,6 +1130,9 @@ function NewsHomeContent({
           queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
           queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
           queryClient.invalidateQueries(trpc.news.history.pathFilter()),
+          queryClient.invalidateQueries(
+            trpc.news.positiveFeedback.pathFilter(),
+          ),
           queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
         ]);
       },
@@ -847,6 +1148,9 @@ function NewsHomeContent({
         await Promise.all([
           queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
           queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
+          queryClient.invalidateQueries(
+            trpc.news.positiveFeedback.pathFilter(),
+          ),
           queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
         ]);
       },
@@ -863,13 +1167,6 @@ function NewsHomeContent({
         ]);
       },
     }),
-  );
-  const serverRecommendedItems = useMemo(
-    () =>
-      primaryFeedRoute === "feed"
-        ? (publicFeedQuery.data ?? []).map(toNewsHomeItemFromPublicFeedItem)
-        : forYouQuery.data,
-    [forYouQuery.data, primaryFeedRoute, publicFeedQuery.data],
   );
   const rawServerGuardrailItems = useMemo(
     () => guardrailsQuery.data ?? [],
@@ -917,6 +1214,224 @@ function NewsHomeContent({
         serverItems: serverGuardrailItems,
       }),
     [activeLocalGuardrailItems, serverGuardrailItems],
+  );
+  const negativeFeedbackMemoryItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        localItems: guardrailItems,
+        serverItems: negativeFeedbackItems,
+      }),
+    [guardrailItems, negativeFeedbackItems],
+  );
+  const serverSavedItems = useMemo(
+    () =>
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [],
+        removedSavedItems,
+        savedItems: savedQuery.data ?? [],
+      }),
+    [removedSavedItems, savedQuery.data],
+  );
+  const savedItems = useMemo(() => {
+    const mergedSavedItems = mergeNewsReaderMemoryItems({
+      localItems: localSavedItems,
+      serverItems: serverSavedItems,
+    });
+
+    return selectActiveNewsSavedItems({
+      negativeFeedbackItems: guardrailItems,
+      savedItems: mergedSavedItems,
+    });
+  }, [guardrailItems, localSavedItems, serverSavedItems]);
+  const serverHistoryItems = useMemo(
+    () => historyQuery.data ?? [],
+    [historyQuery.data],
+  );
+  const serverPositiveFeedbackItems = useMemo(
+    () => positiveFeedbackQuery.data ?? [],
+    [positiveFeedbackQuery.data],
+  );
+  const historyItems = useMemo(() => {
+    const mergedHistoryItems = mergeNewsReaderMemoryItems({
+      localItems: localHistoryItems,
+      serverItems: serverHistoryItems,
+    });
+
+    return selectActiveNewsHistoryItems({
+      historyItems: mergedHistoryItems,
+      negativeFeedbackItems: guardrailItems,
+    });
+  }, [guardrailItems, localHistoryItems, serverHistoryItems]);
+  const recentExposureMemoryItems = useMemo(
+    () =>
+      mergeNewsReaderMemoryItems({
+        limit: 80,
+        localItems: localHomeExposureItems,
+        serverItems: historyItems,
+      }),
+    [historyItems, localHomeExposureItems],
+  );
+  const positiveFeedbackMemoryItems = useMemo(() => {
+    const memoryItems = [
+      ...positiveFeedbackItems,
+      ...serverPositiveFeedbackItems,
+      ...savedItems.flatMap((item): PositiveNewsHomeFeedbackItem[] => {
+        const occurredAt = item.savedAt ?? item.occurredAt;
+
+        if (!occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+          return [];
+        }
+
+        return [{ ...item, action: "save", occurredAt }];
+      }),
+      ...historyItems.flatMap((item): PositiveNewsHomeFeedbackItem[] => {
+        const occurredAt = item.viewedAt ?? item.occurredAt;
+
+        if (!occurredAt || !Number.isFinite(Date.parse(occurredAt))) {
+          return [];
+        }
+
+        return [{ ...item, occurredAt }];
+      }),
+    ];
+
+    return memoryItems.reduce<PositiveNewsHomeFeedbackItem[]>(
+      (currentItems, nextItem) =>
+        mergeNewsHomePositiveFeedbackItems({
+          currentItems,
+          nextItem,
+        }),
+      [],
+    );
+  }, [
+    historyItems,
+    positiveFeedbackItems,
+    savedItems,
+    serverPositiveFeedbackItems,
+  ]);
+  const positiveFeedbackAnchors = useMemo(
+    () =>
+      selectNewsHomePositiveFeedbackAnchors({
+        explicitFeedbackItems: positiveFeedbackItems,
+        historyItems,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
+        savedItems,
+      }),
+    [
+      historyItems,
+      negativeFeedbackMemoryItems,
+      positiveFeedbackItems,
+      savedItems,
+    ],
+  );
+  const initialForYouRankingItems = useMemo(
+    () =>
+      selectDiverseNewsFeed(
+        rankNewsForReader(dedupeNewsItems(fallbackItems), profile),
+        {
+          explorationInterval: getNewsExplorationInterval(profile),
+          limit: fallbackItems.length,
+        },
+      ),
+    [fallbackItems, profile],
+  );
+  const initialForYouCollaborativeSignals = useMemo(
+    () =>
+      getNewsHomeCollaborativeRankingSignals({
+        formatCategory: getCategoryLabel,
+        historyItems,
+        items: initialForYouRankingItems,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
+        positiveFeedbackItems: positiveFeedbackMemoryItems,
+        profile,
+        savedItems,
+      }),
+    [
+      historyItems,
+      initialForYouRankingItems,
+      negativeFeedbackMemoryItems,
+      positiveFeedbackMemoryItems,
+      profile,
+      savedItems,
+    ],
+  );
+  const forYouApiRequestBody = useMemo(
+    () =>
+      buildNewsHomeForYouApiRequestBody({
+        category: activeCategory,
+        collaborativeSignals: initialForYouCollaborativeSignals,
+        currentItems: [],
+        limit: 30,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
+        objective: forYouObjective,
+        positiveFeedbackItems: positiveFeedbackMemoryItems,
+        profile,
+        q: searchQuery,
+        readerLocalHour,
+        recentExposureItems: recentExposureMemoryItems,
+        searchMemoryItems,
+        semanticSimilarityMatches: [],
+        sourceSlug: activeSourceSlug,
+        tag: activeAngleTag,
+      }),
+    [
+      activeAngleTag,
+      activeCategory,
+      activeSourceSlug,
+      forYouObjective,
+      initialForYouCollaborativeSignals,
+      negativeFeedbackMemoryItems,
+      positiveFeedbackMemoryItems,
+      profile,
+      readerLocalHour,
+      recentExposureMemoryItems,
+      searchQuery,
+      searchMemoryItems,
+    ],
+  );
+  const forYouApiQuery = useQuery({
+    enabled:
+      primaryFeedEnabled &&
+      primaryFeedRoute === "forYou" &&
+      readerStateHydrated &&
+      serverReaderMemoryReady,
+    queryFn: () => fetchNewsHomeForYouApiPayload(forYouApiRequestBody),
+    queryKey: ["news", "for-you-api", forYouApiRequestBody],
+  });
+  useEffect(() => {
+    if (primaryFeedRoute !== "forYou" || !forYouApiQuery.data) return;
+
+    applyForYouApiExposureMemory(
+      forYouApiQuery.data.nextRequest?.recentExposureItems,
+    );
+  }, [applyForYouApiExposureMemory, forYouApiQuery.data, primaryFeedRoute]);
+  const forYouApiContext = forYouApiQuery.data?.context;
+  const forYouApiContextMemory = forYouApiContext
+    ? [
+        {
+          label: "Profile",
+          value: `${forYouApiContext.profileSignalCount} signals`,
+        },
+        {
+          label: "Exposure",
+          value: `${forYouApiContext.memory.recentExposure} seen`,
+        },
+        {
+          label: "Cohort",
+          value: `${forYouApiContext.memory.collaborativeSignals} signals`,
+        },
+        {
+          label: "Semantic",
+          value: `${forYouApiContext.memory.semanticSimilarity} matches`,
+        },
+      ]
+    : [];
+  const serverRecommendedItems = useMemo(
+    () =>
+      primaryFeedRoute === "feed"
+        ? (publicFeedQuery.data ?? []).map(toNewsHomeItemFromPublicFeedItem)
+        : (forYouApiQuery.data?.items ?? []),
+    [forYouApiQuery.data, primaryFeedRoute, publicFeedQuery.data],
   );
   const effectiveHiddenItemIds = useMemo(
     () =>
@@ -990,21 +1505,26 @@ function NewsHomeContent({
 
   useEffect(() => {
     const storedGuardrails = readStoredGuardrailItems();
+    const storedHomeExposureItems = readStoredHomeExposureItems();
     const storedRestoredGuardrailItemIds = readStoredRestoredGuardrailItemIds();
     const storedRestoredGuardrailIds = new Set(storedRestoredGuardrailItemIds);
 
     setProfile(readStoredProfile());
+    setForYouObjective(readStoredNewsForYouObjective());
+    setLocalHomeExposureItems(storedHomeExposureItems);
     setLocalHistoryItems(readStoredHistoryItems());
     setLocalSavedItems(readStoredSavedItems());
     setLocalGuardrailItems(storedGuardrails);
     setPositiveFeedbackItems(readStoredPositiveFeedbackItems());
+    setSearchMemoryItems(readStoredSearchItems());
     setRestoredGuardrailItemIds(storedRestoredGuardrailItemIds);
     setHiddenItemIds(
       storedGuardrails
         .filter((item) => !storedRestoredGuardrailIds.has(item.id))
         .map((item) => item.id),
     );
-    setVisitorKey(readOrCreateVisitorKey());
+    setVisitorKey(readOrCreateNewsVisitorKey());
+    recordedHomeExposureItemsRef.current = storedHomeExposureItems;
     setReaderLocalHour(new Date().getHours());
     setReaderStateHydrated(true);
   }, []);
@@ -1012,8 +1532,58 @@ function NewsHomeContent({
   useEffect(() => {
     if (!readerStateHydrated) return;
 
+    return subscribeToNewsForYouObjectiveStorage(() => {
+      setForYouObjective(readStoredNewsForYouObjective());
+    });
+  }, [readerStateHydrated]);
+
+  useEffect(() => {
+    if (!readerStateHydrated) return;
+
     writeStoredProfile(profile);
   }, [profile, readerStateHydrated]);
+
+  useEffect(() => {
+    if (!readerStateHydrated) return;
+
+    return subscribeToNewsPreferenceProfileStorage(() => {
+      const nextProfile = readStoredProfile();
+
+      setProfile((currentProfile) =>
+        areNewsPreferenceProfilesEqual(currentProfile, nextProfile)
+          ? currentProfile
+          : nextProfile,
+      );
+    });
+  }, [readerStateHydrated]);
+
+  useEffect(() => {
+    if (!readerStateHydrated) return;
+
+    return subscribeToNewsReaderMemoryStorage(() => {
+      const storedGuardrails = readStoredGuardrailItems();
+      const storedHomeExposureItems = readStoredHomeExposureItems();
+      const storedRestoredGuardrailItemIds =
+        readStoredRestoredGuardrailItemIds();
+      const storedRestoredGuardrailIds = new Set(
+        storedRestoredGuardrailItemIds,
+      );
+
+      setLocalHomeExposureItems(storedHomeExposureItems);
+      setLocalHistoryItems(readStoredHistoryItems());
+      setLocalSavedItems(readStoredSavedItems());
+      setLocalGuardrailItems(storedGuardrails);
+      setPositiveFeedbackItems(readStoredPositiveFeedbackItems());
+      setSearchMemoryItems(readStoredSearchItems());
+      setRestoredGuardrailItemIds(storedRestoredGuardrailItemIds);
+      setHiddenItemIds(
+        storedGuardrails
+          .filter((item) => !storedRestoredGuardrailIds.has(item.id))
+          .map((item) => item.id),
+      );
+      recordedHomeExposureItemsRef.current = storedHomeExposureItems;
+    });
+  }, [readerStateHydrated]);
 
   useEffect(() => {
     if (!profileQuery.data?.persisted) return;
@@ -1027,6 +1597,68 @@ function NewsHomeContent({
       return nextProfile;
     });
   }, [profileQuery.data]);
+
+  useEffect(() => {
+    if (!positiveFeedbackQuery.data || positiveFeedbackQuery.data.length === 0)
+      return;
+
+    const nextPositiveFeedbackItems = positiveFeedbackQuery.data.reduce<
+      PositiveNewsHomeFeedbackItem[]
+    >(
+      (currentItems, nextItem) =>
+        mergeNewsHomePositiveFeedbackItems({
+          currentItems,
+          nextItem,
+        }),
+      readStoredPositiveFeedbackItems(),
+    );
+
+    writeStoredPositiveFeedbackItems(nextPositiveFeedbackItems);
+    setPositiveFeedbackItems(nextPositiveFeedbackItems);
+  }, [positiveFeedbackQuery.data]);
+
+  useEffect(() => {
+    if (!searchMemoryQuery.data || searchMemoryQuery.data.length === 0) return;
+
+    const nextSearchMemoryItems = selectStoredNewsSearchMemoryItems([
+      ...searchMemoryQuery.data,
+      ...readStoredSearchItems(),
+    ]);
+
+    writeStoredSearchItems(nextSearchMemoryItems);
+    setSearchMemoryItems(nextSearchMemoryItems);
+  }, [searchMemoryQuery.data]);
+
+  useEffect(() => {
+    if (!readerStateHydrated) return;
+    if (!visitorKey || !canPersistProfile) return;
+    if (!profileQuery.data || profileQuery.data.persisted) return;
+    if (
+      areNewsPreferenceProfilesEqual(
+        profile,
+        createDefaultNewsPreferenceProfile(),
+      )
+    ) {
+      return;
+    }
+
+    const localProfileSnapshot = getNewsPreferenceProfileStorageValue(profile);
+
+    if (serverProfileSyncSnapshotRef.current === localProfileSnapshot) return;
+
+    serverProfileSyncSnapshotRef.current = localProfileSnapshot;
+    updateProfile.mutate({
+      visitorKey,
+      profile: toServerProfile(profile),
+    });
+  }, [
+    canPersistProfile,
+    profile,
+    profileQuery.data,
+    readerStateHydrated,
+    updateProfile,
+    visitorKey,
+  ]);
 
   useEffect(() => {
     setLoadedItems([]);
@@ -1098,6 +1730,23 @@ function NewsHomeContent({
 
     const occurredAt = new Date().toISOString();
 
+    if (action === "view") {
+      setLocalHistoryItems((current) => {
+        const nextItems = mergeNewsReaderMemoryItems({
+          localItems: [
+            getNewsHomeStoryHistoryItem({
+              item,
+              viewedAt: occurredAt,
+            }),
+          ],
+          serverItems: current,
+        });
+
+        writeStoredMemoryItems(historyStorageKey, nextItems);
+        return nextItems;
+      });
+    }
+
     if (action === "hide") {
       setRestoredGuardrailItemIds((current) => {
         if (!current.includes(item.id)) return current;
@@ -1167,7 +1816,15 @@ function NewsHomeContent({
       });
     }
 
-    if (visitorKey && canPersistProfile && !isPreview) {
+    if (
+      visitorKey &&
+      shouldPersistNewsHomeItemReaderSignals({
+        canPersistProfile,
+        isPreview,
+        itemId: item.id,
+        visitorKey,
+      })
+    ) {
       recordInteraction.mutate({
         visitorKey,
         newsItemId: item.id,
@@ -1224,7 +1881,15 @@ function NewsHomeContent({
       }),
     );
 
-    if (visitorKey && canPersistProfile && !isPreview) {
+    if (
+      visitorKey &&
+      shouldPersistNewsHomeItemReaderSignals({
+        canPersistProfile,
+        isPreview,
+        itemId: item.id,
+        visitorKey,
+      })
+    ) {
       restoreGuardrail.mutate({
         visitorKey,
         newsItemId: item.id,
@@ -1264,7 +1929,15 @@ function NewsHomeContent({
       return nextItems;
     });
 
-    if (visitorKey && canPersistProfile && !isPreview) {
+    if (
+      visitorKey &&
+      shouldPersistNewsHomeItemReaderSignals({
+        canPersistProfile,
+        isPreview,
+        itemId: item.id,
+        visitorKey,
+      })
+    ) {
       removeSaved.mutate({
         visitorKey,
         newsItemId: item.id,
@@ -1351,8 +2024,24 @@ function NewsHomeContent({
           ...beforeProfile,
           preferredEntities:
             suggestion.action === "reduce"
-              ? removeValue(beforeProfile.preferredEntities, suggestion.signal)
-              : addValue(beforeProfile.preferredEntities, suggestion.signal),
+              ? suggestion.kind === "tag"
+                ? removeAngleValue(
+                    beforeProfile.preferredEntities,
+                    suggestion.signal,
+                  )
+                : removeEntityValue(
+                    beforeProfile.preferredEntities,
+                    suggestion.signal,
+                  )
+              : suggestion.kind === "tag"
+                ? addAngleValue(
+                    beforeProfile.preferredEntities,
+                    suggestion.signal,
+                  )
+                : addEntityValue(
+                    beforeProfile.preferredEntities,
+                    suggestion.signal,
+                  ),
         };
       }
 
@@ -1422,6 +2111,315 @@ function NewsHomeContent({
     setReviewHiddenAngleQuery("");
     setSearchDraft(action.query);
     setSearchQuery(action.query);
+    recordHomeSearchIntent({
+      query: action.query,
+      resultCount: rankedItems.length,
+    });
+  };
+
+  const applyPreferenceDecayAction = (
+    entry: Parameters<typeof getNewsPreferenceDecayTrainingAction>[0],
+  ) => {
+    const action = getNewsPreferenceDecayTrainingAction(entry);
+
+    if (!action) return;
+
+    applyPreferenceProfileAction(action);
+  };
+
+  const applyRecommendationSaturationAction = (
+    action: Parameters<typeof getNewsRecommendationSaturationTrainingAction>[0],
+  ) => {
+    const trainingAction =
+      getNewsRecommendationSaturationTrainingAction(action);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyRecommendationDiversityGovernorAction = (
+    control: Parameters<
+      typeof getNewsRecommendationDiversityGovernorTrainingAction
+    >[0],
+  ) => {
+    const trainingAction =
+      getNewsRecommendationDiversityGovernorTrainingAction(control);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyGuardrailRecoveryAction = (
+    action: ReturnType<typeof getNewsGuardrailRecoveryPlan>["actions"][number],
+  ) => {
+    const trainingAction = getNewsGuardrailRecoveryTrainingAction({
+      action,
+      formatCategory: getCategoryLabel,
+      historyItems,
+      items: rankedItems,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      restoredGuardrailItems,
+      savedItems,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyReaderSatisfactionAction = (
+    action: ReturnType<
+      typeof getNewsReaderSatisfactionBrief
+    >["actions"][number],
+  ) => {
+    const trainingAction = getNewsReaderSatisfactionTrainingAction({
+      action,
+      formatCategory: getCategoryLabel,
+      historyItems,
+      items: rankedItems,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      savedItems,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyReaderLearningLoopAction = (
+    action: ReturnType<typeof getNewsReaderLearningLoop>["actions"][number],
+  ) => {
+    const trainingAction = getNewsReaderLearningLoopTrainingAction({
+      action,
+      formatCategory: getCategoryLabel,
+      historyItems,
+      items: rankedItems,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      savedItems,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyReaderRetentionAction = (
+    action: ReturnType<typeof getNewsReaderRetentionPlan>["actions"][number],
+  ) => {
+    const trainingAction = getNewsReaderRetentionTrainingAction({
+      action,
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      negativeFeedbackItems,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyPersonalizationMixAction = (
+    action: ReturnType<typeof getNewsPersonalizationMix>["actions"][number],
+  ) => {
+    const mixAction = getNewsPersonalizationMixTrainingAction({
+      action,
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+    });
+
+    if (!mixAction) return;
+
+    if (mixAction.kind === "profile") {
+      applyPreferenceProfileAction(mixAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(mixAction.action);
+  };
+
+  const applyTasteCalibrationAction = (
+    action: ReturnType<typeof getNewsTasteCalibration>["actions"][number],
+  ) => {
+    const trainingAction = getNewsTasteCalibrationTrainingAction({
+      action,
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyBriefingPackAction = (
+    input: Parameters<typeof getNewsBriefingPackTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsBriefingPackTrainingAction(input));
+  };
+
+  const applyFrontPageLayoutAction = (
+    input: Parameters<typeof getNewsFrontPageLayoutTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsFrontPageLayoutTrainingAction(input));
+  };
+
+  const applyFrontPageSlotMixAction = (
+    input: Parameters<typeof getNewsFrontPageSlotMixTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsFrontPageSlotMixTrainingAction(input));
+  };
+
+  const applyEditionQualityGateAction = (
+    input: Parameters<typeof getNewsEditionQualityGateTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsEditionQualityGateTrainingAction(input);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyFeedFatigueAction = (
+    notice: ReturnType<typeof getNewsFeedFatigueReport>["notices"][number],
+  ) => {
+    const fatigueAction = getNewsFeedFatigueTrainingAction({
+      items: rankedItems,
+      notice,
+    });
+
+    if (!fatigueAction) return;
+
+    applyPreferenceProfileAction(fatigueAction);
+  };
+
+  const applyTopicMatchAction = (
+    row: ReturnType<typeof getNewsTopicMatchMatrix>["rows"][number],
+  ) => {
+    applyPreferenceProfileAction(getNewsTopicMatchTrainingAction({ row }));
+  };
+
+  const applySourceBalanceAction = () => {
+    if (!sourceBalanceAction) return;
+
+    applyPreferenceProfileAction(sourceBalanceAction);
+  };
+
+  const applySourceTrustAction = (
+    notice: ReturnType<typeof getNewsSourceTrustLedger>["notices"][number],
+  ) => {
+    const sourceTrustAction = getNewsSourceTrustTrainingAction({
+      items: rankedItems,
+      notice,
+    });
+
+    if (!sourceTrustAction) return;
+
+    applyPreferenceProfileAction(sourceTrustAction);
+  };
+
+  const applyEntityRadarAction = (
+    entry: ReturnType<typeof getNewsEntityRadar>[number],
+  ) => {
+    applyPreferenceProfileAction(
+      getNewsEntityRadarTrainingAction({ entry, profile }),
+    );
+  };
+
+  const applyTopicPulseAction = (
+    pulse: ReturnType<typeof getNewsTopicPulse>[number],
+  ) => {
+    applyPreferenceProfileAction(
+      getNewsTopicPulseTrainingAction({
+        formatCategory: getCategoryLabel,
+        profile,
+        pulse,
+      }),
+    );
+  };
+
+  const applyInterestDriftAction = (
+    notice: ReturnType<typeof getNewsInterestDrift>["notices"][number],
+  ) => {
+    const driftAction = getNewsInterestDriftTrainingAction({
+      formatCategory: getCategoryLabel,
+      historyItems,
+      negativeFeedbackItems: negativeFeedbackMemoryItems,
+      notice,
+      positiveFeedbackItems,
+      profile,
+      savedItems,
+    });
+
+    if (!driftAction) return;
+
+    applyPreferenceProfileAction(driftAction);
+  };
+
+  const applyInterestGraphNodeAction = ({
+    laneKey,
+    node,
+  }: {
+    laneKey: ReturnType<typeof getNewsInterestGraph>["lanes"][number]["key"];
+    node: ReturnType<
+      typeof getNewsInterestGraph
+    >["lanes"][number]["nodes"][number];
+  }) => {
+    applyPreferenceProfileAction(
+      getNewsInterestGraphNodeTrainingAction({ laneKey, node }),
+    );
+  };
+
+  const applyReaderCohortAction = (
+    cohort: NonNullable<
+      Parameters<typeof getNewsReaderCohortTrainingAction>[0]["cohort"]
+    >,
+  ) => {
+    const cohortAction = getNewsReaderCohortTrainingAction({
+      cohort,
+      formatCategory: getCategoryLabel,
+      profile,
+    });
+
+    if (!cohortAction) return;
+
+    applyPreferenceProfileAction(cohortAction);
+  };
+
+  const applySessionIntentAction = (
+    intent: NonNullable<
+      Parameters<typeof getNewsSessionIntentTrainingAction>[0]["intent"]
+    >,
+  ) => {
+    const intentAction = getNewsSessionIntentTrainingAction({
+      formatCategory: getCategoryLabel,
+      intent,
+      profile,
+    });
+
+    if (!intentAction) return;
+
+    applyPreferenceProfileAction(intentAction);
+  };
+
+  const applyCollaborativeSignalAction = (
+    signal: NonNullable<
+      Parameters<typeof getNewsCollaborativeSignalTrainingAction>[0]["signal"]
+    >,
+  ) => {
+    const collaborativeAction = getNewsCollaborativeSignalTrainingAction({
+      formatCategory: getCategoryLabel,
+      profile,
+      signal,
+    });
+
+    if (!collaborativeAction) return;
+
+    applyPreferenceProfileAction(collaborativeAction);
   };
 
   const applyPreferenceProfileAction = (
@@ -1455,8 +2453,21 @@ function NewsHomeContent({
           ...currentProfile,
           preferredEntities:
             effect === "remove"
-              ? removeValue(currentProfile.preferredEntities, signal.signal)
-              : addValue(currentProfile.preferredEntities, signal.signal),
+              ? signal.kind === "tag"
+                ? removeAngleValue(
+                    currentProfile.preferredEntities,
+                    signal.signal,
+                  )
+                : removeEntityValue(
+                    currentProfile.preferredEntities,
+                    signal.signal,
+                  )
+              : signal.kind === "tag"
+                ? addAngleValue(currentProfile.preferredEntities, signal.signal)
+                : addEntityValue(
+                    currentProfile.preferredEntities,
+                    signal.signal,
+                  ),
         };
       },
       beforeProfile,
@@ -1627,6 +2638,315 @@ function NewsHomeContent({
     applyPreferenceBiasResetAction(trainingAction.label);
   };
 
+  const applyFilterBubbleAction = (
+    check: Parameters<typeof getNewsFilterBubbleTrainingAction>[0]["check"],
+  ) => {
+    const trainingAction = getNewsFilterBubbleTrainingAction({
+      check,
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      profile,
+    });
+
+    if (!trainingAction) return;
+
+    if (trainingAction.kind === "profile") {
+      applyPreferenceProfileAction(trainingAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(trainingAction.action);
+  };
+
+  const applyExplorationSlotAction = (
+    slot: NonNullable<
+      Parameters<typeof getNewsExplorationSlotTrainingAction>[0]["slot"]
+    >,
+  ) => {
+    const trainingAction = getNewsExplorationSlotTrainingAction({
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      profile,
+      slot,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyChannelStrategyAction = (
+    lane: NonNullable<
+      Parameters<typeof getNewsChannelStrategyTrainingAction>[0]["lane"]
+    >,
+  ) => {
+    const trainingAction = getNewsChannelStrategyTrainingAction({
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      lane,
+      profile,
+    });
+
+    if (!trainingAction) return;
+
+    if (trainingAction.kind === "profile") {
+      applyPreferenceProfileAction(trainingAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(trainingAction.action);
+  };
+
+  const applyEditorialGuardrailAction = (
+    risk: NonNullable<
+      Parameters<typeof getNewsEditorialGuardrailTrainingAction>[0]["risk"]
+    >,
+  ) => {
+    const trainingAction = getNewsEditorialGuardrailTrainingAction({
+      items: rankedItems,
+      profile,
+      risk,
+    });
+
+    if (!trainingAction) return;
+
+    if (trainingAction.kind === "profile") {
+      applyPreferenceProfileAction(trainingAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(trainingAction.action);
+  };
+
+  const applyRecommendationAuditAction = (
+    notice: NonNullable<
+      Parameters<typeof getNewsRecommendationAuditTrainingAction>[0]["notice"]
+    >,
+  ) => {
+    const trainingAction = getNewsRecommendationAuditTrainingAction({
+      items: rankedItems,
+      notice,
+      profile,
+    });
+
+    if (!trainingAction) return;
+
+    if (trainingAction.kind === "profile") {
+      applyPreferenceProfileAction(trainingAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(trainingAction.action);
+  };
+
+  const applyRecommendationTraceAction = (
+    input: Parameters<typeof getNewsRecommendationTraceTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsRecommendationTraceTrainingAction(input);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyExperimentAllocationAction = (
+    input: Parameters<typeof getNewsExperimentAllocationTrainingAction>[0],
+  ) => {
+    const experimentAction = getNewsExperimentAllocationTrainingAction(input);
+
+    if (!experimentAction) return;
+
+    if (experimentAction.kind === "profile") {
+      applyPreferenceProfileAction(experimentAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(experimentAction.action);
+  };
+
+  const applyAggregationIntakeAction = (
+    input: Parameters<typeof getNewsAggregationIntakeTrainingAction>[0],
+  ) => {
+    const intakeAction = getNewsAggregationIntakeTrainingAction(input);
+
+    if (!intakeAction) return;
+
+    applyPreferenceProfileAction(intakeAction);
+  };
+
+  const applyAggregationRecoveryAction = (
+    input: Parameters<typeof getNewsAggregationRecoveryTrainingAction>[0],
+  ) => {
+    const recoveryAction = getNewsAggregationRecoveryTrainingAction(input);
+
+    if (!recoveryAction) return;
+
+    applyPreferenceProfileAction(recoveryAction);
+  };
+
+  const applyProfileSignalLedgerAction = (
+    control: Parameters<typeof getNewsProfileSignalLedgerTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(
+      getNewsProfileSignalLedgerTrainingAction(control),
+    );
+  };
+
+  const applyForYouNextQueueAction = (
+    notice: NonNullable<
+      Parameters<typeof getNewsForYouNextQueueTrainingAction>[0]["notice"]
+    >,
+  ) => {
+    const trainingAction = getNewsForYouNextQueueTrainingAction({
+      formatCategory: getCategoryLabel,
+      negativeFeedbackItems: negativeFeedbackMemoryItems,
+      notice,
+    });
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyLiveWireAction = (
+    notice: NonNullable<
+      Parameters<typeof getNewsLiveWireTrainingAction>[0]["notice"]
+    >,
+  ) => {
+    const trainingAction = getNewsLiveWireTrainingAction({
+      formatCategory: getCategoryLabel,
+      items: rankedItems,
+      notice,
+    });
+
+    if (!trainingAction) return;
+
+    if (trainingAction.kind === "profile") {
+      applyPreferenceProfileAction(trainingAction.action);
+      return;
+    }
+
+    applyPreferenceBiasAction(trainingAction.action);
+  };
+
+  const applyProfileUpdateProposal = (
+    proposal: Parameters<typeof getNewsProfileUpdateProposalTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsProfileUpdateProposalTrainingAction(proposal);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyModelTrainingBatchAction = (
+    input: Parameters<typeof getNewsModelTrainingBatchTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsModelTrainingBatchTrainingAction(input);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyDistributionQueueAction = (
+    input: Parameters<typeof getNewsDistributionQueueTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsDistributionQueueTrainingAction(input);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyAlertRoutingAction = (
+    input: Parameters<typeof getNewsAlertRoutingTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsAlertRoutingTrainingAction(input));
+  };
+
+  const applyRecommendationRotationAction = (
+    input: Parameters<typeof getNewsRecommendationRotationTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(
+      getNewsRecommendationRotationTrainingAction(input),
+    );
+  };
+
+  const applyPersonalizedReadingQueueAction = (
+    input: Parameters<typeof getNewsPersonalizedReadingQueueTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(
+      getNewsPersonalizedReadingQueueTrainingAction(input),
+    );
+  };
+
+  const applyContinuationRailAction = (
+    input: Parameters<typeof getNewsContinuationRailTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsContinuationRailTrainingAction(input));
+  };
+
+  const applyNextRefreshPlanAction = (
+    input: Parameters<typeof getNewsNextRefreshPlanTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsNextRefreshPlanTrainingAction(input));
+  };
+
+  const applyRefreshSimulationAction = (
+    move: Parameters<typeof getNewsRefreshSimulationTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsRefreshSimulationTrainingAction(move));
+  };
+
+  const applyEditionScheduleAction = (
+    input: Parameters<typeof getNewsEditionScheduleTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsEditionScheduleTrainingAction(input));
+  };
+
+  const applyExposureCooldownAction = (
+    input: Parameters<typeof getNewsExposureCooldownTrainingAction>[0],
+  ) => {
+    applyPreferenceProfileAction(getNewsExposureCooldownTrainingAction(input));
+  };
+
+  const applyReaderProfileSnapshotAction = (
+    action: NewsPreferenceProfileTrainingAction,
+  ) => {
+    applyPreferenceProfileAction(action);
+  };
+
+  const applyReaderWatchlistAction = (
+    entry: Parameters<typeof getNewsReaderWatchlistTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsReaderWatchlistTrainingAction(entry);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applySearchTrendAction = (
+    trend: Parameters<typeof getNewsSearchTrendTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsSearchTrendTrainingAction(trend);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
+  const applyPersonalizedPushQueueAction = (
+    input: Parameters<typeof getNewsPersonalizedPushQueueTrainingAction>[0],
+  ) => {
+    const trainingAction = getNewsPersonalizedPushQueueTrainingAction(input);
+
+    if (!trainingAction) return;
+
+    applyPreferenceProfileAction(trainingAction);
+  };
+
   const reviewTrainingGuardrailConflict = (
     action: NonNullable<NewsTrainingUpdate["guardrailReviewAction"]>,
   ) => {
@@ -1640,12 +2960,23 @@ function NewsHomeContent({
     setReviewHiddenAngleQuery(action.query);
     setSearchDraft(action.query);
     setSearchQuery(action.query);
+    recordHomeSearchIntent({
+      query: action.query,
+      resultCount: rankedItems.length,
+    });
   };
 
   const applyExploreSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+    if (!searchDraft.trim()) {
+      event.preventDefault();
+    }
+
     setReviewHiddenAngleQuery("");
     setSearchQuery(searchDraft.trim());
+    recordHomeSearchIntent({
+      query: searchDraft,
+      resultCount: searchCandidateRail.leads.length,
+    });
   };
 
   const clearExploreFilters = () => {
@@ -1657,20 +2988,29 @@ function NewsHomeContent({
     setSearchQuery("");
   };
 
+  const applyForYouObjective = (objective: NewsForYouObjective) => {
+    setForYouObjective(objective);
+    writeStoredNewsForYouObjective(objective);
+  };
+
   const resetProfile = () => {
     const nextProfile = createDefaultNewsPreferenceProfile();
 
     setProfile(nextProfile);
     writeStoredProfile(nextProfile);
+    applyForYouObjective("reader_match");
     setHiddenItemIds([]);
     setLocalGuardrailItems([]);
+    setLocalHomeExposureItems([]);
     setLocalHistoryItems([]);
     setLocalSavedItems([]);
     setNegativeFeedbackItems([]);
     setPositiveFeedbackItems([]);
     setRestoredGuardrailItemIds([]);
     setRestoredGuardrailItems([]);
+    setSearchMemoryItems([]);
     setReviewHiddenAngleQuery("");
+    recordedHomeExposureItemsRef.current = [];
     clearReaderMemoryStorage();
     publishTrainingUpdate(
       getNewsReaderMemoryResetTrainingUpdate({
@@ -1685,6 +3025,127 @@ function NewsHomeContent({
       resetReaderMemory.mutate({ visitorKey });
     }
   };
+
+  const applyPersonalizationDataVaultAction = (
+    control: NewsPersonalizationDataVaultAction,
+  ) => {
+    const dataVaultExport = getNewsPersonalizationDataVaultExport({
+      control,
+      historyItems,
+      negativeFeedbackItems,
+      positiveFeedbackItems,
+      profile,
+      savedItems,
+      searchMemoryItems,
+    });
+    const trainingUpdate =
+      getNewsPersonalizationDataVaultTrainingUpdate(control);
+    const nextTrainingUpdate = dataVaultExport
+      ? {
+          ...trainingUpdate,
+          dataVaultExport,
+          notices: [
+            ...trainingUpdate.notices,
+            {
+              detail: dataVaultExport.summary,
+              label: dataVaultExport.label,
+            },
+          ],
+        }
+      : trainingUpdate;
+
+    if (control.action.kind === "reset_memory") {
+      resetProfile();
+      publishTrainingUpdate(nextTrainingUpdate);
+      return;
+    }
+
+    if (control.action.kind === "start_training") {
+      clearExploreFilters();
+      setFeedMode("for_you");
+    }
+
+    if (control.action.kind === "review_guardrails") {
+      setActiveAngleTag(null);
+      setActiveCategory(null);
+      setActiveSourceSlug(null);
+      setFeedMode("for_you");
+      setReviewHiddenAngleQuery("less feedback");
+      setSearchDraft("less feedback");
+      setSearchQuery("less feedback");
+      recordHomeSearchIntent({
+        query: "less feedback",
+        resultCount: negativeFeedbackMemoryItems.length,
+      });
+    }
+
+    publishTrainingUpdate(nextTrainingUpdate);
+  };
+
+  const applyPersonalizationDataVaultProfileImport = () => {
+    const dataVaultImport =
+      getNewsPersonalizationDataVaultProfileImport(dataVaultImportDraft);
+
+    if (!dataVaultImport) {
+      publishTrainingUpdate({
+        label: "Profile Import",
+        metrics: [{ label: "Status", value: "Invalid" }],
+        notices: [
+          {
+            detail:
+              "Paste a profile export JSON package from The New AI Times Data Vault.",
+            label: "Import failed",
+          },
+        ],
+        signals: [],
+        summary: "Data Vault profile import could not be read.",
+      });
+      return;
+    }
+
+    commitProfile(() => dataVaultImport.profile);
+    writeStoredProfile(dataVaultImport.profile);
+    setDataVaultImportDraft("");
+    publishTrainingUpdate({
+      label: dataVaultImport.label,
+      metrics: dataVaultImport.metrics,
+      notices: dataVaultImport.notices,
+      signals: dataVaultImport.signals,
+      summary: dataVaultImport.summary,
+    });
+  };
+
+  const personalizedItems = useMemo(
+    () =>
+      selectDiverseNewsFeed(
+        rankNewsForReader(dedupeNewsItems(scopedItems), profile),
+        {
+          explorationInterval: getNewsExplorationInterval(profile),
+          limit: scopedItems.length,
+        },
+      ),
+    [profile, scopedItems],
+  );
+  const collaborativeRankingSignals = useMemo(
+    () =>
+      getNewsHomeCollaborativeRankingSignals({
+        formatCategory: getCategoryLabel,
+        historyItems,
+        items: personalizedItems,
+        negativeFeedbackItems: negativeFeedbackMemoryItems,
+        positiveFeedbackItems: positiveFeedbackMemoryItems,
+        profile,
+        savedItems,
+      }),
+    [
+      historyItems,
+      negativeFeedbackMemoryItems,
+      personalizedItems,
+      positiveFeedbackMemoryItems,
+      profile,
+      savedItems,
+    ],
+  );
 
   const loadMoreStories = useCallback(async () => {
     const cursor = nextCursor;
@@ -1722,16 +3183,46 @@ function NewsHomeContent({
         visitorKey,
       });
       const loadMoreRoute = getNewsHomeLoadMoreQueryRoute({ feedMode });
-      const nextItems =
-        loadMoreRoute === "forYou"
-          ? await queryClient.fetchQuery(
-              trpc.news.forYou.queryOptions(loadMoreInput),
-            )
-          : (
-              await queryClient.fetchQuery(
-                trpc.news.feed.queryOptions(loadMoreInput),
-              )
-            ).map(toNewsHomeItemFromPublicFeedItem);
+      let nextItems: NewsHomeItem[];
+
+      if (loadMoreRoute === "forYou") {
+        if (!serverReaderMemoryReady) {
+          pendingForYouLoadMoreRetryRef.current = true;
+          return;
+        }
+        pendingForYouLoadMoreRetryRef.current = false;
+
+        const forYouApiPayload = await fetchNewsHomeForYouApiPayload(
+          buildNewsHomeForYouApiRequestBody({
+            category: activeCategory,
+            collaborativeSignals: collaborativeRankingSignals,
+            currentItems: scopedItems,
+            limit: 20,
+            negativeFeedbackItems: negativeFeedbackMemoryItems,
+            objective: forYouObjective,
+            positiveFeedbackItems: positiveFeedbackMemoryItems,
+            profile,
+            q: searchQuery,
+            readerLocalHour,
+            recentExposureItems: recentExposureMemoryItems,
+            searchMemoryItems,
+            semanticSimilarityMatches: [],
+            sourceSlug: activeSourceSlug,
+            tag: activeAngleTag,
+          }),
+        );
+
+        applyForYouApiExposureMemory(
+          forYouApiPayload.nextRequest?.recentExposureItems,
+        );
+        nextItems = forYouApiPayload.items;
+      } else {
+        nextItems = (
+          await queryClient.fetchQuery(
+            trpc.news.feed.queryOptions(loadMoreInput),
+          )
+        ).map(toNewsHomeItemFromPublicFeedItem);
+      }
 
       const loadMoreState = getNewsHomeLoadMoreState({
         currentVisibleItems: scopedItems,
@@ -1749,18 +3240,62 @@ function NewsHomeContent({
     activeAngleTag,
     activeCategory,
     activeSourceSlug,
+    applyForYouApiExposureMemory,
+    collaborativeRankingSignals,
     feedMode,
+    forYouObjective,
     hasMoreItems,
     isPreview,
     loadedItems,
+    negativeFeedbackMemoryItems,
     nextCursor,
     nextCursorTrendScore,
+    positiveFeedbackMemoryItems,
+    profile,
     queryClient,
     readerLocalHour,
+    recentExposureMemoryItems,
     scopedItems,
     searchQuery,
+    searchMemoryItems,
+    serverReaderMemoryReady,
     trpc.news.feed,
-    trpc.news.forYou,
+    visitorKey,
+  ]);
+
+  useEffect(() => {
+    if (!serverReaderMemoryReady) return;
+    if (!pendingForYouLoadMoreRetryRef.current) return;
+
+    if (getNewsHomeLoadMoreQueryRoute({ feedMode }) !== "forYou") {
+      pendingForYouLoadMoreRetryRef.current = false;
+      return;
+    }
+
+    if (
+      !shouldAutoLoadMoreNewsHomeItems({
+        cursor: nextCursor,
+        feedMode,
+        hasMoreItems,
+        isFeedEndVisible: true,
+        isLoadingMore: isLoadingMoreRef.current,
+        isPreview,
+        visitorKey,
+      })
+    ) {
+      pendingForYouLoadMoreRetryRef.current = false;
+      return;
+    }
+
+    pendingForYouLoadMoreRetryRef.current = false;
+    void loadMoreStories();
+  }, [
+    feedMode,
+    hasMoreItems,
+    isPreview,
+    loadMoreStories,
+    nextCursor,
+    serverReaderMemoryReady,
     visitorKey,
   ]);
 
@@ -1806,107 +3341,25 @@ function NewsHomeContent({
     visitorKey,
   ]);
 
-  const serverSavedItems = useMemo(
-    () =>
-      selectActiveNewsSavedItems({
-        negativeFeedbackItems: [],
-        removedSavedItems,
-        savedItems: savedQuery.data ?? [],
-      }),
-    [removedSavedItems, savedQuery.data],
-  );
-  const savedItems = useMemo(() => {
-    const mergedSavedItems = mergeNewsReaderMemoryItems({
-      localItems: localSavedItems,
-      serverItems: serverSavedItems,
-    });
-
-    return selectActiveNewsSavedItems({
-      negativeFeedbackItems: guardrailItems,
-      savedItems: mergedSavedItems,
-    });
-  }, [guardrailItems, localSavedItems, serverSavedItems]);
-  const serverHistoryItems = useMemo(
-    () => historyQuery.data ?? [],
-    [historyQuery.data],
-  );
-  const historyItems = useMemo(() => {
-    const mergedHistoryItems = mergeNewsReaderMemoryItems({
-      localItems: localHistoryItems,
-      serverItems: serverHistoryItems,
-    });
-
-    return selectActiveNewsHistoryItems({
-      historyItems: mergedHistoryItems,
-      negativeFeedbackItems: guardrailItems,
-    });
-  }, [guardrailItems, localHistoryItems, serverHistoryItems]);
-  const negativeFeedbackMemoryItems = useMemo(
-    () =>
-      mergeNewsReaderMemoryItems({
-        localItems: guardrailItems,
-        serverItems: negativeFeedbackItems,
-      }),
-    [guardrailItems, negativeFeedbackItems],
-  );
-  const positiveFeedbackAnchors = useMemo(
-    () =>
-      selectNewsHomePositiveFeedbackAnchors({
-        explicitFeedbackItems: positiveFeedbackItems,
-        historyItems,
-        negativeFeedbackItems: negativeFeedbackMemoryItems,
-        savedItems,
-      }),
-    [
-      historyItems,
-      negativeFeedbackMemoryItems,
-      positiveFeedbackItems,
-      savedItems,
-    ],
-  );
-  const personalizedItems = useMemo(
-    () =>
-      selectDiverseNewsFeed(
-        rankNewsForReader(dedupeNewsItems(scopedItems), profile),
-        {
-          explorationInterval: getNewsExplorationInterval(profile),
-          limit: scopedItems.length,
-        },
-      ),
-    [profile, scopedItems],
-  );
-  const collaborativeRankingSignals = useMemo(
-    () =>
-      getNewsHomeCollaborativeRankingSignals({
-        formatCategory: getCategoryLabel,
-        historyItems,
-        items: personalizedItems,
-        negativeFeedbackItems: negativeFeedbackMemoryItems,
-        positiveFeedbackItems,
-        profile,
-        savedItems,
-      }),
-    [
-      historyItems,
-      negativeFeedbackMemoryItems,
-      personalizedItems,
-      positiveFeedbackItems,
-      profile,
-      savedItems,
-    ],
-  );
   const rankedItems = useMemo(() => {
     const modeItems = selectNewsFeedModeItems({
       items: personalizedItems,
       mode: feedMode,
     });
+    const searchMemoryAnchoredItems =
+      feedMode === "for_you"
+        ? selectNewsHomeSearchMemoryAnchoredItems({
+            items: modeItems,
+            searchItems: searchMemoryItems,
+          })
+        : modeItems;
     const sessionIntentItems =
       feedMode === "for_you"
         ? selectSessionIntentNewsHomeItems({
             intent: activeFeedIntent,
-            items: modeItems,
+            items: searchMemoryAnchoredItems,
           })
-        : modeItems;
+        : searchMemoryAnchoredItems;
     const exposureBalancedItems = selectExposureBalancedNewsFeed(
       sessionIntentItems,
       historyItems,
@@ -1958,6 +3411,7 @@ function NewsHomeContent({
     const rotatedItems = selectNewsRecommendationRotationFeed({
       items: freshnessQuotaItems,
       limit: freshnessQuotaItems.length,
+      objectiveOrder: feedMode === "for_you" ? forYouObjectiveOrder : undefined,
     });
 
     const sourceQuotaBalancedItems = selectSourceQuotaBalancedNewsHomeItems({
@@ -1985,39 +3439,67 @@ function NewsHomeContent({
     activeFeedIntent,
     collaborativeRankingSignals,
     feedMode,
+    forYouObjectiveOrder,
     generatedAt,
     historyItems,
     negativeFeedbackMemoryItems,
     personalizedItems,
     positiveFeedbackAnchors,
     readerLocalHour,
+    searchMemoryItems,
   ]);
 
   useEffect(() => {
-    if (!canPersistProfile) return;
-
     const records = selectNewsHomeExposureRecords({
       feedMode,
       isPreview,
       items: rankedItems,
       limit: 6,
-      recordedItems: recordedHomeExposureItemsRef.current,
+      recordedItems: mergeNewsReaderMemoryItems({
+        limit: 24,
+        localItems: localHomeExposureItems,
+        serverItems: recordedHomeExposureItemsRef.current,
+      }),
       visitorKey,
     });
 
     if (records.length === 0) return;
 
     const exposedIds = new Set(records.map((record) => record.newsItemId));
-    recordedHomeExposureItemsRef.current = mergeNewsHomeItems({
-      currentItems: recordedHomeExposureItemsRef.current,
-      nextItems: rankedItems.filter((item) => exposedIds.has(item.id)),
+    const exposedAt = new Date().toISOString();
+    const nextExposureItems = rankedItems
+      .filter((item) => exposedIds.has(item.id))
+      .map((item) =>
+        toLocalHomeExposureMemoryItem({
+          item,
+          viewedAt: exposedAt,
+        }),
+      );
+
+    recordedHomeExposureItemsRef.current = mergeNewsReaderMemoryItems({
+      limit: 24,
+      localItems: nextExposureItems,
+      serverItems: recordedHomeExposureItemsRef.current,
+    });
+    setLocalHomeExposureItems((currentItems) => {
+      const nextItems = mergeNewsReaderMemoryItems({
+        limit: 24,
+        localItems: nextExposureItems,
+        serverItems: currentItems,
+      });
+
+      writeStoredMemoryItems(homeExposureStorageKey, nextItems);
+      return nextItems;
     });
 
-    records.forEach((record) => recordHomeExposure.mutate(record));
+    if (canPersistProfile) {
+      records.forEach((record) => recordHomeExposure.mutate(record));
+    }
   }, [
     canPersistProfile,
     feedMode,
     isPreview,
+    localHomeExposureItems,
     rankedItems,
     recordHomeExposure,
     visitorKey,
@@ -2026,6 +3508,10 @@ function NewsHomeContent({
   const leadStory = rankedItems[0];
   const secondaryStories = rankedItems.slice(1, 4);
   const streamStories = rankedItems.slice(4);
+  const rankedItemsById = useMemo(
+    () => new Map(rankedItems.map((item) => [item.id, item])),
+    [rankedItems],
+  );
   const defaultCategories = Object.keys(categoryLabels) as NewsCategoryKey[];
   const availableCategories = Array.from(
     new Set([
@@ -2047,6 +3533,7 @@ function NewsHomeContent({
     historyItems,
     profile,
     savedItems,
+    searchMemoryItems,
   });
   const guardrailShelf = getNewsGuardrailShelf({
     formatCategory: getCategoryLabel,
@@ -2105,7 +3592,11 @@ function NewsHomeContent({
     limit: 2,
     negativeFeedbackItems,
     positiveFeedbackItems,
-    recordedItems: recordedHomeExposureItemsRef.current,
+    recordedItems: mergeNewsReaderMemoryItems({
+      limit: 24,
+      localItems: localHomeExposureItems,
+      serverItems: recordedHomeExposureItemsRef.current,
+    }),
     savedItems,
   });
   const serverProfileAudit = getNewsServerProfileAuditDisplay(
@@ -2161,6 +3652,7 @@ function NewsHomeContent({
     positiveFeedbackItems,
     profile,
     savedItems,
+    searchMemoryItems,
   });
   const interestDrift = getNewsInterestDrift({
     formatCategory: getCategoryLabel,
@@ -2181,6 +3673,7 @@ function NewsHomeContent({
     formatCategory: getCategoryLabel,
     items: rankedItems,
     limit: 4,
+    objectiveOrder: feedMode === "for_you" ? forYouObjectiveOrder : undefined,
     profile,
   });
   const recommendationDiversityGovernor =
@@ -2476,6 +3969,7 @@ function NewsHomeContent({
     profile,
     rankedItems,
     savedItems,
+    searchMemoryItems,
   });
   const preferencePresets = getNewsPreferencePresets({
     formatCategory: getCategoryLabel,
@@ -2535,7 +4029,7 @@ function NewsHomeContent({
   });
   const liveSearchServerCandidateItems = useMemo(
     () =>
-      (searchCandidatesQuery.data ?? []).map(toNewsHomeItemFromPublicFeedItem),
+      searchCandidatesQuery.data?.map(toNewsHomeItemFromPublicFeedItem) ?? [],
     [searchCandidatesQuery.data],
   );
   const liveSearchCandidateItems = useMemo(
@@ -2595,6 +4089,19 @@ function NewsHomeContent({
     positiveFeedbackItems,
     savedItems,
   });
+  const nextForYouQueue = getNewsForYouNextQueue({
+    cursor: nextCursor,
+    feedMode,
+    formatCategory: getCategoryLabel,
+    hasMoreItems,
+    isLoadingMore,
+    isPreview,
+    items: rankedItems,
+    negativeFeedbackItems: negativeFeedbackMemoryItems,
+    searchMemoryItems,
+    visibleItems: rankedItems,
+    visitorKey,
+  });
   const editionSchedule = getNewsEditionSchedule({ items: rankedItems });
   const editionMix = getNewsEditionMix({ items: rankedItems });
   const aggregationIntake = getNewsAggregationIntake({
@@ -2606,6 +4113,7 @@ function NewsHomeContent({
     limit: 3,
   });
   const sourceBalance = getNewsSourceBalance({ items: rankedItems });
+  const sourceBalanceAction = getNewsSourceBalanceTrainingAction(sourceBalance);
   const sourceTrustLedger = getNewsSourceTrustLedger({ items: rankedItems });
   const entityRadar = getNewsEntityRadar({ items: rankedItems, limit: 5 });
   const topicPulse = getNewsTopicPulse({ items: rankedItems, limit: 4 });
@@ -2670,6 +4178,36 @@ function NewsHomeContent({
           </div>
         </div>
         <nav className="container flex gap-2 overflow-x-auto border-t border-[#161616]/25 py-3 text-sm dark:border-[#f4f1ea]/25">
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/briefing">Briefing</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/threads">Threads</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/topics">Topics</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/entities">Entities</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/sources">Sources</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/reader">Reader</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/reader/following">Following</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/reader/library">Library</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <Link href="/reader/onboarding">Set up</Link>
+          </Button>
+          <Button asChild className="rounded-none" size="sm" variant="outline">
+            <a href="/rss.xml">RSS</a>
+          </Button>
           {availableCategories.slice(0, 10).map((category) => {
             const active = profile.preferredCategories.includes(category);
             const label = getCategoryLabel(category);
@@ -2697,14 +4235,69 @@ function NewsHomeContent({
             );
           })}
         </nav>
+        {leadStory ? (
+          <section
+            aria-label="A1 Lead Story"
+            className="border-t border-[#161616]/25 dark:border-[#f4f1ea]/25"
+          >
+            <div className="container grid gap-5 py-5 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.72fr)] lg:items-stretch">
+              <article className="grid gap-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <p className="font-mono text-xs tracking-[0.18em] uppercase">
+                    A1 Lead Story
+                  </p>
+                  <span className="border border-[#161616]/35 px-2 py-1 text-xs font-semibold text-[#8a241c] dark:border-[#f4f1ea]/35 dark:text-[#ff8b7e]">
+                    {getCategoryLabel(leadStory.category)}
+                  </span>
+                </div>
+                <div className="grid gap-3">
+                  <Link
+                    className="max-w-5xl text-3xl leading-tight font-black tracking-normal hover:text-[#8a241c] sm:text-4xl lg:text-5xl dark:hover:text-[#ff8b7e]"
+                    href={`/news/${leadStory.id}`}
+                  >
+                    {leadStory.title}
+                  </Link>
+                  <p className="max-w-3xl text-base leading-7 text-[#4a4a4a] dark:text-[#c8c4ba]">
+                    {leadStory.summary}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                  <span className="border border-[#161616]/25 px-2 py-1 dark:border-[#f4f1ea]/20">
+                    {leadStory.sourceName}
+                  </span>
+                  <span className="border border-[#161616]/25 px-2 py-1 dark:border-[#f4f1ea]/20">
+                    {formatNewsTime(leadStory.publishedAt)}
+                  </span>
+                  <span className="border border-[#161616]/25 px-2 py-1 dark:border-[#f4f1ea]/20">
+                    {leadStory.personalizedScore} For You score
+                  </span>
+                </div>
+                <StoryAction
+                  item={leadStory}
+                  guardrailItem={selectGuardrailItemForStory(leadStory)}
+                  isPreview={isPreview}
+                  rankSlot={1}
+                  savedItem={selectSavedItemForStory(leadStory)}
+                  onAction={recordStoryAction}
+                  onRemoveSaved={removeSavedItem}
+                  onRestoreGuardrail={restoreGuardrailItem}
+                />
+              </article>
+              <StoryVisual featured item={leadStory} />
+            </div>
+          </section>
+        ) : null}
         <section className="container grid gap-3 border-t border-[#161616]/25 py-4 dark:border-[#f4f1ea]/25">
           <form
+            action="/search"
             className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]"
+            method="get"
             onSubmit={applyExploreSearch}
           >
             <Input
               aria-label="Search AI news"
               className="h-10 rounded-none border-[#161616]/45 bg-[#fffdf7] dark:border-[#f4f1ea]/45 dark:bg-[#181818]"
+              name="q"
               placeholder="Search models, agents, funding"
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
@@ -2751,32 +4344,56 @@ function NewsHomeContent({
               </div>
               <div className="flex gap-2 overflow-x-auto pb-1">
                 {searchCandidateRail.leads.length > 0 ? (
-                  searchCandidateRail.leads.map((lead) => (
-                    <Button
-                      key={lead.id}
-                      className="h-auto min-w-60 justify-start rounded-none px-3 py-2 text-left"
-                      size="sm"
-                      type="button"
-                      variant={
-                        searchQuery === lead.query ? "default" : "outline"
-                      }
-                      onClick={() => {
-                        setReviewHiddenAngleQuery("");
-                        setSearchDraft(lead.query);
-                        setSearchQuery(lead.query);
-                      }}
-                    >
-                      <span className="grid gap-1">
-                        <span className="font-mono text-[11px] opacity-70">
-                          {lead.sourceName} / {lead.categoryLabel}
-                        </span>
-                        <span className="line-clamp-2">{lead.title}</span>
-                        <span className="text-xs opacity-70">
-                          {lead.topicLabel}
-                        </span>
-                      </span>
-                    </Button>
-                  ))
+                  searchCandidateRail.leads.map((lead, index) => {
+                    const item = rankedItemsById.get(lead.id);
+
+                    return (
+                      <article
+                        key={lead.id}
+                        className="grid min-w-60 gap-2 border border-[#161616]/20 p-2 dark:border-[#f4f1ea]/15"
+                      >
+                        <Button
+                          className="h-auto justify-start rounded-none px-3 py-2 text-left"
+                          size="sm"
+                          type="button"
+                          variant={
+                            searchQuery === lead.query ? "default" : "outline"
+                          }
+                          onClick={() => {
+                            setReviewHiddenAngleQuery("");
+                            setSearchDraft(lead.query);
+                            setSearchQuery(lead.query);
+                            recordHomeSearchIntent({
+                              query: lead.query,
+                              resultCount: searchCandidateRail.leads.length,
+                            });
+                          }}
+                        >
+                          <span className="grid gap-1">
+                            <span className="font-mono text-[11px] opacity-70">
+                              {lead.sourceName} / {lead.categoryLabel}
+                            </span>
+                            <span className="line-clamp-2">{lead.title}</span>
+                            <span className="text-xs opacity-70">
+                              {lead.reasonLabel} / {lead.topicLabel}
+                            </span>
+                          </span>
+                        </Button>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                     {searchCandidatesQuery.isFetching
@@ -2801,29 +4418,49 @@ function NewsHomeContent({
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1">
               {searchTrends.trends.length > 0 ? (
-                searchTrends.trends.map((trend) => (
-                  <Button
-                    key={trend.key}
-                    className="h-auto min-w-52 justify-start rounded-none px-3 py-2 text-left"
-                    size="sm"
-                    type="button"
-                    variant={
-                      searchQuery === trend.query ? "default" : "outline"
-                    }
-                    onClick={() => {
-                      setReviewHiddenAngleQuery("");
-                      setSearchDraft(trend.query);
-                      setSearchQuery(trend.query);
-                    }}
-                  >
-                    <span className="grid gap-1">
-                      <span className="font-mono text-[11px] opacity-70">
-                        {trend.label} / {trend.supportLabel}
-                      </span>
-                      <span>{trend.query}</span>
-                    </span>
-                  </Button>
-                ))
+                searchTrends.trends.map((trend) => {
+                  const trendAction = getNewsSearchTrendTrainingAction(trend);
+
+                  return (
+                    <div key={trend.key} className="grid min-w-52 gap-2">
+                      <Button
+                        className="h-auto justify-start rounded-none px-3 py-2 text-left"
+                        size="sm"
+                        type="button"
+                        variant={
+                          searchQuery === trend.query ? "default" : "outline"
+                        }
+                        onClick={() => {
+                          setReviewHiddenAngleQuery("");
+                          setSearchDraft(trend.query);
+                          setSearchQuery(trend.query);
+                          recordHomeSearchIntent({
+                            query: trend.query,
+                            resultCount: rankedItems.length,
+                          });
+                        }}
+                      >
+                        <span className="grid gap-1">
+                          <span className="font-mono text-[11px] opacity-70">
+                            {trend.label} / {trend.supportLabel}
+                          </span>
+                          <span>{trend.query}</span>
+                        </span>
+                      </Button>
+                      {trendAction ? (
+                        <Button
+                          className="h-8 justify-start rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => applySearchTrendAction(trend)}
+                        >
+                          Add to profile
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })
               ) : (
                 <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                   Search trends will appear after stories are ranked.
@@ -2858,20 +4495,30 @@ function NewsHomeContent({
               All topics
             </Button>
             {availableCategories.slice(0, 10).map((category) => (
-              <Button
-                key={category}
-                className="rounded-none"
-                size="sm"
-                type="button"
-                variant={activeCategory === category ? "default" : "outline"}
-                onClick={() =>
-                  setActiveCategory((current) =>
-                    current === category ? null : category,
-                  )
-                }
-              >
-                {getCategoryLabel(category)}
-              </Button>
+              <div key={category} className="flex shrink-0 gap-1">
+                <Button
+                  className="rounded-none"
+                  size="sm"
+                  type="button"
+                  variant={activeCategory === category ? "default" : "outline"}
+                  onClick={() =>
+                    setActiveCategory((current) =>
+                      current === category ? null : category,
+                    )
+                  }
+                >
+                  {getCategoryLabel(category)}
+                </Button>
+                <Button
+                  asChild
+                  aria-label="Open topic edition"
+                  className="rounded-none px-2"
+                  size="sm"
+                  variant="outline"
+                >
+                  <Link href={getNewsTopicHref(category)}>Edition</Link>
+                </Button>
+              </div>
             ))}
           </div>
           {sourceFilterOptions.length > 0 ? (
@@ -2886,22 +4533,32 @@ function NewsHomeContent({
                 All sources
               </Button>
               {sourceFilterOptions.map((source) => (
-                <Button
-                  key={source.slug}
-                  className="rounded-none"
-                  size="sm"
-                  type="button"
-                  variant={
-                    activeSourceSlug === source.slug ? "default" : "outline"
-                  }
-                  onClick={() =>
-                    setActiveSourceSlug((current) =>
-                      current === source.slug ? null : source.slug,
-                    )
-                  }
-                >
-                  {source.label}
-                </Button>
+                <div key={source.slug} className="flex shrink-0 gap-1">
+                  <Button
+                    className="rounded-none"
+                    size="sm"
+                    type="button"
+                    variant={
+                      activeSourceSlug === source.slug ? "default" : "outline"
+                    }
+                    onClick={() =>
+                      setActiveSourceSlug((current) =>
+                        current === source.slug ? null : source.slug,
+                      )
+                    }
+                  >
+                    {source.label}
+                  </Button>
+                  <Button
+                    asChild
+                    aria-label="Open source edition"
+                    className="rounded-none px-2"
+                    size="sm"
+                    variant="outline"
+                  >
+                    <Link href={`/sources/${source.slug}`}>Edition</Link>
+                  </Button>
+                </div>
               ))}
             </div>
           ) : null}
@@ -2993,6 +4650,57 @@ function NewsHomeContent({
                   </div>
                 ))}
               </dl>
+
+              {forYouApiContextMemory.length > 0 ? (
+                <div className="grid gap-2 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15">
+                  <p className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                    Live API context
+                  </p>
+                  <dl className="flex flex-wrap gap-2 text-xs">
+                    {forYouApiContextMemory.map((memoryItem) => (
+                      <div
+                        key={memoryItem.label}
+                        className="flex items-center gap-2 border border-[#161616]/20 px-2 py-1 dark:border-[#f4f1ea]/20"
+                      >
+                        <dt className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                          {memoryItem.label}
+                        </dt>
+                        <dd className="font-semibold">{memoryItem.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              ) : null}
+
+              <div className="grid gap-2 border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15">
+                <p className="font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                  Rotation objective
+                </p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {forYouObjectiveOptions.map((option) => (
+                    <Button
+                      key={option.objective}
+                      className="h-auto min-w-36 rounded-none px-3 py-2 text-left"
+                      type="button"
+                      variant={
+                        forYouObjective === option.objective
+                          ? "default"
+                          : "outline"
+                      }
+                      onClick={() => applyForYouObjective(option.objective)}
+                    >
+                      <span className="grid gap-1">
+                        <span className="text-xs font-semibold">
+                          {option.label}
+                        </span>
+                        <span className="text-[11px] leading-4 opacity-75">
+                          {option.detail}
+                        </span>
+                      </span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -3153,12 +4861,13 @@ function NewsHomeContent({
           <BriefingStrip title="Entity Watch">
             {editionBriefing.entities.length > 0 ? (
               editionBriefing.entities.map((entity) => (
-                <span
+                <Link
                   key={entity.entity}
-                  className="border border-[#161616]/30 px-2 py-1 dark:border-[#f4f1ea]/30"
+                  className="border border-[#161616]/30 px-2 py-1 hover:underline dark:border-[#f4f1ea]/30"
+                  href={`/entities/${encodeURIComponent(entity.entity)}`}
                 >
                   {entity.entity} / {entity.storyCount}
-                </span>
+                </Link>
               ))
             ) : (
               <span className="text-[#5b5750] dark:text-[#bbb4aa]">
@@ -3196,26 +4905,69 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               {briefingPack.slots.length > 0 ? (
-                briefingPack.slots.map((slot) => (
-                  <Link
-                    key={slot.id}
-                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${slot.id}`}
-                  >
-                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                      {slot.label} / {slot.scoreLabel}
-                    </span>
-                    <span className="leading-5 font-semibold">
-                      {slot.title}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {slot.sourceName} / {slot.categoryLabel}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {slot.reason}
-                    </span>
-                  </Link>
-                ))
+                briefingPack.slots.map((slot, index) => {
+                  const item = rankedItemsById.get(slot.id);
+                  const briefingActionInput = item
+                    ? {
+                        formatCategory: getCategoryLabel,
+                        item,
+                        slotLabel: slot.label,
+                      }
+                    : null;
+                  const briefingAction = briefingActionInput
+                    ? getNewsBriefingPackTrainingAction(briefingActionInput)
+                    : null;
+
+                  return (
+                    <article
+                      key={slot.id}
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-2">
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {slot.label} / {slot.scoreLabel}
+                        </span>
+                        <Link
+                          className="leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${slot.id}`}
+                        >
+                          {slot.title}
+                        </Link>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.sourceName} / {slot.categoryLabel}
+                        </span>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.reason}
+                        </span>
+                      </div>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                      {briefingActionInput && briefingAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyBriefingPackAction(briefingActionInput)
+                          }
+                        >
+                          {briefingAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Briefing slots will appear after the desk ranks stories.
@@ -3250,27 +5002,70 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_repeat(3,minmax(0,0.75fr))]">
               {frontPageLayout.sections.length > 0 ? (
-                frontPageLayout.sections.map((section) => (
-                  <Link
-                    key={section.id}
-                    className="grid min-h-44 content-start gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${section.id}`}
-                  >
-                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                      {section.label} / {section.treatment}
-                    </span>
-                    <span className="leading-5 font-semibold">
-                      {section.title}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {section.sourceName} / {section.categoryLabel} /{" "}
-                      {section.scoreLabel}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {section.reason}
-                    </span>
-                  </Link>
-                ))
+                frontPageLayout.sections.map((section, index) => {
+                  const item = rankedItemsById.get(section.id);
+                  const layoutActionInput = item
+                    ? {
+                        formatCategory: getCategoryLabel,
+                        item,
+                        sectionLabel: section.label,
+                      }
+                    : null;
+                  const layoutAction = layoutActionInput
+                    ? getNewsFrontPageLayoutTrainingAction(layoutActionInput)
+                    : null;
+
+                  return (
+                    <article
+                      key={section.id}
+                      className="grid min-h-44 content-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-2">
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {section.label} / {section.treatment}
+                        </span>
+                        <Link
+                          className="leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${section.id}`}
+                        >
+                          {section.title}
+                        </Link>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {section.sourceName} / {section.categoryLabel} /{" "}
+                          {section.scoreLabel}
+                        </span>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {section.reason}
+                        </span>
+                      </div>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                      {layoutActionInput && layoutAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyFrontPageLayoutAction(layoutActionInput)
+                          }
+                        >
+                          {layoutAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] lg:col-span-4 dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   A1 layout will appear after ranked stories are available.
@@ -3305,27 +5100,70 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {frontPageSlotMix.slots.length > 0 ? (
-                frontPageSlotMix.slots.map((slot) => (
-                  <Link
-                    key={`${slot.key}-${slot.id}`}
-                    className="grid content-start gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${slot.id}`}
-                  >
-                    <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                      {slot.label} / {slot.treatment}
-                    </span>
-                    <span className="leading-5 font-semibold">
-                      {slot.title}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {slot.sourceName} / {slot.categoryLabel} /{" "}
-                      {slot.scoreLabel}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {slot.reason}
-                    </span>
-                  </Link>
-                ))
+                frontPageSlotMix.slots.map((slot, index) => {
+                  const item = rankedItemsById.get(slot.id);
+                  const slotMixActionInput = item
+                    ? {
+                        formatCategory: getCategoryLabel,
+                        item,
+                        slotKey: slot.key,
+                      }
+                    : null;
+                  const slotMixAction = slotMixActionInput
+                    ? getNewsFrontPageSlotMixTrainingAction(slotMixActionInput)
+                    : null;
+
+                  return (
+                    <article
+                      key={`${slot.key}-${slot.id}`}
+                      className="grid content-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-2">
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {slot.label} / {slot.treatment}
+                        </span>
+                        <Link
+                          className="leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${slot.id}`}
+                        >
+                          {slot.title}
+                        </Link>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.sourceName} / {slot.categoryLabel} /{" "}
+                          {slot.scoreLabel}
+                        </span>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.reason}
+                        </span>
+                      </div>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                      {slotMixActionInput && slotMixAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyFrontPageSlotMixAction(slotMixActionInput)
+                          }
+                        >
+                          {slotMixAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] md:col-span-2 xl:col-span-4 dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Slot mix will appear after ranked stories are available.
@@ -3339,7 +5177,7 @@ function NewsHomeContent({
       <section className="container grid gap-6 py-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.8fr)]">
         <div className="grid gap-6">
           {leadStory ? (
-            <article className="grid min-h-[420px] border-y border-[#161616] py-6 md:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.7fr)] dark:border-[#f4f1ea]">
+            <article className="grid min-h-[420px] grid-cols-[minmax(0,1fr)] border-y border-[#161616] py-6 md:grid-cols-[minmax(0,1.1fr)_minmax(260px,0.7fr)] dark:border-[#f4f1ea]">
               <div className="flex flex-col justify-between gap-8 pr-0 md:pr-6">
                 <div>
                   <div className="mb-4 flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase">
@@ -3502,73 +5340,95 @@ function NewsHomeContent({
             </dl>
             <div className="mt-5 grid gap-4 lg:grid-cols-3">
               {sourceClusters.clusters.length > 0 ? (
-                sourceClusters.clusters.map((cluster) => (
-                  <article
-                    key={cluster.key}
-                    className="grid min-h-64 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-mono text-xs tracking-[0.14em] uppercase">
-                          {cluster.categoryLabel}
+                sourceClusters.clusters.map((cluster, index) => {
+                  const leadItem = cluster.lead
+                    ? rankedItemsById.get(cluster.lead.id)
+                    : undefined;
+
+                  return (
+                    <article
+                      key={cluster.key}
+                      className="grid min-h-64 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-xs tracking-[0.14em] uppercase">
+                            {cluster.categoryLabel}
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {cluster.summary}
+                          </p>
                         </div>
-                        <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {cluster.summary}
-                        </p>
+                        <span className="border border-[#161616]/30 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/30">
+                          {cluster.heatScore}
+                        </span>
                       </div>
-                      <span className="border border-[#161616]/30 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/30">
-                        {cluster.heatScore}
-                      </span>
-                    </div>
-                    {cluster.lead ? (
-                      <div className="mt-5">
-                        <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                          {cluster.lead.sourceName} /{" "}
-                          {cluster.lead.personalizedScore} score
-                        </div>
-                        {isPreview ? (
-                          <h3 className="mt-2 text-xl leading-tight font-black">
-                            {cluster.lead.title}
-                          </h3>
-                        ) : (
-                          <Link
-                            className="mt-2 block text-xl leading-tight font-black hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                            href={`/news/${cluster.lead.id}`}
-                          >
-                            {cluster.lead.title}
-                          </Link>
-                        )}
-                      </div>
-                    ) : null}
-                    <div className="mt-4 grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
-                      <div className="flex justify-between gap-4 font-mono text-xs">
-                        <span>{cluster.storyCount} stories</span>
-                        <span>{cluster.sourceCount} sources</span>
-                        <span>{cluster.averageTrustScore} trust</span>
-                      </div>
-                      {cluster.supportingStories.map((story) => (
-                        <div
-                          key={story.id}
-                          className="grid grid-cols-[1fr_auto] gap-3 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
-                        >
+                      {cluster.lead ? (
+                        <div className="mt-5">
+                          <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                            {cluster.lead.sourceName} /{" "}
+                            {cluster.lead.personalizedScore} score
+                          </div>
                           {isPreview ? (
-                            <span className="leading-5">{story.title}</span>
+                            <h3 className="mt-2 text-xl leading-tight font-black">
+                              {cluster.lead.title}
+                            </h3>
                           ) : (
                             <Link
-                              className="leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                              href={`/news/${story.id}`}
+                              className="mt-2 block text-xl leading-tight font-black hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                              href={`/news/${cluster.lead.id}`}
                             >
-                              {story.title}
+                              {cluster.lead.title}
                             </Link>
                           )}
-                          <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.sourceScore}
-                          </span>
                         </div>
-                      ))}
-                    </div>
-                  </article>
-                ))
+                      ) : null}
+                      {leadItem ? (
+                        <div className="mt-4">
+                          <StoryAction
+                            item={leadItem}
+                            guardrailItem={selectGuardrailItemForStory(
+                              leadItem,
+                            )}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(leadItem)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="mt-4 grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
+                        <div className="flex justify-between gap-4 font-mono text-xs">
+                          <span>{cluster.storyCount} stories</span>
+                          <span>{cluster.sourceCount} sources</span>
+                          <span>{cluster.averageTrustScore} trust</span>
+                        </div>
+                        {cluster.supportingStories.map((story) => (
+                          <div
+                            key={story.id}
+                            className="grid grid-cols-[1fr_auto] gap-3 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                          >
+                            {isPreview ? (
+                              <span className="leading-5">{story.title}</span>
+                            ) : (
+                              <Link
+                                className="leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {story.title}
+                              </Link>
+                            )}
+                            <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                              {story.sourceScore}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] lg:col-span-3 dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Source clusters will appear after related stories are ranked.
@@ -3604,84 +5464,106 @@ function NewsHomeContent({
             </dl>
             <div className="mt-5 grid gap-4 lg:grid-cols-3">
               {claimTracker.claims.length > 0 ? (
-                claimTracker.claims.map((claim) => (
-                  <article
-                    key={claim.key}
-                    className="grid min-h-72 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="font-mono text-xs tracking-[0.14em] uppercase">
-                          {claim.categoryLabel}
-                        </div>
-                        <div className="mt-2 text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                          {claim.label}
-                        </div>
-                      </div>
-                      <span className="border border-[#161616]/30 px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]/30">
-                        {claim.supportLabel}
-                      </span>
-                    </div>
-                    <div className="mt-5">
-                      <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {claim.claim}
-                      </p>
-                      {claim.lead ? (
-                        <div className="mt-4">
-                          <div className="text-xs font-semibold tracking-normal uppercase">
-                            {claim.lead.sourceName} / {claim.confidenceLabel}
+                claimTracker.claims.map((claim, index) => {
+                  const leadItem = claim.lead
+                    ? rankedItemsById.get(claim.lead.id)
+                    : undefined;
+
+                  return (
+                    <article
+                      key={claim.key}
+                      className="grid min-h-72 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="font-mono text-xs tracking-[0.14em] uppercase">
+                            {claim.categoryLabel}
                           </div>
-                          {isPreview ? (
-                            <h3 className="mt-2 text-xl leading-tight font-black">
-                              {claim.lead.title}
-                            </h3>
-                          ) : (
-                            <Link
-                              className="mt-2 block text-xl leading-tight font-black hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                              href={`/news/${claim.lead.id}`}
-                            >
-                              {claim.lead.title}
-                            </Link>
-                          )}
+                          <div className="mt-2 text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                            {claim.label}
+                          </div>
                         </div>
-                      ) : null}
-                    </div>
-                    <div className="mt-4 grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
-                      <div className="flex flex-wrap gap-2">
-                        {claim.sourceNames.map((sourceName) => (
-                          <span
-                            key={sourceName}
-                            className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25"
-                          >
-                            {sourceName}
-                          </span>
-                        ))}
+                        <span className="border border-[#161616]/30 px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]/30">
+                          {claim.supportLabel}
+                        </span>
                       </div>
-                      <div className="grid gap-2">
-                        {claim.evidence.map((story) => (
-                          <div
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 first:border-t-0 first:pt-0 dark:border-[#f4f1ea]/10"
-                          >
+                      <div className="mt-5">
+                        <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {claim.claim}
+                        </p>
+                        {claim.lead ? (
+                          <div className="mt-4">
+                            <div className="text-xs font-semibold tracking-normal uppercase">
+                              {claim.lead.sourceName} / {claim.confidenceLabel}
+                            </div>
                             {isPreview ? (
-                              <span className="leading-5">{story.title}</span>
+                              <h3 className="mt-2 text-xl leading-tight font-black">
+                                {claim.lead.title}
+                              </h3>
                             ) : (
                               <Link
-                                className="leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                                href={`/news/${story.id}`}
+                                className="mt-2 block text-xl leading-tight font-black hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${claim.lead.id}`}
                               >
-                                {story.title}
+                                {claim.lead.title}
                               </Link>
                             )}
-                            <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                              {story.sourceName} / {story.signalLabel}
-                            </span>
                           </div>
-                        ))}
+                        ) : null}
                       </div>
-                    </div>
-                  </article>
-                ))
+                      {leadItem ? (
+                        <div className="mt-4">
+                          <StoryAction
+                            item={leadItem}
+                            guardrailItem={selectGuardrailItemForStory(
+                              leadItem,
+                            )}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(leadItem)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="mt-4 grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
+                        <div className="flex flex-wrap gap-2">
+                          {claim.sourceNames.map((sourceName) => (
+                            <span
+                              key={sourceName}
+                              className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25"
+                            >
+                              {sourceName}
+                            </span>
+                          ))}
+                        </div>
+                        <div className="grid gap-2">
+                          {claim.evidence.map((story) => (
+                            <div
+                              key={story.id}
+                              className="grid gap-1 border-t border-[#161616]/10 pt-2 first:border-t-0 first:pt-0 dark:border-[#f4f1ea]/10"
+                            >
+                              {isPreview ? (
+                                <span className="leading-5">{story.title}</span>
+                              ) : (
+                                <Link
+                                  className="leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                  href={`/news/${story.id}`}
+                                >
+                                  {story.title}
+                                </Link>
+                              )}
+                              <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.sourceName} / {story.signalLabel}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] lg:col-span-3 dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Claim tracker will appear after story evidence clusters.
@@ -3717,60 +5599,79 @@ function NewsHomeContent({
             </dl>
             <div className="mt-5 grid gap-3">
               {storyTimeline.events.length > 0 ? (
-                storyTimeline.events.map((event) => (
-                  <article
-                    key={event.id}
-                    className="grid gap-4 border border-[#161616]/35 bg-[#fffdf7] p-4 md:grid-cols-[auto_1fr_auto] md:items-start dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
-                  >
-                    <div className="flex items-center gap-3 md:grid md:justify-items-center md:gap-2">
-                      <span className="grid h-10 w-10 place-items-center border border-[#161616]/35 font-mono text-sm dark:border-[#f4f1ea]/35">
-                        {event.rank}
-                      </span>
-                      <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {event.timeLabel}
-                      </span>
-                    </div>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase">
-                        <span className="text-[#8a241c] dark:text-[#ff8b7e]">
-                          {event.signalLabel}
+                storyTimeline.events.map((event, index) => {
+                  const item = rankedItemsById.get(event.id);
+
+                  return (
+                    <article
+                      key={event.id}
+                      className="grid gap-4 border border-[#161616]/35 bg-[#fffdf7] p-4 md:grid-cols-[auto_1fr_minmax(14rem,auto)] md:items-start dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
+                    >
+                      <div className="flex items-center gap-3 md:grid md:justify-items-center md:gap-2">
+                        <span className="grid h-10 w-10 place-items-center border border-[#161616]/35 font-mono text-sm dark:border-[#f4f1ea]/35">
+                          {event.rank}
                         </span>
-                        <span>{event.categoryLabel}</span>
-                        <span className="text-[#5b5750] dark:text-[#bbb4aa]">
-                          {event.sourceName}
+                        <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {event.timeLabel}
                         </span>
                       </div>
-                      {isPreview ? (
-                        <h3 className="mt-2 text-xl leading-tight font-black">
-                          {event.title}
-                        </h3>
-                      ) : (
-                        <Link
-                          className="mt-2 block text-xl leading-tight font-black hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                          href={`/news/${event.id}`}
-                        >
-                          {event.title}
-                        </Link>
-                      )}
-                      <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {event.reason}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2 md:max-w-48 md:justify-end">
-                      <span className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25">
-                        {event.heatLabel}
-                      </span>
-                      {event.entities.map((entity) => (
-                        <span
-                          key={entity}
-                          className="border border-[#161616]/25 px-2 py-1 font-mono text-xs text-[#5b5750] dark:border-[#f4f1ea]/25 dark:text-[#bbb4aa]"
-                        >
-                          {entity}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                ))
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-semibold tracking-normal uppercase">
+                          <span className="text-[#8a241c] dark:text-[#ff8b7e]">
+                            {event.signalLabel}
+                          </span>
+                          <span>{event.categoryLabel}</span>
+                          <span className="text-[#5b5750] dark:text-[#bbb4aa]">
+                            {event.sourceName}
+                          </span>
+                        </div>
+                        {isPreview ? (
+                          <h3 className="mt-2 text-xl leading-tight font-black">
+                            {event.title}
+                          </h3>
+                        ) : (
+                          <Link
+                            className="mt-2 block text-xl leading-tight font-black hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${event.id}`}
+                          >
+                            {event.title}
+                          </Link>
+                        )}
+                        <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {event.reason}
+                        </p>
+                      </div>
+                      <div className="grid gap-3">
+                        <div className="flex flex-wrap gap-2 md:justify-end">
+                          <span className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25">
+                            {event.heatLabel}
+                          </span>
+                          {event.entities.map((entity) => (
+                            <Link
+                              key={entity}
+                              className="border border-[#161616]/25 px-2 py-1 font-mono text-xs text-[#5b5750] hover:bg-[#efe8dc] dark:border-[#f4f1ea]/25 dark:text-[#bbb4aa] dark:hover:bg-[#242424]"
+                              href={`/entities/${encodeURIComponent(entity)}`}
+                            >
+                              {entity}
+                            </Link>
+                          ))}
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </div>
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Story timeline will appear after ranked stories are available.
@@ -3798,8 +5699,12 @@ function NewsHomeContent({
                 </span>
               </div>
               <div className="mt-5 grid gap-4 lg:grid-cols-3">
-                {coverageThreads.threads.map((thread) =>
-                  thread.lead ? (
+                {coverageThreads.threads.map((thread, index) => {
+                  const leadItem = thread.lead
+                    ? rankedItemsById.get(thread.lead.id)
+                    : undefined;
+
+                  return thread.lead ? (
                     <article
                       key={thread.entity}
                       className="grid min-h-72 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
@@ -3841,6 +5746,22 @@ function NewsHomeContent({
                           </Link>
                         )}
                       </div>
+                      {leadItem ? (
+                        <div className="mt-4">
+                          <StoryAction
+                            item={leadItem}
+                            guardrailItem={selectGuardrailItemForStory(
+                              leadItem,
+                            )}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(leadItem)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        </div>
+                      ) : null}
                       <div className="mt-4 grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
                         <div className="flex justify-between gap-4 font-mono text-xs">
                           <span>{thread.storyCount} stories</span>
@@ -3868,8 +5789,8 @@ function NewsHomeContent({
                         ))}
                       </div>
                     </article>
-                  ) : null,
-                )}
+                  ) : null;
+                })}
               </div>
             </section>
           ) : null}
@@ -3901,51 +5822,74 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-5 grid gap-4 lg:grid-cols-3">
-                {consensusBoard.threads.map((thread) => (
-                  <article
-                    key={thread.entity}
-                    className="grid min-h-64 grid-rows-[auto_1fr] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-black">
-                          {thread.entity}
+                {consensusBoard.threads.map((thread, index) => {
+                  const leadStory = thread.stories[0];
+                  const leadItem = leadStory
+                    ? rankedItemsById.get(leadStory.id)
+                    : undefined;
+
+                  return (
+                    <article
+                      key={thread.entity}
+                      className="grid min-h-64 grid-rows-[auto_1fr_auto] border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-black">
+                            {thread.entity}
+                          </div>
+                          <div className="mt-2 text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                            {thread.label}
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {thread.reason}
+                          </p>
                         </div>
-                        <div className="mt-2 text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                          {thread.label}
-                        </div>
-                        <p className="mt-2 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {thread.reason}
-                        </p>
+                        <span className="border border-[#161616]/30 px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]/30">
+                          {thread.confidenceLabel}
+                        </span>
                       </div>
-                      <span className="border border-[#161616]/30 px-2 py-1 text-right font-mono text-xs dark:border-[#f4f1ea]/30">
-                        {thread.confidenceLabel}
-                      </span>
-                    </div>
-                    <div className="mt-4 grid content-end gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
-                      {thread.stories.map((story) => (
-                        <div
-                          key={story.id}
-                          className="grid gap-1 border-t border-[#161616]/10 pt-2 first:border-t-0 first:pt-0 dark:border-[#f4f1ea]/10"
-                        >
-                          {isPreview ? (
-                            <span className="leading-5">{story.title}</span>
-                          ) : (
-                            <Link
-                              className="leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                              href={`/news/${story.id}`}
-                            >
-                              {story.title}
-                            </Link>
-                          )}
-                          <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.sourceName}
-                          </span>
+                      <div className="mt-4 grid content-end gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15">
+                        {thread.stories.map((story) => (
+                          <div
+                            key={story.id}
+                            className="grid gap-1 border-t border-[#161616]/10 pt-2 first:border-t-0 first:pt-0 dark:border-[#f4f1ea]/10"
+                          >
+                            {isPreview ? (
+                              <span className="leading-5">{story.title}</span>
+                            ) : (
+                              <Link
+                                className="leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {story.title}
+                              </Link>
+                            )}
+                            <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                              {story.sourceName}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      {leadItem ? (
+                        <div className="mt-4">
+                          <StoryAction
+                            item={leadItem}
+                            guardrailItem={selectGuardrailItemForStory(
+                              leadItem,
+                            )}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(leadItem)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
                         </div>
-                      ))}
-                    </div>
-                  </article>
-                ))}
+                      ) : null}
+                    </article>
+                  );
+                })}
               </div>
             </section>
           ) : null}
@@ -4109,27 +6053,44 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {preferenceDecayQueue.decays.length > 0 ? (
-                  preferenceDecayQueue.decays.map((entry) => (
-                    <div
-                      key={`${entry.kind}-${entry.signal}`}
-                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
-                    >
-                      <div className="min-w-0">
-                        <div className="truncate font-semibold">
-                          {entry.label}
+                  preferenceDecayQueue.decays.map((entry) => {
+                    const decayAction =
+                      getNewsPreferenceDecayTrainingAction(entry);
+
+                    return (
+                      <div
+                        key={`${entry.kind}-${entry.signal}`}
+                        className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-semibold">
+                            {entry.label}
+                          </div>
+                          <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                            {entry.kind} / {entry.statusLabel}
+                          </div>
                         </div>
-                        <div className="mt-1 font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                          {entry.kind} / {entry.statusLabel}
-                        </div>
+                        <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {entry.reason}
+                        </p>
+                        {decayAction ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() => applyPreferenceDecayAction(entry)}
+                          >
+                            {decayAction.actionLabel}
+                          </Button>
+                        ) : (
+                          <span className="w-fit border border-[#161616]/25 px-2 py-1 font-mono text-[11px] uppercase dark:border-[#f4f1ea]/25">
+                            {entry.actionLabel}
+                          </span>
+                        )}
                       </div>
-                      <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {entry.reason}
-                      </p>
-                      <span className="w-fit border border-[#161616]/25 px-2 py-1 font-mono text-[11px] uppercase dark:border-[#f4f1ea]/25">
-                        {entry.actionLabel}
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     No stale profile signals need cooling in the current ranked
@@ -4199,29 +6160,73 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {exposureCooldownQueue.cooldowns.length > 0 ? (
-                  exposureCooldownQueue.cooldowns.map((story, index) => (
-                    <Link
-                      key={story.id}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${story.id}`}
-                    >
-                      <span className="flex flex-wrap items-center gap-2 font-semibold">
-                        <span className="font-mono">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span>{story.sourceName}</span>
-                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                          {story.scoreLabel}
-                        </span>
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {story.title}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {story.reason}
-                      </span>
-                    </Link>
-                  ))
+                  exposureCooldownQueue.cooldowns.map((story, index) => {
+                    const item = rankedItemsById.get(story.id);
+                    const exposureAction = item
+                      ? getNewsExposureCooldownTrainingAction({
+                          formatCategory: getCategoryLabel,
+                          item,
+                          mode: "cooldown",
+                        })
+                      : null;
+
+                    return (
+                      <article
+                        key={story.id}
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-1">
+                          <span className="flex flex-wrap items-center gap-2 font-semibold">
+                            <span className="font-mono">
+                              {String(index + 1).padStart(2, "0")}
+                            </span>
+                            <span>{story.sourceName}</span>
+                            <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                              {story.scoreLabel}
+                            </span>
+                          </span>
+                          <Link
+                            className="leading-5 text-[#5b5750] hover:text-[#8a241c] dark:text-[#bbb4aa] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${story.id}`}
+                          >
+                            {story.title}
+                          </Link>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.reason}
+                          </span>
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                        {exposureAction && item ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyExposureCooldownAction({
+                                formatCategory: getCategoryLabel,
+                                item,
+                                mode: "cooldown",
+                              })
+                            }
+                          >
+                            {exposureAction.actionLabel}
+                          </Button>
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     No repeated unengaged exposures need cooling down.
@@ -4233,21 +6238,53 @@ function NewsHomeContent({
                   Replacement Ready
                 </h4>
                 {exposureCooldownQueue.replacements.length > 0 ? (
-                  exposureCooldownQueue.replacements.map((story) => (
-                    <Link
-                      key={story.id}
-                      className="grid gap-1 text-xs hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                      href={`/news/${story.id}`}
-                    >
-                      <span className="font-semibold">{story.title}</span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {story.sourceName} / {story.scoreLabel}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {story.reason}
-                      </span>
-                    </Link>
-                  ))
+                  exposureCooldownQueue.replacements.map((story) => {
+                    const item = rankedItemsById.get(story.id);
+                    const exposureAction = item
+                      ? getNewsExposureCooldownTrainingAction({
+                          formatCategory: getCategoryLabel,
+                          item,
+                          mode: "replacement",
+                        })
+                      : null;
+
+                    return (
+                      <article
+                        key={story.id}
+                        className="grid gap-2 border-t border-[#161616]/10 pt-2 text-xs dark:border-[#f4f1ea]/10"
+                      >
+                        <Link
+                          className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${story.id}`}
+                        >
+                          <span className="font-semibold">{story.title}</span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.sourceName} / {story.scoreLabel}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.reason}
+                          </span>
+                        </Link>
+                        {exposureAction && item ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyExposureCooldownAction({
+                                formatCategory: getCategoryLabel,
+                                item,
+                                mode: "replacement",
+                              })
+                            }
+                          >
+                            {exposureAction.actionLabel}
+                          </Button>
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
                     Replacement candidates will appear as unseen stories enter
@@ -4285,39 +6322,56 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                {readerProfileSnapshot.cards.map((card) => (
-                  <div
-                    key={card.key}
-                    className="grid content-start gap-2 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid grid-cols-[1fr_auto] gap-3">
-                      <span className="font-semibold">{card.label}</span>
-                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                        {card.statusLabel}
-                      </span>
-                    </div>
-                    <div className="font-mono text-sm">{card.value}</div>
-                    <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {card.detail}
-                    </p>
-                    {card.signals.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {card.signals.map((signal) => (
-                          <span
-                            key={`${card.key}-${signal}`}
-                            className="border border-[#161616]/20 px-2 py-1 font-mono text-[11px] dark:border-[#f4f1ea]/20"
-                          >
-                            {signal}
-                          </span>
-                        ))}
+                {readerProfileSnapshot.cards.map((card) => {
+                  const cardAction = card.action;
+
+                  return (
+                    <div
+                      key={card.key}
+                      className="grid content-start gap-2 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid grid-cols-[1fr_auto] gap-3">
+                        <span className="font-semibold">{card.label}</span>
+                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                          {card.statusLabel}
+                        </span>
                       </div>
-                    ) : (
-                      <p className="text-[11px] leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        No active signals in this snapshot.
+                      <div className="font-mono text-sm">{card.value}</div>
+                      <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {card.detail}
                       </p>
-                    )}
-                  </div>
-                ))}
+                      {card.signals.length > 0 ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {card.signals.map((signal) => (
+                            <span
+                              key={`${card.key}-${signal}`}
+                              className="border border-[#161616]/20 px-2 py-1 font-mono text-[11px] dark:border-[#f4f1ea]/20"
+                            >
+                              {signal}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-[11px] leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          No active signals in this snapshot.
+                        </p>
+                      )}
+                      {cardAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyReaderProfileSnapshotAction(cardAction)
+                          }
+                        >
+                          Apply next update
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4347,34 +6401,74 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-2">
-                {readerRetentionPlan.actions.map((action) => (
-                  <div
-                    key={action.label}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-2 text-xs sm:grid-cols-[7rem_1fr] dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-semibold">{action.label}</span>
-                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {action.detail}
-                    </span>
-                  </div>
-                ))}
+                {readerRetentionPlan.actions.map((action) => {
+                  const retentionAction = getNewsReaderRetentionTrainingAction({
+                    action,
+                    formatCategory: getCategoryLabel,
+                    items: rankedItems,
+                    negativeFeedbackItems,
+                  });
+
+                  return (
+                    <div
+                      key={action.label}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-2 text-xs sm:grid-cols-[7rem_1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-semibold">{action.label}</span>
+                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {action.detail}
+                      </span>
+                      {retentionAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => applyReaderRetentionAction(action)}
+                        >
+                          {retentionAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
               <div className="mt-3 grid gap-3">
                 {readerRetentionPlan.slots.length > 0 ? (
-                  readerRetentionPlan.slots.map((slot) => (
-                    <Link
-                      key={`${slot.label}-${slot.id}`}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${slot.id}`}
-                    >
-                      <span className="font-semibold">
-                        {slot.label} / {slot.title}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {slot.sourceName} / {slot.reason}
-                      </span>
-                    </Link>
-                  ))
+                  readerRetentionPlan.slots.map((slot, index) => {
+                    const item = rankedItemsById.get(slot.id);
+
+                    return (
+                      <article
+                        key={`${slot.label}-${slot.id}`}
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-1">
+                          <Link
+                            className="font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${slot.id}`}
+                          >
+                            {slot.label} / {slot.title}
+                          </Link>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.sourceName} / {slot.reason}
+                          </span>
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Return slots will appear after ranked stories or behavior
@@ -4473,27 +6567,47 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-3">
-                {recommendationDiversityGovernor.controls.map((control) => (
-                  <div
-                    key={`${control.dimension}-${control.label}`}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[5rem_1fr] dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                      {control.dimension} / {control.shareLabel}
-                    </span>
-                    <span>
-                      <span className="block font-semibold">
-                        {control.label}
+                {recommendationDiversityGovernor.controls.map((control) => {
+                  const diversityAction =
+                    getNewsRecommendationDiversityGovernorTrainingAction(
+                      control,
+                    );
+
+                  return (
+                    <div
+                      key={`${control.dimension}-${control.label}`}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[5rem_1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                        {control.dimension} / {control.shareLabel}
                       </span>
-                      <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {control.detail}
+                      <span>
+                        <span className="block font-semibold">
+                          {control.label}
+                        </span>
+                        <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {control.detail}
+                        </span>
+                        <span className="mt-1 block font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                          {control.statusLabel}
+                        </span>
                       </span>
-                      <span className="mt-1 block font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
-                        {control.statusLabel}
-                      </span>
-                    </span>
-                  </div>
-                ))}
+                      {diversityAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyRecommendationDiversityGovernorAction(control)
+                          }
+                        >
+                          {diversityAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4524,33 +6638,55 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {recommendationDiversityRepairQueue.repairs.length > 0 ? (
-                  recommendationDiversityRepairQueue.repairs.map((repair) => (
-                    <Link
-                      key={`${repair.dimension}-${repair.candidate.id}`}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] sm:grid-cols-[5rem_1fr] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${repair.candidate.id}`}
-                    >
-                      <span className="font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                        {repair.dimension} / {repair.shareLabel}
-                      </span>
-                      <span>
-                        <span className="block font-semibold">
-                          {repair.label}
-                        </span>
-                        <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          Replace {repair.replaceStory.title} with{" "}
-                          {repair.candidate.title}.
-                        </span>
-                        <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {repair.reason}
-                        </span>
-                        <span className="mt-1 block font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
-                          {repair.candidate.sourceName} / Score{" "}
-                          {repair.candidate.personalizedScore}
-                        </span>
-                      </span>
-                    </Link>
-                  ))
+                  recommendationDiversityRepairQueue.repairs.map(
+                    (repair, index) => {
+                      const item = rankedItemsById.get(repair.candidate.id);
+
+                      return (
+                        <article
+                          key={`${repair.dimension}-${repair.candidate.id}`}
+                          className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                        >
+                          <div className="grid gap-1 sm:grid-cols-[5rem_1fr]">
+                            <span className="font-mono text-[10px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                              {repair.dimension} / {repair.shareLabel}
+                            </span>
+                            <span>
+                              <Link
+                                className="block font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${repair.candidate.id}`}
+                              >
+                                {repair.label}
+                              </Link>
+                              <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                Replace {repair.replaceStory.title} with{" "}
+                                {repair.candidate.title}.
+                              </span>
+                              <span className="mt-1 block leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                {repair.reason}
+                              </span>
+                              <span className="mt-1 block font-mono text-[10px] tracking-[0.12em] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                                {repair.candidate.sourceName} / Score{" "}
+                                {repair.candidate.personalizedScore}
+                              </span>
+                            </span>
+                          </div>
+                          {item ? (
+                            <StoryAction
+                              item={item}
+                              guardrailItem={selectGuardrailItemForStory(item)}
+                              isPreview={isPreview}
+                              rankSlot={index + 1}
+                              savedItem={selectSavedItemForStory(item)}
+                              onAction={recordStoryAction}
+                              onRemoveSaved={removeSavedItem}
+                              onRestoreGuardrail={restoreGuardrailItem}
+                            />
+                          ) : null}
+                        </article>
+                      );
+                    },
+                  )
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     No diversity repairs are needed for the current
@@ -4586,17 +6722,37 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-3">
-                {recommendationSourceSaturation.actions.map((action) => (
-                  <div
-                    key={action.label}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-semibold">{action.label}</span>
-                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {action.detail}
-                    </span>
-                  </div>
-                ))}
+                {recommendationSourceSaturation.actions.map((action) => {
+                  const saturationAction =
+                    getNewsRecommendationSaturationTrainingAction(action);
+
+                  return (
+                    <div
+                      key={action.label}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-1">
+                        <span className="font-semibold">{action.label}</span>
+                        <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {action.detail}
+                        </span>
+                      </div>
+                      {saturationAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyRecommendationSaturationAction(action)
+                          }
+                        >
+                          {saturationAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4626,17 +6782,37 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-3">
-                {recommendationTopicSaturation.actions.map((action) => (
-                  <div
-                    key={action.label}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-semibold">{action.label}</span>
-                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {action.detail}
-                    </span>
-                  </div>
-                ))}
+                {recommendationTopicSaturation.actions.map((action) => {
+                  const saturationAction =
+                    getNewsRecommendationSaturationTrainingAction(action);
+
+                  return (
+                    <div
+                      key={action.label}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-1">
+                        <span className="font-semibold">{action.label}</span>
+                        <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {action.detail}
+                        </span>
+                      </div>
+                      {saturationAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyRecommendationSaturationAction(action)
+                          }
+                        >
+                          {saturationAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4666,17 +6842,37 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-3">
-                {recommendationEntitySaturation.actions.map((action) => (
-                  <div
-                    key={action.label}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-semibold">{action.label}</span>
-                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {action.detail}
-                    </span>
-                  </div>
-                ))}
+                {recommendationEntitySaturation.actions.map((action) => {
+                  const saturationAction =
+                    getNewsRecommendationSaturationTrainingAction(action);
+
+                  return (
+                    <div
+                      key={action.label}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-1">
+                        <span className="font-semibold">{action.label}</span>
+                        <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {action.detail}
+                        </span>
+                      </div>
+                      {saturationAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyRecommendationSaturationAction(action)
+                          }
+                        >
+                          {saturationAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4706,17 +6902,43 @@ function NewsHomeContent({
                 ))}
               </dl>
               <div className="mt-3 grid gap-3">
-                {readerSatisfactionBrief.actions.map((action) => (
-                  <div
-                    key={action.label}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-semibold">{action.label}</span>
-                    <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {action.detail}
-                    </span>
-                  </div>
-                ))}
+                {readerSatisfactionBrief.actions.map((action) => {
+                  const satisfactionAction =
+                    getNewsReaderSatisfactionTrainingAction({
+                      action,
+                      formatCategory: getCategoryLabel,
+                      historyItems,
+                      items: rankedItems,
+                      negativeFeedbackItems,
+                      positiveFeedbackItems,
+                      savedItems,
+                    });
+
+                  return (
+                    <div
+                      key={action.label}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-1">
+                        <span className="font-semibold">{action.label}</span>
+                        <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {action.detail}
+                        </span>
+                      </div>
+                      {satisfactionAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => applyReaderSatisfactionAction(action)}
+                        >
+                          {satisfactionAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -4749,32 +6971,79 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {recommendationRotationQueue.entries.length > 0 ? (
-                  recommendationRotationQueue.entries.map((entry, index) => (
-                    <Link
-                      key={`${entry.label}-${entry.id}`}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${entry.id}`}
-                    >
-                      <span className="flex flex-wrap items-center gap-2 font-semibold">
-                        <span className="font-mono">
-                          {String(index + 1).padStart(2, "0")}
-                        </span>
-                        <span>{entry.label}</span>
-                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                          {entry.scoreLabel}
-                        </span>
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {entry.title}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {entry.sourceName} / {entry.categoryLabel}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {entry.reason}
-                      </span>
-                    </Link>
-                  ))
+                  recommendationRotationQueue.entries.map((entry, index) => {
+                    const item = rankedItemsById.get(entry.id);
+                    const rotationActionInput = item
+                      ? {
+                          formatCategory: getCategoryLabel,
+                          item,
+                          objective: entry.objective,
+                        }
+                      : null;
+                    const rotationAction = rotationActionInput
+                      ? getNewsRecommendationRotationTrainingAction(
+                          rotationActionInput,
+                        )
+                      : null;
+
+                    return (
+                      <article
+                        key={`${entry.label}-${entry.id}`}
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-1">
+                          <span className="flex flex-wrap items-center gap-2 font-semibold">
+                            <span className="font-mono">
+                              {String(index + 1).padStart(2, "0")}
+                            </span>
+                            <span>{entry.label}</span>
+                            <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                              {entry.scoreLabel}
+                            </span>
+                          </span>
+                          <Link
+                            className="leading-5 text-[#5b5750] hover:text-[#8a241c] dark:text-[#bbb4aa] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${entry.id}`}
+                          >
+                            {entry.title}
+                          </Link>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {entry.sourceName} / {entry.categoryLabel}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {entry.reason}
+                          </span>
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                        {rotationAction && rotationActionInput ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyRecommendationRotationAction(
+                                rotationActionInput,
+                              )
+                            }
+                          >
+                            {rotationAction.actionLabel}
+                          </Button>
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Recommendation rotation will appear after stories are
@@ -4851,27 +7120,55 @@ function NewsHomeContent({
               </div>
               <div className="mt-3 grid gap-3">
                 {readerLearningLoop.actions.length > 0 ? (
-                  readerLearningLoop.actions.map((action) => (
-                    <div
-                      key={action.key}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">
-                          {action.label}: {action.title}
-                        </span>
-                        <span className="border border-[#161616]/30 px-2 py-0.5 font-mono text-[10px] uppercase dark:border-[#f4f1ea]/30">
-                          {action.statusLabel}
-                        </span>
+                  readerLearningLoop.actions.map((action) => {
+                    const learningLoopAction =
+                      getNewsReaderLearningLoopTrainingAction({
+                        action,
+                        formatCategory: getCategoryLabel,
+                        historyItems,
+                        items: rankedItems,
+                        negativeFeedbackItems,
+                        positiveFeedbackItems,
+                        savedItems,
+                      });
+
+                    return (
+                      <div
+                        key={action.key}
+                        className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">
+                              {action.label}: {action.title}
+                            </span>
+                            <span className="border border-[#161616]/30 px-2 py-0.5 font-mono text-[10px] uppercase dark:border-[#f4f1ea]/30">
+                              {action.statusLabel}
+                            </span>
+                          </div>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {action.signalLabel}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {action.detail}
+                          </span>
+                        </div>
+                        {learningLoopAction ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyReaderLearningLoopAction(action)
+                            }
+                          >
+                            {learningLoopAction.actionLabel}
+                          </Button>
+                        ) : null}
                       </div>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {action.signalLabel}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {action.detail}
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Reader learning loop will appear after behavior or ranked
@@ -4908,7 +7205,10 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {readerJourneyMap.steps.length > 0 ? (
-                  readerJourneyMap.steps.map((step) => {
+                  readerJourneyMap.steps.map((step, index) => {
+                    const item = step.id
+                      ? rankedItemsById.get(step.id)
+                      : undefined;
                     const stepBody = (
                       <>
                         <div className="flex flex-wrap items-center gap-2">
@@ -4930,21 +7230,34 @@ function NewsHomeContent({
                       </>
                     );
 
-                    return step.id && !isPreview ? (
-                      <Link
-                        key={`${step.key}-${step.id}`}
-                        className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                        href={`/news/${step.id}`}
-                      >
-                        {stepBody}
-                      </Link>
-                    ) : (
-                      <div
+                    return (
+                      <article
                         key={`${step.key}-${step.id ?? step.title}`}
-                        className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
                       >
-                        {stepBody}
-                      </div>
+                        {step.id && !isPreview ? (
+                          <Link
+                            className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${step.id}`}
+                          >
+                            {stepBody}
+                          </Link>
+                        ) : (
+                          <div className="grid gap-1">{stepBody}</div>
+                        )}
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </article>
                     );
                   })
                 ) : (
@@ -4983,53 +7296,71 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-4">
                 {readerScorecards.scorecards.length > 0 ? (
-                  readerScorecards.scorecards.map((scorecard) => (
-                    <div
-                      key={scorecard.id}
-                      className="border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                    >
-                      <Link
-                        className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                        href={`/news/${scorecard.id}`}
+                  readerScorecards.scorecards.map((scorecard, index) => {
+                    const item = rankedItemsById.get(scorecard.id);
+
+                    return (
+                      <article
+                        key={scorecard.id}
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
                       >
-                        <span className="font-semibold">{scorecard.title}</span>
-                        <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {scorecard.sourceName} / {scorecard.categoryLabel} /{" "}
-                          {scorecard.scoreLabel}
-                        </span>
-                        <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {scorecard.summary}
-                        </span>
-                      </Link>
-                      <div className="mt-2 grid gap-2">
-                        {scorecard.components.map((component) => (
-                          <div
-                            key={`${scorecard.id}-${component.label}-${component.valueLabel}`}
-                            className="grid gap-1 border-t border-[#161616]/15 pt-2 sm:grid-cols-[5.25rem_3.5rem_1fr] dark:border-[#f4f1ea]/10"
-                          >
-                            <span className="font-semibold">
-                              {component.label}
-                            </span>
-                            <span
-                              className={cn(
-                                "font-mono",
-                                component.tone === "penalty"
-                                  ? "text-[#8a241c] dark:text-[#ff8b7e]"
-                                  : component.tone === "base"
-                                    ? "text-[#161616] dark:text-[#f4f1ea]"
-                                    : "text-[#2f6f4e] dark:text-[#8fd8ae]",
-                              )}
+                        <Link
+                          className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${scorecard.id}`}
+                        >
+                          <span className="font-semibold">
+                            {scorecard.title}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {scorecard.sourceName} / {scorecard.categoryLabel} /{" "}
+                            {scorecard.scoreLabel}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {scorecard.summary}
+                          </span>
+                        </Link>
+                        <div className="grid gap-2">
+                          {scorecard.components.map((component) => (
+                            <div
+                              key={`${scorecard.id}-${component.label}-${component.valueLabel}`}
+                              className="grid gap-1 border-t border-[#161616]/15 pt-2 sm:grid-cols-[5.25rem_3.5rem_1fr] dark:border-[#f4f1ea]/10"
                             >
-                              {component.valueLabel}
-                            </span>
-                            <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                              {component.detail}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))
+                              <span className="font-semibold">
+                                {component.label}
+                              </span>
+                              <span
+                                className={cn(
+                                  "font-mono",
+                                  component.tone === "penalty"
+                                    ? "text-[#8a241c] dark:text-[#ff8b7e]"
+                                    : component.tone === "base"
+                                      ? "text-[#161616] dark:text-[#f4f1ea]"
+                                      : "text-[#2f6f4e] dark:text-[#8fd8ae]",
+                                )}
+                              >
+                                {component.valueLabel}
+                              </span>
+                              <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                {component.detail}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Reader scorecards will appear after ranked stories are
@@ -5080,24 +7411,44 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {readerDaypartPlan.lanes.length > 0 ? (
-                  readerDaypartPlan.lanes.map((lane) => (
-                    <Link
-                      key={`${lane.key}-${lane.id}`}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${lane.id}`}
-                    >
-                      <span className="font-semibold">
-                        {lane.label} / {lane.title}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {lane.sourceName} / {lane.categoryLabel} /{" "}
-                        {lane.scoreLabel}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {lane.reason}
-                      </span>
-                    </Link>
-                  ))
+                  readerDaypartPlan.lanes.map((lane, index) => {
+                    const item = rankedItemsById.get(lane.id);
+
+                    return (
+                      <article
+                        key={`${lane.key}-${lane.id}`}
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-1">
+                          <Link
+                            className="font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${lane.id}`}
+                          >
+                            {lane.label} / {lane.title}
+                          </Link>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {lane.sourceName} / {lane.categoryLabel} /{" "}
+                            {lane.scoreLabel}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {lane.reason}
+                          </span>
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Daypart lanes will appear after ranked stories are
@@ -5150,22 +7501,44 @@ function NewsHomeContent({
               </div>
               <div className="mt-3 grid gap-3">
                 {readerDigest.nextReads.length > 0 ? (
-                  readerDigest.nextReads.map((story) => (
-                    <Link
-                      key={story.id}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-xs hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${story.id}`}
-                    >
-                      <span className="font-semibold">{story.title}</span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {story.sourceName} / {story.categoryLabel} /{" "}
-                        {story.scoreLabel}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {story.reason}
-                      </span>
-                    </Link>
-                  ))
+                  readerDigest.nextReads.map((story, index) => {
+                    const item = rankedItemsById.get(story.id);
+
+                    return (
+                      <article
+                        key={story.id}
+                        className="grid gap-3 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-1">
+                          <Link
+                            className="font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${story.id}`}
+                          >
+                            {story.title}
+                          </Link>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.sourceName} / {story.categoryLabel} /{" "}
+                            {story.scoreLabel}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {story.reason}
+                          </span>
+                        </div>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Digest recommendations will appear after stories are ranked.
@@ -5518,20 +7891,48 @@ function NewsHomeContent({
                         {"impactStories" in suggestion &&
                         suggestion.impactStories.length > 0 ? (
                           <div className="mt-3 grid gap-2">
-                            {suggestion.impactStories.map((story) => (
-                              <Link
-                                key={`${suggestion.action}-${suggestion.kind}-${suggestion.signal}-${story.id}`}
-                                className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                                href={`/news/${story.id}`}
-                              >
-                                <span className="truncate font-semibold">
-                                  {story.title}
-                                </span>
-                                <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                                  {story.sourceName} / {story.reason}
-                                </span>
-                              </Link>
-                            ))}
+                            {suggestion.impactStories.map(
+                              (story, storyIndex) => {
+                                const item = rankedItemsById.get(story.id);
+
+                                return (
+                                  <article
+                                    key={`${suggestion.action}-${suggestion.kind}-${suggestion.signal}-${story.id}`}
+                                    className="grid gap-2 border-t border-[#161616]/15 pt-2 dark:border-[#f4f1ea]/10"
+                                  >
+                                    <Link
+                                      className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                      href={`/news/${story.id}`}
+                                    >
+                                      <span className="truncate font-semibold">
+                                        {story.title}
+                                      </span>
+                                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                        {story.sourceName} / {story.reason}
+                                      </span>
+                                    </Link>
+                                    {item ? (
+                                      <StoryAction
+                                        item={item}
+                                        guardrailItem={selectGuardrailItemForStory(
+                                          item,
+                                        )}
+                                        isPreview={isPreview}
+                                        rankSlot={storyIndex + 1}
+                                        savedItem={selectSavedItemForStory(
+                                          item,
+                                        )}
+                                        onAction={recordStoryAction}
+                                        onRemoveSaved={removeSavedItem}
+                                        onRestoreGuardrail={
+                                          restoreGuardrailItem
+                                        }
+                                      />
+                                    ) : null}
+                                  </article>
+                                );
+                              },
+                            )}
                           </div>
                         ) : null}
                       </div>
@@ -5602,20 +8003,42 @@ function NewsHomeContent({
                       </div>
                       <div className="mt-2 grid gap-2">
                         {lane.stories.length > 0 ? (
-                          lane.stories.map((story) => (
-                            <Link
-                              key={`${lane.key}-${story.id}`}
-                              className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                              href={`/news/${story.id}`}
-                            >
-                              <span className="truncate font-semibold">
-                                {story.title}
-                              </span>
-                              <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                                {story.sourceName} / {story.reason}
-                              </span>
-                            </Link>
-                          ))
+                          lane.stories.map((story, storyIndex) => {
+                            const item = rankedItemsById.get(story.id);
+
+                            return (
+                              <article
+                                key={`${lane.key}-${story.id}`}
+                                className="grid gap-2 border-t border-[#161616]/15 pt-2 dark:border-[#f4f1ea]/10"
+                              >
+                                <Link
+                                  className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                  href={`/news/${story.id}`}
+                                >
+                                  <span className="truncate font-semibold">
+                                    {story.title}
+                                  </span>
+                                  <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                    {story.sourceName} / {story.reason}
+                                  </span>
+                                </Link>
+                                {item ? (
+                                  <StoryAction
+                                    item={item}
+                                    guardrailItem={selectGuardrailItemForStory(
+                                      item,
+                                    )}
+                                    isPreview={isPreview}
+                                    rankSlot={storyIndex + 1}
+                                    savedItem={selectSavedItemForStory(item)}
+                                    onAction={recordStoryAction}
+                                    onRemoveSaved={removeSavedItem}
+                                    onRestoreGuardrail={restoreGuardrailItem}
+                                  />
+                                ) : null}
+                              </article>
+                            );
+                          })
                         ) : (
                           <p className="border-t border-[#161616]/15 pt-2 leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
                             No stories in this lane yet.
@@ -5660,36 +8083,70 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {filterBubbleReport.checks.length > 0 ? (
-                  filterBubbleReport.checks.map((check) => (
-                    <div
-                      key={check.label}
-                      className="border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                    >
-                      <div className="grid gap-2 sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)]">
-                        <div className="grid grid-cols-[1fr_auto] gap-2">
-                          <span className="font-semibold">{check.label}</span>
-                          <span
-                            className={cn(
-                              "font-mono",
-                              check.status === "risk"
-                                ? "text-[#8a241c] dark:text-[#ff8b7e]"
-                                : check.status === "watch"
-                                  ? "text-[#7a4b12] dark:text-[#f0b35d]"
-                                  : "text-[#23613c] dark:text-[#78d59a]",
-                            )}
-                          >
-                            {check.status}
-                          </span>
-                        </div>
-                        <div className="grid gap-2">
-                          <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                            {check.detail}
-                          </p>
-                          <p className="leading-5">{check.action}</p>
+                  filterBubbleReport.checks.map((check) => {
+                    const filterBubbleAction =
+                      getNewsFilterBubbleTrainingAction({
+                        check,
+                        formatCategory: getCategoryLabel,
+                        items: rankedItems,
+                        profile,
+                      });
+                    const filterBubbleActionLabel =
+                      filterBubbleAction?.kind === "profile"
+                        ? filterBubbleAction.action.actionLabel
+                        : filterBubbleAction
+                          ? `${filterBubbleAction.action.direction === "raise" ? "Raise" : "Lower"} ${
+                              filterBubbleAction.action.label
+                            }`
+                          : null;
+
+                    return (
+                      <div
+                        key={check.label}
+                        className="border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-2 sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)]">
+                          <div className="grid grid-cols-[1fr_auto] gap-2">
+                            <span className="font-semibold">{check.label}</span>
+                            <span
+                              className={cn(
+                                "font-mono",
+                                check.status === "risk"
+                                  ? "text-[#8a241c] dark:text-[#ff8b7e]"
+                                  : check.status === "watch"
+                                    ? "text-[#7a4b12] dark:text-[#f0b35d]"
+                                    : "text-[#23613c] dark:text-[#78d59a]",
+                              )}
+                            >
+                              {check.status}
+                            </span>
+                          </div>
+                          <div className="grid gap-2">
+                            <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {check.detail}
+                            </p>
+                            <p className="leading-5">{check.action}</p>
+                            {filterBubbleActionLabel ? (
+                              <Button
+                                className="mt-1 h-8 w-fit rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant={
+                                  filterBubbleAction?.kind === "profile" &&
+                                  filterBubbleAction.action.effect === "remove"
+                                    ? "outline"
+                                    : "default"
+                                }
+                                onClick={() => applyFilterBubbleAction(check)}
+                              >
+                                {filterBubbleActionLabel}
+                              </Button>
+                            ) : null}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Filter bubble checks will appear after ranked stories load.
@@ -5725,37 +8182,57 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {tasteCalibration.actions.length > 0 ? (
-                  tasteCalibration.actions.map((action) => (
-                    <div
-                      key={action.key}
-                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs dark:border-[#f4f1ea]/15"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-semibold">{action.label}</span>
-                        <span
-                          className={cn(
-                            "border border-[#161616]/30 px-2 py-0.5 font-mono text-[10px] uppercase dark:border-[#f4f1ea]/30",
-                            action.statusLabel === "Dampen"
-                              ? "text-[#5b5750] dark:text-[#bbb4aa]"
-                              : action.statusLabel === "Explore"
-                                ? "text-[#7a4b12] dark:text-[#f0b35d]"
-                                : "text-[#23613c] dark:text-[#78d59a]",
-                          )}
-                        >
-                          {action.statusLabel}
-                        </span>
+                  tasteCalibration.actions.map((action) => {
+                    const tasteAction = getNewsTasteCalibrationTrainingAction({
+                      action,
+                      formatCategory: getCategoryLabel,
+                      items: rankedItems,
+                    });
+
+                    return (
+                      <div
+                        key={action.key}
+                        className="grid gap-2 border-t border-[#161616]/20 pt-3 text-xs sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                      >
+                        <div className="grid gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-semibold">
+                              {action.label}
+                            </span>
+                            <span
+                              className={cn(
+                                "border border-[#161616]/30 px-2 py-0.5 font-mono text-[10px] uppercase dark:border-[#f4f1ea]/30",
+                                action.statusLabel === "Dampen"
+                                  ? "text-[#5b5750] dark:text-[#bbb4aa]"
+                                  : action.statusLabel === "Explore"
+                                    ? "text-[#7a4b12] dark:text-[#f0b35d]"
+                                    : "text-[#23613c] dark:text-[#78d59a]",
+                              )}
+                            >
+                              {action.statusLabel}
+                            </span>
+                          </div>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {action.storyTitle}
+                          </span>
+                          <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {action.detail}
+                          </span>
+                        </div>
+                        {tasteAction ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() => applyTasteCalibrationAction(action)}
+                          >
+                            {tasteAction.actionLabel}
+                          </Button>
+                        ) : null}
                       </div>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {action.storyTitle}
-                      </span>
-                      <span className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {action.detail}
-                      </span>
-                      <span className="w-fit border border-[#161616]/25 px-2 py-1 font-mono text-[11px] uppercase dark:border-[#f4f1ea]/25">
-                        {action.actionLabel}
-                      </span>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
                   <div className="border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Taste calibration will appear after stories are ranked.
@@ -5791,7 +8268,8 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {discoveryLadder.rungs.length > 0 ? (
-                  discoveryLadder.rungs.map((rung) => {
+                  discoveryLadder.rungs.map((rung, index) => {
+                    const item = rankedItemsById.get(rung.id);
                     const isFollowed =
                       rung.statusLabel === "Following" ||
                       profile.preferredCategories.includes(rung.category);
@@ -5856,6 +8334,18 @@ function NewsHomeContent({
                         >
                           {isFollowed ? "Focus topic" : rung.actionLabel}
                         </Button>
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
                       </div>
                     );
                   })
@@ -5894,9 +8384,9 @@ function NewsHomeContent({
 
             <PreferenceGroup title="Angles">
               {availableAngleOptions.map((angle) => {
-                const active = profile.preferredEntities.some(
-                  (entity) =>
-                    entity.toLowerCase() === angle.signal.toLowerCase(),
+                const active = hasAngleValue(
+                  profile.preferredEntities,
+                  angle.signal,
                 );
 
                 return (
@@ -5922,7 +8412,10 @@ function NewsHomeContent({
 
             <PreferenceGroup title="Entities">
               {availableEntities.map((entity) => {
-                const active = profile.preferredEntities.includes(entity);
+                const active = hasEntityValue(
+                  profile.preferredEntities,
+                  entity,
+                );
 
                 return (
                   <PreferenceButton
@@ -5995,37 +8488,83 @@ function NewsHomeContent({
               ))}
             </dl>
             <div className="mt-4 grid gap-3">
-              {guardrailRecoveryPlan.actions.map((action) => (
-                <div
-                  key={action.label}
-                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <div className="font-semibold">{action.label}</div>
-                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                    {action.detail}
-                  </p>
-                </div>
-              ))}
+              {guardrailRecoveryPlan.actions.map((action) => {
+                const recoveryAction = getNewsGuardrailRecoveryTrainingAction({
+                  action,
+                  formatCategory: getCategoryLabel,
+                  historyItems,
+                  items: rankedItems,
+                  negativeFeedbackItems,
+                  positiveFeedbackItems,
+                  restoredGuardrailItems,
+                  savedItems,
+                });
+
+                return (
+                  <div
+                    key={action.label}
+                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                  >
+                    <div>
+                      <div className="font-semibold">{action.label}</div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {action.detail}
+                      </p>
+                    </div>
+                    {recoveryAction ? (
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => applyGuardrailRecoveryAction(action)}
+                      >
+                        {recoveryAction.actionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
             <div className="mt-4 grid gap-3">
               {guardrailRecoveryPlan.candidates.length > 0 ? (
-                guardrailRecoveryPlan.candidates.map((candidate) => (
-                  <Link
-                    key={candidate.id}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${candidate.id}`}
-                  >
-                    <span className="font-mono text-[11px] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
-                      {candidate.label} / {candidate.sourceName}
-                    </span>
-                    <span className="leading-5 font-semibold">
-                      {candidate.title}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {candidate.reason}
-                    </span>
-                  </Link>
-                ))
+                guardrailRecoveryPlan.candidates.map((candidate, index) => {
+                  const item = rankedItemsById.get(candidate.id);
+
+                  return (
+                    <article
+                      key={candidate.id}
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <Link
+                        className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${candidate.id}`}
+                      >
+                        <span className="font-mono text-[11px] text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                          {candidate.label} / {candidate.sourceName}
+                        </span>
+                        <span className="leading-5 font-semibold">
+                          {candidate.title}
+                        </span>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {candidate.reason}
+                        </span>
+                      </Link>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Recovery candidates will appear after restored or conflicted
@@ -6079,26 +8618,48 @@ function NewsHomeContent({
                   </p>
                   <div className="mt-3 grid gap-2">
                     {lane.stories.length > 0 ? (
-                      lane.stories.map((story) => (
-                        <Link
-                          key={`${lane.key}-${story.id}`}
-                          className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                          href={`/news/${story.id}`}
-                        >
-                          <span className="font-mono text-[11px] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                            {story.urgencyLabel} / {story.categoryLabel}
-                          </span>
-                          <span className="leading-5 font-semibold">
-                            {story.title}
-                          </span>
-                          <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.sourceName} / {story.scoreLabel}
-                          </span>
-                          <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.reason}
-                          </span>
-                        </Link>
-                      ))
+                      lane.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
+
+                        return (
+                          <article
+                            key={`${lane.key}-${story.id}`}
+                            className="grid gap-2 border-t border-[#161616]/15 pt-2 dark:border-[#f4f1ea]/10"
+                          >
+                            <Link
+                              className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                              href={`/news/${story.id}`}
+                            >
+                              <span className="font-mono text-[11px] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
+                                {story.urgencyLabel} / {story.categoryLabel}
+                              </span>
+                              <span className="leading-5 font-semibold">
+                                {story.title}
+                              </span>
+                              <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.sourceName} / {story.scoreLabel}
+                              </span>
+                              <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.reason}
+                              </span>
+                            </Link>
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                          </article>
+                        );
+                      })
                     ) : (
                       <p className="border-t border-[#161616]/15 pt-2 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/10 dark:text-[#bbb4aa]">
                         No stories are currently assigned to this escalation
@@ -6146,8 +8707,39 @@ function NewsHomeContent({
                   <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                     {control.detail}
                   </p>
+                  <Button
+                    className="mt-3 h-8 w-fit rounded-none px-2 text-xs"
+                    size="sm"
+                    type="button"
+                    variant="outline"
+                    onClick={() => applyPersonalizationDataVaultAction(control)}
+                  >
+                    {control.action.actionLabel}
+                  </Button>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 border-t border-[#161616]/20 pt-4 text-sm dark:border-[#f4f1ea]/15">
+              <div className="font-semibold">Import profile package</div>
+              <textarea
+                aria-label="Data Vault profile package JSON"
+                className="mt-2 min-h-28 w-full resize-y border border-[#161616]/30 bg-transparent p-3 font-mono text-xs leading-5 break-words text-[#161616] outline-none focus:border-[#8a241c] dark:border-[#f4f1ea]/25 dark:text-[#f4f1ea] dark:focus:border-[#ff8b7e]"
+                placeholder="Paste Data Vault profile JSON"
+                value={dataVaultImportDraft}
+                onChange={(event) =>
+                  setDataVaultImportDraft(event.currentTarget.value)
+                }
+              />
+              <Button
+                className="mt-3 h-8 w-fit rounded-none px-2 text-xs"
+                disabled={!dataVaultImportDraft.trim()}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={applyPersonalizationDataVaultProfileImport}
+              >
+                Import profile
+              </Button>
             </div>
           </section>
 
@@ -6178,40 +8770,55 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {refreshSimulation.moves.length > 0 ? (
-                refreshSimulation.moves.map((move) => (
-                  <Link
-                    key={move.key}
-                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${move.id}`}
-                  >
-                    <span className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-start">
-                      <span>
-                        <span className="block font-semibold">
-                          {move.label}: {move.title}
-                        </span>
-                        <span className="mt-1 block text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {move.sourceName} / {move.categoryLabel} /{" "}
-                          {move.reason}
-                        </span>
-                      </span>
-                      <span
-                        className={cn(
-                          "font-mono text-xs",
-                          move.statusLabel === "Dampen"
-                            ? "text-[#5b5750] dark:text-[#bbb4aa]"
-                            : move.statusLabel === "Explore"
-                              ? "text-[#7a4b12] dark:text-[#f0b35d]"
-                              : "text-[#8a241c] dark:text-[#ff8b7e]",
-                        )}
+                refreshSimulation.moves.map((move) => {
+                  const refreshSimulationAction =
+                    getNewsRefreshSimulationTrainingAction(move);
+
+                  return (
+                    <article
+                      key={move.key}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <Link
+                        className="grid gap-2 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${move.id}`}
                       >
-                        {move.deltaLabel}
-                      </span>
-                    </span>
-                    <span className="w-fit border border-[#161616]/25 px-2 py-1 font-mono text-[11px] uppercase dark:border-[#f4f1ea]/25">
-                      {move.actionLabel}
-                    </span>
-                  </Link>
-                ))
+                        <span className="grid gap-2 sm:grid-cols-[1fr_auto] sm:items-start">
+                          <span>
+                            <span className="block font-semibold">
+                              {move.label}: {move.title}
+                            </span>
+                            <span className="mt-1 block text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {move.sourceName} / {move.categoryLabel} /{" "}
+                              {move.reason}
+                            </span>
+                          </span>
+                          <span
+                            className={cn(
+                              "font-mono text-xs",
+                              move.statusLabel === "Dampen"
+                                ? "text-[#5b5750] dark:text-[#bbb4aa]"
+                                : move.statusLabel === "Explore"
+                                  ? "text-[#7a4b12] dark:text-[#f0b35d]"
+                                  : "text-[#8a241c] dark:text-[#ff8b7e]",
+                            )}
+                          >
+                            {move.deltaLabel}
+                          </span>
+                        </span>
+                      </Link>
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => applyRefreshSimulationAction(move)}
+                      >
+                        {refreshSimulationAction.actionLabel}
+                      </Button>
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Refresh simulation will appear after stories are ranked.
@@ -6246,39 +8853,63 @@ function NewsHomeContent({
               ))}
             </dl>
             <div className="mt-4 grid gap-3">
-              {editionQualityGate.checks.map((check) => (
-                <div
-                  key={check.key}
-                  className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)] dark:border-[#f4f1ea]/15"
-                >
-                  <div className="grid grid-cols-[1fr_auto] gap-3">
-                    <span className="font-semibold">{check.label}</span>
-                    <span
-                      className={cn(
-                        "font-mono text-xs",
-                        check.status === "pass"
-                          ? "text-[#23613c] dark:text-[#78d59a]"
-                          : check.status === "watch"
-                            ? "text-[#7a4b12] dark:text-[#f0b35d]"
-                            : "text-[#8a241c] dark:text-[#ff8b7e]",
-                      )}
-                    >
-                      {check.status}
-                    </span>
-                  </div>
-                  <div className="grid gap-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {check.evidenceLabel}
+              {editionQualityGate.checks.map((check) => {
+                const qualityActionInput = {
+                  check,
+                  formatCategory: getCategoryLabel,
+                  items: rankedItems,
+                  negativeFeedbackItems,
+                };
+                const qualityAction =
+                  getNewsEditionQualityGateTrainingAction(qualityActionInput);
+
+                return (
+                  <div
+                    key={check.key}
+                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,0.35fr)_minmax(0,1fr)] dark:border-[#f4f1ea]/15"
+                  >
+                    <div className="grid grid-cols-[1fr_auto] gap-3">
+                      <span className="font-semibold">{check.label}</span>
+                      <span
+                        className={cn(
+                          "font-mono text-xs",
+                          check.status === "pass"
+                            ? "text-[#23613c] dark:text-[#78d59a]"
+                            : check.status === "watch"
+                              ? "text-[#7a4b12] dark:text-[#f0b35d]"
+                              : "text-[#8a241c] dark:text-[#ff8b7e]",
+                        )}
+                      >
+                        {check.status}
                       </span>
-                      <span>{check.action}</span>
                     </div>
-                    <p className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {check.detail}
-                    </p>
+                    <div className="grid gap-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {check.evidenceLabel}
+                        </span>
+                        <span>{check.action}</span>
+                      </div>
+                      <p className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {check.detail}
+                      </p>
+                      {qualityAction ? (
+                        <Button
+                          className="mt-1 h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyEditionQualityGateAction(qualityActionInput)
+                          }
+                        >
+                          {qualityAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
@@ -6324,7 +8955,15 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {lane.stories.length > 0 ? (
-                      lane.stories.map((story) => {
+                      lane.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
+                        const pushAction = item
+                          ? getNewsPersonalizedPushQueueTrainingAction({
+                              item,
+                              laneKey: lane.key,
+                              story,
+                            })
+                          : null;
                         const storyBody = (
                           <>
                             <span className="leading-5 font-semibold">
@@ -6340,21 +8979,53 @@ function NewsHomeContent({
                           </>
                         );
 
-                        return isPreview ? (
-                          <div
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                        return (
+                          <article
+                            key={`${lane.key}-${story.id}`}
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {storyBody}
-                          </div>
-                        ) : (
-                          <Link
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            {storyBody}
-                          </Link>
+                            {isPreview ? (
+                              <div className="grid gap-1">{storyBody}</div>
+                            ) : (
+                              <Link
+                                className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {storyBody}
+                              </Link>
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                            {pushAction && item ? (
+                              <Button
+                                className="h-8 w-fit rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  applyPersonalizedPushQueueAction({
+                                    item,
+                                    laneKey: lane.key,
+                                    story,
+                                  })
+                                }
+                              >
+                                {pushAction.actionLabel}
+                              </Button>
+                            ) : null}
+                          </article>
                         );
                       })
                     ) : (
@@ -6410,7 +9081,8 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {lane.stories.length > 0 ? (
-                      lane.stories.map((story) => {
+                      lane.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
                         const storyBody = (
                           <>
                             <span className="leading-5 font-semibold">
@@ -6426,21 +9098,36 @@ function NewsHomeContent({
                           </>
                         );
 
-                        return isPreview ? (
-                          <div
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                        return (
+                          <article
+                            key={`${lane.key}-${story.id}`}
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {storyBody}
-                          </div>
-                        ) : (
-                          <Link
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            {storyBody}
-                          </Link>
+                            {isPreview ? (
+                              <div className="grid gap-1">{storyBody}</div>
+                            ) : (
+                              <Link
+                                className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {storyBody}
+                              </Link>
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                          </article>
                         );
                       })
                     ) : (
@@ -6496,7 +9183,8 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {lane.stories.length > 0 ? (
-                      lane.stories.map((story) => {
+                      lane.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
                         const storyBody = (
                           <>
                             <span className="leading-5 font-semibold">
@@ -6512,21 +9200,36 @@ function NewsHomeContent({
                           </>
                         );
 
-                        return isPreview ? (
-                          <div
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                        return (
+                          <article
+                            key={`${lane.key}-${story.id}`}
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {storyBody}
-                          </div>
-                        ) : (
-                          <Link
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            {storyBody}
-                          </Link>
+                            {isPreview ? (
+                              <div className="grid gap-1">{storyBody}</div>
+                            ) : (
+                              <Link
+                                className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {storyBody}
+                              </Link>
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                          </article>
                         );
                       })
                     ) : (
@@ -6582,7 +9285,16 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {lane.stories.length > 0 ? (
-                      lane.stories.map((story) => {
+                      lane.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
+                        const modelAction = item
+                          ? getNewsModelTrainingBatchTrainingAction({
+                              formatCategory: getCategoryLabel,
+                              item,
+                              laneKey: lane.key,
+                              profile,
+                            })
+                          : null;
                         const storyBody = (
                           <>
                             <span className="leading-5 font-semibold">
@@ -6598,21 +9310,54 @@ function NewsHomeContent({
                           </>
                         );
 
-                        return isPreview ? (
-                          <div
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                        return (
+                          <article
+                            key={`${lane.key}-${story.id}`}
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {storyBody}
-                          </div>
-                        ) : (
-                          <Link
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            {storyBody}
-                          </Link>
+                            {isPreview ? (
+                              <div className="grid gap-1">{storyBody}</div>
+                            ) : (
+                              <Link
+                                className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {storyBody}
+                              </Link>
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                            {modelAction && item ? (
+                              <Button
+                                className="h-8 w-fit rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  applyModelTrainingBatchAction({
+                                    formatCategory: getCategoryLabel,
+                                    item,
+                                    laneKey: lane.key,
+                                    profile,
+                                  })
+                                }
+                              >
+                                {modelAction.actionLabel}
+                              </Button>
+                            ) : null}
+                          </article>
                         );
                       })
                     ) : (
@@ -6668,12 +9413,18 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {lane.proposals.length > 0 ? (
-                      lane.proposals.map((proposal) => {
+                      lane.proposals.map((proposal, proposalIndex) => {
+                        const item = rankedItemsById.get(proposal.storyId);
+                        const trainingAction =
+                          getNewsProfileUpdateProposalTrainingAction(proposal);
                         const proposalBody = (
-                          <>
-                            <span className="leading-5 font-semibold">
+                          <div className="grid gap-1">
+                            <Link
+                              className="leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                              href={`/news/${proposal.storyId}`}
+                            >
                               {proposal.actionLabel}: {proposal.signalLabel}
-                            </span>
+                            </Link>
                             <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
                               {proposal.signalKind} / {proposal.sourceName} /{" "}
                               {proposal.evidenceLabel}
@@ -6681,24 +9432,47 @@ function NewsHomeContent({
                             <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
                               {proposal.reason}
                             </span>
-                          </>
+                          </div>
                         );
 
-                        return isPreview ? (
+                        return (
                           <div
                             key={proposal.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {proposalBody}
+                            {isPreview ? (
+                              <div className="grid gap-1">{proposalBody}</div>
+                            ) : (
+                              proposalBody
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={proposalIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                            {trainingAction ? (
+                              <Button
+                                className="h-8 w-fit rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  applyProfileUpdateProposal(proposal)
+                                }
+                              >
+                                Apply proposal
+                              </Button>
+                            ) : null}
                           </div>
-                        ) : (
-                          <Link
-                            key={proposal.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${proposal.storyId}`}
-                          >
-                            {proposalBody}
-                          </Link>
                         );
                       })
                     ) : (
@@ -6739,12 +9513,17 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {readerWatchlist.entries.length > 0 ? (
-                readerWatchlist.entries.map((entry) => {
+                readerWatchlist.entries.map((entry, index) => {
                   const watchTitle = (
                     <span className="leading-5 font-semibold">
                       {entry.topStory?.title}
                     </span>
                   );
+                  const item = entry.topStory
+                    ? rankedItemsById.get(entry.topStory.id)
+                    : undefined;
+                  const watchlistAction =
+                    getNewsReaderWatchlistTrainingAction(entry);
 
                   return (
                     <div
@@ -6768,16 +9547,41 @@ function NewsHomeContent({
                         {entry.reason}
                       </p>
                       {entry.topStory ? (
-                        isPreview ? (
-                          <div>{watchTitle}</div>
-                        ) : (
-                          <Link
-                            className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                            href={`/news/${entry.topStory.id}`}
-                          >
-                            {watchTitle}
-                          </Link>
-                        )
+                        <div className="grid gap-2">
+                          {isPreview ? (
+                            <div>{watchTitle}</div>
+                          ) : (
+                            <Link
+                              className="hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                              href={`/news/${entry.topStory.id}`}
+                            >
+                              {watchTitle}
+                            </Link>
+                          )}
+                          {item ? (
+                            <StoryAction
+                              item={item}
+                              guardrailItem={selectGuardrailItemForStory(item)}
+                              isPreview={isPreview}
+                              rankSlot={index + 1}
+                              savedItem={selectSavedItemForStory(item)}
+                              onAction={recordStoryAction}
+                              onRemoveSaved={removeSavedItem}
+                              onRestoreGuardrail={restoreGuardrailItem}
+                            />
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {watchlistAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => applyReaderWatchlistAction(entry)}
+                        >
+                          {watchlistAction.actionLabel}
+                        </Button>
                       ) : null}
                     </div>
                   );
@@ -6817,7 +9621,8 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {hotBoard.entries.length > 0 ? (
-                hotBoard.entries.map((entry) => {
+                hotBoard.entries.map((entry, index) => {
+                  const item = rankedItemsById.get(entry.id);
                   const entryTitle = (
                     <span className="leading-5 font-semibold">
                       {entry.title}
@@ -6859,6 +9664,20 @@ function NewsHomeContent({
                             </span>
                           ))}
                         </div>
+                        {item ? (
+                          <div className="mt-2">
+                            <StoryAction
+                              item={item}
+                              guardrailItem={selectGuardrailItemForStory(item)}
+                              isPreview={isPreview}
+                              rankSlot={index + 1}
+                              savedItem={selectSavedItemForStory(item)}
+                              onAction={recordStoryAction}
+                              onRemoveSaved={removeSavedItem}
+                              onRestoreGuardrail={restoreGuardrailItem}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                       <span className="font-mono">{entry.heatScore}</span>
                     </div>
@@ -6899,26 +9718,52 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {recommendationTrace.steps.length > 0 ? (
-                recommendationTrace.steps.map((step, index) => (
-                  <div
-                    key={`${step.label}-${step.title}`}
-                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[2rem_1fr_auto] dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-semibold">{step.label}</div>
-                      <div className="mt-1 leading-5 font-semibold">
-                        {step.title}
+                recommendationTrace.steps.map((step, index) => {
+                  const traceActionInput = {
+                    formatCategory: getCategoryLabel,
+                    items: rankedItems,
+                    negativeFeedbackItems,
+                    step,
+                  };
+                  const traceAction =
+                    getNewsRecommendationTraceTrainingAction(traceActionInput);
+
+                  return (
+                    <div
+                      key={`${step.label}-${step.title}`}
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[2rem_1fr_auto] dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-semibold">{step.label}</div>
+                        <div className="mt-1 leading-5 font-semibold">
+                          {step.title}
+                        </div>
+                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {step.detail}
+                        </p>
+                        {traceAction ? (
+                          <Button
+                            className="mt-2 h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyRecommendationTraceAction(traceActionInput)
+                            }
+                          >
+                            {traceAction.actionLabel}
+                          </Button>
+                        ) : null}
                       </div>
-                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {step.detail}
-                      </p>
+                      <span className="font-mono text-xs">
+                        {step.scoreLabel}
+                      </span>
                     </div>
-                    <span className="font-mono text-xs">{step.scoreLabel}</span>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Recommendation trace will appear after stories are ranked.
@@ -6954,35 +9799,70 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {experimentAllocation.arms.length > 0 ? (
-                experimentAllocation.arms.map((arm) => (
-                  <div
-                    key={arm.key}
-                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm md:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)] dark:border-[#f4f1ea]/15"
-                  >
-                    <div>
-                      <div className="grid grid-cols-[1fr_auto] gap-3">
-                        <span className="font-semibold">{arm.label}</span>
-                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                          {arm.allocationLabel}
-                        </span>
+                experimentAllocation.arms.map((arm) => {
+                  const experimentActionInput = {
+                    arm,
+                    formatCategory: getCategoryLabel,
+                    items: rankedItems,
+                    negativeFeedbackItems,
+                    profile,
+                  };
+                  const experimentAction =
+                    getNewsExperimentAllocationTrainingAction(
+                      experimentActionInput,
+                    );
+                  const experimentActionLabel =
+                    experimentAction?.kind === "profile"
+                      ? experimentAction.action.actionLabel
+                      : experimentAction
+                        ? `Raise ${experimentAction.action.label}`
+                        : null;
+
+                  return (
+                    <div
+                      key={arm.key}
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm md:grid-cols-[minmax(0,0.42fr)_minmax(0,1fr)] dark:border-[#f4f1ea]/15"
+                    >
+                      <div>
+                        <div className="grid grid-cols-[1fr_auto] gap-3">
+                          <span className="font-semibold">{arm.label}</span>
+                          <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                            {arm.allocationLabel}
+                          </span>
+                        </div>
+                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {arm.objective}
+                        </p>
                       </div>
-                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                        {arm.objective}
-                      </p>
-                    </div>
-                    <div>
-                      <div className="grid grid-cols-[1fr_auto] gap-3">
-                        <span className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {arm.trigger}
-                        </span>
-                        <span className="font-mono text-xs">
-                          {arm.storyCount}
-                        </span>
+                      <div>
+                        <div className="grid grid-cols-[1fr_auto] gap-3">
+                          <span className="leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {arm.trigger}
+                          </span>
+                          <span className="font-mono text-xs">
+                            {arm.storyCount}
+                          </span>
+                        </div>
+                        <p className="mt-2 leading-6">{arm.action}</p>
+                        {experimentAction && experimentActionLabel ? (
+                          <Button
+                            className="mt-2 h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyExperimentAllocationAction(
+                                experimentActionInput,
+                              )
+                            }
+                          >
+                            {experimentActionLabel}
+                          </Button>
+                        ) : null}
                       </div>
-                      <p className="mt-2 leading-6">{arm.action}</p>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Experiment allocation will appear after stories are ranked.
@@ -7018,42 +9898,96 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {aggregationIntake.lanes.length > 0 ? (
-                aggregationIntake.lanes.map((lane) => (
-                  <div
-                    key={lane.key}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid grid-cols-[1fr_auto] gap-3">
-                      <div className="font-semibold">{lane.label}</div>
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {lane.shareLabel}
-                      </span>
-                    </div>
-                    <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {lane.summary}
-                    </p>
-                    <p className="mt-2 leading-6">{lane.action}</p>
-                    <div className="mt-3 grid gap-2">
-                      {lane.stories.map((story) => (
-                        <Link
-                          key={`${lane.key}-${story.id}`}
-                          className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                          href={`/news/${story.id}`}
+                aggregationIntake.lanes.map((lane) => {
+                  const intakeActionInput = {
+                    formatCategory: getCategoryLabel,
+                    items: rankedItems,
+                    lane,
+                  };
+                  const intakeAction =
+                    getNewsAggregationIntakeTrainingAction(intakeActionInput);
+
+                  return (
+                    <div
+                      key={lane.key}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid grid-cols-[1fr_auto] gap-3">
+                        <div className="font-semibold">{lane.label}</div>
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {lane.shareLabel}
+                        </span>
+                      </div>
+                      <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {lane.summary}
+                      </p>
+                      <p className="mt-2 leading-6">{lane.action}</p>
+                      {intakeAction ? (
+                        <Button
+                          className="mt-2 h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyAggregationIntakeAction(intakeActionInput)
+                          }
                         >
-                          <span className="truncate font-semibold">
-                            {story.title}
-                          </span>
-                          <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.sourceName} / {story.scoreLabel}
-                          </span>
-                          <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.reason}
-                          </span>
-                        </Link>
-                      ))}
+                          {intakeAction.actionLabel}
+                        </Button>
+                      ) : null}
+                      <div className="mt-3 grid gap-2">
+                        {lane.stories.map((story, storyIndex) => {
+                          const item = rankedItemsById.get(story.id);
+                          const storyBody = (
+                            <>
+                              <span className="truncate font-semibold">
+                                {story.title}
+                              </span>
+                              <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.sourceName} / {story.scoreLabel}
+                              </span>
+                              <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.reason}
+                              </span>
+                            </>
+                          );
+
+                          return (
+                            <article
+                              key={`${lane.key}-${story.id}`}
+                              className="grid gap-2 border-t border-[#161616]/15 pt-2 dark:border-[#f4f1ea]/10"
+                            >
+                              {isPreview ? (
+                                <div className="grid gap-1">{storyBody}</div>
+                              ) : (
+                                <Link
+                                  className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                  href={`/news/${story.id}`}
+                                >
+                                  {storyBody}
+                                </Link>
+                              )}
+                              {item ? (
+                                <StoryAction
+                                  item={item}
+                                  guardrailItem={selectGuardrailItemForStory(
+                                    item,
+                                  )}
+                                  isPreview={isPreview}
+                                  rankSlot={storyIndex + 1}
+                                  savedItem={selectSavedItemForStory(item)}
+                                  onAction={recordStoryAction}
+                                  onRemoveSaved={removeSavedItem}
+                                  onRestoreGuardrail={restoreGuardrailItem}
+                                />
+                              ) : null}
+                            </article>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Aggregation intake will appear after sources deliver stories.
@@ -7089,33 +10023,64 @@ function NewsHomeContent({
               </dl>
               <div className="mt-3 grid gap-3">
                 {aggregationRecoveryQueue.actions.length > 0 ? (
-                  aggregationRecoveryQueue.actions.map((action) => (
-                    <Link
-                      key={`${action.priorityLabel}-${action.story.id}`}
-                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] sm:grid-cols-[4rem_1fr] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${action.story.id}`}
-                    >
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {action.priorityLabel}
-                      </span>
-                      <span>
-                        <span className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                          <span className="font-semibold">
-                            {action.actionLabel}
-                          </span>
-                          <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {action.laneLabel}
-                          </span>
+                  aggregationRecoveryQueue.actions.map((action) => {
+                    const recoveryActionInput = {
+                      action,
+                      items: rankedItems,
+                    };
+                    const recoveryAction =
+                      getNewsAggregationRecoveryTrainingAction(
+                        recoveryActionInput,
+                      );
+
+                    return (
+                      <article
+                        key={`${action.priorityLabel}-${action.story.id}`}
+                        className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[4rem_1fr] dark:border-[#f4f1ea]/15"
+                      >
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {action.priorityLabel}
                         </span>
-                        <span className="mt-1 block leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {action.reason}
+                        <span>
+                          <Link
+                            className="grid gap-2 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${action.story.id}`}
+                          >
+                            <span className="grid gap-2 sm:grid-cols-[1fr_auto]">
+                              <span className="font-semibold">
+                                {action.actionLabel}
+                              </span>
+                              <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                {action.laneLabel}
+                              </span>
+                            </span>
+                            <span className="block leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                              {action.reason}
+                            </span>
+                            <span className="block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                              {action.story.sourceName} /{" "}
+                              {action.story.scoreLabel}
+                            </span>
+                          </Link>
+                          {recoveryAction ? (
+                            <Button
+                              className="mt-2 h-8 w-fit rounded-none px-2 text-xs"
+                              size="sm"
+                              type="button"
+                              variant="outline"
+                              onClick={() =>
+                                applyAggregationRecoveryAction(
+                                  recoveryActionInput,
+                                )
+                              }
+                            >
+                              {recoveryAction.actionLabel}
+                            </Button>
+                          ) : null}
                         </span>
-                        <span className="mt-2 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                          {action.story.sourceName} / {action.story.scoreLabel}
-                        </span>
-                      </span>
-                    </Link>
-                  ))
+                      </article>
+                    );
+                  })
                 ) : (
                   <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                     Aggregation recovery actions will appear when intake needs
@@ -7154,47 +10119,69 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {readerCohorts.cohorts.length > 0 ? (
-                readerCohorts.cohorts.map((cohort) => (
-                  <div
-                    key={cohort.label}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid gap-3 sm:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)]">
-                      <div>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="font-semibold">{cohort.label}</div>
-                          <span className="font-mono text-xs">
-                            {cohort.confidenceLabel}
-                          </span>
-                        </div>
-                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {cohort.detail}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          {cohort.evidence.map((signal) => (
-                            <span
-                              key={signal}
-                              className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25"
-                            >
-                              {signal}
+                readerCohorts.cohorts.map((cohort) => {
+                  const cohortAction = getNewsReaderCohortTrainingAction({
+                    cohort,
+                    formatCategory: getCategoryLabel,
+                    profile,
+                  });
+
+                  return (
+                    <div
+                      key={cohort.label}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)]">
+                        <div>
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="font-semibold">{cohort.label}</div>
+                            <span className="font-mono text-xs">
+                              {cohort.confidenceLabel}
                             </span>
-                          ))}
+                          </div>
+                          <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {cohort.detail}
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {cohort.evidence.map((signal) => (
+                              <span
+                                key={signal}
+                                className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25"
+                              >
+                                {signal}
+                              </span>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                      <div className="border-t border-[#161616]/10 pt-3 sm:border-t-0 sm:pt-0 dark:border-[#f4f1ea]/10">
-                        <div className="grid grid-cols-[1fr_auto] gap-3">
-                          <span className="font-semibold">Guardrails</span>
-                          <span className="font-mono">
-                            {cohort.guardrailCount}
-                          </span>
+                        <div className="border-t border-[#161616]/10 pt-3 sm:border-t-0 sm:pt-0 dark:border-[#f4f1ea]/10">
+                          <div className="grid grid-cols-[1fr_auto] gap-3">
+                            <span className="font-semibold">Guardrails</span>
+                            <span className="font-mono">
+                              {cohort.guardrailCount}
+                            </span>
+                          </div>
+                          <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {cohort.nextAction}
+                          </p>
+                          {cohortAction ? (
+                            <Button
+                              className="mt-3 w-full sm:w-auto"
+                              size="sm"
+                              variant={
+                                cohortAction.effect === "remove"
+                                  ? "outline"
+                                  : "default"
+                              }
+                              onClick={() => applyReaderCohortAction(cohort)}
+                            >
+                              {cohortAction.actionLabel}
+                            </Button>
+                          ) : null}
                         </div>
-                        <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {cohort.nextAction}
-                        </p>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Cohorts will appear after explicit preferences, reads, saves,
@@ -7231,46 +10218,66 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {collaborativeSignals.signals.length > 0 ? (
-                collaborativeSignals.signals.map((signal) => (
-                  <div
-                    key={signal.label}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,0.52fr)_minmax(0,1fr)]">
-                      <div>
-                        <div className="grid grid-cols-[1fr_auto] gap-3">
-                          <div className="font-semibold">{signal.label}</div>
-                          <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                            {signal.liftLabel}
-                          </span>
+                collaborativeSignals.signals.map((signal) => {
+                  const collaborativeAction =
+                    getNewsCollaborativeSignalTrainingAction({
+                      formatCategory: getCategoryLabel,
+                      profile,
+                      signal,
+                    });
+
+                  return (
+                    <div
+                      key={signal.label}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.52fr)_minmax(0,1fr)]">
+                        <div>
+                          <div className="grid grid-cols-[1fr_auto] gap-3">
+                            <div className="font-semibold">{signal.label}</div>
+                            <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                              {signal.liftLabel}
+                            </span>
+                          </div>
+                          <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {signal.detail}
+                          </p>
+                          <p className="mt-2 leading-6">{signal.action}</p>
+                          {collaborativeAction ? (
+                            <Button
+                              className="mt-3 w-full sm:w-auto"
+                              size="sm"
+                              onClick={() =>
+                                applyCollaborativeSignalAction(signal)
+                              }
+                            >
+                              {collaborativeAction.actionLabel}
+                            </Button>
+                          ) : null}
                         </div>
-                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {signal.detail}
-                        </p>
-                        <p className="mt-2 leading-6">{signal.action}</p>
-                      </div>
-                      <div className="grid gap-2">
-                        {signal.stories.map((story) => (
-                          <Link
-                            key={`${signal.label}-${story.id}`}
-                            className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            <span className="truncate font-semibold">
-                              {story.title}
-                            </span>
-                            <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                              {story.sourceName} / {story.scoreLabel}
-                            </span>
-                            <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                              {story.reason}
-                            </span>
-                          </Link>
-                        ))}
+                        <div className="grid gap-2">
+                          {signal.stories.map((story) => (
+                            <Link
+                              key={`${signal.label}-${story.id}`}
+                              className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
+                              href={`/news/${story.id}`}
+                            >
+                              <span className="truncate font-semibold">
+                                {story.title}
+                              </span>
+                              <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.sourceName} / {story.scoreLabel}
+                              </span>
+                              <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.reason}
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Collaborative signals will appear after reader cohorts and
@@ -7322,7 +10329,18 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {lane.stories.length > 0 ? (
-                      lane.stories.map((story) => {
+                      lane.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
+                        const alertActionInput = item
+                          ? {
+                              formatCategory: getCategoryLabel,
+                              item,
+                              laneKey: lane.key,
+                            }
+                          : null;
+                        const alertAction = alertActionInput
+                          ? getNewsAlertRoutingTrainingAction(alertActionInput)
+                          : null;
                         const storyBody = (
                           <>
                             <span className="leading-5 font-semibold">
@@ -7335,21 +10353,49 @@ function NewsHomeContent({
                           </>
                         );
 
-                        return isPreview ? (
-                          <div
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                        return (
+                          <article
+                            key={`${lane.key}-${story.id}`}
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {storyBody}
-                          </div>
-                        ) : (
-                          <Link
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            {storyBody}
-                          </Link>
+                            {isPreview ? (
+                              <div className="grid gap-1">{storyBody}</div>
+                            ) : (
+                              <Link
+                                className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {storyBody}
+                              </Link>
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                            {alertAction && alertActionInput ? (
+                              <Button
+                                className="h-8 w-fit rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  applyAlertRoutingAction(alertActionInput)
+                                }
+                              >
+                                {alertAction.actionLabel}
+                              </Button>
+                            ) : null}
+                          </article>
                         );
                       })
                     ) : (
@@ -7390,65 +10436,117 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {sessionIntent.intents.length > 0 ? (
-                sessionIntent.intents.map((intent) => (
-                  <div
-                    key={intent.label}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid gap-3 lg:grid-cols-[minmax(0,0.58fr)_minmax(0,1fr)]">
-                      <div>
-                        <div className="grid grid-cols-[1fr_auto] gap-3">
-                          <div className="font-semibold">{intent.label}</div>
-                          <span className="font-mono">
-                            {intent.score} / {intent.candidateCount}
-                          </span>
-                        </div>
-                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {intent.nextAction}
-                        </p>
-                        {intent.evidence.length > 0 ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {intent.evidence.map((signal) => (
-                              <span
-                                key={signal}
-                                className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25"
-                              >
-                                {signal}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="mt-2 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                            No session evidence yet.
-                          </p>
-                        )}
-                      </div>
-                      <div className="border-t border-[#161616]/10 pt-3 lg:border-t-0 lg:pt-0 dark:border-[#f4f1ea]/10">
-                        <div className="grid grid-cols-[1fr_auto] gap-3">
-                          <span className="font-semibold">Lead candidate</span>
-                          <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {intent.guardrailCount} guardrails
-                          </span>
-                        </div>
-                        {intent.leadStory ? (
-                          <Link
-                            className="mt-2 block leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                            href={`/news/${intent.leadStory.id}`}
-                          >
-                            {intent.leadStory.title}
-                            <span className="mt-1 block font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                              {intent.leadStory.sourceName}
+                sessionIntent.intents.map((intent, index) => {
+                  const intentAction = getNewsSessionIntentTrainingAction({
+                    formatCategory: getCategoryLabel,
+                    intent,
+                    profile,
+                  });
+                  const leadItem = intent.leadStory
+                    ? rankedItemsById.get(intent.leadStory.id)
+                    : undefined;
+
+                  return (
+                    <div
+                      key={intent.label}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-3 lg:grid-cols-[minmax(0,0.58fr)_minmax(0,1fr)]">
+                        <div>
+                          <div className="grid grid-cols-[1fr_auto] gap-3">
+                            <div className="font-semibold">{intent.label}</div>
+                            <span className="font-mono">
+                              {intent.score} / {intent.candidateCount}
                             </span>
-                          </Link>
-                        ) : (
-                          <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                            No matching candidate is ready for this intent.
+                          </div>
+                          <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {intent.nextAction}
                           </p>
-                        )}
+                          {intentAction ? (
+                            <Button
+                              className="mt-3 w-full sm:w-auto"
+                              size="sm"
+                              variant={
+                                intentAction.effect === "remove"
+                                  ? "outline"
+                                  : "default"
+                              }
+                              onClick={() => applySessionIntentAction(intent)}
+                            >
+                              {intentAction.actionLabel}
+                            </Button>
+                          ) : null}
+                          {intent.evidence.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {intent.evidence.map((signal) => (
+                                <span
+                                  key={signal}
+                                  className="border border-[#161616]/25 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/25"
+                                >
+                                  {signal}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="mt-2 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                              No session evidence yet.
+                            </p>
+                          )}
+                        </div>
+                        <div className="border-t border-[#161616]/10 pt-3 lg:border-t-0 lg:pt-0 dark:border-[#f4f1ea]/10">
+                          <div className="grid grid-cols-[1fr_auto] gap-3">
+                            <span className="font-semibold">
+                              Lead candidate
+                            </span>
+                            <span className="font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                              {intent.guardrailCount} guardrails
+                            </span>
+                          </div>
+                          {intent.leadStory ? (
+                            <div className="mt-2 grid gap-2">
+                              {isPreview ? (
+                                <div className="leading-5 font-semibold">
+                                  {intent.leadStory.title}
+                                  <span className="mt-1 block font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                    {intent.leadStory.sourceName}
+                                  </span>
+                                </div>
+                              ) : (
+                                <Link
+                                  className="block leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                  href={`/news/${intent.leadStory.id}`}
+                                >
+                                  {intent.leadStory.title}
+                                  <span className="mt-1 block font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                    {intent.leadStory.sourceName}
+                                  </span>
+                                </Link>
+                              )}
+                              {leadItem ? (
+                                <StoryAction
+                                  item={leadItem}
+                                  guardrailItem={selectGuardrailItemForStory(
+                                    leadItem,
+                                  )}
+                                  isPreview={isPreview}
+                                  rankSlot={index + 1}
+                                  savedItem={selectSavedItemForStory(leadItem)}
+                                  onAction={recordStoryAction}
+                                  onRemoveSaved={removeSavedItem}
+                                  onRestoreGuardrail={restoreGuardrailItem}
+                                />
+                              ) : null}
+                            </div>
+                          ) : (
+                            <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                              No matching candidate is ready for this intent.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Read, save, or hide stories to let the next session declare an
@@ -7522,6 +10620,32 @@ function NewsHomeContent({
                           No active signals in this source.
                         </p>
                       )}
+                      {entry.controls.length > 0 ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {entry.controls.map((control) => {
+                            const ledgerAction =
+                              getNewsProfileSignalLedgerTrainingAction(control);
+
+                            return (
+                              <Button
+                                key={`${control.kind}-${control.signal}`}
+                                className="h-8 max-w-full rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  applyProfileSignalLedgerAction(control)
+                                }
+                              >
+                                {ledgerAction.actionLabel}:{" "}
+                                <span className="truncate font-mono">
+                                  {ledgerAction.label}
+                                </span>
+                              </Button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -7641,7 +10765,20 @@ function NewsHomeContent({
                   </p>
                   <div className="grid gap-2">
                     {queue.stories.length > 0 ? (
-                      queue.stories.map((story) => {
+                      queue.stories.map((story, storyIndex) => {
+                        const item = rankedItemsById.get(story.id);
+                        const distributionActionInput = item
+                          ? {
+                              formatCategory: getCategoryLabel,
+                              item,
+                              laneKey: queue.key,
+                            }
+                          : null;
+                        const distributionAction = distributionActionInput
+                          ? getNewsDistributionQueueTrainingAction(
+                              distributionActionInput,
+                            )
+                          : null;
                         const storyBody = (
                           <>
                             <span className="leading-5 font-semibold">
@@ -7654,21 +10791,51 @@ function NewsHomeContent({
                           </>
                         );
 
-                        return isPreview ? (
-                          <div
+                        return (
+                          <article
                             key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
+                            className="grid gap-2 border-t border-[#161616]/10 pt-2 dark:border-[#f4f1ea]/10"
                           >
-                            {storyBody}
-                          </div>
-                        ) : (
-                          <Link
-                            key={story.id}
-                            className="grid gap-1 border-t border-[#161616]/10 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                            href={`/news/${story.id}`}
-                          >
-                            {storyBody}
-                          </Link>
+                            {isPreview ? (
+                              <div className="grid gap-1">{storyBody}</div>
+                            ) : (
+                              <Link
+                                className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                                href={`/news/${story.id}`}
+                              >
+                                {storyBody}
+                              </Link>
+                            )}
+                            {item ? (
+                              <StoryAction
+                                item={item}
+                                guardrailItem={selectGuardrailItemForStory(
+                                  item,
+                                )}
+                                isPreview={isPreview}
+                                rankSlot={storyIndex + 1}
+                                savedItem={selectSavedItemForStory(item)}
+                                onAction={recordStoryAction}
+                                onRemoveSaved={removeSavedItem}
+                                onRestoreGuardrail={restoreGuardrailItem}
+                              />
+                            ) : null}
+                            {distributionAction && distributionActionInput ? (
+                              <Button
+                                className="h-8 w-fit rounded-none px-2 text-xs"
+                                size="sm"
+                                type="button"
+                                variant="outline"
+                                onClick={() =>
+                                  applyDistributionQueueAction(
+                                    distributionActionInput,
+                                  )
+                                }
+                              >
+                                {distributionAction.actionLabel}
+                              </Button>
+                            ) : null}
+                          </article>
                         );
                       })
                     ) : (
@@ -7769,20 +10936,76 @@ function NewsHomeContent({
             </div>
             <div className="mt-4 grid gap-3">
               {nextRefreshPlan.slots.length > 0 ? (
-                nextRefreshPlan.slots.map((item) => (
-                  <Link
-                    key={item.id}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
-                  >
-                    <span className="leading-5 font-semibold">
-                      {item.title}
-                    </span>
-                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / {item.reason} / {item.scoreLabel}
-                    </span>
-                  </Link>
-                ))
+                nextRefreshPlan.slots.map((slot, index) => {
+                  const item = rankedItemsById.get(slot.id);
+                  const refreshActionInput = item
+                    ? {
+                        formatCategory: getCategoryLabel,
+                        item,
+                        reason: slot.reason,
+                      }
+                    : null;
+                  const refreshAction = refreshActionInput
+                    ? getNewsNextRefreshPlanTrainingAction(refreshActionInput)
+                    : null;
+
+                  return (
+                    <article
+                      key={slot.id}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      {isPreview ? (
+                        <div className="grid gap-1">
+                          <span className="leading-5 font-semibold">
+                            {slot.title}
+                          </span>
+                          <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.sourceName} / {slot.reason} /{" "}
+                            {slot.scoreLabel}
+                          </span>
+                        </div>
+                      ) : (
+                        <Link
+                          className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${slot.id}`}
+                        >
+                          <span className="leading-5 font-semibold">
+                            {slot.title}
+                          </span>
+                          <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.sourceName} / {slot.reason} /{" "}
+                            {slot.scoreLabel}
+                          </span>
+                        </Link>
+                      )}
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                      {refreshActionInput && refreshAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyNextRefreshPlanAction(refreshActionInput)
+                          }
+                        >
+                          {refreshAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Candidate refresh slots will appear after the desk ranks
@@ -7836,17 +11059,44 @@ function NewsHomeContent({
               ))}
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {personalizationMix.actions.map((action) => (
-                <div
-                  key={action.label}
-                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <div className="font-semibold">{action.label}</div>
-                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                    {action.detail}
-                  </p>
-                </div>
-              ))}
+              {personalizationMix.actions.map((action) => {
+                const mixAction = getNewsPersonalizationMixTrainingAction({
+                  action,
+                  formatCategory: getCategoryLabel,
+                  items: rankedItems,
+                });
+                const mixActionLabel =
+                  mixAction?.kind === "profile"
+                    ? mixAction.action.actionLabel
+                    : mixAction
+                      ? `Raise ${mixAction.action.label}`
+                      : null;
+
+                return (
+                  <div
+                    key={action.label}
+                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                  >
+                    <div>
+                      <div className="font-semibold">{action.label}</div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {action.detail}
+                      </p>
+                    </div>
+                    {mixActionLabel ? (
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => applyPersonalizationMixAction(action)}
+                      >
+                        {mixActionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -8015,23 +11265,47 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3 lg:grid-cols-3">
               {explorationSlots.slots.length > 0 ? (
-                explorationSlots.slots.map((slot) => (
-                  <Link
-                    key={slot.id}
-                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${slot.id}`}
-                  >
-                    <span className="leading-5 font-semibold">
-                      {slot.title}
-                    </span>
-                    <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {slot.sourceName} / {slot.reason} / {slot.scoreLabel}
-                    </span>
-                    <span className="w-fit border border-[#161616]/20 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/20">
-                      {slot.signal}
-                    </span>
-                  </Link>
-                ))
+                explorationSlots.slots.map((slot) => {
+                  const explorationAction =
+                    getNewsExplorationSlotTrainingAction({
+                      formatCategory: getCategoryLabel,
+                      items: rankedItems,
+                      profile,
+                      slot,
+                    });
+
+                  return (
+                    <article
+                      key={slot.id}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <Link
+                        className="grid gap-2 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${slot.id}`}
+                      >
+                        <span className="leading-5 font-semibold">
+                          {slot.title}
+                        </span>
+                        <span className="text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {slot.sourceName} / {slot.reason} / {slot.scoreLabel}
+                        </span>
+                      </Link>
+                      <span className="w-fit border border-[#161616]/20 px-2 py-1 font-mono text-xs dark:border-[#f4f1ea]/20">
+                        {slot.signal}
+                      </span>
+                      {explorationAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          onClick={() => applyExplorationSlotAction(slot)}
+                        >
+                          {explorationAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] lg:col-span-3 dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Outside-profile stories will appear here when the feed has
@@ -8068,49 +11342,69 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-4 lg:grid-cols-3">
               {channelComparison.channels.length > 0 ? (
-                channelComparison.channels.map((channel) => (
-                  <div
-                    key={channel.key}
-                    className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="font-semibold">{channel.label}</h3>
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {channel.scoreLabel}
-                      </span>
-                    </div>
-                    <Link
-                      className="mt-2 block text-sm leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                      href={`/news/${channel.lead.id}`}
+                channelComparison.channels.map((channel, index) => {
+                  const leadItem = rankedItemsById.get(channel.lead.id);
+
+                  return (
+                    <div
+                      key={channel.key}
+                      className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
                     >
-                      {channel.lead.title}
-                    </Link>
-                    <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {channel.lead.sourceName} / {channel.reason}
-                    </p>
-                    <div className="mt-3 grid gap-2">
-                      {channel.topStories.map((story, index) => (
-                        <Link
-                          key={story.id}
-                          className="grid grid-cols-[1.5rem_1fr] gap-2 text-xs leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                          href={`/news/${story.id}`}
-                        >
-                          <span className="font-mono text-[#5b5750] dark:text-[#bbb4aa]">
-                            {String(index + 1).padStart(2, "0")}
-                          </span>
-                          <span>
-                            <span className="block font-semibold">
-                              {story.title}
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="font-semibold">{channel.label}</h3>
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {channel.scoreLabel}
+                        </span>
+                      </div>
+                      <Link
+                        className="mt-2 block text-sm leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${channel.lead.id}`}
+                      >
+                        {channel.lead.title}
+                      </Link>
+                      <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {channel.lead.sourceName} / {channel.reason}
+                      </p>
+                      {leadItem ? (
+                        <div className="mt-2">
+                          <StoryAction
+                            item={leadItem}
+                            guardrailItem={selectGuardrailItemForStory(
+                              leadItem,
+                            )}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(leadItem)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        </div>
+                      ) : null}
+                      <div className="mt-3 grid gap-2">
+                        {channel.topStories.map((story, storyIndex) => (
+                          <Link
+                            key={story.id}
+                            className="grid grid-cols-[1.5rem_1fr] gap-2 text-xs leading-5 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${story.id}`}
+                          >
+                            <span className="font-mono text-[#5b5750] dark:text-[#bbb4aa]">
+                              {String(storyIndex + 1).padStart(2, "0")}
                             </span>
-                            <span className="text-[#5b5750] dark:text-[#bbb4aa]">
-                              {story.sourceName}
+                            <span>
+                              <span className="block font-semibold">
+                                {story.title}
+                              </span>
+                              <span className="text-[#5b5750] dark:text-[#bbb4aa]">
+                                {story.sourceName}
+                              </span>
                             </span>
-                          </span>
-                        </Link>
-                      ))}
+                          </Link>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Channel comparison will appear after stories are ranked.
@@ -8146,20 +11440,49 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {missedCoverage.stories.length > 0 ? (
-                missedCoverage.stories.map((item) => (
-                  <Link
-                    key={item.id}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
-                  >
-                    <span className="leading-5 font-semibold">
-                      {item.title}
-                    </span>
-                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / {item.reason} / {item.scoreLabel}
-                    </span>
-                  </Link>
-                ))
+                missedCoverage.stories.map((item, index) => {
+                  const story = rankedItemsById.get(item.id);
+                  const storyBody = (
+                    <>
+                      <span className="leading-5 font-semibold">
+                        {item.title}
+                      </span>
+                      <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                        {item.sourceName} / {item.reason} / {item.scoreLabel}
+                      </span>
+                    </>
+                  );
+
+                  return (
+                    <article
+                      key={item.id}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      {isPreview ? (
+                        <div className="grid gap-1">{storyBody}</div>
+                      ) : (
+                        <Link
+                          className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                          href={`/news/${item.id}`}
+                        >
+                          {storyBody}
+                        </Link>
+                      )}
+                      {story ? (
+                        <StoryAction
+                          item={story}
+                          guardrailItem={selectGuardrailItemForStory(story)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(story)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Keep reading the front page and this rail will catch
@@ -8195,17 +11518,37 @@ function NewsHomeContent({
               ))}
             </dl>
             <div className="mt-4 grid gap-3">
-              {fatigueReport.notices.map((notice) => (
-                <div
-                  key={notice.label}
-                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <div className="font-semibold">{notice.label}</div>
-                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                    {notice.detail}
-                  </p>
-                </div>
-              ))}
+              {fatigueReport.notices.map((notice) => {
+                const fatigueAction = getNewsFeedFatigueTrainingAction({
+                  items: rankedItems,
+                  notice,
+                });
+
+                return (
+                  <div
+                    key={notice.label}
+                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[1fr_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                  >
+                    <div>
+                      <div className="font-semibold">{notice.label}</div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {notice.detail}
+                      </p>
+                    </div>
+                    {fatigueAction ? (
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => applyFeedFatigueAction(notice)}
+                      >
+                        {fatigueAction.actionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -8236,25 +11579,52 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {channelStrategy.lanes.length > 0 ? (
-                channelStrategy.lanes.map((lane) => (
-                  <div
-                    key={lane.label}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid grid-cols-[1fr_auto] gap-3">
-                      <div className="font-semibold">{lane.label}</div>
-                      <span className="font-mono text-xs">
-                        {lane.count} / {lane.share}%
-                      </span>
+                channelStrategy.lanes.map((lane) => {
+                  const channelAction = getNewsChannelStrategyTrainingAction({
+                    formatCategory: getCategoryLabel,
+                    items: rankedItems,
+                    lane,
+                    profile,
+                  });
+                  const channelActionLabel =
+                    channelAction?.kind === "profile"
+                      ? channelAction.action.actionLabel
+                      : channelAction
+                        ? `${channelAction.action.direction === "raise" ? "Raise" : "Lower"} ${
+                            channelAction.action.label
+                          }`
+                        : null;
+
+                  return (
+                    <div
+                      key={lane.label}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid grid-cols-[1fr_auto] gap-3">
+                        <div className="font-semibold">{lane.label}</div>
+                        <span className="font-mono text-xs">
+                          {lane.count} / {lane.share}%
+                        </span>
+                      </div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {lane.detail}
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {lane.action}
+                      </p>
+                      {channelActionLabel ? (
+                        <Button
+                          className="mt-3 h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          onClick={() => applyChannelStrategyAction(lane)}
+                        >
+                          {channelActionLabel}
+                        </Button>
+                      ) : null}
                     </div>
-                    <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {lane.detail}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {lane.action}
-                    </p>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Channel strategy will appear after the edition has ranked
@@ -8451,6 +11821,71 @@ function NewsHomeContent({
                     </div>
                   ))}
                 </div>
+                {trainingUpdate.dataVaultExport ? (
+                  <div className="mt-4 border-t border-[#161616]/20 pt-4 text-sm dark:border-[#f4f1ea]/15">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-black">
+                          {trainingUpdate.dataVaultExport.label}
+                        </h3>
+                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {trainingUpdate.dataVaultExport.summary}
+                        </p>
+                      </div>
+                      <span className="border border-[#161616]/30 px-2 py-1 font-mono text-xs break-all dark:border-[#f4f1ea]/25">
+                        {trainingUpdate.dataVaultExport.filename}
+                      </span>
+                    </div>
+                    <Button
+                      asChild
+                      className="mt-3 h-8 w-fit rounded-none px-2 text-xs"
+                      size="sm"
+                      variant="outline"
+                    >
+                      <a
+                        download={trainingUpdate.dataVaultExport.filename}
+                        href={getNewsPersonalizationDataVaultExportHref(
+                          trainingUpdate.dataVaultExport,
+                        )}
+                      >
+                        Download package
+                      </a>
+                    </Button>
+                    <div className="mt-3 grid gap-3">
+                      {trainingUpdate.dataVaultExport.sections.map(
+                        (section) => (
+                          <div
+                            key={section.label}
+                            className="border-t border-[#161616]/15 pt-3 dark:border-[#f4f1ea]/10"
+                          >
+                            <div className="font-semibold">{section.label}</div>
+                            <dl className="mt-2 grid gap-2">
+                              {section.records.length > 0 ? (
+                                section.records.map((record) => (
+                                  <div
+                                    key={`${section.label}-${record.label}-${record.value}`}
+                                    className="grid gap-1 sm:grid-cols-[9rem_1fr]"
+                                  >
+                                    <dt className="font-mono text-xs break-words text-[#5b5750] uppercase dark:text-[#bbb4aa]">
+                                      {record.label}
+                                    </dt>
+                                    <dd className="leading-5 break-words">
+                                      {record.value}
+                                    </dd>
+                                  </div>
+                                ))
+                              ) : (
+                                <div className="text-[#5b5750] dark:text-[#bbb4aa]">
+                                  No records in this package.
+                                </div>
+                              )}
+                            </dl>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ) : null}
                 {trainingUpdateHistory.length > 1 ? (
                   <div className="mt-4 border-t border-[#161616]/20 pt-4 dark:border-[#f4f1ea]/15">
                     <h3 className="text-sm font-black">Recent Learning</h3>
@@ -8622,7 +12057,8 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {liveWire.updates.length > 0 ? (
-                liveWire.updates.map((update) => {
+                liveWire.updates.map((update, index) => {
+                  const item = rankedItemsById.get(update.id);
                   const updateTitle = (
                     <span className="leading-5 font-semibold">
                       {update.title}
@@ -8630,37 +12066,51 @@ function NewsHomeContent({
                   );
 
                   return (
-                    <div
+                    <article
                       key={update.id}
-                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
                     >
-                      <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] tracking-[0.12em] uppercase">
-                        <span className="text-[#8a241c] dark:text-[#ff8b7e]">
-                          {update.signal}
-                        </span>
-                        <span className="text-[#78746c]">/</span>
-                        <span>{formatNewsTime(update.publishedAt)}</span>
-                        <span className="text-[#78746c]">/</span>
-                        <span>{update.categoryLabel}</span>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] tracking-[0.12em] uppercase">
+                          <span className="text-[#8a241c] dark:text-[#ff8b7e]">
+                            {update.signal}
+                          </span>
+                          <span className="text-[#78746c]">/</span>
+                          <span>{formatNewsTime(update.publishedAt)}</span>
+                          <span className="text-[#78746c]">/</span>
+                          <span>{update.categoryLabel}</span>
+                        </div>
+                        {isPreview ? (
+                          <div className="mt-2">{updateTitle}</div>
+                        ) : (
+                          <Link
+                            className="mt-2 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${update.id}`}
+                          >
+                            {updateTitle}
+                          </Link>
+                        )}
+                        <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          <span>{update.sourceName}</span>
+                          <span className="font-mono">
+                            trend {update.trendScore} / score{" "}
+                            {update.personalizedScore}
+                          </span>
+                        </div>
                       </div>
-                      {isPreview ? (
-                        <div className="mt-2">{updateTitle}</div>
-                      ) : (
-                        <Link
-                          className="mt-2 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                          href={`/news/${update.id}`}
-                        >
-                          {updateTitle}
-                        </Link>
-                      )}
-                      <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        <span>{update.sourceName}</span>
-                        <span className="font-mono">
-                          trend {update.trendScore} / score{" "}
-                          {update.personalizedScore}
-                        </span>
-                      </div>
-                    </div>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                    </article>
                   );
                 })
               ) : (
@@ -8670,17 +12120,51 @@ function NewsHomeContent({
               )}
             </div>
             <div className="mt-4 grid gap-3">
-              {liveWire.notices.map((notice) => (
-                <div
-                  key={notice.label}
-                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <div className="font-semibold">{notice.label}</div>
-                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                    {notice.detail}
-                  </p>
-                </div>
-              ))}
+              {liveWire.notices.map((notice) => {
+                const liveWireAction = getNewsLiveWireTrainingAction({
+                  formatCategory: getCategoryLabel,
+                  items: rankedItems,
+                  notice,
+                });
+                const liveWireActionLabel =
+                  liveWireAction?.kind === "profile"
+                    ? liveWireAction.action.actionLabel
+                    : liveWireAction
+                      ? `${liveWireAction.action.direction === "raise" ? "Raise" : "Lower"} ${
+                          liveWireAction.action.label
+                        }`
+                      : null;
+
+                return (
+                  <div
+                    key={notice.label}
+                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                  >
+                    <div>
+                      <div className="font-semibold">{notice.label}</div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {notice.detail}
+                      </p>
+                    </div>
+                    {liveWireActionLabel ? (
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant={
+                          liveWireAction?.kind === "profile" &&
+                          liveWireAction.action.effect === "remove"
+                            ? "outline"
+                            : "default"
+                        }
+                        onClick={() => applyLiveWireAction(notice)}
+                      >
+                        {liveWireActionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -8698,7 +12182,18 @@ function NewsHomeContent({
             </div>
             <div className="mt-4 grid gap-3">
               {editionSchedule.slots.length > 0 ? (
-                editionSchedule.slots.map((slot) => {
+                editionSchedule.slots.map((slot, index) => {
+                  const item = rankedItemsById.get(slot.story.id);
+                  const scheduleActionInput = item
+                    ? {
+                        formatCategory: getCategoryLabel,
+                        item,
+                        slotLabel: slot.label,
+                      }
+                    : null;
+                  const scheduleAction = scheduleActionInput
+                    ? getNewsEditionScheduleTrainingAction(scheduleActionInput)
+                    : null;
                   const storyTitle = (
                     <span className="leading-5 font-semibold">
                       {slot.story.title}
@@ -8706,38 +12201,65 @@ function NewsHomeContent({
                   );
 
                   return (
-                    <div
+                    <article
                       key={`${slot.timeLabel}-${slot.story.id}`}
-                      className="grid grid-cols-[3.25rem_1fr_auto] gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
                     >
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {slot.timeLabel}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-mono text-[11px] tracking-[0.14em] uppercase">
-                          {slot.label} / {slot.intent}
+                      <div className="grid grid-cols-[3.25rem_1fr_auto] gap-3">
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {slot.timeLabel}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-mono text-[11px] tracking-[0.14em] uppercase">
+                            {slot.label} / {slot.intent}
+                          </div>
+                          {isPreview ? (
+                            <div className="mt-1">{storyTitle}</div>
+                          ) : (
+                            <Link
+                              className="mt-1 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                              href={`/news/${slot.story.id}`}
+                            >
+                              {storyTitle}
+                            </Link>
+                          )}
+                          <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.reason}
+                          </p>
+                          <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.story.sourceName}
+                          </div>
                         </div>
-                        {isPreview ? (
-                          <div className="mt-1">{storyTitle}</div>
-                        ) : (
-                          <Link
-                            className="mt-1 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                            href={`/news/${slot.story.id}`}
-                          >
-                            {storyTitle}
-                          </Link>
-                        )}
-                        <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {slot.reason}
-                        </p>
-                        <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                          {slot.story.sourceName}
-                        </div>
+                        <span className="font-mono text-xs">
+                          {slot.story.personalizedScore}
+                        </span>
                       </div>
-                      <span className="font-mono text-xs">
-                        {slot.story.personalizedScore}
-                      </span>
-                    </div>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                      {scheduleActionInput && scheduleAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyEditionScheduleAction(scheduleActionInput)
+                          }
+                        >
+                          {scheduleAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
                   );
                 })
               ) : (
@@ -8763,6 +12285,19 @@ function NewsHomeContent({
             <div className="mt-4 grid gap-3">
               {readingQueue.slots.length > 0 ? (
                 readingQueue.slots.map((slot, index) => {
+                  const item = rankedItemsById.get(slot.story.id);
+                  const readingActionInput = item
+                    ? {
+                        formatCategory: getCategoryLabel,
+                        intent: slot.intent,
+                        item,
+                      }
+                    : null;
+                  const readingAction = readingActionInput
+                    ? getNewsPersonalizedReadingQueueTrainingAction(
+                        readingActionInput,
+                      )
+                    : null;
                   const storyTitle = (
                     <span className="leading-5 font-semibold">
                       {slot.story.title}
@@ -8770,38 +12305,67 @@ function NewsHomeContent({
                   );
 
                   return (
-                    <div
+                    <article
                       key={`${slot.intent}-${slot.story.id}`}
-                      className="grid grid-cols-[2rem_1fr_auto] gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
                     >
-                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                        {String(index + 1).padStart(2, "0")}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="font-mono text-[11px] tracking-[0.14em] uppercase">
-                          {slot.label} / {slot.intent}
+                      <div className="grid grid-cols-[2rem_1fr_auto] gap-3">
+                        <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="font-mono text-[11px] tracking-[0.14em] uppercase">
+                            {slot.label} / {slot.intent}
+                          </div>
+                          {isPreview ? (
+                            <div className="mt-1">{storyTitle}</div>
+                          ) : (
+                            <Link
+                              className="mt-1 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                              href={`/news/${slot.story.id}`}
+                            >
+                              {storyTitle}
+                            </Link>
+                          )}
+                          <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.reason}
+                          </p>
+                          <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {slot.story.sourceName}
+                          </div>
                         </div>
-                        {isPreview ? (
-                          <div className="mt-1">{storyTitle}</div>
-                        ) : (
-                          <Link
-                            className="mt-1 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                            href={`/news/${slot.story.id}`}
-                          >
-                            {storyTitle}
-                          </Link>
-                        )}
-                        <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {slot.reason}
-                        </p>
-                        <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                          {slot.story.sourceName}
-                        </div>
+                        <span className="font-mono text-xs">
+                          {slot.story.personalizedScore}
+                        </span>
                       </div>
-                      <span className="font-mono text-xs">
-                        {slot.story.personalizedScore}
-                      </span>
-                    </div>
+                      {item ? (
+                        <StoryAction
+                          item={item}
+                          guardrailItem={selectGuardrailItemForStory(item)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(item)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                      {readingAction && readingActionInput ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            applyPersonalizedReadingQueueAction(
+                              readingActionInput,
+                            )
+                          }
+                        >
+                          {readingAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </article>
                   );
                 })
               ) : (
@@ -8810,6 +12374,143 @@ function NewsHomeContent({
                   stories.
                 </p>
               )}
+            </div>
+          </section>
+
+          <section className="border border-[#161616] bg-[#fffdf7] p-5 dark:border-[#f4f1ea] dark:bg-[#181818]">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black">Next For You Queue</h2>
+                <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                  {nextForYouQueue.summary}
+                </p>
+              </div>
+              <span className="border border-[#161616] px-2 py-1 font-mono text-sm dark:border-[#f4f1ea]">
+                {nextForYouQueue.label}
+              </span>
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              {nextForYouQueue.metrics.map((metric) => (
+                <div
+                  key={metric.label}
+                  className="border-t border-[#161616]/20 pt-3 dark:border-[#f4f1ea]/15"
+                >
+                  <dt className="text-xs font-semibold text-[#5b5750] dark:text-[#bbb4aa]">
+                    {metric.label}
+                  </dt>
+                  <dd className="mt-1 font-mono text-lg">{metric.value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-4 border-t border-[#161616]/20 pt-3 text-xs leading-5 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+              Request {nextForYouQueue.nextRequest.route} excludes{" "}
+              {nextForYouQueue.nextRequest.excludeNewsItemIds.length} visible{" "}
+              {nextForYouQueue.nextRequest.excludeNewsItemIds.length === 1
+                ? "story"
+                : "stories"}{" "}
+              and {nextForYouQueue.nextRequest.negativeFeedbackItemIds.length}{" "}
+              Less{" "}
+              {nextForYouQueue.nextRequest.negativeFeedbackItemIds.length === 1
+                ? "guardrail"
+                : "guardrails"}
+              .
+            </div>
+            <div className="mt-4 grid gap-3">
+              {nextForYouQueue.candidates.length > 0 ? (
+                nextForYouQueue.candidates.map((candidate, index) => {
+                  const item = rankedItemsById.get(candidate.id);
+                  const storyTitle = (
+                    <span className="leading-5 font-semibold">
+                      {candidate.title}
+                    </span>
+                  );
+
+                  return (
+                    <div
+                      key={candidate.id}
+                      className="grid grid-cols-[2rem_1fr] gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] tracking-[0.14em] uppercase">
+                          {candidate.categoryLabel} / {candidate.scoreLabel}
+                        </div>
+                        {isPreview ? (
+                          <div className="mt-1">{storyTitle}</div>
+                        ) : (
+                          <Link
+                            className="mt-1 block hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${candidate.id}`}
+                          >
+                            {storyTitle}
+                          </Link>
+                        )}
+                        <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {candidate.reason}
+                        </p>
+                        <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {candidate.sourceName}
+                        </div>
+                        {item ? (
+                          <div className="mt-2">
+                            <StoryAction
+                              item={item}
+                              guardrailItem={selectGuardrailItemForStory(item)}
+                              isPreview={isPreview}
+                              rankSlot={index + 1}
+                              savedItem={selectSavedItemForStory(item)}
+                              onAction={recordStoryAction}
+                              onRemoveSaved={removeSavedItem}
+                              onRestoreGuardrail={restoreGuardrailItem}
+                            />
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
+                  The next batch will be explained after unseen personalized
+                  stories are available.
+                </p>
+              )}
+            </div>
+            <div className="mt-4 grid gap-3">
+              {nextForYouQueue.notices.map((notice) => {
+                const nextQueueAction = getNewsForYouNextQueueTrainingAction({
+                  formatCategory: getCategoryLabel,
+                  negativeFeedbackItems: negativeFeedbackMemoryItems,
+                  notice,
+                });
+
+                return (
+                  <div
+                    key={notice.label}
+                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                  >
+                    <div>
+                      <div className="font-semibold">{notice.label}</div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {notice.detail}
+                      </p>
+                    </div>
+                    {nextQueueAction ? (
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant="outline"
+                        onClick={() => applyForYouNextQueueAction(notice)}
+                      >
+                        {nextQueueAction.actionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -8839,17 +12540,49 @@ function NewsHomeContent({
               ))}
             </dl>
             <div className="mt-4 grid gap-3">
-              {recommendationAudit.notices.map((notice) => (
-                <div
-                  key={notice.label}
-                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <div className="font-semibold">{notice.label}</div>
-                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                    {notice.detail}
-                  </p>
-                </div>
-              ))}
+              {recommendationAudit.notices.map((notice) => {
+                const auditAction = getNewsRecommendationAuditTrainingAction({
+                  items: rankedItems,
+                  notice,
+                  profile,
+                });
+                const auditActionLabel =
+                  auditAction?.kind === "profile"
+                    ? auditAction.action.actionLabel
+                    : auditAction
+                      ? `${auditAction.action.direction === "raise" ? "Raise" : "Lower"} ${
+                          auditAction.action.label
+                        }`
+                      : null;
+
+                return (
+                  <div
+                    key={notice.label}
+                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                  >
+                    <div className="font-semibold">{notice.label}</div>
+                    <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                      {notice.detail}
+                    </p>
+                    {auditActionLabel ? (
+                      <Button
+                        className="mt-3 h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant={
+                          auditAction?.kind === "profile" &&
+                          auditAction.action.effect === "remove"
+                            ? "outline"
+                            : "default"
+                        }
+                        onClick={() => applyRecommendationAuditAction(notice)}
+                      >
+                        {auditActionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -8880,39 +12613,72 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               {editorialGuardrails.risks.length > 0 ? (
-                editorialGuardrails.risks.map((risk) => (
-                  <div
-                    key={risk.label}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid grid-cols-[1fr_auto] gap-3">
-                      <div className="font-semibold">{risk.label}</div>
-                      <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
-                        {risk.severity}
-                      </span>
-                    </div>
-                    <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {risk.detail}
-                    </p>
-                    <p className="mt-2 leading-6">{risk.action}</p>
-                    <div className="mt-3 grid gap-2">
-                      {risk.stories.map((story) => (
-                        <Link
-                          key={`${risk.label}-${story.id}`}
-                          className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
-                          href={`/news/${story.id}`}
+                editorialGuardrails.risks.map((risk) => {
+                  const editorialAction =
+                    getNewsEditorialGuardrailTrainingAction({
+                      items: rankedItems,
+                      profile,
+                      risk,
+                    });
+                  const editorialActionLabel =
+                    editorialAction?.kind === "profile"
+                      ? editorialAction.action.actionLabel
+                      : editorialAction
+                        ? `${editorialAction.action.direction === "raise" ? "Raise" : "Lower"} ${
+                            editorialAction.action.label
+                          }`
+                        : null;
+
+                  return (
+                    <div
+                      key={risk.label}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid grid-cols-[1fr_auto] gap-3">
+                        <div className="font-semibold">{risk.label}</div>
+                        <span className="font-mono text-xs text-[#8a241c] dark:text-[#ff8b7e]">
+                          {risk.severity}
+                        </span>
+                      </div>
+                      <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {risk.detail}
+                      </p>
+                      <p className="mt-2 leading-6">{risk.action}</p>
+                      {editorialActionLabel ? (
+                        <Button
+                          className="mt-3 h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant={
+                            editorialAction?.kind === "profile" &&
+                            editorialAction.action.effect === "remove"
+                              ? "outline"
+                              : "default"
+                          }
+                          onClick={() => applyEditorialGuardrailAction(risk)}
                         >
-                          <span className="leading-5 font-semibold">
-                            {story.title}
-                          </span>
-                          <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {story.sourceName}
-                          </span>
-                        </Link>
-                      ))}
+                          {editorialActionLabel}
+                        </Button>
+                      ) : null}
+                      <div className="mt-3 grid gap-2">
+                        {risk.stories.map((story) => (
+                          <Link
+                            key={`${risk.label}-${story.id}`}
+                            className="grid gap-1 border-t border-[#161616]/15 pt-2 hover:text-[#8a241c] dark:border-[#f4f1ea]/10 dark:hover:text-[#ff8b7e]"
+                            href={`/news/${story.id}`}
+                          >
+                            <span className="leading-5 font-semibold">
+                              {story.title}
+                            </span>
+                            <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                              {story.sourceName}
+                            </span>
+                          </Link>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Source, trust, consensus, and negative-feedback controls are
@@ -8949,42 +12715,57 @@ function NewsHomeContent({
             </dl>
             <div className="mt-4 grid gap-3">
               {topicMatchMatrix.rows.length > 0 ? (
-                topicMatchMatrix.rows.map((row) => (
-                  <div
-                    key={row.category}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="grid gap-3 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)_auto] sm:items-start">
-                      <div>
-                        <div className="font-semibold">{row.label}</div>
-                        <div className="mt-1 font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                          {row.mode} / {row.readerLabel} / {row.heatLabel}
+                topicMatchMatrix.rows.map((row) => {
+                  const topicAction = getNewsTopicMatchTrainingAction({ row });
+
+                  return (
+                    <div
+                      key={row.category}
+                      className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <div className="grid gap-3 sm:grid-cols-[minmax(0,0.7fr)_minmax(0,1fr)_auto_auto] sm:items-start">
+                        <div>
+                          <div className="font-semibold">{row.label}</div>
+                          <div className="mt-1 font-mono text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                            {row.mode} / {row.readerLabel} / {row.heatLabel}
+                          </div>
                         </div>
-                      </div>
-                      {row.lead ? (
-                        <Link
-                          className="leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                          href={`/news/${row.lead.id}`}
+                        {row.lead ? (
+                          <Link
+                            className="leading-5 font-semibold hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${row.lead.id}`}
+                          >
+                            {row.lead.title}
+                            <span className="mt-1 block text-xs font-normal text-[#5b5750] dark:text-[#bbb4aa]">
+                              {row.lead.sourceName}
+                            </span>
+                          </Link>
+                        ) : (
+                          <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
+                            Waiting for a lead story.
+                          </p>
+                        )}
+                        <span className="font-mono text-xs">
+                          {row.storyCount}
+                        </span>
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant={
+                            row.mode === "Cooldown" ? "outline" : "default"
+                          }
+                          onClick={() => applyTopicMatchAction(row)}
                         >
-                          {row.lead.title}
-                          <span className="mt-1 block text-xs font-normal text-[#5b5750] dark:text-[#bbb4aa]">
-                            {row.lead.sourceName}
-                          </span>
-                        </Link>
-                      ) : (
-                        <p className="leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                          Waiting for a lead story.
-                        </p>
-                      )}
-                      <span className="font-mono text-xs">
-                        {row.storyCount}
-                      </span>
+                          {topicAction.actionLabel}
+                        </Button>
+                      </div>
+                      <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {row.reason}
+                      </p>
                     </div>
-                    <p className="mt-2 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {row.reason}
-                    </p>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Topic match matrix will appear after stories are ranked.
@@ -9032,34 +12813,62 @@ function NewsHomeContent({
                   </div>
                   <div className="mt-3 grid gap-3">
                     {lane.nodes.length > 0 ? (
-                      lane.nodes.map((node) => (
-                        <div
-                          key={`${lane.key}-${node.label}`}
-                          className="text-sm"
-                        >
-                          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                            <div className="min-w-0 truncate font-semibold">
-                              {node.label}
+                      lane.nodes.map((node) => {
+                        const graphAction =
+                          getNewsInterestGraphNodeTrainingAction({
+                            laneKey: lane.key,
+                            node,
+                          });
+
+                        return (
+                          <div
+                            key={`${lane.key}-${node.signal}`}
+                            className="grid gap-2 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start"
+                          >
+                            <div className="min-w-0">
+                              <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                                <div className="min-w-0 truncate font-semibold">
+                                  {node.label}
+                                </div>
+                                <span className="font-mono text-xs">
+                                  {node.score}
+                                </span>
+                              </div>
+                              <div className="mt-2 h-1.5 border border-[#161616]/30 dark:border-[#f4f1ea]/25">
+                                <div
+                                  className="h-full bg-[#8a241c] dark:bg-[#ff8b7e]"
+                                  style={{
+                                    width: `${Math.min(node.score, 100)}%`,
+                                  }}
+                                />
+                              </div>
+                              <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                                {node.storyCount}{" "}
+                                {node.storyCount === 1 ? "story" : "stories"} /{" "}
+                                {node.activeSignal
+                                  ? "active signal"
+                                  : "discovered"}
+                              </div>
                             </div>
-                            <span className="font-mono text-xs">
-                              {node.score}
-                            </span>
+                            <Button
+                              className="h-8 w-fit rounded-none px-2 text-xs"
+                              size="sm"
+                              type="button"
+                              variant={
+                                node.activeSignal ? "outline" : "default"
+                              }
+                              onClick={() =>
+                                applyInterestGraphNodeAction({
+                                  laneKey: lane.key,
+                                  node,
+                                })
+                              }
+                            >
+                              {graphAction.actionLabel}
+                            </Button>
                           </div>
-                          <div className="mt-2 h-1.5 border border-[#161616]/30 dark:border-[#f4f1ea]/25">
-                            <div
-                              className="h-full bg-[#8a241c] dark:bg-[#ff8b7e]"
-                              style={{
-                                width: `${Math.min(node.score, 100)}%`,
-                              }}
-                            />
-                          </div>
-                          <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                            {node.storyCount}{" "}
-                            {node.storyCount === 1 ? "story" : "stories"} /{" "}
-                            {node.activeSignal ? "active signal" : "discovered"}
-                          </div>
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                         This lane will fill as the reader profile and story mix
@@ -9115,6 +12924,17 @@ function NewsHomeContent({
                 }
               />
             </dl>
+            {sourceBalanceAction ? (
+              <Button
+                className="mt-4 h-8 w-fit rounded-none px-2 text-xs"
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={applySourceBalanceAction}
+              >
+                {sourceBalanceAction.actionLabel}
+              </Button>
+            ) : null}
           </section>
 
           <section className="border border-[#161616] p-5 dark:border-[#f4f1ea]">
@@ -9144,17 +12964,37 @@ function NewsHomeContent({
             </dl>
             {sourceTrustLedger.notices.length > 0 ? (
               <div className="mt-4 grid gap-3">
-                {sourceTrustLedger.notices.map((notice) => (
-                  <div
-                    key={notice.label}
-                    className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <div className="font-semibold">{notice.label}</div>
-                    <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                      {notice.detail}
-                    </p>
-                  </div>
-                ))}
+                {sourceTrustLedger.notices.map((notice) => {
+                  const sourceTrustAction = getNewsSourceTrustTrainingAction({
+                    items: rankedItems,
+                    notice,
+                  });
+
+                  return (
+                    <div
+                      key={notice.label}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <div>
+                        <div className="font-semibold">{notice.label}</div>
+                        <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                          {notice.detail}
+                        </p>
+                      </div>
+                      {sourceTrustAction ? (
+                        <Button
+                          className="h-8 w-fit rounded-none px-2 text-xs"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => applySourceTrustAction(notice)}
+                        >
+                          {sourceTrustAction.actionLabel}
+                        </Button>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
           </section>
@@ -9209,25 +13049,49 @@ function NewsHomeContent({
             </div>
             <div className="mt-4 grid gap-3">
               {entityRadar.length > 0 ? (
-                entityRadar.map((entry, index) => (
-                  <div
-                    key={entry.entity}
-                    className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="truncate font-semibold">
-                        {entry.entity}
+                entityRadar.map((entry, index) => {
+                  const entityAction = getNewsEntityRadarTrainingAction({
+                    entry,
+                    profile,
+                  });
+
+                  return (
+                    <div
+                      key={entry.signal}
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[2rem_minmax(0,1fr)_auto_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <Link
+                          className="block truncate font-semibold hover:underline"
+                          href={`/entities/${encodeURIComponent(entry.entity)}`}
+                        >
+                          {entry.entity}
+                        </Link>
+                        <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {entry.storyCount} stories / {entry.sourceCount}{" "}
+                          sources
+                        </div>
                       </div>
-                      <div className="mt-1 text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {entry.storyCount} stories / {entry.sourceCount} sources
-                      </div>
+                      <span className="font-mono">{entry.heatScore}</span>
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant={
+                          entityAction.effect === "remove"
+                            ? "outline"
+                            : "default"
+                        }
+                        onClick={() => applyEntityRadarAction(entry)}
+                      >
+                        {entityAction.actionLabel}
+                      </Button>
                     </div>
-                    <span className="font-mono">{entry.heatScore}</span>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Entity radar will appear as stories share names, products, or
@@ -9251,25 +13115,47 @@ function NewsHomeContent({
             </div>
             <div className="mt-4 grid gap-3">
               {topicPulse.length > 0 ? (
-                topicPulse.map((pulse, index) => (
-                  <div
-                    key={pulse.category}
-                    className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                  >
-                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="font-semibold">
-                        {getCategoryLabel(pulse.category)}
+                topicPulse.map((pulse, index) => {
+                  const pulseAction = getNewsTopicPulseTrainingAction({
+                    formatCategory: getCategoryLabel,
+                    profile,
+                    pulse,
+                  });
+
+                  return (
+                    <div
+                      key={pulse.category}
+                      className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[2rem_minmax(0,1fr)_auto_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                    >
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {String(index + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-semibold">
+                          {getCategoryLabel(pulse.category)}
+                        </div>
+                        <div className="mt-1 truncate text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {pulse.storyCount} stories /{" "}
+                          {pulse.sources.join(", ")}
+                        </div>
                       </div>
-                      <div className="mt-1 truncate text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {pulse.storyCount} stories / {pulse.sources.join(", ")}
-                      </div>
+                      <span className="font-mono">{pulse.heatScore}</span>
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant={
+                          pulseAction.effect === "remove"
+                            ? "outline"
+                            : "default"
+                        }
+                        onClick={() => applyTopicPulseAction(pulse)}
+                      >
+                        {pulseAction.actionLabel}
+                      </Button>
                     </div>
-                    <span className="font-mono">{pulse.heatScore}</span>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Topic clusters will appear as the edition fills.
@@ -9344,17 +13230,46 @@ function NewsHomeContent({
               ))}
             </dl>
             <div className="mt-4 grid gap-3">
-              {interestDrift.notices.map((notice) => (
-                <div
-                  key={notice.label}
-                  className="border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
-                >
-                  <div className="font-semibold">{notice.label}</div>
-                  <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                    {notice.detail}
-                  </p>
-                </div>
-              ))}
+              {interestDrift.notices.map((notice) => {
+                const driftAction = getNewsInterestDriftTrainingAction({
+                  formatCategory: getCategoryLabel,
+                  historyItems,
+                  negativeFeedbackItems: negativeFeedbackMemoryItems,
+                  notice,
+                  positiveFeedbackItems,
+                  profile,
+                  savedItems,
+                });
+
+                return (
+                  <div
+                    key={notice.label}
+                    className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
+                  >
+                    <div>
+                      <div className="font-semibold">{notice.label}</div>
+                      <p className="mt-1 leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
+                        {notice.detail}
+                      </p>
+                    </div>
+                    {driftAction ? (
+                      <Button
+                        className="h-8 w-fit rounded-none px-2 text-xs"
+                        size="sm"
+                        type="button"
+                        variant={
+                          driftAction.effect === "remove"
+                            ? "outline"
+                            : "default"
+                        }
+                        onClick={() => applyInterestDriftAction(notice)}
+                      >
+                        {driftAction.actionLabel}
+                      </Button>
+                    ) : null}
+                  </div>
+                );
+              })}
             </div>
           </section>
 
@@ -9373,36 +13288,53 @@ function NewsHomeContent({
             </div>
             <div className="mt-4 grid gap-3">
               {savedItems.length > 0 ? (
-                savedItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-col gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:flex-row sm:items-start sm:justify-between dark:border-[#f4f1ea]/15"
-                  >
-                    <Link
-                      className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                      href={`/news/${item.id}`}
+                savedItems.map((item, index) => {
+                  const story = rankedItemsById.get(item.id);
+
+                  return (
+                    <article
+                      key={item.id}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
                     >
-                      <span className="leading-5 font-semibold">
-                        {item.title}
-                      </span>
-                      <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {item.sourceName} / saved{" "}
-                        {item.savedAt
-                          ? formatNewsTime(item.savedAt)
-                          : "recently"}
-                      </span>
-                    </Link>
-                    <Button
-                      className="h-8 rounded-none px-3 text-xs sm:self-center"
-                      disabled={removeSaved.isPending}
-                      onClick={() => removeSavedItem(item)}
-                      type="button"
-                      variant="outline"
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                ))
+                      <Link
+                        className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${item.id}`}
+                      >
+                        <span className="leading-5 font-semibold">
+                          {item.title}
+                        </span>
+                        <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {item.sourceName} / saved{" "}
+                          {item.savedAt
+                            ? formatNewsTime(item.savedAt)
+                            : "recently"}
+                        </span>
+                      </Link>
+                      {story ? (
+                        <StoryAction
+                          item={story}
+                          guardrailItem={selectGuardrailItemForStory(story)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(story)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : (
+                        <Button
+                          className="h-8 rounded-none px-3 text-xs sm:justify-self-start"
+                          disabled={removeSaved.isPending}
+                          onClick={() => removeSavedItem(item)}
+                          type="button"
+                          variant="outline"
+                        >
+                          Remove
+                        </Button>
+                      )}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Save stories from the front page to build a personal reading
@@ -9476,6 +13408,10 @@ function NewsHomeContent({
                         );
                         setSearchDraft(prompt.actionQuery);
                         setSearchQuery(prompt.actionQuery);
+                        recordHomeSearchIntent({
+                          query: prompt.actionQuery,
+                          resultCount: guardrailShelf.items.length,
+                        });
                       }}
                     >
                       {prompt.actionLabel}
@@ -9486,52 +13422,69 @@ function NewsHomeContent({
             ) : null}
             <div className="mt-4 grid gap-3">
               {guardrailShelf.items.length > 0 ? (
-                guardrailShelf.items.map((item) => (
-                  <div
-                    key={item.id}
-                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start dark:border-[#f4f1ea]/15"
-                  >
-                    <Link
-                      className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
-                      href={`/news/${item.id}`}
-                    >
-                      <span className="leading-5 font-semibold">
-                        {item.title}
-                      </span>
-                      <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {[
-                          item.sourceName,
-                          item.categoryLabel,
-                          item.angleLabel,
-                          `Less ${
-                            item.hiddenAt
-                              ? formatNewsTime(item.hiddenAt)
-                              : "recently"
-                          }`,
-                        ]
-                          .filter(Boolean)
-                          .join(" / ")}
-                      </span>
-                    </Link>
-                    <Button
-                      className="h-8 rounded-none px-2 text-xs whitespace-nowrap"
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        const guardrailItem = guardrailItems.find(
-                          (memoryItem) => memoryItem.id === item.id,
-                        );
+                guardrailShelf.items.map((item, index) => {
+                  const story = rankedItemsById.get(item.id);
 
-                        if (!guardrailItem) return;
-
-                        restoreGuardrailItem(guardrailItem);
-                      }}
+                  return (
+                    <article
+                      key={item.id}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
                     >
-                      Restore
-                    </Button>
-                  </div>
-                ))
+                      <Link
+                        className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${item.id}`}
+                      >
+                        <span className="leading-5 font-semibold">
+                          {item.title}
+                        </span>
+                        <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {[
+                            item.sourceName,
+                            item.categoryLabel,
+                            item.angleLabel,
+                            `Less ${
+                              item.hiddenAt
+                                ? formatNewsTime(item.hiddenAt)
+                                : "recently"
+                            }`,
+                          ]
+                            .filter(Boolean)
+                            .join(" / ")}
+                        </span>
+                      </Link>
+                      {story ? (
+                        <StoryAction
+                          item={story}
+                          guardrailItem={selectGuardrailItemForStory(story)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(story)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : (
+                        <Button
+                          className="h-8 rounded-none px-2 text-xs whitespace-nowrap sm:justify-self-start"
+                          size="sm"
+                          type="button"
+                          variant="outline"
+                          onClick={() => {
+                            const guardrailItem = guardrailItems.find(
+                              (memoryItem) => memoryItem.id === item.id,
+                            );
+
+                            if (!guardrailItem) return;
+
+                            restoreGuardrailItem(guardrailItem);
+                          }}
+                        >
+                          Restore
+                        </Button>
+                      )}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Less feedback will appear here after you hide stories from the
@@ -9579,20 +13532,77 @@ function NewsHomeContent({
             ) : null}
             <div className="mt-4 grid gap-3">
               {continuationRail.followUps.length > 0
-                ? continuationRail.followUps.map((item) => (
-                    <Link
-                      key={item.id}
-                      className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                      href={`/news/${item.id}`}
-                    >
-                      <span className="leading-5 font-semibold">
-                        {item.title}
-                      </span>
-                      <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {item.sourceName} / {item.reason} / {item.scoreLabel}
-                      </span>
-                    </Link>
-                  ))
+                ? continuationRail.followUps.map((followUp, index) => {
+                    const item = rankedItemsById.get(followUp.id);
+                    const continuationActionInput = item
+                      ? {
+                          formatCategory: getCategoryLabel,
+                          item,
+                          reason: followUp.reason,
+                        }
+                      : null;
+                    const continuationAction = continuationActionInput
+                      ? getNewsContinuationRailTrainingAction(
+                          continuationActionInput,
+                        )
+                      : null;
+                    const followUpBody = (
+                      <>
+                        <span className="leading-5 font-semibold">
+                          {followUp.title}
+                        </span>
+                        <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {followUp.sourceName} / {followUp.reason} /{" "}
+                          {followUp.scoreLabel}
+                        </span>
+                      </>
+                    );
+
+                    return (
+                      <article
+                        key={followUp.id}
+                        className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                      >
+                        {isPreview ? (
+                          <div className="grid gap-1">{followUpBody}</div>
+                        ) : (
+                          <Link
+                            className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                            href={`/news/${followUp.id}`}
+                          >
+                            {followUpBody}
+                          </Link>
+                        )}
+                        {item ? (
+                          <StoryAction
+                            item={item}
+                            guardrailItem={selectGuardrailItemForStory(item)}
+                            isPreview={isPreview}
+                            rankSlot={index + 1}
+                            savedItem={selectSavedItemForStory(item)}
+                            onAction={recordStoryAction}
+                            onRemoveSaved={removeSavedItem}
+                            onRestoreGuardrail={restoreGuardrailItem}
+                          />
+                        ) : null}
+                        {continuationActionInput && continuationAction ? (
+                          <Button
+                            className="h-8 w-fit rounded-none px-2 text-xs"
+                            size="sm"
+                            type="button"
+                            variant="outline"
+                            onClick={() =>
+                              applyContinuationRailAction(
+                                continuationActionInput,
+                              )
+                            }
+                          >
+                            {continuationAction.actionLabel}
+                          </Button>
+                        ) : null}
+                      </article>
+                    );
+                  })
                 : continuationRail.notices.map((notice) => (
                     <div
                       key={notice.label}
@@ -9622,23 +13632,43 @@ function NewsHomeContent({
             </div>
             <div className="mt-4 grid gap-3">
               {historyItems.length > 0 ? (
-                historyItems.map((item) => (
-                  <Link
-                    key={item.id}
-                    className="grid gap-1 border-t border-[#161616]/20 pt-3 text-sm hover:text-[#8a241c] dark:border-[#f4f1ea]/15 dark:hover:text-[#ff8b7e]"
-                    href={`/news/${item.id}`}
-                  >
-                    <span className="leading-5 font-semibold">
-                      {item.title}
-                    </span>
-                    <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                      {item.sourceName} / read{" "}
-                      {item.viewedAt
-                        ? formatNewsTime(item.viewedAt)
-                        : "recently"}
-                    </span>
-                  </Link>
-                ))
+                historyItems.map((item, index) => {
+                  const story = rankedItemsById.get(item.id);
+
+                  return (
+                    <article
+                      key={item.id}
+                      className="grid gap-2 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    >
+                      <Link
+                        className="grid gap-1 hover:text-[#8a241c] dark:hover:text-[#ff8b7e]"
+                        href={`/news/${item.id}`}
+                      >
+                        <span className="leading-5 font-semibold">
+                          {item.title}
+                        </span>
+                        <span className="text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {item.sourceName} / read{" "}
+                          {item.viewedAt
+                            ? formatNewsTime(item.viewedAt)
+                            : "recently"}
+                        </span>
+                      </Link>
+                      {story ? (
+                        <StoryAction
+                          item={story}
+                          guardrailItem={selectGuardrailItemForStory(story)}
+                          isPreview={isPreview}
+                          rankSlot={index + 1}
+                          savedItem={selectSavedItemForStory(story)}
+                          onAction={recordStoryAction}
+                          onRemoveSaved={removeSavedItem}
+                          onRestoreGuardrail={restoreGuardrailItem}
+                        />
+                      ) : null}
+                    </article>
+                  );
+                })
               ) : (
                 <p className="border-t border-[#161616]/20 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/15 dark:text-[#bbb4aa]">
                   Open stories to build a reading trail for the next edition.
@@ -9658,21 +13688,35 @@ function NewsHomeContent({
                 });
 
                 return (
-                  <div
+                  <article
                     key={story.id}
-                    className="grid grid-cols-[2rem_1fr_auto] items-start gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
+                    className="grid gap-3 border-t border-[#161616]/20 pt-3 text-sm dark:border-[#f4f1ea]/15"
                   >
-                    <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <span className="leading-5">
-                      {story.title}
-                      <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
-                        {rankDetails.summary}
+                    <div className="grid grid-cols-[2rem_1fr_auto] items-start gap-3">
+                      <span className="font-mono text-[#8a241c] dark:text-[#ff8b7e]">
+                        {String(index + 1).padStart(2, "0")}
                       </span>
-                    </span>
-                    <span className="font-mono">{rankDetails.scoreLabel}</span>
-                  </div>
+                      <span className="leading-5">
+                        {story.title}
+                        <span className="mt-1 block text-xs text-[#5b5750] dark:text-[#bbb4aa]">
+                          {rankDetails.summary}
+                        </span>
+                      </span>
+                      <span className="font-mono">
+                        {rankDetails.scoreLabel}
+                      </span>
+                    </div>
+                    <StoryAction
+                      item={story}
+                      guardrailItem={selectGuardrailItemForStory(story)}
+                      isPreview={isPreview}
+                      rankSlot={index + 1}
+                      savedItem={selectSavedItemForStory(story)}
+                      onAction={recordStoryAction}
+                      onRemoveSaved={removeSavedItem}
+                      onRestoreGuardrail={restoreGuardrailItem}
+                    />
+                  </article>
                 );
               })}
             </div>
@@ -9922,10 +13966,12 @@ function StoryVisual({
   if (item.imageUrl) {
     return (
       <div
+        aria-label={`Visual for ${item.title}`}
         className={cn(
-          "min-h-52 bg-cover bg-center grayscale",
+          "aspect-[16/10] min-h-52 w-full max-w-full self-start bg-cover bg-center grayscale",
           featured && "mt-6 md:mt-0",
         )}
+        role="img"
         style={{ backgroundImage: `url(${item.imageUrl})` }}
       />
     );
@@ -9933,10 +13979,12 @@ function StoryVisual({
 
   return (
     <div
+      aria-label={`Visual for ${item.title}`}
       className={cn(
-        "flex min-h-52 items-end justify-between border border-[#161616] bg-[#e8e1d4] p-4 dark:border-[#f4f1ea] dark:bg-[#24211d]",
+        "flex aspect-[16/10] min-h-52 w-full max-w-full items-end justify-between self-start border border-[#161616] bg-[#e8e1d4] p-4 dark:border-[#f4f1ea] dark:bg-[#24211d]",
         featured && "mt-6 md:mt-0",
       )}
+      role="img"
     >
       <span className="max-w-[12rem] text-3xl leading-none font-black">
         {getCategoryLabel(item.category)}
@@ -10095,7 +14143,7 @@ function StoryCard({
   onTune: (action: NewsStoryQuickTuneAction) => void;
 }) {
   return (
-    <article className="grid gap-3 border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]">
+    <article className="grid grid-cols-[minmax(0,1fr)] gap-3 border border-[#161616]/35 bg-[#fffdf7] p-4 dark:border-[#f4f1ea]/35 dark:bg-[#181818]">
       <StoryVisual item={item} />
       <div className="text-xs font-semibold tracking-normal text-[#8a241c] uppercase dark:text-[#ff8b7e]">
         {getCategoryLabel(item.category)}

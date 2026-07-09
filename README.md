@@ -204,17 +204,18 @@ pnpm run news:bootstrap:remote 25 4
 
 For a new Railway database, the app can build and start before the news tables
 exist, but the front page will use preview stories until the schema and sources
-are bootstrapped. Run the database push only when you intend to update the
-target database:
+are bootstrapped. Run the deploy schema sync only when you intend to update the
+target database. For a deployed service, prefer the remote refresh so the same
+Railway environment, secret, and public URL are used:
 
 ```bash
-pnpm run db:push
-pnpm run news:refresh
+pnpm run db:predeploy
+pnpm run news:refresh:remote
 ```
 
-`news:refresh` seeds the configured AI news sources and ingests active RSS
-feeds. After that, the homepage should switch from preview stories to live
-published news rows.
+`news:refresh:remote` calls the deployed app over HTTPS, seeds the configured AI
+news sources, and ingests active RSS feeds. After that, the homepage should
+switch from preview stories to live published news rows.
 
 For a deployed service, a Railway cron can call the app over HTTP instead of
 connecting directly to the database:

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -249,6 +249,62 @@ describe("Railway Next.js deployment config", () => {
     expect(layout).toContain("<ThemeProvider>");
     expect(layout).not.toContain("<ThemeToggle />");
     expect(layout).not.toContain("fixed right-4 bottom-4");
+  });
+
+  test("Next.js app shell ships The New AI Times install branding instead of T3 assets", async () => {
+    const publicAssets = await readdir(
+      path.join(repoRoot, "apps/nextjs/public"),
+    );
+    const manifest = await readFile(
+      path.join(repoRoot, "apps/nextjs/src/app/manifest.ts"),
+      "utf8",
+    );
+    const appIcon = await readFile(
+      path.join(repoRoot, "apps/nextjs/src/app/icon.svg"),
+      "utf8",
+    );
+    const nextFavicon = await readFile(
+      path.join(repoRoot, "apps/nextjs/public/favicon.ico"),
+    );
+    const fallbackFavicon = await readFile(
+      path.join(repoRoot, "apps/tanstack-start/public/favicon.ico"),
+    );
+
+    expect(publicAssets).not.toContain("t3-icon.svg");
+    expect(nextFavicon.equals(fallbackFavicon)).toBe(false);
+    expect(manifest).toContain('name: "The New AI Times"');
+    expect(manifest).toContain('short_name: "AI Times"');
+    expect(manifest).toContain('start_url: "/"');
+    expect(manifest).toContain('display: "standalone"');
+    expect(manifest).toContain('src: "/icon.svg"');
+    expect(appIcon).toContain("<title>The New AI Times</title>");
+    expect(appIcon).not.toContain("T3");
+  });
+
+  test("Next.js auth production URL fallback uses The New AI Times domain", async () => {
+    const authServer = await readFile(
+      path.join(repoRoot, "apps/nextjs/src/auth/server.ts"),
+      "utf8",
+    );
+
+    expect(authServer).toContain("thenewagenttimes.com");
+    expect(authServer).not.toContain("turbo.t3.gg");
+  });
+
+  test("Next.js auth URLs use Railway public domains outside Vercel", async () => {
+    const authServer = await readFile(
+      path.join(repoRoot, "apps/nextjs/src/auth/server.ts"),
+      "utf8",
+    );
+
+    expect(authServer).toContain("env.RAILWAY_PUBLIC_DOMAIN");
+    expect(authServer).toContain("const deploymentDomain");
+    expect(authServer).toContain(
+      "const railwayBaseUrl = toHttpsUrl(env.RAILWAY_PUBLIC_DOMAIN);",
+    );
+    expect(authServer).toContain(
+      ': (railwayBaseUrl ?? "http://localhost:3000")',
+    );
   });
 
   test("TanStack fallback route does not expose the starter scaffold", async () => {

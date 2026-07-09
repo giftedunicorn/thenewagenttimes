@@ -8,16 +8,35 @@ import { initAuth } from "@acme/auth";
 
 import { env } from "~/env";
 
+const toHttpsUrl = (domain: string | undefined) => {
+  const trimmedDomain = domain?.trim();
+
+  if (!trimmedDomain) return undefined;
+
+  return /^https?:\/\//i.test(trimmedDomain)
+    ? trimmedDomain
+    : `https://${trimmedDomain}`;
+};
+
+const deploymentDomain =
+  env.RAILWAY_PUBLIC_DOMAIN ??
+  env.VERCEL_PROJECT_PRODUCTION_URL ??
+  "thenewagenttimes.com";
+const productionUrl =
+  toHttpsUrl(deploymentDomain) ?? "https://thenewagenttimes.com";
+const railwayBaseUrl = toHttpsUrl(env.RAILWAY_PUBLIC_DOMAIN);
+const vercelPreviewUrl = toHttpsUrl(env.VERCEL_URL);
+const vercelProductionUrl = toHttpsUrl(env.VERCEL_PROJECT_PRODUCTION_URL);
 const baseUrl =
   env.VERCEL_ENV === "production"
-    ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}`
+    ? (vercelProductionUrl ?? productionUrl)
     : env.VERCEL_ENV === "preview"
-      ? `https://${env.VERCEL_URL}`
-      : "http://localhost:3000";
+      ? (vercelPreviewUrl ?? productionUrl)
+      : (railwayBaseUrl ?? "http://localhost:3000");
 
 export const auth = initAuth({
   baseUrl,
-  productionUrl: `https://${env.VERCEL_PROJECT_PRODUCTION_URL ?? "turbo.t3.gg"}`,
+  productionUrl,
   secret: env.BETTER_AUTH_SECRET ?? env.AUTH_SECRET,
   discordClientId: env.AUTH_DISCORD_ID,
   discordClientSecret: env.AUTH_DISCORD_SECRET,

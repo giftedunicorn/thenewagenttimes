@@ -1,6 +1,8 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
+  formatRemoteNewsRefreshSummary,
   refreshRemoteNewsEdition,
   resolveRemoteNewsRefreshCommandInput,
   resolveRemoteNewsRefreshUrl,
@@ -41,6 +43,34 @@ describe("resolveRemoteNewsRefreshUrl", () => {
     expect(
       resolveRemoteNewsRefreshUrl("", "thenewagenttimes.up.railway.app"),
     ).toBe("https://thenewagenttimes.up.railway.app/api/news/refresh");
+  });
+});
+
+describe("formatRemoteNewsRefreshSummary", () => {
+  it("prints the operator next step after a remote refresh", () => {
+    expect(
+      formatRemoteNewsRefreshSummary({
+        body: {},
+        operatorNextStep: {
+          command: "pnpm run news:embed:remote",
+          detail:
+            "Run pnpm run news:embed:remote so semantic recommendations include refreshed stories.",
+          label: "Generate embeddings",
+          step: "embed-news-stories",
+        },
+        status: 200,
+      }),
+    ).toBe(
+      'Remote news refresh complete: status=200 operatorNextStep="Generate embeddings" operatorCommand=pnpm run news:embed:remote operatorDetail="Run pnpm run news:embed:remote so semantic recommendations include refreshed stories."',
+    );
+  });
+
+  it("keeps the refresh CLI summary on the formatter", async () => {
+    const source = await readFile(new URL("./remote-cli.ts", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("formatRemoteNewsRefreshSummary");
   });
 });
 
@@ -139,6 +169,13 @@ describe("refreshRemoteNewsEdition", () => {
               JSON.stringify({
                 itemsCreated: 4,
                 ok: true,
+                operatorNextStep: {
+                  command: "pnpm run news:embed:remote",
+                  detail:
+                    "Run pnpm run news:embed:remote so semantic recommendations include refreshed stories.",
+                  label: "Generate embeddings",
+                  step: "embed-news-stories",
+                },
                 sourcesSucceeded: 9,
               }),
             ),
@@ -159,7 +196,21 @@ describe("refreshRemoteNewsEdition", () => {
       body: {
         itemsCreated: 4,
         ok: true,
+        operatorNextStep: {
+          command: "pnpm run news:embed:remote",
+          detail:
+            "Run pnpm run news:embed:remote so semantic recommendations include refreshed stories.",
+          label: "Generate embeddings",
+          step: "embed-news-stories",
+        },
         sourcesSucceeded: 9,
+      },
+      operatorNextStep: {
+        command: "pnpm run news:embed:remote",
+        detail:
+          "Run pnpm run news:embed:remote so semantic recommendations include refreshed stories.",
+        label: "Generate embeddings",
+        step: "embed-news-stories",
       },
       status: 200,
     });
@@ -207,6 +258,23 @@ describe("refreshRemoteNewsEdition", () => {
       }),
     ).rejects.toThrow(
       'Remote news refresh failed: status=401 body={"error":"Unauthorized"}',
+    );
+  });
+
+  it("adds Railway routing guidance when the refresh endpoint is missing", async () => {
+    await expect(
+      refreshRemoteNewsEdition({
+        fetchRefresh: () =>
+          Promise.resolve({
+            ok: false,
+            status: 404,
+            text: () => Promise.resolve("<html>Create Next App</html>"),
+          }),
+        refreshSecret: "remote-refresh-secret",
+        refreshUrl: "https://thenewagenttimes.up.railway.app",
+      }),
+    ).rejects.toThrow(
+      "Remote news refresh failed: status=404 body=<html>Create Next App</html>. Verify the Railway service is deploying this repo root, branch, and Next.js start command.",
     );
   });
 

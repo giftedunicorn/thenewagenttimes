@@ -1,4 +1,6 @@
+import type { RemoteNewsOperatorNextStep } from "./remote-operator-next-step";
 import { getFirstNonBlankValue } from "./remote-config";
+import { getRemoteNewsOperatorNextStep } from "./remote-operator-next-step";
 
 interface RemoteEmbedHttpInit {
   headers: Record<string, string>;
@@ -18,8 +20,19 @@ export type RemoteEmbedFetch = (
 
 export interface RemoteNewsEmbedResult {
   body: unknown;
+  operatorNextStep?: RemoteNewsOperatorNextStep;
   status: number;
 }
+
+export const formatRemoteNewsEmbedSummary = ({
+  operatorNextStep,
+  status,
+}: RemoteNewsEmbedResult) =>
+  `Remote news embedding complete: status=${status}${
+    operatorNextStep
+      ? ` operatorNextStep="${operatorNextStep.label}" operatorCommand=${operatorNextStep.command ?? "none"} operatorDetail="${operatorNextStep.detail}"`
+      : ""
+  }`;
 
 export interface EmbedRemoteNewsItemsInput {
   embedSecret: string | null | undefined;
@@ -145,6 +158,11 @@ const isRemoteNewsEmbedSuccess = (body: unknown) =>
 
 const defaultFetchEmbed: RemoteEmbedFetch = (url, init) => fetch(url, init);
 
+const getRemoteEmbedFailureHint = (status: number) =>
+  status === 404
+    ? ". Verify the Railway service is deploying this repo root, branch, and Next.js start command."
+    : "";
+
 const addEmbedLimit = (endpoint: string, limit: number | undefined) => {
   if (limit === undefined) return endpoint;
 
@@ -178,12 +196,13 @@ export const embedRemoteNewsItems = async ({
 
   if (!response.ok || !isRemoteNewsEmbedSuccess(body)) {
     throw new Error(
-      `Remote news embedding failed: status=${response.status} body=${responseText}`,
+      `Remote news embedding failed: status=${response.status} body=${responseText}${getRemoteEmbedFailureHint(response.status)}`,
     );
   }
 
   return {
     body,
+    operatorNextStep: getRemoteNewsOperatorNextStep(body),
     status: response.status,
   };
 };

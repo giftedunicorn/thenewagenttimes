@@ -1,4 +1,6 @@
+import type { RemoteNewsOperatorNextStep } from "./remote-operator-next-step";
 import { getFirstNonBlankValue } from "./remote-config";
+import { getRemoteNewsOperatorNextStep } from "./remote-operator-next-step";
 
 interface RemoteRefreshHttpInit {
   headers: Record<string, string>;
@@ -18,8 +20,19 @@ export type RemoteRefreshFetch = (
 
 export interface RemoteNewsRefreshResult {
   body: unknown;
+  operatorNextStep?: RemoteNewsOperatorNextStep;
   status: number;
 }
+
+export const formatRemoteNewsRefreshSummary = ({
+  operatorNextStep,
+  status,
+}: RemoteNewsRefreshResult) =>
+  `Remote news refresh complete: status=${status}${
+    operatorNextStep
+      ? ` operatorNextStep="${operatorNextStep.label}" operatorCommand=${operatorNextStep.command ?? "none"} operatorDetail="${operatorNextStep.detail}"`
+      : ""
+  }`;
 
 export interface RefreshRemoteNewsEditionInput {
   fetchRefresh?: RemoteRefreshFetch;
@@ -114,6 +127,11 @@ const isRemoteNewsRefreshSuccess = (body: unknown) =>
 
 const defaultFetchRefresh: RemoteRefreshFetch = (url, init) => fetch(url, init);
 
+const getRemoteRefreshFailureHint = (status: number) =>
+  status === 404
+    ? ". Verify the Railway service is deploying this repo root, branch, and Next.js start command."
+    : "";
+
 export const refreshRemoteNewsEdition = async ({
   fetchRefresh = defaultFetchRefresh,
   railwayPublicDomain,
@@ -134,12 +152,13 @@ export const refreshRemoteNewsEdition = async ({
 
   if (!response.ok || !isRemoteNewsRefreshSuccess(body)) {
     throw new Error(
-      `Remote news refresh failed: status=${response.status} body=${responseText}`,
+      `Remote news refresh failed: status=${response.status} body=${responseText}${getRemoteRefreshFailureHint(response.status)}`,
     );
   }
 
   return {
     body,
+    operatorNextStep: getRemoteNewsOperatorNextStep(body),
     status: response.status,
   };
 };

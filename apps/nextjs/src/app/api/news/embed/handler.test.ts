@@ -143,6 +143,35 @@ describe("handleNewsEmbedRequest", () => {
     });
   });
 
+  it("returns an operator-readable next step after an embedding batch", async () => {
+    const embed = vi.fn(() => Promise.resolve({ embedded: 3, failed: 0 }));
+
+    const response = await handleNewsEmbedRequest({
+      apiKey: "openai-key",
+      embed,
+      expectedSecret: "correct-secret-value",
+      request: new Request("https://example.com/api/news/embed?limit=25", {
+        headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      commands: {
+        next: "pnpm run news:health:remote",
+      },
+      nextStep: "check-news-health",
+      operatorNextStep: {
+        command: "pnpm run news:health:remote",
+        detail:
+          "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
+        label: "Check news health",
+        step: "check-news-health",
+      },
+    });
+  });
+
   it("accepts bounded embedding batch limits from the request URL", async () => {
     const embed = vi.fn(({ limit }: { limit: number }) =>
       Promise.resolve({ embedded: limit, failed: 0 }),

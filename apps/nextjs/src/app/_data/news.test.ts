@@ -22,6 +22,7 @@ const newsDbMock = vi.hoisted(() => {
   }
 
   const queuedResults: QueryResult[] = [];
+  const whereCalls: unknown[][] = [];
 
   class MockNewsQuery implements PromiseLike<unknown> {
     constructor(private readonly result: QueryResult) {}
@@ -50,7 +51,9 @@ const newsDbMock = vi.hoisted(() => {
       return this;
     }
 
-    where() {
+    where(...args: unknown[]) {
+      whereCalls.push(args);
+
       return this;
     }
 
@@ -82,6 +85,7 @@ const newsDbMock = vi.hoisted(() => {
     },
     reset: () => {
       queuedResults.length = 0;
+      whereCalls.length = 0;
     },
     select: vi.fn(
       () =>
@@ -91,6 +95,7 @@ const newsDbMock = vi.hoisted(() => {
           },
         ),
     ),
+    whereCalls,
   };
 });
 
@@ -276,7 +281,7 @@ describe("getNewsHomeData", () => {
     expect(data.items[0]?.id).toBe("preview-model-shift");
   });
 
-  it("serves the preview edition without reporting a console error", async () => {
+  it("serves the preview edition without reporting a console issue", async () => {
     newsDbMock.reset();
     const errorSpy = vi
       .spyOn(console, "error")
@@ -300,10 +305,7 @@ describe("getNewsHomeData", () => {
     ).toBe(true);
 
     expect(errorSpy).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith(
-      "Unable to load news homepage data",
-      "missing news_source table",
-    );
+    expect(warnSpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
     errorSpy.mockRestore();
@@ -395,7 +397,59 @@ describe("getNewsSemanticSimilarityMatches", () => {
       }),
     ).resolves.toEqual([
       {
+        clusterKey: "semantic-follow-up",
         newsItemId: semanticStoryId,
+        occurredAt: "2026-07-06T09:30:00.000Z",
+        similarity: 1,
+        strength: 2,
+      },
+    ]);
+  });
+
+  it("builds semantic matches from same-cluster vectors when the candidate id is not a database id", async () => {
+    const savedStoryId = "9c8c33ef-4f20-4f78-93ea-9400c4023902";
+
+    newsDbMock.reset();
+    newsDbMock.queueResults({
+      resolve: [
+        {
+          clusterKey: "2026-07-06:agent_product:browser-agents-follow-up",
+          createdAt: new Date("2026-07-06T10:00:00.000Z"),
+          embedding: [1, 0],
+          newsItemId: "8c8c33ef-4f20-4f78-93ea-9400c4023902",
+        },
+        {
+          clusterKey: "2026-07-06:agent_product:browser-agents-saved",
+          createdAt: new Date("2026-07-06T09:30:00.000Z"),
+          embedding: [1, 0],
+          newsItemId: savedStoryId,
+        },
+      ],
+    });
+
+    await expect(
+      getNewsSemanticSimilarityMatches({
+        feedbackItems: [
+          {
+            action: "save",
+            clusterKey: "2026-07-06:agent_product:browser-agents-saved",
+            newsItemId: savedStoryId,
+            occurredAt: "2026-07-06T09:30:00.000Z",
+          },
+        ],
+        items: [
+          {
+            canonicalUrl: "https://wire.example/browser-agent-follow-up",
+            clusterKey: "2026-07-06:agent_product:browser-agents-follow-up",
+            id: "wire-semantic-follow-up",
+            originalUrl: null,
+          },
+        ],
+      }),
+    ).resolves.toEqual([
+      {
+        clusterKey: "2026-07-06:agent_product:browser-agents-follow-up",
+        newsItemId: "wire-semantic-follow-up",
         occurredAt: "2026-07-06T09:30:00.000Z",
         similarity: 1,
         strength: 2,
@@ -506,6 +560,57 @@ describe("getNewsCollaborativeSignals", () => {
         tags: ["browser agents"],
       },
     ]);
+  });
+
+  it("recalls reader interactions from same-cluster story variants", async () => {
+    const candidateStoryId = "7c8c33ef-4f20-4f78-93ea-9400c4023902";
+
+    newsDbMock.reset();
+    newsDbMock.queueResults({ resolve: [] });
+
+    await getNewsCollaborativeSignals({
+      items: [
+        {
+          category: "agent_product",
+          clusterKey: "2026-07-06:agent_product:browser-agents",
+          entities: ["OpenAI"],
+          id: candidateStoryId,
+          sourceSlug: "agent-desk",
+          tags: ["browser agents"],
+        },
+      ],
+    });
+
+    const whereText = newsDbMock.whereCalls
+      .map((call) => call.map(collectSqlDebugText).join(" "))
+      .join(" ");
+
+    expect(whereText).toContain("newsItemId");
+    expect(whereText).toContain("clusterKey");
+  });
+
+  it("recalls same-cluster reader interactions for non-database candidate ids", async () => {
+    newsDbMock.reset();
+    newsDbMock.queueResults({ resolve: [] });
+
+    await getNewsCollaborativeSignals({
+      items: [
+        {
+          category: "agent_product",
+          clusterKey: "2026-07-06:agent_product:browser-agents",
+          entities: ["OpenAI"],
+          id: "preview-browser-agent-story",
+          sourceSlug: "agent-desk",
+          tags: ["browser agents"],
+        },
+      ],
+    });
+
+    const whereText = newsDbMock.whereCalls
+      .map((call) => call.map(collectSqlDebugText).join(" "))
+      .join(" ");
+
+    expect(whereText).toContain("clusterKey");
   });
 });
 
@@ -696,8 +801,14 @@ describe("getNewsEditionPageData", () => {
     expect(data.items.map((item) => item.id)).toContain("preview-model-shift");
   });
 
-  it("falls back to filtered preview topic stories when the news database is unavailable", async () => {
+  it("falls back to filtered preview topic stories without reporting a console issue", async () => {
     newsDbMock.reset();
+    const errorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const warnSpy = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
 
     const data = await getNewsEditionPageData({
       kind: "topic",
@@ -709,6 +820,11 @@ describe("getNewsEditionPageData", () => {
     expect(data.items.every((item) => item.category === "agent_product")).toBe(
       true,
     );
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
   });
 });
 
@@ -794,6 +910,10 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
       getNewsRunSkipDiagnosticsFromMetadata({
         sourceHealth: {
           emptySourceSlugs: ["google-ai-blog"],
+          emptyReasonMessages: {
+            "google-ai-blog":
+              "No usable items were collected: 4 low-quality.",
+          },
           failedSourceSlugs: ["anthropic-news"],
           failureMessages: {
             "anthropic-news": "feed unavailable",
@@ -804,6 +924,9 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
     ).toMatchObject({
       sourceHealth: {
         emptySourceSlugs: ["google-ai-blog"],
+        emptyReasonMessages: {
+          "google-ai-blog": "No usable items were collected: 4 low-quality.",
+        },
         failedSourceSlugs: ["anthropic-news"],
         failureMessages: {
           "anthropic-news": "feed unavailable",

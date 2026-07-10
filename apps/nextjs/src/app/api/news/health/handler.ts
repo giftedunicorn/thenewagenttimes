@@ -1,3 +1,5 @@
+import { initialNewsSources } from "@acme/ingestion";
+
 import type { NewsDeskStatus } from "../../../_components/news-home-model";
 import {
   buildNewsDeskStatus,
@@ -24,6 +26,11 @@ type NewsSchemaReadinessState =
 
 export interface NewsSchemaReadiness {
   newsItemClusterKey: NewsSchemaReadinessState;
+}
+
+interface NewsExpectedSourceCatalog {
+  activeSources: number;
+  totalSources: number;
 }
 
 type NewsHealthNextStep =
@@ -74,6 +81,26 @@ const getNewsSchemaAction = (schemaReadiness: NewsSchemaReadiness) =>
       ? "Run pnpm run db:predeploy so news_item.cluster_key is backfilled and non-null."
       : "Apply the database schema to the target database.";
 
+const expectedNewsSourceCatalog: NewsExpectedSourceCatalog = {
+  activeSources: initialNewsSources.filter((source) => source.isActive).length,
+  totalSources: initialNewsSources.length,
+};
+
+const isNewsSourceCatalogReady = ({
+  expectedSourceCatalog,
+  status,
+}: {
+  expectedSourceCatalog: NewsExpectedSourceCatalog;
+  status: NewsDeskStatus;
+}) =>
+  status.activeSources >= expectedSourceCatalog.activeSources &&
+  status.totalSources >= expectedSourceCatalog.totalSources;
+
+const getNewsSourceCatalogAction = (
+  expectedSourceCatalog: NewsExpectedSourceCatalog,
+) =>
+  `Run pnpm run news:refresh:remote so the deployed database seeds the current ${expectedSourceCatalog.activeSources} active-source catalog before ingesting stories.`;
+
 const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
   const sourceHealth = status.latestRun?.sourceHealth;
 
@@ -90,7 +117,13 @@ const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
     .join(", ");
   const emptySources =
     sourceHealth.emptySourceSlugs.length > 0
-      ? ` Empty sources: ${sourceHealth.emptySourceSlugs.join(", ")}.`
+      ? ` Empty sources: ${sourceHealth.emptySourceSlugs
+          .map((slug) => {
+            const message = sourceHealth.emptyReasonMessages?.[slug];
+
+            return message ? `${slug} (${message})` : slug;
+          })
+          .join(", ")}.`
       : "";
 
   return `Inspect failed sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh:remote after fixing source issues.`;
@@ -102,9 +135,11 @@ const getNewsHealthActions = ({
   refreshConfigured,
   schemaReadiness,
   status,
+  expectedSourceCatalog,
 }: {
   authConfigured: boolean;
   embeddingConfigured: boolean;
+  expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
@@ -133,6 +168,12 @@ const getNewsHealthActions = ({
     if (status.health === "unavailable") {
       actions.push("Seed sources and run pnpm run news:refresh:remote.");
     }
+    addEmbeddingProviderAction();
+    return actions;
+  }
+
+  if (!isNewsSourceCatalogReady({ expectedSourceCatalog, status })) {
+    actions.push(getNewsSourceCatalogAction(expectedSourceCatalog));
     addEmbeddingProviderAction();
     return actions;
   }
@@ -217,9 +258,11 @@ const getNewsHealthChecks = ({
   refreshConfigured,
   schemaReadiness,
   status,
+  expectedSourceCatalog,
 }: {
   authConfigured: boolean;
   embeddingConfigured: boolean;
+  expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
@@ -230,6 +273,7 @@ const getNewsHealthChecks = ({
   refreshSecret: refreshConfigured,
   schema: isNewsSchemaReady({ schemaReadiness, status }),
   semantic: isNewsSemanticReady(status),
+  sourceCatalog: isNewsSourceCatalogReady({ expectedSourceCatalog, status }),
   sources: status.activeSources > 0,
   stories: status.health === "live",
 });
@@ -243,6 +287,7 @@ const areNewsHealthChecksReady = (
   checks.refreshSecret &&
   checks.schema &&
   checks.semantic &&
+  checks.sourceCatalog &&
   checks.sources &&
   checks.stories;
 
@@ -252,9 +297,11 @@ const getNewsHealthNextStep = ({
   refreshConfigured,
   schemaReadiness,
   status,
+  expectedSourceCatalog,
 }: {
   authConfigured: boolean;
   embeddingConfigured: boolean;
+  expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
@@ -263,6 +310,9 @@ const getNewsHealthNextStep = ({
   if (!refreshConfigured) return "configure-refresh-secret";
   if (!isNewsSchemaReady({ schemaReadiness, status })) {
     return "apply-database-schema";
+  }
+  if (!isNewsSourceCatalogReady({ expectedSourceCatalog, status })) {
+    return "seed-news-sources";
   }
   if (status.health === "empty") return "seed-news-sources";
   if (status.health === "seeded") return "run-news-refresh";
@@ -281,7 +331,7 @@ const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
     case "apply-database-schema":
       return newsHealthCommands.schema;
     case "seed-news-sources":
-      return newsHealthCommands.seedSources;
+      return newsHealthCommands.refresh;
     case "run-news-refresh":
     case "inspect-ingestion-run":
       return newsHealthCommands.refresh;
@@ -295,6 +345,35 @@ const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
   }
 };
 
+const newsHealthNextStepLabels: Record<NewsHealthNextStep, string> = {
+  "apply-database-schema": "Apply database schema",
+  "configure-auth-secret": "Configure auth secret",
+  "configure-embedding-provider": "Configure embedding provider",
+  "configure-refresh-secret": "Configure refresh secret",
+  "embed-news-stories": "Generate embeddings",
+  "inspect-ingestion-run": "Inspect ingestion run",
+  ready: "Ready",
+  "run-news-refresh": "Run news refresh",
+  "seed-news-sources": "Seed sources",
+};
+
+const getNewsHealthOperatorNextStep = ({
+  actionRequired,
+  command,
+  nextStep,
+}: {
+  actionRequired: readonly string[];
+  command: string | null;
+  nextStep: NewsHealthNextStep;
+}) => ({
+  command,
+  detail:
+    actionRequired[0] ??
+    "The live news edition is fresh, embedded, and ready to serve.",
+  label: newsHealthNextStepLabels[nextStep],
+  step: nextStep,
+});
+
 export const handleNewsHealthRequest = async ({
   authSecret,
   embeddingApiKey,
@@ -305,6 +384,7 @@ export const handleNewsHealthRequest = async ({
   const authConfigured = Boolean(authSecret?.trim());
   const embeddingConfigured = Boolean(embeddingApiKey?.trim());
   const refreshConfigured = Boolean(refreshSecret?.trim());
+  const expectedSourceCatalog = expectedNewsSourceCatalog;
   const [status, schemaReadinessResult] = await Promise.all([
     getDeskStatus().catch(() => unavailableNewsDeskStatus()),
     getSchemaReadiness
@@ -316,37 +396,43 @@ export const handleNewsHealthRequest = async ({
   const checks = getNewsHealthChecks({
     authConfigured,
     embeddingConfigured,
+    expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,
     status,
   });
+  const actionRequired = getNewsHealthActions({
+    authConfigured,
+    embeddingConfigured,
+    expectedSourceCatalog,
+    refreshConfigured,
+    schemaReadiness,
+    status,
+  });
+  const nextStep = getNewsHealthNextStep({
+    authConfigured,
+    embeddingConfigured,
+    expectedSourceCatalog,
+    refreshConfigured,
+    schemaReadiness,
+    status,
+  });
+  const nextCommand = getNewsHealthCommandForNextStep(nextStep);
 
   return Response.json({
-    actionRequired: getNewsHealthActions({
-      authConfigured,
-      embeddingConfigured,
-      refreshConfigured,
-      schemaReadiness,
-      status,
-    }),
+    actionRequired,
     authConfigured,
     checks,
     commands: {
       ...newsHealthCommands,
-      next: getNewsHealthCommandForNextStep(
-        getNewsHealthNextStep({
-          authConfigured,
-          embeddingConfigured,
-          refreshConfigured,
-          schemaReadiness,
-          status,
-        }),
-      ),
+      next: nextCommand,
     },
     homepage: getNewsHomepageHealth(status),
     news: {
       activeSources: status.activeSources,
       embeddedStories: status.embeddedStories ?? 0,
+      expectedActiveSources: expectedNewsSourceCatalog.activeSources,
+      expectedTotalSources: expectedNewsSourceCatalog.totalSources,
       freshReady: isNewsFreshReady(status),
       health: status.health,
       latestPublishedAt: status.latestPublishedAt,
@@ -357,16 +443,19 @@ export const handleNewsHealthRequest = async ({
       publishedStories: status.publishedStories,
       ready: isNewsReady(status),
       semanticReady: isNewsSemanticReady(status),
+      sourceCatalogReady: isNewsSourceCatalogReady({
+        expectedSourceCatalog,
+        status,
+      }),
       summary: getNewsDeskStatusSummary(status),
       totalSources: status.totalSources,
       unembeddedStories: status.unembeddedStories ?? status.publishedStories,
     },
-    nextStep: getNewsHealthNextStep({
-      authConfigured,
-      embeddingConfigured,
-      refreshConfigured,
-      schemaReadiness,
-      status,
+    nextStep,
+    operatorNextStep: getNewsHealthOperatorNextStep({
+      actionRequired,
+      command: nextCommand,
+      nextStep,
     }),
     ok: true,
     ready: areNewsHealthChecksReady(checks),

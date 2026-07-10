@@ -86,6 +86,7 @@ export interface NewsSourceRefreshResult {
 export interface NewsSourceHealthSummary {
   healthySourceSlugs: string[];
   emptySourceSlugs: string[];
+  emptyReasonMessages: Record<string, string>;
   failedSourceSlugs: string[];
   failureMessages: Record<string, string>;
 }
@@ -228,10 +229,49 @@ const getSkippedItemCount = (skippedByReason: NewsIngestionSkippedByReason) =>
 const getFailedSourceMessage = (sourcesFailed: number) =>
   `${sourcesFailed} ${sourcesFailed === 1 ? "source" : "sources"} failed`;
 
+const newsIngestionSkippedReasonLabels = {
+  duplicate: "duplicate",
+  future: "future-dated",
+  irrelevant: "non-AI",
+  low_quality: "low-quality",
+  stale: "stale",
+} as const satisfies Record<NewsIngestionSkipReason, string>;
+
+const newsIngestionSkippedReasonOrder = [
+  "low_quality",
+  "irrelevant",
+  "duplicate",
+  "future",
+  "stale",
+] as const satisfies readonly NewsIngestionSkipReason[];
+
+const getEmptySourceMessage = (result: NewsSourceRefreshResult) => {
+  if (result.itemsSeen === 0) return "No items were returned by the source.";
+
+  const skippedReasonParts = newsIngestionSkippedReasonOrder.flatMap(
+    (reason) => {
+      const count = result.skippedByReason[reason];
+
+      return count > 0
+        ? [`${count} ${newsIngestionSkippedReasonLabels[reason]}`]
+        : [];
+    },
+  );
+
+  return skippedReasonParts.length > 0
+    ? `No usable items were collected: ${skippedReasonParts.join(", ")}.`
+    : "No usable items were collected.";
+};
+
 const hasFailureMessage = (
   result: NewsSourceRefreshResult,
 ): result is NewsSourceRefreshResult & { errorMessage: string } =>
   result.status === "failed" && Boolean(result.errorMessage);
+
+const hasUsableRefreshItems = (result: NewsSourceRefreshResult) =>
+  result.itemsCreated > 0 ||
+  result.itemsUpdated > 0 ||
+  result.skippedByReason.duplicate > 0;
 
 const summarizeNewsSourceRefreshResults = (
   results: NewsSourceRefreshResult[],
@@ -310,22 +350,35 @@ const finishAggregateRefreshRun = async ({
 
 export const buildNewsSourceHealthSummary = (
   results: readonly NewsSourceRefreshResult[],
-): NewsSourceHealthSummary => ({
-  healthySourceSlugs: results
-    .filter((result) => result.status === "succeeded" && result.itemsSeen > 0)
-    .map((result) => result.sourceSlug),
-  emptySourceSlugs: results
-    .filter((result) => result.status === "succeeded" && result.itemsSeen === 0)
-    .map((result) => result.sourceSlug),
-  failedSourceSlugs: results
-    .filter((result) => result.status === "failed")
-    .map((result) => result.sourceSlug),
-  failureMessages: Object.fromEntries(
-    results
-      .filter(hasFailureMessage)
-      .map((result) => [result.sourceSlug, result.errorMessage]),
-  ),
-});
+): NewsSourceHealthSummary => {
+  const emptyRefreshResults = results.filter(
+    (result) => result.status === "succeeded" && !hasUsableRefreshItems(result),
+  );
+
+  return {
+    healthySourceSlugs: results
+      .filter(
+        (result) =>
+          result.status === "succeeded" && hasUsableRefreshItems(result),
+      )
+      .map((result) => result.sourceSlug),
+    emptySourceSlugs: emptyRefreshResults.map((result) => result.sourceSlug),
+    emptyReasonMessages: Object.fromEntries(
+      emptyRefreshResults.map((result) => [
+        result.sourceSlug,
+        getEmptySourceMessage(result),
+      ]),
+    ),
+    failedSourceSlugs: results
+      .filter((result) => result.status === "failed")
+      .map((result) => result.sourceSlug),
+    failureMessages: Object.fromEntries(
+      results
+        .filter(hasFailureMessage)
+        .map((result) => [result.sourceSlug, result.errorMessage]),
+    ),
+  };
+};
 
 export const ingestRssSource = async (input: {
   repository: NewsRepository;
@@ -486,17 +539,24 @@ export const ingestGitHubTrendingAiSource = async (input: {
     const skippedByReason = createSkippedByReason();
 
     for (const repository of rawItems) {
-      const normalized = applyIngestionScores({
-        item: normalizeManualItem(
-          toGitHubTrendingAiManualNewsInput({
-            repository,
-            sourceId: source.id,
-            sourceSlug: source.slug,
-          }),
-        ),
-        now,
-        sourceCredibility: source.credibility,
-      });
+      let normalized: NewsItemInput;
+
+      try {
+        normalized = applyIngestionScores({
+          item: normalizeManualItem(
+            toGitHubTrendingAiManualNewsInput({
+              repository,
+              sourceId: source.id,
+              sourceSlug: source.slug,
+            }),
+          ),
+          now,
+          sourceCredibility: source.credibility,
+        });
+      } catch {
+        countSkippedItem(skippedByReason, "low_quality");
+        continue;
+      }
 
       const editionWindowSkipReason = getNewsEditionWindowSkipReason({
         now,
@@ -598,17 +658,24 @@ export const ingestArxivAiSource = async (input: {
     const skippedByReason = createSkippedByReason();
 
     for (const paper of rawItems) {
-      const normalized = applyIngestionScores({
-        item: normalizeManualItem(
-          toArxivAiManualNewsInput({
-            paper,
-            sourceId: source.id,
-            sourceSlug: source.slug,
-          }),
-        ),
-        now,
-        sourceCredibility: source.credibility,
-      });
+      let normalized: NewsItemInput;
+
+      try {
+        normalized = applyIngestionScores({
+          item: normalizeManualItem(
+            toArxivAiManualNewsInput({
+              paper,
+              sourceId: source.id,
+              sourceSlug: source.slug,
+            }),
+          ),
+          now,
+          sourceCredibility: source.credibility,
+        });
+      } catch {
+        countSkippedItem(skippedByReason, "low_quality");
+        continue;
+      }
 
       const editionWindowSkipReason = getNewsEditionWindowSkipReason({
         now,
@@ -713,17 +780,24 @@ export const ingestHackerNewsAiSource = async (input: {
     const skippedByReason = createSkippedByReason();
 
     for (const story of rawItems) {
-      const normalized = applyIngestionScores({
-        item: normalizeManualItem(
-          toHackerNewsAiManualNewsInput({
-            sourceId: source.id,
-            sourceSlug: source.slug,
-            story,
-          }),
-        ),
-        now,
-        sourceCredibility: source.credibility,
-      });
+      let normalized: NewsItemInput;
+
+      try {
+        normalized = applyIngestionScores({
+          item: normalizeManualItem(
+            toHackerNewsAiManualNewsInput({
+              sourceId: source.id,
+              sourceSlug: source.slug,
+              story,
+            }),
+          ),
+          now,
+          sourceCredibility: source.credibility,
+        });
+      } catch {
+        countSkippedItem(skippedByReason, "low_quality");
+        continue;
+      }
 
       const editionWindowSkipReason = getNewsEditionWindowSkipReason({
         now,
@@ -825,17 +899,24 @@ export const ingestYcAiSource = async (input: {
     const skippedByReason = createSkippedByReason();
 
     for (const company of rawItems) {
-      const normalized = applyIngestionScores({
-        item: normalizeManualItem(
-          toYcAiManualNewsInput({
-            company,
-            sourceId: source.id,
-            sourceSlug: source.slug,
-          }),
-        ),
-        now,
-        sourceCredibility: source.credibility,
-      });
+      let normalized: NewsItemInput;
+
+      try {
+        normalized = applyIngestionScores({
+          item: normalizeManualItem(
+            toYcAiManualNewsInput({
+              company,
+              sourceId: source.id,
+              sourceSlug: source.slug,
+            }),
+          ),
+          now,
+          sourceCredibility: source.credibility,
+        });
+      } catch {
+        countSkippedItem(skippedByReason, "low_quality");
+        continue;
+      }
 
       const editionWindowSkipReason = getNewsEditionWindowSkipReason({
         now,

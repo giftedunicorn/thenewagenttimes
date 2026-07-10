@@ -336,6 +336,13 @@ describe("checkRemoteNewsHealth", () => {
                   liveReady: true,
                   semanticReady: false,
                 },
+                operatorNextStep: {
+                  command: null,
+                  detail:
+                    "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+                  label: "Configure embedding provider",
+                  step: "configure-embedding-provider",
+                },
                 ready: false,
               }),
             ),
@@ -368,6 +375,13 @@ describe("checkRemoteNewsHealth", () => {
         liveReady: true,
         nextStep: "configure-embedding-provider",
         nextCommand: null,
+        operatorNextStep: {
+          command: null,
+          detail:
+            "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+          label: "Configure embedding provider",
+          step: "configure-embedding-provider",
+        },
         ready: false,
         semanticReady: false,
         status: 200,
@@ -400,6 +414,41 @@ describe("checkRemoteNewsHealth", () => {
     });
   });
 
+  it("returns a structured diagnosis when the remote health endpoint is missing", async () => {
+    const error = await checkRemoteNewsHealth({
+      fetchHealth: () =>
+        Promise.resolve({
+          ok: false,
+          status: 404,
+          text: () => Promise.resolve("<html>Create Next App</html>"),
+        }),
+      healthUrl: "https://thenewagenttimes.up.railway.app",
+    }).catch((caughtError: unknown) => caughtError);
+
+    expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
+    expect(error).toMatchObject({
+      message:
+        "Remote news health is not ready: nextStep=health-endpoint-unavailable",
+      result: {
+        actionRequired: [
+          "Remote health endpoint returned 404. Verify the Railway service is deploying this repo root, branch, and Next.js start command.",
+        ],
+        body: "<html>Create Next App</html>",
+        homepage: null,
+        nextStep: "health-endpoint-unavailable",
+        operatorNextStep: {
+          command: null,
+          detail:
+            "Verify the Railway service is deploying this repo root, branch, and Next.js start command.",
+          label: "Check Railway service routing",
+          step: "health-endpoint-unavailable",
+        },
+        ready: null,
+        status: 404,
+      },
+    });
+  });
+
   it("rejects missing remote health configuration", async () => {
     await expect(
       checkRemoteNewsHealth({
@@ -425,12 +474,18 @@ describe("formatRemoteNewsHealthSummary", () => {
         liveReady: false,
         nextCommand: "pnpm run db:predeploy",
         nextStep: "apply-database-schema",
+        operatorNextStep: {
+          command: "pnpm run db:predeploy",
+          detail: "Apply the database schema to the target database.",
+          label: "Apply database schema",
+          step: "apply-database-schema",
+        },
         ready: false,
         semanticReady: false,
         status: 200,
       }),
     ).toBe(
-      "Remote news health: status=200 ready=false liveReady=false semanticReady=false nextStep=apply-database-schema nextCommand=pnpm run db:predeploy",
+      'Remote news health: status=200 ready=false liveReady=false semanticReady=false nextStep=apply-database-schema nextCommand=pnpm run db:predeploy operatorNextStep="Apply database schema" operatorDetail="Apply the database schema to the target database."',
     );
   });
 });

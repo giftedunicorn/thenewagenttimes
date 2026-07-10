@@ -22,6 +22,7 @@ const refreshResult = {
   sourceHealth: {
     healthySourceSlugs: ["openai-news"],
     emptySourceSlugs: [],
+    emptyReasonMessages: {},
     failedSourceSlugs: [],
     failureMessages: {},
   },
@@ -111,6 +112,35 @@ describe("handleNewsRefreshRequest", () => {
     expect(refresh).toHaveBeenCalledOnce();
   });
 
+  it("returns an operator-readable next step after a refresh batch", async () => {
+    const refresh = vi.fn(() => Promise.resolve(refreshResult));
+
+    const response = await handleNewsRefreshRequest({
+      expectedSecret: "correct-secret-value",
+      refresh,
+      request: new Request("https://example.com/api/news/refresh", {
+        headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      commands: {
+        next: "pnpm run news:embed:remote",
+      },
+      nextStep: "embed-news-stories",
+      operatorNextStep: {
+        command: "pnpm run news:embed:remote",
+        detail:
+          "Run pnpm run news:embed:remote so semantic recommendations include refreshed stories.",
+        label: "Generate embeddings",
+        step: "embed-news-stories",
+      },
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
   it("surfaces failed and empty source diagnostics after a partial refresh", async () => {
     const refresh = vi.fn(() =>
       Promise.resolve({
@@ -119,6 +149,10 @@ describe("handleNewsRefreshRequest", () => {
         sourcesSucceeded: 8,
         sourceHealth: {
           emptySourceSlugs: ["google-ai-blog"],
+          emptyReasonMessages: {
+            "google-ai-blog":
+              "No usable items were collected: 4 low-quality.",
+          },
           failedSourceSlugs: ["anthropic-news"],
           failureMessages: {
             "anthropic-news": "feed unavailable",
@@ -140,13 +174,54 @@ describe("handleNewsRefreshRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Inspect failed news sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog. Rerun pnpm run news:refresh:remote after fixing source issues.",
+        "Inspect failed news sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog (No usable items were collected: 4 low-quality.). Rerun pnpm run news:refresh:remote after fixing source issues.",
       ],
       commands: {
         next: "pnpm run news:refresh:remote",
       },
       nextStep: "inspect-source-failures",
       ok: true,
+      ready: false,
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
+  it("keeps source seeding recovery on the remote refresh path", async () => {
+    const refresh = vi.fn(() =>
+      Promise.resolve({
+        ...refreshResult,
+        sourcesAttempted: 0,
+        sourcesSeeded: 0,
+        sourcesSucceeded: 0,
+      }),
+    );
+
+    const response = await handleNewsRefreshRequest({
+      expectedSecret: "correct-secret-value",
+      refresh,
+      request: new Request("https://example.com/api/news/refresh", {
+        headers: { authorization: "Bearer correct-secret-value" },
+        method: "POST",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Run pnpm run news:refresh:remote so the deployed service seeds sources before ingesting stories.",
+      ],
+      commands: {
+        next: "pnpm run news:refresh:remote",
+        seedSources: "pnpm run news:seed-sources",
+      },
+      nextStep: "seed-news-sources",
+      operatorNextStep: {
+        command: "pnpm run news:refresh:remote",
+        detail:
+          "Run pnpm run news:refresh:remote so the deployed service seeds sources before ingesting stories.",
+        label: "Seed sources",
+        step: "seed-news-sources",
+      },
       ready: false,
     });
     expect(refresh).toHaveBeenCalledOnce();

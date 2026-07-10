@@ -1,5 +1,6 @@
 import {
   embedRemoteNewsItems,
+  formatRemoteNewsEmbedSummary,
   resolveRemoteNewsEmbedCommandInput,
 } from "./remote-embed";
 
@@ -11,7 +12,7 @@ const main = async () => {
     }),
   });
 
-  console.log(`Remote news embedding complete: status=${result.status}`);
+  console.log(formatRemoteNewsEmbedSummary(result));
   console.log(JSON.stringify(result.body, null, 2));
 };
 

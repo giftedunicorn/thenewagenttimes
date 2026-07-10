@@ -1,5 +1,6 @@
 import {
   bootstrapRemoteNewsEdition,
+  formatRemoteNewsBootstrapSummary,
   RemoteNewsBootstrapNotReadyError,
   resolveRemoteNewsBootstrapCommandInput,
 } from "./remote-bootstrap";
@@ -7,9 +8,7 @@ import {
 const printBootstrapResult = (
   result: Awaited<ReturnType<typeof bootstrapRemoteNewsEdition>>,
 ) => {
-  console.log(
-    `Remote news bootstrap: refresh=${result.refresh?.status ?? "skipped"} embed=${result.embed?.status ?? "skipped"} embedBatches=${result.embedBatches.length} health=${result.health.status} ready=${String(result.health.ready)} nextStep=${result.health.nextStep ?? "unknown"}`,
-  );
+  console.log(formatRemoteNewsBootstrapSummary(result));
   console.log(JSON.stringify(result, null, 2));
 };
 

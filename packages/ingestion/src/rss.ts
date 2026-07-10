@@ -36,13 +36,20 @@ const atomLink = (value: unknown): string | undefined => {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) {
     const links = value as unknown[];
-    const alternate =
-      links.find(
-        (link) =>
-          link &&
-          typeof link === "object" &&
-          (!("rel" in link) || (link as { rel?: unknown }).rel === "alternate"),
-      ) ?? links[0];
+    const alternateLinks = links.filter((link) => {
+      if (!link || typeof link !== "object") return false;
+
+      const rel = textValue((link as { rel?: unknown }).rel)?.toLowerCase();
+
+      return !rel || rel === "alternate";
+    });
+    const htmlAlternate = alternateLinks.find((link) => {
+      const type = textValue((link as { type?: unknown }).type)?.toLowerCase();
+
+      return !type || type === "text/html" || type === "application/xhtml+xml";
+    });
+    const alternate = htmlAlternate ?? alternateLinks[0] ?? links[0];
+
     return atomLink(alternate);
   }
   if (value && typeof value === "object" && "href" in value) {

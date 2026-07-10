@@ -1,4 +1,6 @@
+import type { RemoteNewsOperatorNextStep } from "./remote-operator-next-step";
 import { getFirstNonBlankValue } from "./remote-config";
+import { getRemoteNewsOperatorNextStep } from "./remote-operator-next-step";
 
 interface RemoteHealthHttpInit {
   method: "GET";
@@ -32,6 +34,7 @@ export interface RemoteNewsHealthResult {
   liveReady: boolean | null;
   nextCommand: string | null;
   nextStep: string | null;
+  operatorNextStep?: RemoteNewsOperatorNextStep;
   ready: boolean | null;
   semanticReady: boolean | null;
   status: number;
@@ -50,11 +53,16 @@ export const formatRemoteNewsHealthSummary = ({
   liveReady,
   nextCommand,
   nextStep,
+  operatorNextStep,
   ready,
   semanticReady,
   status,
 }: RemoteNewsHealthResult) =>
-  `Remote news health: status=${status} ready=${String(ready)} liveReady=${String(liveReady)} semanticReady=${String(semanticReady)} nextStep=${nextStep ?? "unknown"} nextCommand=${nextCommand ?? "none"}`;
+  `Remote news health: status=${status} ready=${String(ready)} liveReady=${String(liveReady)} semanticReady=${String(semanticReady)} nextStep=${nextStep ?? "unknown"} nextCommand=${nextCommand ?? "none"}${
+    operatorNextStep
+      ? ` operatorNextStep="${operatorNextStep.label}" operatorDetail="${operatorNextStep.detail}"`
+      : ""
+  }`;
 
 export interface CheckRemoteNewsHealthInput {
   fetchHealth?: RemoteHealthFetch;
@@ -252,14 +260,32 @@ export const checkRemoteNewsHealth = async ({
   const endpoint = resolveRemoteNewsHealthUrl(healthUrl, railwayPublicDomain);
   const response = await fetchHealth(endpoint, { method: "GET" });
   const responseText = await response.text();
+  const body = parseRemoteNewsHealthBody(responseText);
 
   if (!response.ok) {
-    throw new Error(
-      `Remote news health check failed: status=${response.status} body=${responseText}`,
-    );
+    throw new RemoteNewsHealthNotReadyError({
+      actionRequired: [
+        `Remote health endpoint returned ${response.status}. Verify the Railway service is deploying this repo root, branch, and Next.js start command.`,
+      ],
+      body,
+      commands: {},
+      homepage: null,
+      liveReady: null,
+      nextCommand: null,
+      nextStep: "health-endpoint-unavailable",
+      operatorNextStep: {
+        command: null,
+        detail:
+          "Verify the Railway service is deploying this repo root, branch, and Next.js start command.",
+        label: "Check Railway service routing",
+        step: "health-endpoint-unavailable",
+      },
+      ready: null,
+      semanticReady: null,
+      status: response.status,
+    });
   }
 
-  const body = parseRemoteNewsHealthBody(responseText);
   const commands = getRemoteNewsHealthCommands(body);
   const homepage = getRemoteNewsHomepageHealth(body);
   const result: RemoteNewsHealthResult = {
@@ -273,6 +299,7 @@ export const checkRemoteNewsHealth = async ({
         ? commands.next
         : null,
     nextStep: getRemoteNewsHealthNextStep(body),
+    operatorNextStep: getRemoteNewsOperatorNextStep(body),
     ready: getRemoteNewsHealthReady(body),
     semanticReady: getRemoteNewsHealthNewsReadiness(body, "semanticReady"),
     status: response.status,

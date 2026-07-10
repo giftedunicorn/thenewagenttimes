@@ -25,12 +25,30 @@ export interface RemoteNewsBootstrapResult {
   refresh: RemoteNewsRefreshResult | null;
 }
 
+export const formatRemoteNewsBootstrapSummary = ({
+  embed,
+  embedBatches,
+  health,
+  refresh,
+}: RemoteNewsBootstrapResult) =>
+  `Remote news bootstrap: refresh=${refresh?.status ?? "skipped"} embed=${embed?.status ?? "skipped"} embedBatches=${embedBatches.length} health=${health.status} ready=${String(health.ready)} nextStep=${health.nextStep ?? "unknown"}${
+    health.operatorNextStep
+      ? ` operatorNextStep="${health.operatorNextStep.label}" operatorCommand=${health.operatorNextStep.command ?? "none"} operatorDetail="${health.operatorNextStep.detail}"`
+      : ""
+  }`;
+
 const getRemoteNewsBootstrapNotReadyMessage = (
   result: RemoteNewsBootstrapResult,
 ) => {
   const statusMessage = result.refresh
     ? `Remote news bootstrap finished but health is not ready: nextStep=${result.health.nextStep ?? "unknown"}`
     : `Remote news bootstrap blocked before refresh: nextStep=${result.health.nextStep ?? "unknown"}`;
+  const operatorNextStep = result.health.operatorNextStep;
+
+  if (operatorNextStep) {
+    return `${statusMessage} operatorNextStep="${operatorNextStep.label}" operatorCommand=${operatorNextStep.command ?? "none"} operatorDetail="${operatorNextStep.detail}"`;
+  }
+
   const [firstAction] = result.health.actionRequired;
 
   return firstAction

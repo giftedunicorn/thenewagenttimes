@@ -1,4 +1,5 @@
 import {
+  formatRemoteNewsRefreshSummary,
   refreshRemoteNewsEdition,
   resolveRemoteNewsRefreshCommandInput,
 } from "./remote-refresh";
@@ -11,7 +12,7 @@ const main = async () => {
     }),
   });
 
-  console.log(`Remote news refresh complete: status=${result.status}`);
+  console.log(formatRemoteNewsRefreshSummary(result));
   console.log(JSON.stringify(result.body, null, 2));
 };
 

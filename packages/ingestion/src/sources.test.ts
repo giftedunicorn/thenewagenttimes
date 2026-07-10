@@ -16,6 +16,7 @@ describe("initialNewsSources", () => {
         "Microsoft AI Blog",
         "Hugging Face Blog",
         "LangChain Blog",
+        "Mistral AI Blog",
       ]),
     );
   });
@@ -126,6 +127,21 @@ describe("initialNewsSources", () => {
       isActive: true,
       sourceType: "rss",
     });
+    expect(sourcesBySlug.get("aws-machine-learning-blog")).toMatchObject({
+      feedUrl: "https://aws.amazon.com/blogs/machine-learning/feed/",
+      isActive: true,
+      sourceType: "publication",
+    });
+    expect(sourcesBySlug.get("cloudflare-ai-blog")).toMatchObject({
+      feedUrl: "https://blog.cloudflare.com/tag/ai/rss/",
+      isActive: true,
+      sourceType: "vendor_blog",
+    });
+    expect(sourcesBySlug.get("bair-blog")).toMatchObject({
+      feedUrl: "https://bair.berkeley.edu/blog/feed.xml",
+      isActive: true,
+      sourceType: "research",
+    });
   });
 
   it("keeps arXiv AI active for structured research discovery", () => {
@@ -197,7 +213,7 @@ describe("initialNewsSources", () => {
   it("keeps the active RSS catalog broad enough for a live AI front page", () => {
     expect(
       initialNewsSources.filter((source) => source.isActive && source.feedUrl),
-    ).toHaveLength(18);
+    ).toHaveLength(22);
   });
 
   it("uses unique slugs for every source", () => {

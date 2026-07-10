@@ -86,6 +86,29 @@ const getNewsEmbedCommandForNextStep = (nextStep: NewsEmbedNextStep) =>
     ? newsEmbedCommands.health
     : newsEmbedCommands.embed;
 
+const newsEmbedNextStepLabels: Record<NewsEmbedNextStep, string> = {
+  "check-news-health": "Check news health",
+  "embed-news-stories": "Continue embeddings",
+  "retry-news-embeddings": "Retry embeddings",
+};
+
+const getNewsEmbedOperatorNextStep = ({
+  actionRequired,
+  command,
+  nextStep,
+}: {
+  actionRequired: readonly string[];
+  command: string;
+  nextStep: NewsEmbedNextStep;
+}) => ({
+  command,
+  detail:
+    actionRequired[0] ??
+    "Embedding batch completed; run the health check to confirm semantic readiness.",
+  label: newsEmbedNextStepLabels[nextStep],
+  step: nextStep,
+});
+
 export const handleNewsEmbedRequest = async ({
   apiKey,
   embed,
@@ -122,18 +145,25 @@ export const handleNewsEmbedRequest = async ({
     );
   }
   const nextStep = getNewsEmbedNextStep({ ...result, limit });
+  const actionRequired = getNewsEmbedActionRequired({
+    failed: result.failed,
+    nextStep,
+  });
+  const nextCommand = getNewsEmbedCommandForNextStep(nextStep);
 
   return Response.json({
-    actionRequired: getNewsEmbedActionRequired({
-      failed: result.failed,
-      nextStep,
-    }),
+    actionRequired,
     commands: {
       embed: newsEmbedCommands.embed,
       health: newsEmbedCommands.health,
-      next: getNewsEmbedCommandForNextStep(nextStep),
+      next: nextCommand,
     },
     ok: true,
+    operatorNextStep: getNewsEmbedOperatorNextStep({
+      actionRequired,
+      command: nextCommand,
+      nextStep,
+    }),
     ready: nextStep === "check-news-health",
     nextStep,
     limit,

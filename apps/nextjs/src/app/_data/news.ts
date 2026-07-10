@@ -157,6 +157,30 @@ const uuidPattern =
 export const shouldReadNewsArticleFromDatabase = (id: string) =>
   uuidPattern.test(id);
 
+const shouldReadNewsClusterKeyFromDatabase = (clusterKey?: string | null) => {
+  const normalizedClusterKey = clusterKey?.trim().toLowerCase() ?? "";
+
+  return (
+    normalizedClusterKey.length > 0 &&
+    !normalizedClusterKey.startsWith("preview-")
+  );
+};
+
+const shouldReadNewsClusterFromDatabase = ({
+  clusterKey,
+  sourceSlug,
+}: {
+  clusterKey?: string | null;
+  sourceSlug: string;
+}) => {
+  const normalizedSourceSlug = sourceSlug.trim().toLowerCase();
+
+  return (
+    shouldReadNewsClusterKeyFromDatabase(clusterKey) &&
+    !normalizedSourceSlug.startsWith("preview-")
+  );
+};
+
 export const buildNewsHomeCandidateOrderByExpressions = () => [
   desc(NewsItem.publishedAt),
   desc(NewsItem.trendScore),
@@ -213,7 +237,11 @@ export interface NewsEditionPageData {
 }
 
 const normalizeNewsEditionTopicCategoryValue = (value: string) =>
-  value.trim().toLowerCase().replace(/[\s-]+/g, "_").replace(/_+/g, "_");
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_")
+    .replace(/_+/g, "_");
 
 export const parseNewsEditionTopicCategory = (value: string) =>
   NewsCategorySchema.safeParse(normalizeNewsEditionTopicCategoryValue(value));
@@ -277,12 +305,7 @@ const getNewsEditionFallbackTitle = ({
       : formatNewsEditionFilterTitle(value);
 
 const normalizeNewsSearchValue = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  value.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 
 const getNewsSearchTokens = (value: string) =>
   normalizeNewsSearchValue(value).split(/\s+/).filter(Boolean);
@@ -452,12 +475,7 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
       status: liveItems.length > 0 ? "ready" : "empty",
       deskStatus,
     };
-  } catch (error: unknown) {
-    console.warn(
-      "Unable to load news homepage data",
-      error instanceof Error ? error.message : String(error),
-    );
-
+  } catch {
     return {
       items: getPreviewNewsHomeItems(),
       status: "unavailable",
@@ -482,11 +500,30 @@ export const getNewsCollaborativeSignals = async ({
         .filter((newsItemId) => newsItemId.length > 0),
     ),
   );
+  const candidateClusterKeys = Array.from(
+    new Set(
+      items
+        .filter(shouldReadNewsClusterFromDatabase)
+        .map((item) => item.clusterKey?.trim() ?? "")
+        .filter((clusterKey) => clusterKey.length > 0),
+    ),
+  );
 
-  if (candidateNewsItemIds.length === 0) return [];
+  if (candidateNewsItemIds.length === 0 && candidateClusterKeys.length === 0) {
+    return [];
+  }
 
   try {
     const since = getNewsCollaborativeSignalWindowStart();
+    const interactionRecallCondition =
+      candidateNewsItemIds.length > 0 && candidateClusterKeys.length > 0
+        ? or(
+            inArray(NewsReaderInteraction.newsItemId, candidateNewsItemIds),
+            inArray(NewsItem.clusterKey, candidateClusterKeys),
+          )
+        : candidateNewsItemIds.length > 0
+          ? inArray(NewsReaderInteraction.newsItemId, candidateNewsItemIds)
+          : inArray(NewsItem.clusterKey, candidateClusterKeys);
     const rows = await db
       .select({
         canonicalUrl: NewsItem.canonicalUrl,
@@ -511,7 +548,7 @@ export const getNewsCollaborativeSignals = async ({
       .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
       .where(
         and(
-          inArray(NewsReaderInteraction.newsItemId, candidateNewsItemIds),
+          interactionRecallCondition,
           sql`${NewsReaderInteraction.occurredAt} >= ${since}`,
         ),
       )
@@ -551,12 +588,18 @@ export const getNewsSemanticSimilarityMatches = async ({
     "canonicalUrl" | "clusterKey" | "id" | "originalUrl"
   >[];
 }): Promise<NewsSemanticSimilarityMatch[]> => {
-  const candidateItems = items.filter((item) =>
-    shouldReadNewsArticleFromDatabase(item.id),
+  const candidateItems = items.filter(
+    (item) =>
+      shouldReadNewsArticleFromDatabase(item.id) ||
+      shouldReadNewsClusterKeyFromDatabase(item.clusterKey),
   );
   const semanticFeedbackItems = feedbackItems
     .filter((item) => item.newsItemId.trim().length > 0)
-    .filter((item) => shouldReadNewsArticleFromDatabase(item.newsItemId))
+    .filter(
+      (item) =>
+        shouldReadNewsArticleFromDatabase(item.newsItemId) ||
+        shouldReadNewsClusterKeyFromDatabase(item.clusterKey),
+    )
     .map((item) => ({
       canonicalUrl: item.canonicalUrl,
       clusterKey: item.clusterKey,
@@ -572,47 +615,98 @@ export const getNewsSemanticSimilarityMatches = async ({
 
   const vectorNewsItemIds = Array.from(
     new Set([
-      ...candidateItems.map((item) => item.id),
-      ...semanticFeedbackItems.map((item) => item.newsItemId),
+      ...candidateItems
+        .map((item) => item.id)
+        .filter(shouldReadNewsArticleFromDatabase),
+      ...semanticFeedbackItems
+        .map((item) => item.newsItemId)
+        .filter(shouldReadNewsArticleFromDatabase),
     ]),
   );
+  const vectorClusterKeys = Array.from(
+    new Set(
+      [...candidateItems, ...semanticFeedbackItems]
+        .map((item) => item.clusterKey?.trim() ?? "")
+        .filter(shouldReadNewsClusterKeyFromDatabase),
+    ),
+  );
 
-  if (vectorNewsItemIds.length === 0) return [];
+  if (vectorNewsItemIds.length === 0 && vectorClusterKeys.length === 0) {
+    return [];
+  }
 
   try {
+    const vectorRecallCondition =
+      vectorNewsItemIds.length > 0 && vectorClusterKeys.length > 0
+        ? or(
+            inArray(NewsItemVector.newsItemId, vectorNewsItemIds),
+            inArray(NewsItem.clusterKey, vectorClusterKeys),
+          )
+        : vectorNewsItemIds.length > 0
+          ? inArray(NewsItemVector.newsItemId, vectorNewsItemIds)
+          : inArray(NewsItem.clusterKey, vectorClusterKeys);
     const vectorRows = await db
       .select({
+        clusterKey: NewsItem.clusterKey,
         createdAt: NewsItemVector.createdAt,
         embedding: NewsItemVector.embedding,
         newsItemId: NewsItemVector.newsItemId,
       })
       .from(NewsItemVector)
-      .where(inArray(NewsItemVector.newsItemId, vectorNewsItemIds))
+      .innerJoin(NewsItem, eq(NewsItemVector.newsItemId, NewsItem.id))
+      .where(vectorRecallCondition)
       .orderBy(desc(NewsItemVector.createdAt))
-      .limit(vectorNewsItemIds.length * 3);
+      .limit((vectorNewsItemIds.length + vectorClusterKeys.length) * 3);
     const latestEmbeddingByNewsItemId = new Map<string, readonly number[]>();
+    const latestEmbeddingByClusterKey = new Map<string, readonly number[]>();
 
     for (const vectorRow of vectorRows) {
-      if (latestEmbeddingByNewsItemId.has(vectorRow.newsItemId)) continue;
       if (!vectorRow.embedding || vectorRow.embedding.length === 0) continue;
 
-      latestEmbeddingByNewsItemId.set(
-        vectorRow.newsItemId,
-        vectorRow.embedding,
-      );
+      if (!latestEmbeddingByNewsItemId.has(vectorRow.newsItemId)) {
+        latestEmbeddingByNewsItemId.set(
+          vectorRow.newsItemId,
+          vectorRow.embedding,
+        );
+      }
+
+      const clusterKey =
+        typeof vectorRow.clusterKey === "string"
+          ? vectorRow.clusterKey.trim().toLowerCase()
+          : "";
+      if (clusterKey && !latestEmbeddingByClusterKey.has(clusterKey)) {
+        latestEmbeddingByClusterKey.set(clusterKey, vectorRow.embedding);
+      }
     }
+
+    const getVectorEmbedding = ({
+      clusterKey,
+      newsItemId,
+    }: {
+      clusterKey?: string | null;
+      newsItemId: string;
+    }) =>
+      latestEmbeddingByNewsItemId.get(newsItemId) ??
+      latestEmbeddingByClusterKey.get(clusterKey?.trim().toLowerCase() ?? "") ??
+      null;
 
     return buildNewsSemanticSimilarityMatches({
       candidateVectors: candidateItems.map((item) => ({
         canonicalUrl: item.canonicalUrl,
         clusterKey: item.clusterKey,
-        embedding: latestEmbeddingByNewsItemId.get(item.id) ?? null,
+        embedding: getVectorEmbedding({
+          clusterKey: item.clusterKey,
+          newsItemId: item.id,
+        }),
         newsItemId: item.id,
         originalUrl: item.originalUrl,
       })),
       feedbackVectors: semanticFeedbackItems.map((item) => ({
         ...item,
-        embedding: latestEmbeddingByNewsItemId.get(item.newsItemId) ?? null,
+        embedding: getVectorEmbedding({
+          clusterKey: item.clusterKey,
+          newsItemId: item.newsItemId,
+        }),
       })),
     });
   } catch (error: unknown) {
@@ -688,12 +782,7 @@ export const getNewsEditionPageData = async ({
       items,
       status: liveItems.length > 0 ? "ready" : "empty",
     };
-  } catch (error: unknown) {
-    console.warn(
-      "Unable to load news edition data",
-      error instanceof Error ? error.message : String(error),
-    );
-
+  } catch {
     return {
       filter: {
         kind,
@@ -769,6 +858,10 @@ const getNewsRunSourceHealthFromMetadata = (
 
   return {
     emptySourceSlugs: getMetadataStringArray(sourceHealth, "emptySourceSlugs"),
+    emptyReasonMessages: getMetadataStringRecord(
+      sourceHealth,
+      "emptyReasonMessages",
+    ),
     failedSourceSlugs: getMetadataStringArray(
       sourceHealth,
       "failedSourceSlugs",

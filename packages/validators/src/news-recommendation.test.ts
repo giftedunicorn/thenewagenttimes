@@ -2900,6 +2900,7 @@ describe("buildNewsSemanticSimilarityMatches", () => {
     const matches = buildNewsSemanticSimilarityMatches({
       candidateVectors: [
         {
+          clusterKey: "2026-07-01:agent_product:agent-runtime",
           newsItemId: "agent-runtime-analysis",
           embedding: [0.96, 0.2, 0],
         },
@@ -2922,6 +2923,7 @@ describe("buildNewsSemanticSimilarityMatches", () => {
 
     expect(matches).toHaveLength(1);
     expect(matches[0]).toMatchObject({
+      clusterKey: "2026-07-01:agent_product:agent-runtime",
       newsItemId: "agent-runtime-analysis",
       strength: 3,
     });
@@ -3092,6 +3094,42 @@ describe("selectSemanticSimilarityNewsFeed", () => {
     ]);
     expect(feed[0]?.matchedSignals).toContain("semantic_feedback");
     expect(feed[0]?.personalizedScore).toBeGreaterThan(112);
+  });
+
+  test("lifts same-cluster story variants through semantic similarity", () => {
+    const ranked = [
+      {
+        ...items[1],
+        id: "generic-fresh-funding",
+        personalizedScore: 112,
+        matchedSignals: [],
+      },
+      {
+        ...items[0],
+        id: "wire-agent-runtime-analysis",
+        category: "research",
+        clusterKey: "2026-07-01:research:agent-runtime",
+        entities: ["Agents"],
+        sourceSlug: "wire-lab",
+        personalizedScore: 106,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectSemanticSimilarityNewsFeed(ranked, [
+      {
+        clusterKey: " 2026-07-01:RESEARCH:agent-runtime ",
+        newsItemId: "original-agent-runtime-analysis",
+        similarity: 0.98,
+        strength: 3,
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "wire-agent-runtime-analysis",
+      "generic-fresh-funding",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("semantic_feedback");
   });
 
   test("caps semantic feedback strength before applying recommendation lift", () => {
@@ -4900,6 +4938,52 @@ describe("selectPositiveFeedbackAnchoredNewsFeed", () => {
     ]);
     expect(feed[0]?.matchedSignals).toContain("positive_feedback");
     expect(feed[1]?.matchedSignals).toContain("positive_feedback");
+  });
+
+  test("orders deeper read feedback before shallower read feedback", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "meaningful-read-follow-up",
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "model-desk",
+        personalizedScore: 170,
+        matchedSignals: [],
+      },
+      {
+        ...items[1],
+        id: "deep-read-follow-up",
+        category: "research",
+        entities: ["Benchmarks"],
+        sourceSlug: "research-lab",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectPositiveFeedbackAnchoredNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        occurredAt: "2026-07-01T10:00:00.000Z",
+        readPercent: 0.35,
+        sourceSlug: "model-desk",
+      },
+      {
+        category: "research",
+        entities: ["Benchmarks"],
+        occurredAt: "2026-07-01T09:00:00.000Z",
+        readPercent: 0.9,
+        sourceSlug: "research-lab",
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "deep-read-follow-up",
+      "meaningful-read-follow-up",
+    ]);
+    expect(feed[0]?.matchedSignals).toContain("positive_read_feedback");
   });
 
   test("diversifies same-strength positive feedback anchors before repeating a source and topic", () => {
@@ -7135,6 +7219,42 @@ describe("selectExposureBalancedNewsFeed", () => {
 
     expect(feed.map((item) => item.id)).toEqual([
       "same-source-follow-up",
+      "fresh-market-angle",
+    ]);
+    expect(feed[0]?.matchedSignals).not.toContain("exposure_cooldown");
+  });
+
+  test("keeps search-memory views from cooling adjacent topic and source follow-ups", () => {
+    const ranked = [
+      {
+        ...items[0],
+        id: "same-search-source-follow-up",
+        sourceSlug: "openai-news",
+        personalizedScore: 190,
+        matchedSignals: ["source"],
+      },
+      {
+        ...items[1],
+        id: "fresh-market-angle",
+        category: "funding",
+        entities: ["Series A"],
+        sourceSlug: "venturewire",
+        personalizedScore: 150,
+        matchedSignals: [],
+      },
+    ];
+
+    const feed = selectExposureBalancedNewsFeed(ranked, [
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        sourceSlug: "openai-news",
+        surface: "search",
+      },
+    ]);
+
+    expect(feed.map((item) => item.id)).toEqual([
+      "same-search-source-follow-up",
       "fresh-market-angle",
     ]);
     expect(feed[0]?.matchedSignals).not.toContain("exposure_cooldown");

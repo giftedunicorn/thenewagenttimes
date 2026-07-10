@@ -72,7 +72,13 @@ const getNewsRefreshFailedSourceDiagnostics = (result: NewsRefreshSummary) => {
     .join(", ");
   const emptySources =
     result.sourceHealth.emptySourceSlugs.length > 0
-      ? ` Empty sources: ${result.sourceHealth.emptySourceSlugs.join(", ")}.`
+      ? ` Empty sources: ${result.sourceHealth.emptySourceSlugs
+          .map((slug) => {
+            const message = result.sourceHealth.emptyReasonMessages[slug];
+
+            return message ? `${slug} (${message})` : slug;
+          })
+          .join(", ")}.`
       : "";
 
   return `Inspect failed news sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh:remote after fixing source issues.`;
@@ -90,7 +96,9 @@ const getNewsRefreshActionRequired = (
     case "inspect-source-failures":
       return [getNewsRefreshFailedSourceDiagnostics(result)];
     case "seed-news-sources":
-      return ["Seed news sources before running the refresh job again."];
+      return [
+        "Run pnpm run news:refresh:remote so the deployed service seeds sources before ingesting stories.",
+      ];
     case "ready":
       return [];
   }
@@ -103,11 +111,35 @@ const getNewsRefreshCommandForNextStep = (nextStep: NewsRefreshNextStep) => {
     case "inspect-source-failures":
       return newsRefreshCommands.refresh;
     case "seed-news-sources":
-      return newsRefreshCommands.seedSources;
+      return newsRefreshCommands.refresh;
     case "ready":
       return newsRefreshCommands.refresh;
   }
 };
+
+const newsRefreshNextStepLabels: Record<NewsRefreshNextStep, string> = {
+  "embed-news-stories": "Generate embeddings",
+  "inspect-source-failures": "Inspect source failures",
+  ready: "Ready",
+  "seed-news-sources": "Seed sources",
+};
+
+const getNewsRefreshOperatorNextStep = ({
+  actionRequired,
+  command,
+  nextStep,
+}: {
+  actionRequired: readonly string[];
+  command: string;
+  nextStep: NewsRefreshNextStep;
+}) => ({
+  command,
+  detail:
+    actionRequired[0] ??
+    "Refresh completed without new stories; run the health check to confirm the edition is ready.",
+  label: newsRefreshNextStepLabels[nextStep],
+  step: nextStep,
+});
 
 export const handleNewsRefreshRequest = async ({
   expectedSecret,
@@ -136,17 +168,24 @@ export const handleNewsRefreshRequest = async ({
     );
   }
   const nextStep = getNewsRefreshNextStep(result);
+  const actionRequired = getNewsRefreshActionRequired(nextStep, result);
+  const nextCommand = getNewsRefreshCommandForNextStep(nextStep);
 
   return Response.json({
-    actionRequired: getNewsRefreshActionRequired(nextStep, result),
+    actionRequired,
     commands: {
       embed: newsRefreshCommands.embed,
-      next: getNewsRefreshCommandForNextStep(nextStep),
+      next: nextCommand,
       refresh: newsRefreshCommands.refresh,
       seedSources: newsRefreshCommands.seedSources,
     },
     nextStep,
     ok: true,
+    operatorNextStep: getNewsRefreshOperatorNextStep({
+      actionRequired,
+      command: nextCommand,
+      nextStep,
+    }),
     ready: nextStep === "ready",
     ...result,
   });

@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
   embedRemoteNewsItems,
+  formatRemoteNewsEmbedSummary,
   resolveRemoteNewsEmbedCommandInput,
   resolveRemoteNewsEmbedUrl,
 } from "./remote-embed";
@@ -36,6 +38,37 @@ describe("resolveRemoteNewsEmbedUrl", () => {
   });
 });
 
+describe("formatRemoteNewsEmbedSummary", () => {
+  it("prints the operator next step after a remote embedding batch", () => {
+    expect(
+      formatRemoteNewsEmbedSummary({
+        body: {},
+        operatorNextStep: {
+          command: "pnpm run news:health:remote",
+          detail:
+            "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
+          label: "Check news health",
+          step: "check-news-health",
+        },
+        status: 200,
+      }),
+    ).toBe(
+      'Remote news embedding complete: status=200 operatorNextStep="Check news health" operatorCommand=pnpm run news:health:remote operatorDetail="Run pnpm run news:health:remote to confirm semantic recommendations are ready."',
+    );
+  });
+
+  it("keeps the embedding CLI summary on the formatter", async () => {
+    const source = await readFile(
+      new URL("./remote-embed-cli.ts", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("formatRemoteNewsEmbedSummary");
+  });
+});
+
 describe("embedRemoteNewsItems", () => {
   it("posts the refresh secret and limit to the remote embed endpoint", async () => {
     const requests: {
@@ -64,6 +97,13 @@ describe("embedRemoteNewsItems", () => {
                 failed: 1,
                 limit: 50,
                 ok: true,
+                operatorNextStep: {
+                  command: "pnpm run news:embed:remote",
+                  detail:
+                    "Retry pnpm run news:embed:remote; 1 story failed to embed in this batch.",
+                  label: "Retry embeddings",
+                  step: "retry-news-embeddings",
+                },
               }),
             ),
         });
@@ -84,6 +124,20 @@ describe("embedRemoteNewsItems", () => {
         failed: 1,
         limit: 50,
         ok: true,
+        operatorNextStep: {
+          command: "pnpm run news:embed:remote",
+          detail:
+            "Retry pnpm run news:embed:remote; 1 story failed to embed in this batch.",
+          label: "Retry embeddings",
+          step: "retry-news-embeddings",
+        },
+      },
+      operatorNextStep: {
+        command: "pnpm run news:embed:remote",
+        detail:
+          "Retry pnpm run news:embed:remote; 1 story failed to embed in this batch.",
+        label: "Retry embeddings",
+        step: "retry-news-embeddings",
       },
       status: 200,
     });
@@ -121,6 +175,23 @@ describe("embedRemoteNewsItems", () => {
       }),
     ).rejects.toThrow(
       'Remote news embedding failed: status=401 body={"error":"Unauthorized"}',
+    );
+  });
+
+  it("adds Railway routing guidance when the embed endpoint is missing", async () => {
+    await expect(
+      embedRemoteNewsItems({
+        embedSecret: "remote-refresh-secret",
+        embedUrl: "https://thenewagenttimes.up.railway.app",
+        fetchEmbed: () =>
+          Promise.resolve({
+            ok: false,
+            status: 404,
+            text: () => Promise.resolve("<html>Create Next App</html>"),
+          }),
+      }),
+    ).rejects.toThrow(
+      "Remote news embedding failed: status=404 body=<html>Create Next App</html>. Verify the Railway service is deploying this repo root, branch, and Next.js start command.",
     );
   });
 

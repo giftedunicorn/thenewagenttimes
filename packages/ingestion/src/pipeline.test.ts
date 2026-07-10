@@ -257,8 +257,8 @@ describe("seedSources", () => {
   it("passes initial source definitions to the repository", async () => {
     const repository = new FakeRepository();
 
-    await expect(seedSources({ repository })).resolves.toEqual({ created: 24 });
-    expect(repository.sourcesSeeded).toBe(24);
+    await expect(seedSources({ repository })).resolves.toEqual({ created: 28 });
+    expect(repository.sourcesSeeded).toBe(28);
   });
 });
 
@@ -564,6 +564,43 @@ describe("ingestArxivAiSource", () => {
       expect.arrayContaining(["arxiv", "research_paper", "cs_ai"]),
     );
   });
+
+  it("skips malformed arXiv papers without failing the source refresh", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestArxivAiSource({
+        fetchPapers: () =>
+          Promise.resolve([
+            {
+              ...arxivPaper,
+              abstractUrl: "https://arxiv.org/abs/2607.00001v1",
+              id: "2607.00001v1",
+              publishedAt: "not-a-date",
+              title: "Broken timestamp should not stop arXiv ingestion",
+            },
+            arxivPaper,
+          ]),
+        now: new Date("2026-07-04T12:00:00.000Z"),
+        repository,
+      }),
+    ).resolves.toMatchObject({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        low_quality: 1,
+        stale: 0,
+      },
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://arxiv.org/abs/2607.01234v1",
+    ]);
+  });
 });
 
 describe("ingestHackerNewsAiSource", () => {
@@ -622,6 +659,55 @@ describe("ingestHackerNewsAiSource", () => {
       expect.arrayContaining(["hacker_news", "community_signal", "agent"]),
     );
   });
+
+  it("skips malformed HN stories without failing the source refresh", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestHackerNewsAiSource({
+        fetchStories: () =>
+          Promise.resolve([
+            {
+              author: "pg",
+              comments: 3,
+              discussionUrl: "https://news.ycombinator.com/item?id=broken",
+              id: "broken",
+              points: 12,
+              publishedAt: "not-a-date",
+              title: "Broken timestamp should not stop HN ingestion",
+              url: "https://example.com/broken-hn-agent",
+            },
+            {
+              author: "pg",
+              comments: 84,
+              discussionUrl: "https://news.ycombinator.com/item?id=123456",
+              id: "123456",
+              points: 512,
+              publishedAt: "2026-07-01T08:00:00Z",
+              title: "Show HN: Agent runtime for browser workflows",
+              url: "https://example.com/agent-runtime",
+            },
+          ]),
+        now: new Date("2026-07-04T12:00:00.000Z"),
+        repository,
+      }),
+    ).resolves.toMatchObject({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        low_quality: 1,
+        stale: 0,
+      },
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://example.com/agent-runtime",
+    ]);
+  });
 });
 
 describe("ingestGitHubTrendingAiSource", () => {
@@ -679,6 +765,76 @@ describe("ingestGitHubTrendingAiSource", () => {
     expect(upsertedItem.tags).toEqual(
       expect.arrayContaining(["github_repo", "open_source", "typescript"]),
     );
+  });
+
+  it("skips malformed GitHub repositories without failing the source refresh", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestGitHubTrendingAiSource({
+        repository,
+        fetchRepositories: () =>
+          Promise.resolve([
+            {
+              description: "Malformed timestamp should not stop the source.",
+              forks: 1,
+              fullName: "acme/broken-agent-runtime",
+              language: "TypeScript",
+              openIssues: 0,
+              pushedAt: "not-a-date",
+              stars: 10,
+              topics: ["ai-agents"],
+              url: "https://github.com/acme/broken-agent-runtime",
+            },
+            {
+              description: "A framework for production AI agents.",
+              forks: 456,
+              fullName: "acme/agent-runtime",
+              language: "TypeScript",
+              openIssues: 12,
+              pushedAt: "2026-07-01T08:00:00Z",
+              stars: 12_345,
+              topics: ["ai-agents", "llm"],
+              url: "https://github.com/acme/agent-runtime",
+            },
+          ]),
+        now: new Date("2026-07-04T12:00:00.000Z"),
+      }),
+    ).resolves.toEqual({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        low_quality: 1,
+        stale: 0,
+      },
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://github.com/acme/agent-runtime",
+    ]);
+    expect(repository.runsFinished[0]).toEqual({
+      runId: "run-1",
+      status: "succeeded",
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsUpdated: 0,
+      metadata: {
+        itemsSkipped: 1,
+        skippedByReason: {
+          duplicate: 0,
+          future: 0,
+          irrelevant: 0,
+          low_quality: 1,
+          stale: 0,
+        },
+      },
+      errorMessage: undefined,
+    });
   });
 });
 
@@ -744,6 +900,67 @@ describe("ingestYcAiSource", () => {
       expect.arrayContaining(["yc", "yc_company", "ai_startup"]),
     );
   });
+
+  it("skips malformed YC companies without failing the source refresh", async () => {
+    const repository = new FakeRepository();
+
+    await expect(
+      ingestYcAiSource({
+        fetchCompanies: () =>
+          Promise.resolve([
+            {
+              batch: "Summer 2026",
+              description: "Malformed URL should not stop YC ingestion.",
+              id: "broken",
+              industries: ["Infrastructure"],
+              launchedAt: new Date("2026-07-01T04:53:32.000Z"),
+              location: "San Francisco, CA, USA",
+              name: "BrokenBox",
+              oneLiner: "AI agents with a malformed profile URL.",
+              profileUrl: "not-a-url",
+              slug: "brokenbox",
+              tags: ["AI"],
+              teamSize: 2,
+              websiteUrl: "https://brokenbox.ai",
+            },
+            {
+              batch: "Summer 2026",
+              description:
+                "We are building the communication layer for AI agents.",
+              id: "33014",
+              industries: ["B2B", "Infrastructure"],
+              launchedAt: new Date("2026-07-01T04:53:32.000Z"),
+              location: "Boston, MA, USA",
+              name: "Inkbox",
+              oneLiner:
+                "Give your AI agents email, phone, iMessage and an internet address",
+              profileUrl: "https://www.ycombinator.com/companies/inkbox",
+              slug: "inkbox",
+              tags: ["Developer Tools", "Infrastructure", "AI"],
+              teamSize: 3,
+              websiteUrl: "https://inkbox.ai",
+            },
+          ]),
+        now: new Date("2026-07-04T12:00:00.000Z"),
+        repository,
+      }),
+    ).resolves.toMatchObject({
+      itemsSeen: 2,
+      itemsCreated: 1,
+      itemsSkipped: 1,
+      skippedByReason: {
+        duplicate: 0,
+        future: 0,
+        irrelevant: 0,
+        low_quality: 1,
+        stale: 0,
+      },
+    });
+
+    expect(repository.upsertedItems.map((item) => item.canonicalUrl)).toEqual([
+      "https://www.ycombinator.com/companies/inkbox",
+    ]);
+  });
 });
 
 describe("ingestActiveRssSources", () => {
@@ -762,17 +979,24 @@ describe("ingestActiveRssSources", () => {
         },
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 18,
-      sourcesSucceeded: 17,
+      sourcesAttempted: 22,
+      sourcesSucceeded: 21,
       sourcesFailed: 1,
-      itemsSeen: 17,
-      itemsCreated: 17,
+      itemsSeen: 21,
+      itemsCreated: 21,
       itemsUpdated: 0,
       itemsSkipped: 0,
     });
 
     expect(repository.requestedSourceSlugs).toEqual(
-      expect.arrayContaining(["openai-news", "langchain-blog"]),
+      expect.arrayContaining([
+        "openai-news",
+        "langchain-blog",
+        "mistral-ai-blog",
+        "aws-machine-learning-blog",
+        "cloudflare-ai-blog",
+        "bair-blog",
+      ]),
     );
   });
 
@@ -793,15 +1017,15 @@ describe("ingestActiveRssSources", () => {
     const aggregateRun = repository.runsStarted.at(-1);
 
     expect(aggregateRun).toEqual({
-      id: "run-19",
+      id: "run-23",
       runType: "rss",
       sourceId: undefined,
     });
     expect(repository.runsFinished.at(-1)).toEqual({
-      runId: "run-19",
+      runId: "run-23",
       status: "partial",
-      itemsSeen: 17,
-      itemsCreated: 17,
+      itemsSeen: 21,
+      itemsCreated: 21,
       itemsUpdated: 0,
       errorMessage: "1 source failed",
       metadata: {
@@ -815,6 +1039,7 @@ describe("ingestActiveRssSources", () => {
         },
         sourceHealth: {
           emptySourceSlugs: [],
+          emptyReasonMessages: {},
           failedSourceSlugs: ["openai-news"],
           failureMessages: {
             "openai-news": "feed unavailable",
@@ -823,9 +1048,9 @@ describe("ingestActiveRssSources", () => {
             (slug) => slug !== "openai-news",
           ),
         },
-        sourcesAttempted: 18,
+        sourcesAttempted: 22,
         sourcesFailed: 1,
-        sourcesSucceeded: 17,
+        sourcesSucceeded: 21,
       },
     });
   });
@@ -890,11 +1115,11 @@ describe("ingestActiveNewsSources", () => {
         now: new Date("2026-07-04T12:00:00.000Z"),
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 22,
-      sourcesSucceeded: 22,
+      sourcesAttempted: 26,
+      sourcesSucceeded: 26,
       sourcesFailed: 0,
-      itemsSeen: 22,
-      itemsCreated: 22,
+      itemsSeen: 26,
+      itemsCreated: 26,
       itemsUpdated: 0,
       itemsSkipped: 0,
     });
@@ -904,12 +1129,12 @@ describe("ingestActiveNewsSources", () => {
     expect(repository.requestedSourceSlugs).toContain("github-trending-ai");
     expect(repository.requestedSourceSlugs).toContain("yc-ai");
     expect(repository.runsStarted.at(-1)).toEqual({
-      id: "run-23",
+      id: "run-27",
       runType: "crawler",
       sourceId: undefined,
     });
     expect(repository.runsFinished.at(-1)).toMatchObject({
-      runId: "run-23",
+      runId: "run-27",
       status: "succeeded",
       metadata: {
         sourceHealth: {
@@ -922,9 +1147,9 @@ describe("ingestActiveNewsSources", () => {
             "yc-ai",
           ],
         },
-        sourcesAttempted: 22,
+        sourcesAttempted: 26,
         sourcesFailed: 0,
-        sourcesSucceeded: 22,
+        sourcesSucceeded: 26,
       },
     });
   });
@@ -951,6 +1176,21 @@ describe("buildNewsSourceHealthSummary", () => {
           ...noSkipped(),
         },
         {
+          sourceSlug: "noisy-ai-feed",
+          status: "succeeded",
+          itemsSeen: 2,
+          itemsCreated: 0,
+          itemsUpdated: 0,
+          itemsSkipped: 2,
+          skippedByReason: {
+            duplicate: 0,
+            future: 0,
+            irrelevant: 1,
+            low_quality: 1,
+            stale: 0,
+          },
+        },
+        {
           sourceSlug: "deepmind-blog",
           status: "failed",
           itemsSeen: 0,
@@ -962,7 +1202,12 @@ describe("buildNewsSourceHealthSummary", () => {
       ]),
     ).toEqual({
       healthySourceSlugs: ["openai-news"],
-      emptySourceSlugs: ["anthropic-news"],
+      emptySourceSlugs: ["anthropic-news", "noisy-ai-feed"],
+      emptyReasonMessages: {
+        "anthropic-news": "No items were returned by the source.",
+        "noisy-ai-feed":
+          "No usable items were collected: 1 low-quality, 1 non-AI.",
+      },
       failedSourceSlugs: ["deepmind-blog"],
       failureMessages: {
         "deepmind-blog": "feed unavailable",
@@ -981,15 +1226,15 @@ describe("refreshActiveRssSources", () => {
         fetchFeed: () => Promise.resolve(rssXml),
       }),
     ).resolves.toMatchObject({
-      sourcesSeeded: 24,
-      sourcesAttempted: 18,
-      sourcesSucceeded: 18,
+      sourcesSeeded: 28,
+      sourcesAttempted: 22,
+      sourcesSucceeded: 22,
       sourcesFailed: 0,
-      itemsCreated: 18,
+      itemsCreated: 22,
       itemsSkipped: 0,
     });
 
-    expect(repository.sourcesSeeded).toBe(24);
+    expect(repository.sourcesSeeded).toBe(28);
     expect(repository.requestedSourceSlugs).toContain("openai-news");
   });
 });
@@ -1052,13 +1297,13 @@ describe("refreshNewsSources", () => {
           ]),
       }),
     ).resolves.toMatchObject({
-      sourcesAttempted: 22,
+      sourcesAttempted: 26,
       sourcesFailed: 0,
-      sourcesSeeded: 24,
-      sourcesSucceeded: 22,
+      sourcesSeeded: 28,
+      sourcesSucceeded: 26,
     });
 
-    expect(repository.sourcesSeeded).toBe(24);
+    expect(repository.sourcesSeeded).toBe(28);
     expect(repository.requestedSourceSlugs).toContain("arxiv-ai-ml");
     expect(repository.requestedSourceSlugs).toContain("hacker-news-ai");
     expect(repository.requestedSourceSlugs).toContain("github-trending-ai");

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { RankedNewsItem } from "@acme/validators";
 
 import type {
+  NewsDeskStatus,
   NewsHomeItem,
   NewsPositiveFeedbackMemoryItem,
   NewsPreferenceProfileTrainingAction,
@@ -13,11 +14,13 @@ import {
   applyNewsStoryQuickTuneAction,
   buildNewsDeskStatus,
   buildNewsHomeFeedInput,
+  buildNewsHomeForYouApiRequestBody,
   buildNewsHomeInteractionMetadata,
   buildNewsHomeLoadMoreFeedInput,
   buildNewsHomeReaderInteraction,
   buildNewsHomeSessionIntentFilter,
   createDefaultNewsPreferenceProfile,
+  getLatestNewsReaderMemoryTimestamp,
   getNewsAggregationIntake,
   getNewsAggregationIntakeTrainingAction,
   getNewsAggregationRecoveryQueue,
@@ -26,21 +29,26 @@ import {
   getNewsAlertRoutingTrainingAction,
   getNewsAnglePreferenceOptions,
   getNewsBreakingEscalationQueue,
+  getNewsBreakingEscalationTrainingAction,
   getNewsBriefingPack,
   getNewsBriefingPackTrainingAction,
   getNewsChannelComparison,
+  getNewsChannelComparisonTrainingAction,
   getNewsChannelRail,
   getNewsChannelStrategy,
   getNewsChannelStrategyTrainingAction,
   getNewsClaimTracker,
+  getNewsClaimTrackerTrainingAction,
   getNewsCollaborativeSignals,
   getNewsCollaborativeSignalTrainingAction,
   getNewsConsensusBoard,
+  getNewsConsensusThreadTrainingAction,
   getNewsContinuationRail,
   getNewsContinuationRailTrainingAction,
   getNewsCoverageThreads,
-  getNewsDeskRunYieldLabel,
+  getNewsCoverageThreadTrainingAction,
   getNewsDeskFreshnessStatus,
+  getNewsDeskRunYieldLabel,
   getNewsDeskSourceHealthDiagnostics,
   getNewsDeskStatusSummary,
   getNewsDiscoveryLadder,
@@ -71,6 +79,9 @@ import {
   getNewsFeedRecipe,
   getNewsFilterBubbleReport,
   getNewsFilterBubbleTrainingAction,
+  getNewsForYouApiPipelineGuardrailSummary,
+  getNewsForYouApiPipelineSummary,
+  getNewsForYouApiTrainingSignalSummary,
   getNewsForYouControlStrip,
   getNewsForYouNextQueue,
   getNewsForYouNextQueueTrainingAction,
@@ -83,6 +94,7 @@ import {
   getNewsGuardrailRestoreTrainingUpdate,
   getNewsGuardrailShelf,
   getNewsHomeCollaborativeRankingSignals,
+  getNewsHomeForYouApiNextRequestResetKey,
   getNewsHomeLoadMoreQueryRoute,
   getNewsHomeLoadMoreState,
   getNewsHomePaginationResetKey,
@@ -91,16 +103,20 @@ import {
   getNewsHomeStoryActionPanel,
   getNewsHomeStoryHistoryItem,
   getNewsHotBoard,
+  getNewsHotBoardTrainingAction,
   getNewsInterestDrift,
   getNewsInterestGraph,
   getNewsInterestGraphNodeTrainingAction,
   getNewsLiveWire,
   getNewsLiveWireTrainingAction,
   getNewsMembershipMeter,
+  getNewsMembershipMeterTrainingAction,
   getNewsMissedCoverageShelf,
+  getNewsMissedCoverageTrainingAction,
   getNewsModelTrainingBatch,
   getNewsModelTrainingBatchTrainingAction,
   getNewsNewsletterPlan,
+  getNewsNewsletterPlanTrainingAction,
   getNewsNextRefreshPlan,
   getNewsNextRefreshPlanTrainingAction,
   getNewsPersonalizationDataVault,
@@ -132,6 +148,7 @@ import {
   getNewsPreferenceTuningTrainingUpdate,
   getNewsPreferenceTuningUndoTrainingUpdate,
   getNewsProductionReadinessChecklist,
+  getNewsProductionReadinessNextStep,
   getNewsProfileImpactPreview,
   getNewsProfileSignalLedger,
   getNewsProfileSignalLedgerTrainingAction,
@@ -141,8 +158,11 @@ import {
   getNewsReaderCohorts,
   getNewsReaderCohortTrainingAction,
   getNewsReaderDaypartPlan,
+  getNewsReaderDaypartTrainingAction,
   getNewsReaderDigest,
+  getNewsReaderDigestTrainingAction,
   getNewsReaderJourneyMap,
+  getNewsReaderJourneyTrainingAction,
   getNewsReaderLearningLoop,
   getNewsReaderLearningLoopTrainingAction,
   getNewsReaderMemory,
@@ -155,8 +175,10 @@ import {
   getNewsReaderSatisfactionBrief,
   getNewsReaderSatisfactionTrainingAction,
   getNewsReaderScorecards,
+  getNewsReaderScorecardTrainingAction,
   getNewsReaderSignalSummary,
   getNewsReaderWatchlist,
+  getNewsRecommendationAngleSaturation,
   getNewsRecommendationAudit,
   getNewsRecommendationAuditTrainingAction,
   getNewsRecommendationDiversityGovernor,
@@ -175,15 +197,18 @@ import {
   getNewsRefreshSimulation,
   getNewsRefreshSimulationTrainingAction,
   getNewsSearchCandidateRail,
+  getNewsSearchCandidateTrainingAction,
   getNewsSearchTrends,
   getNewsSearchTrendTrainingAction,
   getNewsSectionFronts,
+  getNewsSectionFrontTrainingAction,
   getNewsServerProfileAuditDisplay,
   getNewsSessionIntent,
   getNewsSessionIntentTrainingAction,
   getNewsSourceBalance,
   getNewsSourceBalanceTrainingAction,
   getNewsSourceClusters,
+  getNewsSourceClusterTrainingAction,
   getNewsSourceFilterOptions,
   getNewsSourceTrustLedger,
   getNewsStoryProofStrip,
@@ -193,6 +218,7 @@ import {
   getNewsStoryRankDetails,
   getNewsStorySourceUrl,
   getNewsStoryTimeline,
+  getNewsStoryTimelineTrainingAction,
   getNewsTasteCalibration,
   getNewsTasteCalibrationTrainingAction,
   getNewsTopicHref,
@@ -232,6 +258,7 @@ import {
   selectNewsHomeItems,
   selectNewsHomeLiveSearchCandidateItems,
   selectNewsHomePositiveFeedbackAnchors,
+  selectNewsHomePositiveFeedbackMemoryItems,
   selectNewsHomeSearchMemoryAnchoredItems,
   selectNewsHomeSessionScopedItems,
   selectReaderFreshNewsHomeItems,
@@ -379,16 +406,48 @@ describe("getNewsForYouControlStrip", () => {
 
     expect(strip.label).toBe("Train For You");
     expect(strip.summary).toBe(
-      "For You is using 3 topics, 0 sources, 0 entities, Fresh 1/2, Novel 1/2, and 0 recent searches across 1 ranked story.",
+      "For You is using 3 topics, 0 sources, 0 entities, 0 angles, Fresh 1/2, Novel 1/2, and 0 recent searches across 1 ranked story.",
     );
     expect(strip.metrics).toEqual([
       { label: "Topics", value: "3" },
       { label: "Sources", value: "0" },
       { label: "Entities", value: "0" },
+      { label: "Angles", value: "0" },
       { label: "Searches", value: "0" },
       { label: "Saved", value: "0" },
       { label: "Less", value: "0" },
     ]);
+  });
+
+  it("separates entity and angle preferences in the For You control metrics", () => {
+    const strip = getNewsForYouControlStrip({
+      formatCategory: (category) =>
+        category === "agent_product" ? "Agents" : category,
+      guardrailItems: [],
+      profile: {
+        preferredCategories: ["agent_product"],
+        preferredSources: ["agent-desk"],
+        preferredEntities: ["OpenAI", "prompt_injection"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      rankedItems: [rankedLocalItem],
+      savedItems: [],
+      searchMemoryItems: [],
+    });
+
+    expect(strip.metrics).toEqual([
+      { label: "Topics", value: "1" },
+      { label: "Sources", value: "1" },
+      { label: "Entities", value: "1" },
+      { label: "Angles", value: "1" },
+      { label: "Searches", value: "0" },
+      { label: "Saved", value: "0" },
+      { label: "Less", value: "0" },
+    ]);
+    expect(strip.summary).toBe(
+      "For You is using 1 topic, 1 source, 1 entity, 1 angle, Fresh 1/2, Novel 1/2, and 0 recent searches across 1 ranked story.",
+    );
   });
 
   it("surfaces recent search memory as a For You control signal", () => {
@@ -610,17 +669,22 @@ describe("getNewsHomeStoryHistoryItem", () => {
   it("converts a front-page read into shared reader history memory", () => {
     expect(
       getNewsHomeStoryHistoryItem({
-        item: newsHomeItemWithOriginalUrl,
+        item: {
+          ...newsHomeItemWithOriginalUrl,
+          clusterKey: "2026-07-06:model_release:openai:local",
+        },
         viewedAt: "2026-07-06T11:20:00.000Z",
       }),
     ).toEqual({
       canonicalUrl: "https://example.com/local",
       category: "model_release",
+      clusterKey: "2026-07-06:model_release:openai:local",
       entities: ["OpenAI"],
       id: "local-story",
       originalUrl: "https://example.com/local?utm=feed",
       sourceName: "Local Source",
       sourceSlug: "local-source",
+      surface: "article",
       tags: ["model"],
       title: "Local trend fallback",
       viewedAt: "2026-07-06T11:20:00.000Z",
@@ -690,6 +754,104 @@ describe("getNewsStorySourceUrl", () => {
     if (!article) throw new Error("Expected preview article");
 
     expect(getNewsStorySourceUrl(article)).toBeNull();
+  });
+});
+
+describe("getLatestNewsReaderMemoryTimestamp", () => {
+  it("ignores invalid timestamps and returns the latest valid reader memory timestamp", () => {
+    expect(
+      getLatestNewsReaderMemoryTimestamp([
+        "not-a-date",
+        "2026-07-06T09:00:00.000Z",
+        undefined,
+        "2026-07-06T11:45:00.000Z",
+      ]),
+    ).toBe("2026-07-06T11:45:00.000Z");
+  });
+
+  it("returns null when reader memory has no valid timestamp", () => {
+    expect(
+      getLatestNewsReaderMemoryTimestamp([undefined, "not-a-date", null]),
+    ).toBeNull();
+  });
+});
+
+describe("selectNewsHomePositiveFeedbackMemoryItems", () => {
+  it("keeps passive reading history out while preserving explicit and deep-read feedback", () => {
+    const feedbackItems = selectNewsHomePositiveFeedbackMemoryItems({
+      historyItems: [
+        {
+          ...localItem,
+          canonicalUrl: null,
+          id: "passive-read",
+          originalUrl: null,
+          surface: "article",
+          viewedAt: "2026-07-06T10:00:00.000Z",
+        },
+        {
+          ...localItem,
+          canonicalUrl: null,
+          id: "shallow-read",
+          originalUrl: null,
+          readPercent: 0.2,
+          surface: "article",
+          viewedAt: "2026-07-06T10:05:00.000Z",
+        },
+        {
+          ...localItem,
+          canonicalUrl: null,
+          id: "deep-read",
+          originalUrl: null,
+          readPercent: 0.82,
+          surface: "article",
+          viewedAt: "2026-07-06T10:10:00.000Z",
+        },
+      ],
+      positiveFeedbackItems: [
+        {
+          ...localItem,
+          action: "share",
+          canonicalUrl: null,
+          id: "shared-story",
+          originalUrl: null,
+          occurredAt: "2026-07-06T11:00:00.000Z",
+        },
+      ],
+      savedItems: [
+        {
+          ...localItem,
+          canonicalUrl: null,
+          id: "saved-story",
+          originalUrl: null,
+          savedAt: "2026-07-06T10:30:00.000Z",
+        },
+      ],
+      serverPositiveFeedbackItems: [
+        {
+          ...serverItem,
+          action: "click_source",
+          canonicalUrl: null,
+          id: "server-source-click",
+          originalUrl: null,
+          occurredAt: "2026-07-06T10:45:00.000Z",
+        },
+      ],
+    });
+
+    expect(feedbackItems.map((item) => item.id)).toEqual([
+      "shared-story",
+      "server-source-click",
+      "saved-story",
+      "deep-read",
+    ]);
+    expect(feedbackItems.find((item) => item.id === "deep-read")).toMatchObject(
+      {
+        occurredAt: "2026-07-06T10:10:00.000Z",
+        readPercent: 0.82,
+      },
+    );
+    expect(feedbackItems.map((item) => item.id)).not.toContain("passive-read");
+    expect(feedbackItems.map((item) => item.id)).not.toContain("shallow-read");
   });
 });
 
@@ -1386,6 +1548,7 @@ describe("buildNewsHomeForYouApiRequestBody", () => {
           q: string;
           readerLocalHour: number | null;
           recentExposureItems: readonly NewsReaderMemoryItem[];
+          readingHistoryItems?: readonly NewsReaderMemoryItem[];
           searchMemoryItems: readonly {
             query: string;
             resultCount: number;
@@ -1414,7 +1577,9 @@ describe("buildNewsHomeForYouApiRequestBody", () => {
       ],
       currentItems: [
         localItem,
+        { ...localItem, id: " " },
         { ...localItem, id: "second-story" },
+        { ...localItem, id: "" },
         { ...localItem, id: "local-story" },
       ],
       limit: 20,
@@ -1440,8 +1605,19 @@ describe("buildNewsHomeForYouApiRequestBody", () => {
       recentExposureItems: [
         {
           ...localItem,
+          clusterKey: "2026-07-06:model_release:openai:local",
           id: "seen-home-story",
           viewedAt: "2026-07-06T10:15:00.000Z",
+        },
+      ],
+      readingHistoryItems: [
+        {
+          ...localItem,
+          clusterKey: "2026-07-06:model_release:frontier-model",
+          id: "read-frontier-model-story",
+          readPercent: 0.82,
+          surface: "article",
+          viewedAt: "2026-07-06T11:30:00.000Z",
         },
       ],
       searchMemoryItems: [
@@ -1489,10 +1665,22 @@ describe("buildNewsHomeForYouApiRequestBody", () => {
       recentExposureItems: [
         {
           category: "model_release",
+          clusterKey: "2026-07-06:model_release:openai:local",
           id: "seen-home-story",
           occurredAt: "2026-07-06T10:15:00.000Z",
           sourceSlug: "local-source",
           surface: "home_exposure",
+        },
+      ],
+      readingHistoryItems: [
+        {
+          category: "model_release",
+          clusterKey: "2026-07-06:model_release:frontier-model",
+          id: "read-frontier-model-story",
+          occurredAt: "2026-07-06T11:30:00.000Z",
+          readPercent: 0.82,
+          sourceSlug: "local-source",
+          surface: "article",
         },
       ],
       searchMemoryItems: [
@@ -1508,6 +1696,74 @@ describe("buildNewsHomeForYouApiRequestBody", () => {
           similarity: 0.92,
         },
       ],
+      sourceSlug: "agent-desk",
+      tag: "workflow automation",
+    });
+  });
+
+  it("uses the latest exposure timestamp before sending reader memory to the For You API", () => {
+    const articleExposureItem = {
+      ...localItem,
+      id: "api-exposure-after-read",
+      occurredAt: "2026-07-06T11:30:00.000Z",
+      readPercent: 0.82,
+      surface: "article",
+      viewedAt: "2026-07-06T08:00:00.000Z",
+    } satisfies NewsReaderMemoryItem & { readPercent: number };
+
+    expect(
+      buildNewsHomeForYouApiRequestBody({
+        category: null,
+        collaborativeSignals: [],
+        currentItems: [],
+        limit: 20,
+        negativeFeedbackItems: [],
+        objective: "reader_match",
+        positiveFeedbackItems: [],
+        profile: createDefaultNewsPreferenceProfile(),
+        q: "",
+        readerLocalHour: null,
+        recentExposureItems: [articleExposureItem],
+        searchMemoryItems: [],
+        semanticSimilarityMatches: [],
+        sourceSlug: null,
+        tag: null,
+      }).recentExposureItems,
+    ).toEqual([
+      expect.objectContaining({
+        id: "api-exposure-after-read",
+        occurredAt: "2026-07-06T11:30:00.000Z",
+        readPercent: 0.82,
+        surface: "article",
+      }),
+    ]);
+  });
+
+  it("normalizes category and source filters before the personalized API request", async () => {
+    const { buildNewsHomeForYouApiRequestBody } = await import(
+      "./news-home-model"
+    );
+
+    expect(
+      buildNewsHomeForYouApiRequestBody({
+        category: " agent_product ",
+        collaborativeSignals: [],
+        currentItems: [],
+        limit: 20,
+        negativeFeedbackItems: [],
+        objective: "reader_match",
+        positiveFeedbackItems: [],
+        profile: createDefaultNewsPreferenceProfile(),
+        q: "",
+        readerLocalHour: null,
+        recentExposureItems: [],
+        searchMemoryItems: [],
+        semanticSimilarityMatches: [],
+        sourceSlug: " agent-desk ",
+        tag: " workflow automation ",
+      }),
+    ).toMatchObject({
+      category: "agent_product",
       sourceSlug: "agent-desk",
       tag: "workflow automation",
     });
@@ -1591,6 +1847,9 @@ describe("NewsHome live search candidates", () => {
     expect(source).toContain("selectNewsHomeSearchMemoryAnchoredItems({");
     expect(source).toContain("getNewsSearchTrendTrainingAction");
     expect(source).toContain("applySearchTrendAction");
+    expect(source).toContain("getNewsSearchCandidateTrainingAction");
+    expect(source).toContain("applySearchCandidateAction");
+    expect(source).toContain("candidateAction.actionLabel");
   });
 });
 
@@ -1848,227 +2107,6 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("applyForYouObjective(option.objective)");
   });
 
-  it("renders the reader satisfaction brief from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsReaderSatisfactionBrief({");
-    expect(source).toContain("Reader Satisfaction");
-    expect(source).toContain("readerSatisfactionBrief.actions.map");
-    expect(source).toContain("getNewsReaderSatisfactionTrainingAction");
-    expect(source).toContain("applyReaderSatisfactionAction");
-    expect(source).toContain("satisfactionAction.actionLabel");
-  });
-
-  it("renders trainable reader learning loop actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsReaderLearningLoop({");
-    expect(source).toContain("Reader Learning Loop");
-    expect(source).toContain("readerLearningLoop.actions.map");
-    expect(source).toContain("getNewsReaderLearningLoopTrainingAction");
-    expect(source).toContain("applyReaderLearningLoopAction");
-    expect(source).toContain("learningLoopAction.actionLabel");
-  });
-
-  it("renders the reader retention plan from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsReaderRetentionPlan({");
-    expect(source).toContain("Reader Retention");
-    expect(source).toContain("readerRetentionPlan.slots.map");
-    expect(source).toContain("getNewsReaderRetentionTrainingAction");
-    expect(source).toContain("applyReaderRetentionAction");
-    expect(source).toContain("retentionAction.actionLabel");
-  });
-
-  it("renders trainable personalization mix actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsPersonalizationMix({");
-    expect(source).toContain("Personalization Mix");
-    expect(source).toContain("personalizationMix.actions.map");
-    expect(source).toContain("getNewsPersonalizationMixTrainingAction");
-    expect(source).toContain("applyPersonalizationMixAction");
-    expect(source).toContain("mixAction.action.actionLabel");
-  });
-
-  it("renders the personalization data vault from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsPersonalizationDataVault({");
-    expect(source).toContain("Data Vault");
-    expect(source).toContain("personalizationDataVault.controls.map");
-    expect(source).toContain("getNewsPersonalizationDataVaultTrainingUpdate");
-    expect(source).toContain("getNewsPersonalizationDataVaultExport");
-    expect(source).toContain("getNewsPersonalizationDataVaultExportHref");
-    expect(source).toContain("getNewsPersonalizationDataVaultProfileImport");
-    expect(source).toContain("applyPersonalizationDataVaultAction");
-    expect(source).toContain("applyPersonalizationDataVaultProfileImport");
-    expect(source).toContain("dataVaultImportDraft");
-    expect(source).toContain("control.action.actionLabel");
-    expect(source).toContain("trainingUpdate.dataVaultExport");
-    expect(source).toContain(
-      "download={trainingUpdate.dataVaultExport.filename}",
-    );
-  });
-
-  it("renders trainable interest graph nodes from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsInterestGraph({");
-    expect(source).toContain("Interest Graph");
-    expect(source).toContain("interestGraph.lanes.map");
-    expect(source).toContain("getNewsInterestGraphNodeTrainingAction");
-    expect(source).toContain("applyInterestGraphNodeAction");
-    expect(source).toContain("graphAction.actionLabel");
-  });
-
-  it("renders trainable fatigue throttle notices from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsFeedFatigueReport({");
-    expect(source).toContain("Fatigue Throttle");
-    expect(source).toContain("fatigueReport.notices.map");
-    expect(source).toContain("getNewsFeedFatigueTrainingAction");
-    expect(source).toContain("applyFeedFatigueAction");
-    expect(source).toContain("fatigueAction.actionLabel");
-  });
-
-  it("renders trainable topic match matrix rows from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsTopicMatchMatrix({");
-    expect(source).toContain("Topic Match Matrix");
-    expect(source).toContain("topicMatchMatrix.rows.map");
-    expect(source).toContain("getNewsTopicMatchTrainingAction");
-    expect(source).toContain("applyTopicMatchAction");
-    expect(source).toContain("topicAction.actionLabel");
-  });
-
-  it("renders trainable source balance actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsSourceBalance({");
-    expect(source).toContain("Source Balance");
-    expect(source).toContain("getNewsSourceBalanceTrainingAction");
-    expect(source).toContain("applySourceBalanceAction");
-    expect(source).toContain("sourceBalanceAction.actionLabel");
-  });
-
-  it("renders trainable source trust actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsSourceTrustLedger({");
-    expect(source).toContain("Source Trust");
-    expect(source).toContain("sourceTrustLedger.notices.map");
-    expect(source).toContain("getNewsSourceTrustTrainingAction");
-    expect(source).toContain("applySourceTrustAction");
-    expect(source).toContain("sourceTrustAction.actionLabel");
-  });
-
-  it("renders trainable entity radar actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsEntityRadar({");
-    expect(source).toContain("Entity Radar");
-    expect(source).toContain("entityRadar.map");
-    expect(source).toContain(
-      "href={`/entities/${encodeURIComponent(entry.entity)}`}",
-    );
-    expect(source).toContain("getNewsEntityRadarTrainingAction");
-    expect(source).toContain("applyEntityRadarAction");
-    expect(source).toContain("entityAction.actionLabel");
-  });
-
-  it("renders trainable topic pulse actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsTopicPulse({");
-    expect(source).toContain("Topic Pulse");
-    expect(source).toContain("topicPulse.map");
-    expect(source).toContain("getNewsTopicPulseTrainingAction");
-    expect(source).toContain("applyTopicPulseAction");
-    expect(source).toContain("pulseAction.actionLabel");
-  });
-
-  it("renders trainable interest drift actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsInterestDrift({");
-    expect(source).toContain("Interest Drift");
-    expect(source).toContain("interestDrift.notices.map");
-    expect(source).toContain("getNewsInterestDriftTrainingAction");
-    expect(source).toContain("applyInterestDriftAction");
-    expect(source).toContain("driftAction.actionLabel");
-  });
-
-  it("renders the guardrail recovery plan from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsGuardrailRecoveryPlan({");
-    expect(source).toContain("Guardrail Recovery");
-    expect(source).toContain("guardrailRecoveryPlan.candidates.map");
-    expect(source).toContain("getNewsGuardrailRecoveryTrainingAction");
-    expect(source).toContain("applyGuardrailRecoveryAction");
-    expect(source).toContain("recoveryAction.actionLabel");
-  });
-
-  it("renders trainable taste calibration actions from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsTasteCalibration({");
-    expect(source).toContain("Taste Calibration");
-    expect(source).toContain("tasteCalibration.actions.map");
-    expect(source).toContain("getNewsTasteCalibrationTrainingAction");
-    expect(source).toContain("applyTasteCalibrationAction");
-    expect(source).toContain("tasteAction.actionLabel");
-  });
-
   it("renders briefing pack slots as trainable profile actions", async () => {
     const source = await readFile(
       new URL("./news-home.tsx", import.meta.url),
@@ -2109,279 +2147,6 @@ describe("NewsHome For You control strip placement", () => {
     expect(source).toContain("getNewsFrontPageSlotMixTrainingAction");
     expect(source).toContain("applyFrontPageSlotMixAction");
     expect(source).toContain("slotMixAction.actionLabel");
-  });
-
-  it("renders edition quality gate checks as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsEditionQualityGate({");
-    expect(source).toContain("Edition Quality Gate");
-    expect(source).toContain("editionQualityGate.checks.map");
-    expect(source).toContain("getNewsEditionQualityGateTrainingAction");
-    expect(source).toContain("applyEditionQualityGateAction");
-    expect(source).toContain("qualityAction.actionLabel");
-  });
-
-  it("renders recommendation trace steps as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationTrace({");
-    expect(source).toContain("Recommendation Trace");
-    expect(source).toContain("recommendationTrace.steps.map");
-    expect(source).toContain("getNewsRecommendationTraceTrainingAction");
-    expect(source).toContain("applyRecommendationTraceAction");
-    expect(source).toContain("traceAction.actionLabel");
-  });
-
-  it("renders experiment allocation arms as trainable controls", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsExperimentAllocation({");
-    expect(source).toContain("Experiment Allocation");
-    expect(source).toContain("experimentAllocation.arms.map");
-    expect(source).toContain("getNewsExperimentAllocationTrainingAction");
-    expect(source).toContain("applyExperimentAllocationAction");
-    expect(source).toContain("experimentAction.action.actionLabel");
-  });
-
-  it("renders aggregation intake lanes as trainable profile controls", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsAggregationIntake({");
-    expect(source).toContain("Aggregation Intake");
-    expect(source).toContain("aggregationIntake.lanes.map");
-    expect(source).toContain("getNewsAggregationIntakeTrainingAction");
-    expect(source).toContain("applyAggregationIntakeAction");
-    expect(source).toContain("intakeAction.actionLabel");
-  });
-
-  it("renders profile ledger signals as trainable profile controls", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsProfileSignalLedger({");
-    expect(source).toContain("Profile Ledger");
-    expect(source).toContain("entry.controls.map");
-    expect(source).toContain("getNewsProfileSignalLedgerTrainingAction");
-    expect(source).toContain("applyProfileSignalLedgerAction");
-    expect(source).toContain("ledgerAction.actionLabel");
-  });
-
-  it("renders the newsletter studio from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsNewsletterPlan({");
-    expect(source).toContain("Newsletter Studio");
-    expect(source).toContain("newsletterPlan.lanes.map");
-  });
-
-  it("renders personalized push queue decisions as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsPersonalizedPushQueue({");
-    expect(source).toContain("Personalized Push Queue");
-    expect(source).toContain("personalizedPushQueue.lanes.map");
-    expect(source).toContain("getNewsPersonalizedPushQueueTrainingAction");
-    expect(source).toContain("applyPersonalizedPushQueueAction");
-    expect(source).toContain("pushAction.actionLabel");
-  });
-
-  it("renders personalized reading queue slots as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsPersonalizedReadingQueue({");
-    expect(source).toContain("Today&apos;s Queue");
-    expect(source).toContain("readingQueue.slots.map");
-    expect(source).toContain("getNewsPersonalizedReadingQueueTrainingAction");
-    expect(source).toContain("applyPersonalizedReadingQueueAction");
-    expect(source).toContain("readingAction.actionLabel");
-  });
-
-  it("renders continuation follow-ups as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsContinuationRail({");
-    expect(source).toContain("Continue Reading");
-    expect(source).toContain("continuationRail.followUps.map");
-    expect(source).toContain("getNewsContinuationRailTrainingAction");
-    expect(source).toContain("applyContinuationRailAction");
-    expect(source).toContain("continuationAction.actionLabel");
-  });
-
-  it("renders next refresh candidate slots as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsNextRefreshPlan({");
-    expect(source).toContain("Next Refresh");
-    expect(source).toContain("nextRefreshPlan.slots.map");
-    expect(source).toContain("getNewsNextRefreshPlanTrainingAction");
-    expect(source).toContain("applyNextRefreshPlanAction");
-    expect(source).toContain("refreshAction.actionLabel");
-  });
-
-  it("renders refresh simulation moves as trainable profile controls", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRefreshSimulation({");
-    expect(source).toContain("Refresh Simulation");
-    expect(source).toContain("refreshSimulation.moves.map");
-    expect(source).toContain("getNewsRefreshSimulationTrainingAction");
-    expect(source).toContain("applyRefreshSimulationAction");
-    expect(source).toContain("refreshSimulationAction.actionLabel");
-  });
-
-  it("renders edition schedule slots as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsEditionSchedule({");
-    expect(source).toContain("Edition Schedule");
-    expect(source).toContain("editionSchedule.slots.map");
-    expect(source).toContain("getNewsEditionScheduleTrainingAction");
-    expect(source).toContain("applyEditionScheduleAction");
-    expect(source).toContain("scheduleAction.actionLabel");
-  });
-
-  it("renders distribution queue decisions as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsDistributionQueue({");
-    expect(source).toContain("Distribution Queue");
-    expect(source).toContain("distributionQueue.queues.map");
-    expect(source).toContain("getNewsDistributionQueueTrainingAction");
-    expect(source).toContain("applyDistributionQueueAction");
-    expect(source).toContain("distributionAction.actionLabel");
-  });
-
-  it("renders alert routing decisions as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsAlertRouting({");
-    expect(source).toContain("Alert Routing");
-    expect(source).toContain("alertRouting.lanes.map");
-    expect(source).toContain("getNewsAlertRoutingTrainingAction");
-    expect(source).toContain("applyAlertRoutingAction");
-    expect(source).toContain("alertAction.actionLabel");
-  });
-
-  it("renders recommendation rotation entries as trainable profile actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationRotationQueue({");
-    expect(source).toContain("Recommendation Rotation");
-    expect(source).toContain("recommendationRotationQueue.entries.map");
-    expect(source).toContain("getNewsRecommendationRotationTrainingAction");
-    expect(source).toContain("applyRecommendationRotationAction");
-    expect(source).toContain("rotationAction.actionLabel");
-  });
-
-  it("renders the membership meter from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsMembershipMeter({");
-    expect(source).toContain("Membership Meter");
-    expect(source).toContain("membershipMeter.lanes.map");
-  });
-
-  it("renders the model training batch from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsModelTrainingBatch({");
-    expect(source).toContain("Model Training Batch");
-    expect(source).toContain("modelTrainingBatch.lanes.map");
-    expect(source).toContain("getNewsModelTrainingBatchTrainingAction");
-    expect(source).toContain("applyModelTrainingBatchAction");
-    expect(source).toContain("modelAction.actionLabel");
-  });
-
-  it("renders the profile update proposal from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsProfileUpdateProposal({");
-    expect(source).toContain("Profile Update Proposal");
-    expect(source).toContain("profileUpdateProposal.lanes.map");
-    expect(source).toContain("getNewsProfileUpdateProposalTrainingAction");
-    expect(source).toContain("applyProfileUpdateProposal");
-    expect(source).toContain("Apply proposal");
-  });
-
-  it("renders reader watchlist suggestions as profile training actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsReaderWatchlist({");
-    expect(source).toContain("Reader Watchlist");
-    expect(source).toContain("getNewsReaderWatchlistTrainingAction");
-    expect(source).toContain("applyReaderWatchlistAction");
-    expect(source).toContain("watchlistAction.actionLabel");
-  });
-
-  it("renders the reader profile snapshot from the model helper", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsReaderProfileSnapshot({");
-    expect(source).toContain("Reader Profile Snapshot");
-    expect(source).toContain("readerProfileSnapshot.cards.map");
-    expect(source).toContain("applyReaderProfileSnapshotAction");
-    expect(source).toContain("card.action");
-    expect(source).toContain("Apply next update");
   });
 });
 
@@ -3150,6 +2915,72 @@ describe("getNewsReaderDigest", () => {
     });
   });
 
+  it("turns digest next reads into trainable reader interests", () => {
+    const entityStory = {
+      ...serverItem,
+      id: "digest-training-entity",
+      category: "agent_product",
+      entities: ["LangChain", "Agents"],
+      matchedSignals: ["exploration"],
+      personalizedScore: 124,
+      sourceName: "Agent Scout",
+      sourceSlug: "agent-scout",
+      title: "Agent startup tests a workflow memory layer",
+      trendScore: 84,
+    };
+    const topicStory = {
+      ...olderItem,
+      id: "digest-training-topic",
+      category: "funding",
+      entities: [],
+      matchedSignals: [],
+      personalizedScore: 116,
+      sourceName: "VentureWire",
+      sourceSlug: "venturewire",
+      title: "Funding heat follows model tooling",
+      trendScore: 95,
+    };
+
+    expect(
+      getNewsReaderDigestTrainingAction({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train digest entity",
+      effect: "add",
+      label: "LangChain",
+      signals: [
+        {
+          kind: "entity",
+          label: "LangChain",
+          signal: "LangChain",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderDigestTrainingAction({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train digest topic",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps the reader digest stable before ranked stories arrive", () => {
     expect(
       getNewsReaderDigest({
@@ -3340,15 +3171,70 @@ describe("getNewsReaderDaypartPlan", () => {
     });
   });
 
-  it("wires the browser local hour into the rendered daypart plan", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
+  it("turns daypart lanes into trainable reader interests", () => {
+    const entityStory = {
+      ...localItem,
+      id: "daypart-training-entity",
+      category: "model_release",
+      entities: ["OpenAI", "GPT-6"],
+      matchedSignals: ["category", "entity"],
+      personalizedScore: 170,
+      sourceName: "Model Desk",
+      sourceSlug: "model-desk",
+      title: "OpenAI model launch leads the midday brief",
+      trendScore: 88,
+    };
+    const topicStory = {
+      ...serverItem,
+      id: "daypart-training-topic",
+      category: "research",
+      entities: [],
+      matchedSignals: [],
+      personalizedScore: 122,
+      sourceName: "Research Wire",
+      sourceSlug: "research-wire",
+      title: "Benchmark story accelerates during the workday",
+      trendScore: 96,
+    };
 
-    expect(source).toMatch(
-      /const readerDaypartPlan = getNewsReaderDaypartPlan\(\{[\s\S]*?readerLocalHour,[\s\S]*?\}\);/,
-    );
+    expect(
+      getNewsReaderDaypartTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train daypart entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderDaypartTrainingAction({
+        formatCategory: (category) =>
+          category === "research" ? "Research" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train daypart topic",
+      effect: "add",
+      label: "Research",
+      signals: [
+        {
+          kind: "category",
+          label: "Research",
+          signal: "research",
+        },
+      ],
+      source: "control",
+    });
   });
 
   it("keeps the daypart plan stable before ranked stories arrive", () => {
@@ -3536,6 +3422,113 @@ describe("getNewsReaderScorecards", () => {
     });
   });
 
+  it("explains followed angle signals in reader scorecards", () => {
+    const scorecards = getNewsReaderScorecards({
+      formatCategory: (category) => category,
+      items: [
+        {
+          ...localItem,
+          id: "scorecard-angle",
+          matchedSignals: ["tag"],
+          personalizedScore: 132,
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          tags: ["prompt_injection"],
+          title: "Prompt injection angle explains the reader score",
+          trendScore: 77,
+        },
+      ],
+      limit: 1,
+      now: new Date("2026-07-01T10:00:00.000Z"),
+      profile: {
+        preferredCategories: [],
+        preferredEntities: ["prompt_injection"],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(scorecards.metrics).toContainEqual({
+      label: "Reader signals",
+      value: "1",
+    });
+    expect(scorecards.scorecards[0]?.components).toContainEqual({
+      detail: "Matches prompt injection.",
+      label: "Angle",
+      tone: "boost",
+      valueLabel: "+18",
+    });
+    expect(scorecards.scorecards[0]?.summary).toBe(
+      "Reader score combines 1 reader signal, heat, freshness, novelty, and source trust.",
+    );
+  });
+
+  it("turns scorecard stories into trainable reader interests", () => {
+    const entityStory = {
+      ...localItem,
+      id: "scorecard-training-entity",
+      category: "model_release",
+      entities: ["OpenAI", "GPT-6"],
+      matchedSignals: ["category", "source", "entity"],
+      personalizedScore: 176,
+      sourceName: "Model Desk",
+      sourceSlug: "model-desk",
+      title: "OpenAI model release explains the reader score",
+      trendScore: 88,
+    };
+    const topicStory = {
+      ...serverItem,
+      id: "scorecard-training-topic",
+      category: "agent_product",
+      entities: [],
+      matchedSignals: ["exploration"],
+      personalizedScore: 111,
+      sourceName: "Agent Scout",
+      sourceSlug: "agent-scout",
+      title: "Agent workflow story tests exploration",
+      trendScore: 79,
+    };
+
+    expect(
+      getNewsReaderScorecardTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train scorecard entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderScorecardTrainingAction({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train scorecard topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps scorecards empty before ranked stories arrive", () => {
     expect(
       getNewsReaderScorecards({
@@ -3560,6 +3553,61 @@ describe("getNewsReaderScorecards", () => {
 });
 
 describe("getNewsRecommendationRotationQueue", () => {
+  it("summarizes live For You API pipelines with guardrail stages visible", () => {
+    expect(
+      getNewsForYouApiPipelineSummary([
+        { key: "profile", label: "Profile" },
+        { key: "session_intent", label: "Session intent" },
+        { key: "recent_exposure", label: "Recent exposure" },
+        { key: "rotation", label: "Rotation" },
+        { key: "diversity_guardrails", label: "Diversity guardrails" },
+        { key: "freshness_guardrail", label: "Freshness guardrail" },
+      ]),
+    ).toBe("Profile / Diversity guardrails / Freshness guardrail +3");
+
+    expect(
+      getNewsForYouApiPipelineSummary([
+        { key: "profile", label: "Profile" },
+        { key: "daypart", label: "Daypart" },
+        { key: "rotation", label: "Rotation" },
+      ]),
+    ).toBe("Profile / Daypart / Rotation");
+  });
+
+  it("summarizes live For You API guardrail stages separately", () => {
+    expect(
+      getNewsForYouApiPipelineGuardrailSummary([
+        { key: "profile", label: "Profile" },
+        { key: "diversity_guardrails", label: "Diversity guardrails" },
+        { key: "freshness_guardrail", label: "Freshness guardrail" },
+      ]),
+    ).toBe("Diversity guardrails / Freshness guardrail");
+
+    expect(
+      getNewsForYouApiPipelineGuardrailSummary([
+        { key: "profile", label: "Profile" },
+        { key: "rotation", label: "Rotation" },
+      ]),
+    ).toBe("None");
+  });
+
+  it("summarizes live For You API training signals from request memory", () => {
+    expect(
+      getNewsForYouApiTrainingSignalSummary({
+        negativeFeedback: 1,
+        positiveFeedback: 2,
+        searches: 3,
+      }),
+    ).toBe("2 More / 1 Less / 3 searches");
+    expect(
+      getNewsForYouApiTrainingSignalSummary({
+        negativeFeedback: 0,
+        positiveFeedback: 0,
+        searches: 0,
+      }),
+    ).toBe("No live training");
+  });
+
   it("interleaves reader, exploration, market, and trust slots with source diversity", () => {
     expect(
       getNewsRecommendationRotationQueue({
@@ -4302,6 +4350,118 @@ describe("getNewsRecommendationTopicSaturation", () => {
   });
 });
 
+describe("getNewsRecommendationAngleSaturation", () => {
+  it("flags a recommendation queue dominated by one story angle", () => {
+    expect(
+      getNewsRecommendationAngleSaturation({
+        items: [
+          {
+            ...localItem,
+            id: "prompt-injection-lead",
+            matchedSignals: [],
+            personalizedScore: 120,
+            tags: ["prompt_injection", "security"],
+            title: "Prompt injection defense leads the feed",
+          },
+          {
+            ...localItem,
+            id: "prompt-injection-follow-up",
+            matchedSignals: [],
+            personalizedScore: 110,
+            tags: ["prompt-injection"],
+            title: "Prompt injection agents take the next slot",
+          },
+          {
+            ...localItem,
+            id: "benchmarks-alt",
+            matchedSignals: [],
+            personalizedScore: 100,
+            tags: ["benchmarks"],
+            title: "Benchmarks give the feed an alternative angle",
+          },
+          {
+            ...localItem,
+            id: "prompt-injection-analysis",
+            matchedSignals: [],
+            personalizedScore: 90,
+            tags: [" prompt injection "],
+            title: "Prompt injection analysis repeats the same angle",
+          },
+        ],
+        limit: 4,
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "prompt injection appears in 3 of 4 recommendation slots; add adjacent angles before the next ranking pass.",
+          label: "Expand angle mix",
+          trainingSignal: {
+            effect: "remove",
+            kind: "tag",
+            label: "prompt injection",
+            signal: "prompt injection",
+          },
+        },
+        {
+          detail:
+            "benchmarks is available as the strongest alternative angle in this queue.",
+          label: "Candidate angle",
+          trainingSignal: {
+            effect: "add",
+            kind: "tag",
+            label: "benchmarks",
+            signal: "benchmarks",
+          },
+        },
+      ],
+      label: "Angle Saturated",
+      metrics: [
+        { label: "Slots", value: "4" },
+        { label: "Angles", value: "2" },
+        { label: "Dominant share", value: "75%" },
+        { label: "Repeat slots", value: "3" },
+      ],
+      summary:
+        "prompt injection appears in 75% of the next 4 recommendation slots across 2 angles.",
+    });
+  });
+
+  it("keeps angle saturation stable before angle metadata arrives", () => {
+    expect(
+      getNewsRecommendationAngleSaturation({
+        items: [
+          {
+            ...localItem,
+            id: "generic-model-story",
+            matchedSignals: [],
+            personalizedScore: 100,
+            tags: ["model"],
+          },
+        ],
+        limit: 1,
+      }),
+    ).toEqual({
+      actions: [
+        {
+          detail:
+            "Ranked stories need specific angle tags before angle saturation can be checked.",
+          label: "Add angle metadata",
+        },
+      ],
+      label: "Angle Waiting",
+      metrics: [
+        { label: "Slots", value: "1" },
+        { label: "Angles", value: "0" },
+        { label: "Dominant share", value: "0%" },
+        { label: "Repeat slots", value: "0" },
+      ],
+      summary:
+        "Angle saturation will appear after ranked stories include specific angles.",
+    });
+  });
+});
+
 describe("getNewsRecommendationDiversityGovernor", () => {
   it("prioritizes source, topic, and entity saturation controls for the next ranking pass", () => {
     expect(
@@ -4414,6 +4574,72 @@ describe("getNewsRecommendationDiversityGovernor", () => {
       ],
       summary:
         "3 diversity controls need attention across the next 4 recommendation slots; highest concentration is 75%.",
+    });
+  });
+
+  it("includes angle saturation controls in the diversity governor", () => {
+    expect(
+      getNewsRecommendationDiversityGovernor({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "angle-risk-lead",
+            matchedSignals: [],
+            personalizedScore: 120,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            tags: ["prompt_injection"],
+          },
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Anthropic"],
+            id: "angle-risk-follow-up",
+            matchedSignals: [],
+            personalizedScore: 110,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt-injection"],
+          },
+          {
+            ...localItem,
+            category: "funding",
+            entities: ["Mistral"],
+            id: "angle-risk-alt",
+            matchedSignals: [],
+            personalizedScore: 100,
+            sourceName: "Capital Desk",
+            sourceSlug: "capital-desk",
+            tags: ["benchmarks"],
+          },
+        ],
+        limit: 3,
+      }),
+    ).toMatchObject({
+      controls: [
+        {
+          dimension: "Angle",
+          label: "Expand angle mix",
+          shareLabel: "67%",
+          statusLabel: "Angle Saturated",
+          trainingSignal: {
+            effect: "remove",
+            kind: "tag",
+            label: "prompt injection",
+            signal: "prompt injection",
+          },
+        },
+      ],
+      label: "Diversity At Risk",
+      metrics: [
+        { label: "Slots", value: "3" },
+        { label: "Risks", value: "1" },
+        { label: "Highest share", value: "67%" },
+        { label: "Controls", value: "1" },
+      ],
     });
   });
 
@@ -4568,7 +4794,7 @@ describe("getNewsRecommendationDiversityGovernor", () => {
       controls: [
         {
           detail:
-            "Source, topic, and entity spread are all under the saturation threshold.",
+            "Source, topic, entity, and angle spread are all under the saturation threshold.",
           dimension: "All",
           label: "Keep diversity mix",
           shareLabel: "33%",
@@ -4583,7 +4809,7 @@ describe("getNewsRecommendationDiversityGovernor", () => {
         { label: "Controls", value: "1" },
       ],
       summary:
-        "The next 3 recommendation slots stay below saturation thresholds across source, topic, and entity.",
+        "The next 3 recommendation slots stay below saturation thresholds across source, topic, entity, and angle.",
     });
   });
 });
@@ -4754,6 +4980,80 @@ describe("getNewsRecommendationDiversityRepairQueue", () => {
     });
   });
 
+  it("turns angle saturation risks into replacement candidates", () => {
+    expect(
+      getNewsRecommendationDiversityRepairQueue({
+        formatCategory: (category) => category,
+        items: [
+          {
+            ...localItem,
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "angle-repair-lead",
+            matchedSignals: [],
+            personalizedScore: 120,
+            sourceName: "Model Desk",
+            sourceSlug: "model-desk",
+            tags: ["prompt_injection"],
+            title: "Prompt injection leads the feed",
+          },
+          {
+            ...localItem,
+            category: "security",
+            entities: ["Anthropic"],
+            id: "angle-repair-follow-up",
+            matchedSignals: [],
+            personalizedScore: 110,
+            sourceName: "Security Desk",
+            sourceSlug: "security-desk",
+            tags: ["prompt-injection"],
+            title: "Prompt injection follow-up repeats the angle",
+          },
+          {
+            ...localItem,
+            category: "funding",
+            entities: ["Mistral"],
+            id: "angle-repair-counter",
+            matchedSignals: [],
+            personalizedScore: 90,
+            sourceName: "Capital Desk",
+            sourceSlug: "capital-desk",
+            tags: ["benchmarks"],
+            title: "Benchmark coverage widens the angle mix",
+          },
+        ],
+        limit: 2,
+      }),
+    ).toMatchObject({
+      label: "Repair Queue Ready",
+      metrics: [
+        { label: "Slots", value: "2" },
+        { label: "Risks", value: "1" },
+        { label: "Candidates", value: "1" },
+        { label: "Repairs", value: "1" },
+      ],
+      repairs: [
+        {
+          candidate: {
+            id: "angle-repair-counter",
+            personalizedScore: 90,
+            title: "Benchmark coverage widens the angle mix",
+          },
+          dimension: "Angle",
+          label: "Replace angle-heavy slot",
+          reason:
+            "Benchmark coverage widens the angle mix avoids the saturated prompt injection angle.",
+          replaceStory: {
+            id: "angle-repair-follow-up",
+            personalizedScore: 110,
+            title: "Prompt injection follow-up repeats the angle",
+          },
+          shareLabel: "100%",
+        },
+      ],
+    });
+  });
+
   it("reports a healthy queue when no diversity repairs are needed", () => {
     expect(
       getNewsRecommendationDiversityRepairQueue({
@@ -4809,79 +5109,6 @@ describe("getNewsRecommendationDiversityRepairQueue", () => {
       summary:
         "No diversity repairs are needed across the next 3 recommendation slots.",
     });
-  });
-});
-
-describe("NewsHome recommendation source saturation placement", () => {
-  it("renders the source saturation report near recommendation rotation", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationSourceSaturation({");
-    expect(source).toContain("Source Saturation");
-    expect(source).toContain("recommendationSourceSaturation.actions.map");
-    expect(source).toContain("getNewsRecommendationSaturationTrainingAction");
-    expect(source).toContain("applyRecommendationSaturationAction");
-    expect(source).toContain("saturationAction.actionLabel");
-  });
-});
-
-describe("NewsHome recommendation diversity governor placement", () => {
-  it("renders the diversity governor with the recommendation diversity diagnostics", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationDiversityGovernor({");
-    expect(source).toContain("Diversity Governor");
-    expect(source).toContain("recommendationDiversityGovernor.controls.map");
-    expect(source).toContain(
-      "getNewsRecommendationDiversityGovernorTrainingAction",
-    );
-    expect(source).toContain("applyRecommendationDiversityGovernorAction");
-    expect(source).toContain("diversityAction.actionLabel");
-  });
-});
-
-describe("NewsHome recommendation diversity repair queue placement", () => {
-  it("renders the diversity repair queue with candidate replacement stories", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationDiversityRepairQueue({");
-    expect(source).toContain("Diversity Repair Queue");
-    expect(source).toContain("recommendationDiversityRepairQueue.repairs.map");
-  });
-});
-
-describe("NewsHome recommendation topic saturation placement", () => {
-  it("renders the topic saturation report with the recommendation diversity diagnostics", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationTopicSaturation({");
-    expect(source).toContain("Topic Saturation");
-    expect(source).toContain("recommendationTopicSaturation.actions.map");
-  });
-});
-
-describe("NewsHome recommendation entity saturation placement", () => {
-  it("renders the entity saturation report near recommendation source saturation", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsRecommendationEntitySaturation({");
-    expect(source).toContain("Entity Saturation");
-    expect(source).toContain("recommendationEntitySaturation.actions.map");
   });
 });
 
@@ -5204,6 +5431,37 @@ describe("mergeNewsReaderMemoryItems", () => {
       }).map((item) => item.id),
     ).toEqual(["local-save-variant", "saved-agent"]);
   });
+
+  it("uses the latest timestamp field when deduping mixed reader-memory records", () => {
+    expect(
+      mergeNewsReaderMemoryItems({
+        limit: 2,
+        localItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/news/openai-model",
+            id: "api-exposure-after-read",
+            occurredAt: "2026-07-01T11:30:00.000Z",
+            viewedAt: "2026-07-01T08:00:00.000Z",
+          },
+        ],
+        serverItems: [
+          {
+            ...serverItem,
+            canonicalUrl: "https://www.example.com/news/openai-model#server",
+            id: "server-read-before-exposure",
+            viewedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        id: "api-exposure-after-read",
+        occurredAt: "2026-07-01T11:30:00.000Z",
+        viewedAt: "2026-07-01T08:00:00.000Z",
+      }),
+    ]);
+  });
 });
 
 describe("selectActiveNewsReaderMemoryItem", () => {
@@ -5306,6 +5564,44 @@ describe("removeNewsReaderMemoryItem", () => {
       }).map((item) => item.id),
     ).toEqual(["saved-agent"]);
   });
+
+  it("removes reader-memory cluster variants for one story", () => {
+    expect(
+      removeNewsReaderMemoryItem({
+        item: {
+          ...localItem,
+          clusterKey: "2026-07-01:model_release:openai:agents",
+          id: "saved-model",
+          savedAt: "2026-07-01T11:00:00.000Z",
+        },
+        itemId: "saved-model",
+        items: [
+          {
+            ...localItem,
+            clusterKey: "2026-07-01:model_release:openai:agents",
+            id: "saved-model",
+            savedAt: "2026-07-01T11:00:00.000Z",
+          },
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/news/openai-model-variant",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:Agents ",
+            id: "saved-model-cluster-variant",
+            originalUrl: "https://source.example/openai-model-variant",
+            savedAt: "2026-07-01T10:30:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/saved-agent",
+            clusterKey: "2026-07-01:agent_product:runtime:visible",
+            id: "saved-agent",
+            originalUrl: "https://source.example/saved-agent",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent"]);
+  });
 });
 
 describe("selectActiveNewsSavedItems", () => {
@@ -5358,6 +5654,39 @@ describe("selectActiveNewsSavedItems", () => {
             ...serverItem,
             canonicalUrl: "https://example.com/news/agent-product",
             id: "saved-agent",
+            savedAt: "2026-07-01T09:00:00.000Z",
+          },
+        ],
+      }).map((item) => item.id),
+    ).toEqual(["saved-agent"]);
+  });
+
+  it("keeps cluster variants with Less feedback out of the local saved shelf", () => {
+    expect(
+      selectActiveNewsSavedItems({
+        negativeFeedbackItems: [
+          {
+            ...localItem,
+            clusterKey: "2026-07-01:model_release:openai:agents",
+            hiddenAt: "2026-07-01T11:00:00.000Z",
+            id: "hidden-model",
+          },
+        ],
+        savedItems: [
+          {
+            ...localItem,
+            canonicalUrl: "https://example.com/news/openai-model-variant",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:Agents ",
+            id: "saved-model-cluster-variant",
+            originalUrl: "https://source.example/openai-model-variant",
+            savedAt: "2026-07-01T10:00:00.000Z",
+          },
+          {
+            ...serverItem,
+            canonicalUrl: "https://example.com/news/agent-product",
+            clusterKey: "2026-07-01:agent_product:runtime:visible",
+            id: "saved-agent",
+            originalUrl: "https://source.example/agent-product",
             savedAt: "2026-07-01T09:00:00.000Z",
           },
         ],
@@ -5462,11 +5791,14 @@ describe("selectStoredNewsReaderMemoryItems", () => {
         {
           category: "model_release",
           canonicalUrl: "https://example.com/news/openai-agent",
+          clusterKey: "2026-07-01:model_release:openai:agent-stack",
           entities: ["OpenAI", 42, "Agents"],
           id: "local-meaningful-read",
           originalUrl: "https://example.com/news/openai-agent?utm=local",
           sourceName: "OpenAI News",
           sourceSlug: "openai-news",
+          readPercent: 0.82,
+          surface: "article",
           title: "OpenAI releases a new agent stack",
           viewedAt: "2026-07-01T10:00:00.000Z",
         },
@@ -5477,6 +5809,7 @@ describe("selectStoredNewsReaderMemoryItems", () => {
           id: "local-guardrail",
           sourceName: "Recommendation Desk",
           sourceSlug: "recommendation-desk",
+          surface: "sidebar",
           title: "Too much recommendation coverage",
         },
         {
@@ -5503,11 +5836,14 @@ describe("selectStoredNewsReaderMemoryItems", () => {
       {
         category: "model_release",
         canonicalUrl: "https://example.com/news/openai-agent",
+        clusterKey: "2026-07-01:model_release:openai:agent-stack",
         entities: ["OpenAI", "Agents"],
         id: "local-meaningful-read",
         originalUrl: "https://example.com/news/openai-agent?utm=local",
         sourceName: "OpenAI News",
         sourceSlug: "openai-news",
+        readPercent: 0.82,
+        surface: "article",
         title: "OpenAI releases a new agent stack",
         viewedAt: "2026-07-01T10:00:00.000Z",
       },
@@ -5528,6 +5864,54 @@ describe("selectStoredNewsReaderMemoryItems", () => {
         sourceName: "Source Desk",
         sourceSlug: "source-desk",
         title: "Source registry covers labs",
+      },
+    ]);
+  });
+
+  it("normalizes legacy home exposure surfaces from local reader memory", () => {
+    expect(
+      selectStoredNewsReaderMemoryItems([
+        {
+          category: "agent_product",
+          entities: ["Agents"],
+          id: "legacy-home-surface",
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+          surface: "home",
+          title: "Legacy home exposure",
+          viewedAt: "2026-07-01T10:00:00.000Z",
+        },
+        {
+          category: "model_release",
+          entities: ["Frontier Model"],
+          id: "legacy-mobile-surface",
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          surface: "mobile-home",
+          title: "Legacy mobile exposure",
+          viewedAt: "2026-07-01T10:05:00.000Z",
+        },
+      ]),
+    ).toEqual([
+      {
+        category: "agent_product",
+        entities: ["Agents"],
+        id: "legacy-home-surface",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        surface: "home_exposure",
+        title: "Legacy home exposure",
+        viewedAt: "2026-07-01T10:00:00.000Z",
+      },
+      {
+        category: "model_release",
+        entities: ["Frontier Model"],
+        id: "legacy-mobile-surface",
+        sourceName: "Model Desk",
+        sourceSlug: "model-desk",
+        surface: "home_exposure",
+        title: "Legacy mobile exposure",
+        viewedAt: "2026-07-01T10:05:00.000Z",
       },
     ]);
   });
@@ -5588,6 +5972,34 @@ describe("selectStoredNewsReaderMemoryItems", () => {
         sourceName: "OpenAI News",
         sourceSlug: "openai-news",
         title: "Legacy memory without timestamp",
+      },
+    ]);
+  });
+
+  it("recovers local reader-memory entries when a valid fallback timestamp is present", () => {
+    expect(
+      selectStoredNewsReaderMemoryItems([
+        {
+          category: "model_release",
+          entities: ["OpenAI"],
+          id: "recoverable-saved-memory",
+          occurredAt: "2026-07-01T10:30:00.000Z",
+          savedAt: "not-a-date",
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "Recover saved memory with valid occurredAt",
+          viewedAt: "also-not-a-date",
+        },
+      ]),
+    ).toEqual([
+      {
+        category: "model_release",
+        entities: ["OpenAI"],
+        id: "recoverable-saved-memory",
+        occurredAt: "2026-07-01T10:30:00.000Z",
+        sourceName: "OpenAI News",
+        sourceSlug: "openai-news",
+        title: "Recover saved memory with valid occurredAt",
       },
     ]);
   });
@@ -6869,6 +7281,72 @@ describe("getNewsReaderJourneyMap", () => {
       key: "impression",
     });
   });
+
+  it("turns journey stories into trainable reader interests", () => {
+    const entityStory = {
+      ...localItem,
+      id: "journey-training-entity",
+      category: "model_release",
+      entities: ["OpenAI", "Agents"],
+      matchedSignals: ["category", "entity"],
+      personalizedScore: 168,
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      title: "OpenAI ships an urgent agent runtime",
+      trendScore: 96,
+    };
+    const topicStory = {
+      ...serverItem,
+      id: "journey-training-topic",
+      category: "agent_product",
+      entities: [],
+      matchedSignals: ["exploration"],
+      personalizedScore: 118,
+      sourceName: "Agent Desk",
+      sourceSlug: "agent-desk",
+      title: "Agent workflow memory gets read",
+      trendScore: 84,
+    };
+
+    expect(
+      getNewsReaderJourneyTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train journey entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsReaderJourneyTrainingAction({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train journey topic",
+      effect: "add",
+      label: "Agents",
+      signals: [
+        {
+          kind: "category",
+          label: "Agents",
+          signal: "agent_product",
+        },
+      ],
+      source: "control",
+    });
+  });
 });
 
 describe("getNewsReaderWatchlist", () => {
@@ -7190,6 +7668,131 @@ describe("getNewsReaderWatchlist", () => {
         id: "watch-anthropic-lab-lead",
         sourceName: "Lab Wire",
         title: "Anthropic research gains lab momentum",
+      },
+    });
+  });
+
+  it("suggests emerging story angles when high-heat coverage repeats across sources", async () => {
+    const watchlist = getNewsReaderWatchlist({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Autonomous Agents"],
+          id: "watch-prompt-injection-lab",
+          matchedSignals: [],
+          personalizedScore: 128,
+          sourceName: "Red Team Daily",
+          sourceSlug: "red-team-daily",
+          tags: ["prompt-injection", "security"],
+          title: "Prompt injection attacks spread through agent tools",
+          trendScore: 96,
+        },
+        {
+          ...serverItem,
+          category: "security",
+          entities: ["Autonomous Agents"],
+          id: "watch-prompt-injection-ops",
+          matchedSignals: [],
+          personalizedScore: 126,
+          sourceName: "Safety Wire",
+          sourceSlug: "safety-wire",
+          tags: ["prompt injection", "operations"],
+          title: "Safety teams patch prompt injection workflows",
+          trendScore: 92,
+        },
+      ],
+      limit: 4,
+      profile: createDefaultNewsPreferenceProfile(),
+    });
+    type WatchlistEntry = (typeof watchlist.entries)[number];
+    const angleEntry = watchlist.entries.find(
+      (entry) => entry.key === "angle:prompt injection",
+    );
+    const actionFactory = Reflect.get(
+      await import("./news-home-model"),
+      "getNewsReaderWatchlistTrainingAction",
+    ) as ((entry: WatchlistEntry) => unknown) | undefined;
+
+    expect(angleEntry).toEqual({
+      key: "angle:prompt injection",
+      kind: "Angle",
+      reason: "High heat suggests adding this signal to the watchlist.",
+      score: 160,
+      signal: "prompt injection",
+      signalValue: "prompt injection",
+      sourceNames: ["Red Team Daily", "Safety Wire"],
+      statusLabel: "Suggested",
+      supportLabel: "2 stories / 2 sources",
+      topStory: {
+        id: "watch-prompt-injection-lab",
+        sourceName: "Red Team Daily",
+        title: "Prompt injection attacks spread through agent tools",
+      },
+    });
+    expect(actionFactory).toBeTypeOf("function");
+    if (!angleEntry || !actionFactory) return;
+
+    expect(actionFactory(angleEntry)).toEqual({
+      actionLabel: "Add to watchlist",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt injection",
+        },
+      ],
+      source: "control",
+    });
+  });
+
+  it("turns followed story angles into active watchlist signals", () => {
+    const watchlist = getNewsReaderWatchlist({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Autonomous Agents"],
+          id: "watch-active-prompt-injection",
+          matchedSignals: ["tag"],
+          personalizedScore: 118,
+          sourceName: "Red Team Daily",
+          sourceSlug: "red-team-daily",
+          tags: ["prompt-injection", "security"],
+          title: "Prompt injection monitoring becomes standard for agents",
+          trendScore: 72,
+        },
+      ],
+      limit: 4,
+      profile: {
+        preferredCategories: [],
+        preferredEntities: ["prompt injection"],
+        preferredSources: [],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+    });
+
+    expect(watchlist.entries).toContainEqual({
+      key: "angle:prompt injection",
+      kind: "Angle",
+      reason: "Already in your profile and active in the edition.",
+      score: 130,
+      signal: "prompt injection",
+      signalValue: "prompt injection",
+      sourceNames: ["Red Team Daily"],
+      statusLabel: "Watching",
+      supportLabel: "1 story / 1 source",
+      topStory: {
+        id: "watch-active-prompt-injection",
+        sourceName: "Red Team Daily",
+        title: "Prompt injection monitoring becomes standard for agents",
       },
     });
   });
@@ -7612,6 +8215,7 @@ describe("getNewsCollaborativeSignals", () => {
         items: [
           {
             ...localItem,
+            clusterKey: "2026-07-06:model_release:openai:reasoning-model",
             id: "openai-model",
             matchedSignals: ["category", "source", "entity"],
             personalizedScore: 152,
@@ -7658,6 +8262,7 @@ describe("getNewsCollaborativeSignals", () => {
     ).toEqual([
       {
         category: "model_release",
+        clusterKey: "2026-07-06:model_release:openai:reasoning-model",
         entities: ["OpenAI"],
         newsItemId: "openai-model",
         score: 17,
@@ -7738,6 +8343,67 @@ describe("getNewsCollaborativeSignals", () => {
         tags: ["model"],
       },
     ]);
+  });
+
+  it("does not lift same-cluster story variants after Less feedback", () => {
+    expect(
+      getNewsHomeCollaborativeRankingSignals({
+        formatCategory: (category) =>
+          category === "agent_product" ? "Agents" : category,
+        historyItems: [],
+        items: [
+          {
+            ...localItem,
+            category: "agent_product",
+            clusterKey: "2026-07-06:agent_product:browser-agents",
+            entities: ["Agent Workflows"],
+            id: "same-cluster-wire-story",
+            matchedSignals: ["exploration"],
+            personalizedScore: 126,
+            sourceName: "Wire Desk",
+            sourceScore: 86,
+            sourceSlug: "wire-desk",
+            tags: ["workflow"],
+            title: "Wire rewrite of browser agent workflow story",
+            trendScore: 88,
+          },
+        ],
+        negativeFeedbackItems: [
+          {
+            ...serverItem,
+            category: "policy",
+            clusterKey: " 2026-07-06:AGENT_PRODUCT:browser-agents ",
+            entities: ["Policy Teams"],
+            hiddenAt: "2026-07-06T09:00:00.000Z",
+            id: "hidden-source-story",
+            sourceName: "Policy Desk",
+            sourceSlug: "policy-desk",
+            tags: ["audits"],
+            title: "Hidden browser agent governance story",
+          },
+        ],
+        positiveFeedbackItems: [
+          {
+            ...localItem,
+            action: "share",
+            category: "agent_product",
+            entities: ["Agent Workflows"],
+            id: "shared-agent-ranking",
+            sourceName: "Agent Desk",
+            sourceSlug: "agent-desk",
+            title: "Shared agent workflow story",
+          },
+        ],
+        profile: {
+          preferredCategories: [],
+          preferredSources: [],
+          preferredEntities: [],
+          noveltyBias: 1,
+          recencyBias: 1,
+        },
+        savedItems: [],
+      }),
+    ).toEqual([]);
   });
 
   it("does not give guardrail and edition signals reader-match collaborative lift", () => {
@@ -9230,6 +9896,108 @@ describe("getNewsInterestDrift", () => {
       ],
       summary:
         "Recent behavior is pulling the profile toward Agents while guarding 0 negative signals.",
+    });
+  });
+
+  it("surfaces saved and read angle drift as a trainable signal", async () => {
+    const modelModule = await import("./news-home-model");
+    const getInterestDriftAction = (
+      modelModule as {
+        getNewsInterestDriftTrainingAction?: (input: {
+          formatCategory: (category: string) => string;
+          historyItems: readonly NewsReaderMemoryItem[];
+          negativeFeedbackItems: readonly NewsReaderMemoryItem[];
+          notice: ReturnType<typeof getNewsInterestDrift>["notices"][number];
+          profile: ReturnType<typeof createDefaultNewsPreferenceProfile>;
+          savedItems: readonly NewsReaderMemoryItem[];
+        }) => NewsPreferenceProfileTrainingAction | null;
+      }
+    ).getNewsInterestDriftTrainingAction;
+    const formatCategory = (category: string) =>
+      category === "security" ? "Security" : category;
+    const profile = {
+      ...createDefaultNewsPreferenceProfile(),
+      preferredCategories: ["security"],
+      preferredEntities: [],
+      preferredSources: [],
+    };
+    const historyItems = [
+      {
+        ...localItem,
+        category: "security",
+        entities: [],
+        id: "read-prompt-injection-drift",
+        sourceName: "Security Desk",
+        sourceSlug: "security-desk",
+        tags: ["prompt_injection"],
+        title: "Read prompt injection defense",
+      },
+    ];
+    const savedItems = [
+      {
+        ...serverItem,
+        category: "security",
+        entities: [],
+        id: "saved-prompt-injection-drift",
+        sourceName: "Safety Wire",
+        sourceSlug: "safety-wire",
+        tags: ["prompt-injection"],
+        title: "Saved prompt injection mitigation",
+      },
+    ];
+    const drift = getNewsInterestDrift({
+      formatCategory,
+      historyItems,
+      negativeFeedbackItems: [],
+      profile,
+      savedItems,
+    });
+    const angleNotice = drift.notices.find(
+      (notice) => notice.label === "Angle drift",
+    );
+
+    expect(drift).toMatchObject({
+      label: "Learning",
+      metrics: [
+        { label: "Active signals", value: "1" },
+        { label: "Positive drift", value: "2" },
+        { label: "Guarded signals", value: "0" },
+        { label: "Direction", value: "prompt injection" },
+      ],
+      summary:
+        "Recent behavior is pulling the profile toward prompt injection while guarding 0 negative signals.",
+    });
+    expect(angleNotice).toEqual({
+      detail:
+        "prompt injection leads recent saves and reads with 2 weighted signals.",
+      label: "Angle drift",
+    });
+    expect(getInterestDriftAction).toEqual(expect.any(Function));
+    if (!getInterestDriftAction || !angleNotice) {
+      throw new Error("Expected angle drift action inputs to exist.");
+    }
+
+    expect(
+      getInterestDriftAction({
+        formatCategory,
+        historyItems,
+        negativeFeedbackItems: [],
+        notice: angleNotice,
+        profile,
+        savedItems,
+      }),
+    ).toEqual({
+      actionLabel: "Follow angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt-injection",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -11083,36 +11851,6 @@ describe("getNewsPreferenceDecayQueue", () => {
       revivals: [],
       summary: "Preference decay will appear after stories are ranked.",
     });
-  });
-});
-
-describe("NewsHome preference coverage debt placement", () => {
-  it("renders preference coverage debt in the preference controls", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsPreferenceCoverageDebt({");
-    expect(source).toContain("Preference Coverage");
-    expect(source).toContain("preferenceCoverageDebt.debts.map");
-    expect(source).toContain("applyPreferenceCoverageDebtAction");
-  });
-});
-
-describe("NewsHome preference decay queue placement", () => {
-  it("renders preference decay in the preference controls", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsPreferenceDecayQueue({");
-    expect(source).toContain("Preference Decay Queue");
-    expect(source).toContain("preferenceDecayQueue.decays.map");
-    expect(source).toContain("getNewsPreferenceDecayTrainingAction");
-    expect(source).toContain("applyPreferenceDecayAction");
-    expect(source).toContain("decayAction.actionLabel");
   });
 });
 
@@ -14838,18 +15576,155 @@ describe("getNewsBreakingEscalationQueue", () => {
         "Breaking escalation will appear after urgent live candidates are ranked.",
     });
   });
-});
 
-describe("NewsHome breaking escalation queue placement", () => {
-  it("renders the breaking escalation queue near the live wire", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
+  it("turns breaking escalation stories into trainable reader interests", () => {
+    const queue = getNewsBreakingEscalationQueue({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "agent_product"
+            ? "Agents"
+            : "Models",
+      items: [
+        {
+          ...localItem,
+          id: "source-breaking",
+          matchedSignals: ["source", "category"],
+          personalizedScore: 168,
+          publishedAt: "2026-07-01T10:45:00.000Z",
+          sourceName: "OpenAI News",
+          sourceScore: 94,
+          sourceSlug: "openai-news",
+          title: "OpenAI ships an urgent runtime",
+          trendScore: 97,
+        },
+        {
+          ...localItem,
+          category: "security",
+          entities: [],
+          id: "angle-breaking",
+          matchedSignals: ["tag"],
+          personalizedScore: 144,
+          publishedAt: "2026-07-01T10:15:00.000Z",
+          sourceName: "Security Desk",
+          sourceScore: 88,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection incident moves live",
+          trendScore: 92,
+        },
+        {
+          ...localItem,
+          category: "agent_product",
+          id: "watch-breaking",
+          matchedSignals: ["category"],
+          personalizedScore: 151,
+          publishedAt: "2026-07-01T06:20:00.000Z",
+          sourceName: "Agent Desk",
+          sourceScore: 90,
+          sourceSlug: "agent-desk",
+          title: "Older agent story stays under watch",
+          trendScore: 88,
+        },
+      ],
+      limit: 3,
+      now: new Date("2026-07-01T11:00:00.000Z"),
+    });
+    const bannerLane = queue.lanes.find((lane) => lane.key === "banner");
+    const liveLane = queue.lanes.find((lane) => lane.key === "live");
+    const watchLane = queue.lanes.find((lane) => lane.key === "watch");
+    const bannerStory = bannerLane?.stories.find(
+      (story) => story.id === "source-breaking",
+    );
+    const liveStory = liveLane?.stories.find(
+      (story) => story.id === "angle-breaking",
+    );
+    const watchStory = watchLane?.stories.find(
+      (story) => story.id === "watch-breaking",
     );
 
-    expect(source).toContain("getNewsBreakingEscalationQueue({");
-    expect(source).toContain("Breaking Escalation Queue");
-    expect(source).toContain("breakingEscalationQueue.lanes.map");
+    expect(bannerLane).toBeDefined();
+    expect(liveLane).toBeDefined();
+    expect(watchLane).toBeDefined();
+    expect(bannerStory).toBeDefined();
+    expect(liveStory).toBeDefined();
+    expect(watchStory).toBeDefined();
+    if (
+      !bannerLane ||
+      !liveLane ||
+      !watchLane ||
+      !bannerStory ||
+      !liveStory ||
+      !watchStory
+    ) {
+      return;
+    }
+
+    expect(
+      getNewsBreakingEscalationTrainingAction({
+        item: {
+          ...localItem,
+          category: "model_release",
+          matchedSignals: ["source", "category"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+        },
+        laneKey: bannerLane.key,
+        story: bannerStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train breaking source",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsBreakingEscalationTrainingAction({
+        item: {
+          ...localItem,
+          category: "security",
+          entities: [],
+          matchedSignals: ["tag"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+        laneKey: liveLane.key,
+        story: liveStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train breaking angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsBreakingEscalationTrainingAction({
+        item: {
+          ...localItem,
+          category: "agent_product",
+          matchedSignals: ["category"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+        laneKey: watchLane.key,
+        story: watchStory,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -15368,6 +16243,142 @@ describe("getNewsHotBoard", () => {
         reason: "Newswire momentum keeps this story on the board.",
       },
     ]);
+  });
+
+  it("turns hot-board entries into trainable reader interests", () => {
+    const board = getNewsHotBoard({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "funding"
+            ? "Funding"
+            : category === "agent_product"
+              ? "Agents"
+              : category,
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: [],
+          id: "hot-angle-story",
+          matchedSignals: ["tag"],
+          personalizedScore: 142,
+          sourceName: "Security Desk",
+          sourceScore: 90,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection story should train hot-board interest",
+          trendScore: 91,
+        },
+        {
+          ...serverItem,
+          category: "funding",
+          entities: ["Runway"],
+          id: "hot-market-story",
+          matchedSignals: [],
+          personalizedScore: 116,
+          sourceName: "VentureWire",
+          sourceScore: 80,
+          sourceSlug: "venturewire",
+          title: "Funding heat should train market-led topic interest",
+          trendScore: 95,
+        },
+        {
+          ...olderItem,
+          category: "agent_product",
+          entities: ["Workflow Agents"],
+          id: "hot-explore-story",
+          matchedSignals: ["exploration"],
+          personalizedScore: 103,
+          sourceName: "Agent Desk",
+          sourceScore: 81,
+          sourceSlug: "agent-desk",
+          title: "Exploration heat should stay a sample",
+          trendScore: 84,
+        },
+      ],
+      limit: 3,
+    });
+    const angleEntry = board.entries.find(
+      (entry) => entry.id === "hot-angle-story",
+    );
+    const marketEntry = board.entries.find(
+      (entry) => entry.id === "hot-market-story",
+    );
+    const exploreEntry = board.entries.find(
+      (entry) => entry.id === "hot-explore-story",
+    );
+
+    expect(angleEntry).toBeDefined();
+    expect(marketEntry).toBeDefined();
+    expect(exploreEntry).toBeDefined();
+    if (!angleEntry || !marketEntry || !exploreEntry) return;
+
+    expect(
+      getNewsHotBoardTrainingAction({
+        entry: angleEntry,
+        item: {
+          ...localItem,
+          category: "security",
+          entities: [],
+          matchedSignals: ["tag"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Train hot angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsHotBoardTrainingAction({
+        entry: marketEntry,
+        item: {
+          ...serverItem,
+          category: "funding",
+          entities: ["Runway"],
+          matchedSignals: [],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          tags: [],
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Train hot topic",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsHotBoardTrainingAction({
+        entry: exploreEntry,
+        item: {
+          ...olderItem,
+          category: "agent_product",
+          entities: ["Workflow Agents"],
+          matchedSignals: ["exploration"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+      }),
+    ).toBeNull();
   });
 });
 
@@ -16103,6 +17114,183 @@ describe("getNewsSearchCandidateRail", () => {
       summary: "Type a search query to preview matching story leads.",
       leads: [],
     });
+  });
+
+  it("turns live search leads into trainable reader interests", () => {
+    const sourceSearchLead: RankedNewsItem<NewsHomeItem> = {
+      ...localItem,
+      category: "model_release",
+      entities: ["OpenAI"],
+      id: "source-search-lead",
+      matchedSignals: ["source"],
+      personalizedScore: 148,
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      tags: ["frontier_model"],
+      title: "OpenAI lead appears in live search",
+      trendScore: 95,
+    };
+    const angleSearchLead: RankedNewsItem<NewsHomeItem> = {
+      ...localItem,
+      category: "security",
+      entities: [],
+      id: "angle-search-lead",
+      matchedSignals: ["tag"],
+      personalizedScore: 142,
+      sourceName: "Security Desk",
+      sourceSlug: "security-desk",
+      tags: ["prompt_injection"],
+      title: "Prompt injection lead appears in live search",
+      trendScore: 93,
+    };
+    const marketSearchLead: RankedNewsItem<NewsHomeItem> = {
+      ...serverItem,
+      category: "funding",
+      entities: ["Runway"],
+      id: "market-search-lead",
+      matchedSignals: [],
+      personalizedScore: 118,
+      sourceName: "VentureWire",
+      sourceSlug: "venturewire",
+      title: "Funding lead appears in live search",
+      trendScore: 91,
+    };
+    const negativeSearchLead: RankedNewsItem<NewsHomeItem> = {
+      ...olderItem,
+      category: "agent_product",
+      id: "negative-search-lead",
+      matchedSignals: ["negative_feedback"],
+      personalizedScore: 108,
+      sourceName: "Agent Desk",
+      sourceSlug: "agent-desk",
+      title: "Muted lead should not train search interests",
+      trendScore: 89,
+    };
+
+    const rail = getNewsSearchCandidateRail({
+      candidates: [
+        sourceSearchLead,
+        angleSearchLead,
+        marketSearchLead,
+        negativeSearchLead,
+      ],
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "funding"
+            ? "Funding"
+            : category === "agent_product"
+              ? "Agents"
+              : "Models",
+      limit: 4,
+      query: "ai",
+    });
+    const sourceLead = rail.leads.find(
+      (lead) => lead.id === "source-search-lead",
+    );
+    const angleLead = rail.leads.find(
+      (lead) => lead.id === "angle-search-lead",
+    );
+    const marketLead = rail.leads.find(
+      (lead) => lead.id === "market-search-lead",
+    );
+    const negativeLead = rail.leads.find(
+      (lead) => lead.id === "negative-search-lead",
+    );
+
+    expect(sourceLead).toBeDefined();
+    expect(angleLead).toBeDefined();
+    expect(marketLead).toBeDefined();
+    expect(negativeLead).toBeDefined();
+    if (!sourceLead || !angleLead || !marketLead || !negativeLead) return;
+
+    expect(
+      getNewsSearchCandidateTrainingAction({
+        item: {
+          ...localItem,
+          category: "model_release",
+          matchedSignals: ["source"],
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+        },
+        lead: sourceLead,
+      }),
+    ).toEqual({
+      actionLabel: "Train search source",
+      effect: "add",
+      label: "OpenAI News",
+      signals: [
+        {
+          kind: "source",
+          label: "OpenAI News",
+          signal: "openai-news",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsSearchCandidateTrainingAction({
+        item: {
+          ...localItem,
+          category: "security",
+          entities: [],
+          matchedSignals: ["tag"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+        lead: angleLead,
+      }),
+    ).toEqual({
+      actionLabel: "Train search angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsSearchCandidateTrainingAction({
+        item: {
+          ...serverItem,
+          category: "funding",
+          entities: ["Runway"],
+          matchedSignals: [],
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+        lead: marketLead,
+      }),
+    ).toEqual({
+      actionLabel: "Train search topic",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsSearchCandidateTrainingAction({
+        item: {
+          ...olderItem,
+          category: "agent_product",
+          matchedSignals: ["negative_feedback"],
+          sourceName: "Agent Desk",
+          sourceSlug: "agent-desk",
+        },
+        lead: negativeLead,
+      }),
+    ).toBeNull();
   });
 });
 
@@ -17959,6 +19147,72 @@ describe("getNewsSectionFronts", () => {
     }
   });
 
+  it("turns section front lead stories into trainable reader interests", () => {
+    const entityStory = {
+      ...localItem,
+      id: "section-training-entity",
+      category: "model_release",
+      entities: ["OpenAI", "GPT-6"],
+      matchedSignals: ["category", "entity"],
+      personalizedScore: 140,
+      sourceName: "OpenAI News",
+      sourceSlug: "openai-news",
+      title: "OpenAI leads the model section",
+      trendScore: 90,
+    };
+    const topicStory = {
+      ...serverItem,
+      id: "section-training-topic",
+      category: "funding",
+      entities: [],
+      matchedSignals: [],
+      personalizedScore: 135,
+      sourceName: "VentureWire",
+      sourceSlug: "venturewire",
+      title: "Funding brief",
+      trendScore: 96,
+    };
+
+    expect(
+      getNewsSectionFrontTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release" ? "Models" : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train section entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsSectionFrontTrainingAction({
+        formatCategory: (category) =>
+          category === "funding" ? "Funding" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train section topic",
+      effect: "add",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("returns no section fronts when the edition is empty", () => {
     expect(
       getNewsSectionFronts({
@@ -18183,6 +19437,95 @@ describe("getNewsSourceClusters", () => {
     ]);
   });
 
+  it("clusters cross-source coverage around shared story angles", () => {
+    expect(
+      getNewsSourceClusters({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "cluster-angle-red-team",
+            matchedSignals: ["tag"],
+            personalizedScore: 146,
+            sourceName: "Red Team Daily",
+            sourceScore: 86,
+            sourceSlug: "red-team-daily",
+            tags: ["prompt-injection"],
+            title: "Agent tool exploit reaches enterprise pilots",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            category: "security",
+            entities: [],
+            id: "cluster-angle-safety-wire",
+            matchedSignals: [],
+            personalizedScore: 134,
+            sourceName: "Safety Wire",
+            sourceScore: 82,
+            sourceSlug: "safety-wire",
+            tags: ["prompt injection"],
+            title: "Security teams rotate workflow isolation plans",
+            trendScore: 88,
+          },
+          {
+            ...olderItem,
+            category: "security",
+            entities: [],
+            id: "cluster-angle-benchmark",
+            matchedSignals: [],
+            personalizedScore: 120,
+            sourceName: "Benchmark Lab",
+            sourceScore: 80,
+            sourceSlug: "benchmark-lab",
+            tags: ["benchmarks"],
+            title: "Benchmark teams publish model eval packet",
+            trendScore: 85,
+          },
+        ],
+        limit: 2,
+        storiesPerCluster: 2,
+      }),
+    ).toMatchObject({
+      clusters: [
+        {
+          averageTrustScore: 84,
+          categoryLabel: "Security",
+          commonSignals: ["prompt injection"],
+          key: "security:prompt_injection",
+          lead: {
+            id: "cluster-angle-red-team",
+            personalizedScore: 146,
+            sourceName: "Red Team Daily",
+            title: "Agent tool exploit reaches enterprise pilots",
+          },
+          sourceCount: 2,
+          storyCount: 2,
+          summary: "2 reports from 2 sources converge on prompt injection.",
+          supportingStories: [
+            {
+              id: "cluster-angle-safety-wire",
+              sourceName: "Safety Wire",
+              sourceScore: 82,
+              title: "Security teams rotate workflow isolation plans",
+            },
+          ],
+        },
+      ],
+      label: "Source Clusters Ready",
+      metrics: [
+        { label: "Clusters", value: "1" },
+        { label: "Stories", value: "2" },
+        { label: "Sources", value: "2" },
+        { label: "Avg trust", value: "84" },
+      ],
+      summary: "1 source cluster consolidates 2 stories from 2 sources.",
+    });
+  });
+
   it("prefers ingestion cluster keys over fuzzy entity clustering", () => {
     const clusters = getNewsSourceClusters({
       formatCategory: (category) =>
@@ -18262,6 +19605,159 @@ describe("getNewsSourceClusters", () => {
         { label: "Avg trust", value: "0" },
       ],
       summary: "Source clusters will appear after related stories are ranked.",
+    });
+  });
+
+  it("turns source clusters into trainable aggregation interests", () => {
+    const clusters = getNewsSourceClusters({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "model_release"
+            ? "Models"
+            : "Research",
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: [],
+          id: "source-cluster-angle-lead",
+          matchedSignals: ["tag"],
+          personalizedScore: 146,
+          sourceName: "Red Team Daily",
+          sourceScore: 86,
+          sourceSlug: "red-team-daily",
+          tags: ["prompt_injection"],
+          title: "Prompt injection cluster lead",
+          trendScore: 92,
+        },
+        {
+          ...serverItem,
+          category: "security",
+          entities: [],
+          id: "source-cluster-angle-follow",
+          matchedSignals: [],
+          personalizedScore: 134,
+          sourceName: "Safety Wire",
+          sourceScore: 82,
+          sourceSlug: "safety-wire",
+          tags: ["prompt injection"],
+          title: "Prompt injection cluster follow-up",
+          trendScore: 88,
+        },
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "source-cluster-entity-lead",
+          matchedSignals: ["entity"],
+          personalizedScore: 144,
+          sourceName: "Model Desk",
+          sourceScore: 90,
+          sourceSlug: "model-desk",
+          title: "OpenAI GPT-6 source cluster lead",
+          trendScore: 89,
+        },
+        {
+          ...serverItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "source-cluster-entity-follow",
+          matchedSignals: [],
+          personalizedScore: 128,
+          sourceName: "Research Wire",
+          sourceScore: 85,
+          sourceSlug: "research-wire",
+          title: "OpenAI GPT-6 source cluster follow-up",
+          trendScore: 84,
+        },
+        {
+          ...olderItem,
+          category: "research",
+          clusterKey: "2026-07-01:research:eval-packet",
+          entities: [],
+          id: "source-cluster-topic-lead",
+          matchedSignals: [],
+          personalizedScore: 120,
+          sourceName: "Eval Lab",
+          sourceScore: 82,
+          sourceSlug: "eval-lab",
+          title: "Research cluster lead",
+          trendScore: 86,
+        },
+        {
+          ...olderItem,
+          category: "research",
+          clusterKey: "2026-07-01:research:eval-packet",
+          entities: [],
+          id: "source-cluster-topic-follow",
+          matchedSignals: [],
+          personalizedScore: 112,
+          sourceName: "Benchmark Wire",
+          sourceScore: 78,
+          sourceSlug: "benchmark-wire",
+          title: "Research cluster follow-up",
+          trendScore: 80,
+        },
+      ],
+      limit: 3,
+      storiesPerCluster: 2,
+    });
+    const angleCluster = clusters.clusters.find(
+      (cluster) => cluster.key === "security:prompt_injection",
+    );
+    const entityCluster = clusters.clusters.find(
+      (cluster) => cluster.key === "model_release:openai:gpt-6",
+    );
+    const topicCluster = clusters.clusters.find(
+      (cluster) =>
+        cluster.categoryLabel === "Research" &&
+        cluster.commonSignals.length === 0,
+    );
+
+    expect(angleCluster).toBeDefined();
+    expect(entityCluster).toBeDefined();
+    expect(topicCluster).toBeDefined();
+    if (!angleCluster || !entityCluster || !topicCluster) return;
+
+    expect(getNewsSourceClusterTrainingAction(angleCluster)).toEqual({
+      actionLabel: "Train cluster angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsSourceClusterTrainingAction(entityCluster)).toEqual({
+      actionLabel: "Train cluster entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsSourceClusterTrainingAction(topicCluster)).toEqual({
+      actionLabel: "Train cluster topic",
+      effect: "add",
+      label: "Research",
+      signals: [
+        {
+          kind: "category",
+          label: "Research",
+          signal: "research",
+        },
+      ],
+      source: "control",
     });
   });
 });
@@ -18424,6 +19920,143 @@ describe("getNewsClaimTracker", () => {
     });
   });
 
+  it("turns corroborated and developing claims into trainable interests", () => {
+    const tracker = getNewsClaimTracker({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "model_release"
+            ? "Models"
+            : "Research",
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: [],
+          id: "claim-angle-lead",
+          matchedSignals: ["tag"],
+          personalizedScore: 150,
+          sourceName: "Red Team Daily",
+          sourceScore: 84,
+          sourceSlug: "red-team-daily",
+          tags: ["prompt_injection"],
+          title: "Prompt injection claim lead",
+          trendScore: 92,
+        },
+        {
+          ...serverItem,
+          category: "security",
+          entities: [],
+          id: "claim-angle-follow",
+          matchedSignals: [],
+          personalizedScore: 136,
+          sourceName: "Safety Wire",
+          sourceScore: 82,
+          sourceSlug: "safety-wire",
+          tags: ["prompt injection"],
+          title: "Prompt injection claim follow-up",
+          trendScore: 88,
+        },
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "claim-entity-lead",
+          matchedSignals: ["entity"],
+          personalizedScore: 148,
+          sourceName: "Model Desk",
+          sourceScore: 92,
+          sourceSlug: "model-desk",
+          title: "OpenAI GPT-6 claim lead",
+          trendScore: 90,
+        },
+        {
+          ...serverItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "claim-entity-follow",
+          matchedSignals: [],
+          personalizedScore: 130,
+          sourceName: "Research Wire",
+          sourceScore: 86,
+          sourceSlug: "research-wire",
+          title: "OpenAI GPT-6 claim follow-up",
+          trendScore: 84,
+        },
+        {
+          ...olderItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "claim-entity-market",
+          matchedSignals: [],
+          personalizedScore: 118,
+          sourceName: "Developer News",
+          sourceScore: 82,
+          sourceSlug: "developer-news",
+          title: "OpenAI GPT-6 claim market check",
+          trendScore: 82,
+        },
+        {
+          ...olderItem,
+          category: "research",
+          entities: ["Eval Lab"],
+          id: "claim-single-source",
+          matchedSignals: [],
+          personalizedScore: 112,
+          sourceName: "Eval Lab",
+          sourceScore: 78,
+          sourceSlug: "eval-lab",
+          title: "Single source claim should stay evidence only",
+          trendScore: 80,
+        },
+      ],
+      limit: 4,
+      storiesPerClaim: 3,
+    });
+    const angleClaim = tracker.claims.find(
+      (claim) => claim.key === "security:prompt_injection",
+    );
+    const entityClaim = tracker.claims.find(
+      (claim) => claim.key === "model_release:openai:gpt-6",
+    );
+    const singleSourceClaim = tracker.claims.find(
+      (claim) => claim.label === "Single source",
+    );
+
+    expect(angleClaim).toBeDefined();
+    expect(entityClaim).toBeDefined();
+    expect(singleSourceClaim).toBeDefined();
+    if (!angleClaim || !entityClaim || !singleSourceClaim) return;
+
+    expect(getNewsClaimTrackerTrainingAction(angleClaim)).toEqual({
+      actionLabel: "Train claim angle",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsClaimTrackerTrainingAction(entityClaim)).toEqual({
+      actionLabel: "Train claim entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsClaimTrackerTrainingAction(singleSourceClaim)).toBeNull();
+  });
+
   it("returns a waiting state before claim evidence clusters", () => {
     expect(
       getNewsClaimTracker({
@@ -18442,6 +20075,88 @@ describe("getNewsClaimTracker", () => {
         { label: "Single source", value: "0" },
       ],
       summary: "Claim tracker will appear after story evidence clusters.",
+    });
+  });
+
+  it("tracks developing claims around shared story angles", () => {
+    expect(
+      getNewsClaimTracker({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        items: [
+          {
+            ...localItem,
+            category: "security",
+            entities: [],
+            id: "claim-angle-red-team",
+            matchedSignals: ["tag"],
+            personalizedScore: 146,
+            sourceName: "Red Team Daily",
+            sourceScore: 86,
+            sourceSlug: "red-team-daily",
+            tags: ["prompt-injection"],
+            title: "Agent tool exploit reaches enterprise pilots",
+            trendScore: 92,
+          },
+          {
+            ...serverItem,
+            category: "security",
+            entities: [],
+            id: "claim-angle-safety-wire",
+            matchedSignals: [],
+            personalizedScore: 134,
+            sourceName: "Safety Wire",
+            sourceScore: 82,
+            sourceSlug: "safety-wire",
+            tags: ["prompt injection"],
+            title: "Security teams rotate workflow isolation plans",
+            trendScore: 88,
+          },
+        ],
+        limit: 1,
+        storiesPerClaim: 2,
+      }),
+    ).toEqual({
+      claims: [
+        {
+          categoryLabel: "Security",
+          claim:
+            "prompt injection is the claim focus across security coverage.",
+          confidenceLabel: "Medium confidence",
+          evidence: [
+            {
+              id: "claim-angle-red-team",
+              signalLabel: "prompt injection",
+              sourceName: "Red Team Daily",
+              title: "Agent tool exploit reaches enterprise pilots",
+            },
+            {
+              id: "claim-angle-safety-wire",
+              signalLabel: "prompt injection",
+              sourceName: "Safety Wire",
+              title: "Security teams rotate workflow isolation plans",
+            },
+          ],
+          key: "security:prompt_injection",
+          label: "Developing",
+          lead: {
+            id: "claim-angle-red-team",
+            sourceName: "Red Team Daily",
+            title: "Agent tool exploit reaches enterprise pilots",
+          },
+          sourceNames: ["Red Team Daily", "Safety Wire"],
+          supportLabel: "2 sources / 2 reports",
+        },
+      ],
+      label: "Claim Tracker Ready",
+      metrics: [
+        { label: "Claims", value: "1" },
+        { label: "Corroborated", value: "0" },
+        { label: "Developing", value: "1" },
+        { label: "Single source", value: "0" },
+      ],
+      summary:
+        "1 tracked claim: 0 corroborated, 1 developing, and 0 single-source.",
     });
   });
 
@@ -18575,6 +20290,7 @@ describe("getNewsStoryTimeline", () => {
     ).toEqual({
       events: [
         {
+          category: "agent_product",
           categoryLabel: "Agents",
           entities: ["Agents"],
           heatLabel: "84 heat / 121 score",
@@ -18588,6 +20304,7 @@ describe("getNewsStoryTimeline", () => {
           title: "Agent workflow startup tests a new channel",
         },
         {
+          category: "funding",
           categoryLabel: "Funding",
           entities: ["Series B"],
           heatLabel: "96 heat / 118 score",
@@ -18600,6 +20317,7 @@ describe("getNewsStoryTimeline", () => {
           title: "Funding heat rises around AI model tooling",
         },
         {
+          category: "model_release",
           categoryLabel: "Models",
           entities: ["OpenAI", "GPT-6"],
           heatLabel: "89 heat / 168 score",
@@ -18613,6 +20331,7 @@ describe("getNewsStoryTimeline", () => {
           title: "OpenAI GPT-6 model release sets new coding mark",
         },
         {
+          category: "research",
           categoryLabel: "Research",
           entities: ["OpenAI", "GPT-6"],
           heatLabel: "78 heat / 142 score",
@@ -18634,6 +20353,79 @@ describe("getNewsStoryTimeline", () => {
       ],
       summary:
         "4 timeline events show how 4 stories developed across 4 sources.",
+    });
+  });
+
+  it("turns timeline events into trainable reader interests", () => {
+    const timeline = getNewsStoryTimeline({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "security"
+            ? "Security"
+            : category,
+      items: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: ["OpenAI", "GPT-6"],
+          id: "timeline-train-entity",
+          matchedSignals: ["category"],
+          personalizedScore: 150,
+          publishedAt: "2026-07-01T09:00:00.000Z",
+          title: "OpenAI model timeline event trains an entity",
+          trendScore: 86,
+        },
+        {
+          ...serverItem,
+          category: "security",
+          entities: [],
+          id: "timeline-train-market",
+          matchedSignals: [],
+          personalizedScore: 132,
+          publishedAt: "2026-07-01T10:00:00.000Z",
+          title: "Security market reaction trains a topic",
+          trendScore: 96,
+        },
+      ],
+      limit: 2,
+    });
+    const entityEvent = timeline.events.find(
+      (event) => event.id === "timeline-train-entity",
+    );
+    const marketEvent = timeline.events.find(
+      (event) => event.id === "timeline-train-market",
+    );
+
+    expect(entityEvent).toBeDefined();
+    expect(marketEvent).toBeDefined();
+    if (!entityEvent || !marketEvent) return;
+
+    expect(getNewsStoryTimelineTrainingAction(entityEvent)).toEqual({
+      actionLabel: "Train timeline entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsStoryTimelineTrainingAction(marketEvent)).toEqual({
+      actionLabel: "Train timeline market",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -18916,6 +20708,55 @@ describe("getNewsCoverageThreads", () => {
     );
   });
 
+  it("turns coverage threads into trainable entity interests", () => {
+    const coverageThreads = getNewsCoverageThreads({
+      items: [
+        {
+          ...localItem,
+          entities: ["OpenAI", "Agents"],
+          matchedSignals: ["entity"],
+          personalizedScore: 150,
+          sourceName: "OpenAI News",
+          sourceSlug: "openai-news",
+          title: "OpenAI agent platform sets the lead",
+          trendScore: 88,
+        },
+        {
+          ...serverItem,
+          category: "research",
+          entities: ["OpenAI"],
+          id: "coverage-training-follow",
+          matchedSignals: [],
+          personalizedScore: 124,
+          sourceName: "Research Wire",
+          sourceSlug: "research-wire",
+          title: "Research coverage follows OpenAI agent platform",
+          trendScore: 82,
+        },
+      ],
+      limit: 1,
+      storiesPerThread: 2,
+    });
+    const [thread] = coverageThreads.threads;
+
+    expect(thread).toBeDefined();
+    if (!thread) return;
+
+    expect(getNewsCoverageThreadTrainingAction(thread)).toEqual({
+      actionLabel: "Train coverage entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("normalizes source variants before verifying coverage threads", () => {
     expect(
       getNewsCoverageThreads({
@@ -19173,6 +21014,93 @@ describe("getNewsConsensusBoard", () => {
     });
   });
 
+  it("only turns verified consensus threads into trainable interests", () => {
+    const consensus = getNewsConsensusBoard({
+      items: [
+        {
+          ...localItem,
+          entities: ["OpenAI"],
+          matchedSignals: ["entity"],
+          personalizedScore: 150,
+          sourceName: "OpenAI News",
+          sourceScore: 92,
+          sourceSlug: "openai-news",
+          title: "OpenAI consensus lead",
+          trendScore: 90,
+        },
+        {
+          ...serverItem,
+          entities: ["OpenAI"],
+          matchedSignals: [],
+          personalizedScore: 132,
+          sourceName: "Model Lab",
+          sourceScore: 84,
+          sourceSlug: "model-lab",
+          title: "OpenAI consensus follow",
+          trendScore: 86,
+        },
+        {
+          ...olderItem,
+          category: "hot_take",
+          entities: ["Runway"],
+          id: "consensus-high-risk",
+          matchedSignals: [],
+          personalizedScore: 95,
+          sourceName: "Rumor Feed",
+          sourceScore: 45,
+          sourceSlug: "rumor-feed",
+          title: "Runway high-risk thread",
+          trendScore: 94,
+        },
+        {
+          ...olderItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "consensus-single-source",
+          matchedSignals: [],
+          personalizedScore: 90,
+          sourceName: "VentureWire",
+          sourceScore: 74,
+          sourceSlug: "venturewire",
+          title: "YC single-source thread",
+          trendScore: 82,
+        },
+      ],
+      limit: 3,
+      storiesPerThread: 2,
+    });
+    const verifiedThread = consensus.threads.find(
+      (thread) => thread.label === "Verified",
+    );
+    const highRiskThread = consensus.threads.find(
+      (thread) => thread.label === "High-risk",
+    );
+    const singleSourceThread = consensus.threads.find(
+      (thread) => thread.label === "Single-source",
+    );
+
+    expect(verifiedThread).toBeDefined();
+    expect(highRiskThread).toBeDefined();
+    expect(singleSourceThread).toBeDefined();
+    if (!verifiedThread || !highRiskThread || !singleSourceThread) return;
+
+    expect(getNewsConsensusThreadTrainingAction(verifiedThread)).toEqual({
+      actionLabel: "Train consensus entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(getNewsConsensusThreadTrainingAction(highRiskThread)).toBeNull();
+    expect(getNewsConsensusThreadTrainingAction(singleSourceThread)).toBeNull();
+  });
+
   it("does not let future-dated stories lead consensus threads", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-01T10:00:00.000Z"));
@@ -19416,6 +21344,72 @@ describe("getNewsPersonalizedReadingQueue", () => {
         personalizedScore: 126,
         sourceName: "Agent Desk",
         title: "Agent planner tools pick up from saved coverage",
+      },
+    });
+  });
+
+  it("uses shared angle tags as reader-memory follow-up anchors", () => {
+    const queue = getNewsPersonalizedReadingQueue({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "security"
+            ? "Security"
+            : category,
+      historyItems: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: [],
+          id: "read-prompt-injection",
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          tags: ["prompt_injection"],
+          title: "Read prompt injection model story",
+        },
+      ],
+      items: [
+        {
+          ...localItem,
+          id: "queue-angle-lead",
+          category: "model_release",
+          entities: ["OpenAI"],
+          matchedSignals: ["category"],
+          personalizedScore: 170,
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          title: "Model release leads the queue",
+          trendScore: 96,
+        },
+        {
+          ...serverItem,
+          id: "queue-angle-follow",
+          category: "security",
+          entities: [],
+          matchedSignals: ["tag"],
+          personalizedScore: 126,
+          sourceName: "Security Desk",
+          sourceScore: 82,
+          sourceSlug: "security-desk",
+          tags: ["prompt-injection"],
+          title: "Prompt injection follow-up continues the reader angle",
+          trendScore: 82,
+        },
+      ],
+      negativeFeedbackItems: [],
+      savedItems: [],
+    });
+
+    expect(queue.slots[1]).toEqual({
+      intent: "Follow Interest",
+      label: "Continue thread",
+      reason:
+        "prompt injection from your reading history anchors this follow-up.",
+      story: {
+        id: "queue-angle-follow",
+        personalizedScore: 126,
+        sourceName: "Security Desk",
+        title: "Prompt injection follow-up continues the reader angle",
       },
     });
   });
@@ -19943,6 +21937,33 @@ describe("getNewsPersonalizedReadingQueue", () => {
       ],
       source: "control",
     });
+    expect(
+      getNewsPersonalizedReadingQueueTrainingAction({
+        formatCategory,
+        intent: "Follow Interest",
+        item: {
+          ...localItem,
+          category: "research",
+          entities: [],
+          matchedSignals: ["tag"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+      }),
+    ).toEqual({
+      actionLabel: "Train follow-up signal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
   });
 });
 
@@ -20138,6 +22159,99 @@ describe("getNewsMissedCoverageShelf", () => {
       ],
       summary:
         "2 unread stories outside the lead stack are worth a second look.",
+    });
+  });
+
+  it("turns missed tail coverage into trainable reader interests", () => {
+    const entityStory = {
+      ...serverItem,
+      id: "missed-training-entity",
+      category: "model_release",
+      entities: ["OpenAI", "GPT-6"],
+      matchedSignals: [],
+      personalizedScore: 120,
+      sourceName: "Model Desk",
+      sourceScore: 90,
+      sourceSlug: "model-desk",
+      title: "OpenAI tail story trains a missed entity",
+      trendScore: 92,
+    };
+    const topicStory = {
+      ...olderItem,
+      id: "missed-training-topic",
+      category: "security",
+      entities: [],
+      matchedSignals: [],
+      personalizedScore: 118,
+      sourceName: "Security Desk",
+      sourceScore: 88,
+      sourceSlug: "security-desk",
+      title: "Security tail story trains a missed topic",
+      trendScore: 90,
+    };
+    const shelf = getNewsMissedCoverageShelf({
+      frontPageCount: 1,
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          id: "missed-training-front",
+          entities: ["Anthropic"],
+          matchedSignals: ["category"],
+          personalizedScore: 180,
+          trendScore: 95,
+        },
+        entityStory,
+        topicStory,
+      ],
+      limit: 2,
+    });
+
+    expect(shelf.stories.map((story) => story.id)).toEqual([
+      "missed-training-entity",
+      "missed-training-topic",
+    ]);
+    expect(
+      getNewsMissedCoverageTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "security"
+              ? "Security"
+              : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train missed entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsMissedCoverageTrainingAction({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train missed topic",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
     });
   });
 
@@ -20470,6 +22584,33 @@ describe("getNewsContinuationRail", () => {
       ],
       source: "control",
     });
+    expect(
+      getNewsContinuationRailTrainingAction({
+        formatCategory,
+        item: {
+          ...localItem,
+          category: "research",
+          entities: [],
+          matchedSignals: ["tag"],
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+        },
+        reason: "prompt injection follow-up",
+      }),
+    ).toEqual({
+      actionLabel: "Train continuation signal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
   });
 
   it("keeps a counterpoint follow-up when one read entity would fill the rail", () => {
@@ -20769,6 +22910,71 @@ describe("getNewsContinuationRail", () => {
         title: "Padded source and topic follow-up",
       },
     ]);
+  });
+
+  it("uses shared angle tags as continuation follow-up threads", () => {
+    const rail = getNewsContinuationRail({
+      formatCategory: (category) =>
+        category === "model_release"
+          ? "Models"
+          : category === "security"
+            ? "Security"
+            : category,
+      historyItems: [
+        {
+          ...localItem,
+          category: "model_release",
+          entities: [],
+          id: "read-prompt-injection",
+          sourceName: "Model Desk",
+          sourceSlug: "model-desk",
+          tags: ["prompt_injection"],
+          title: "Read prompt injection story",
+        },
+      ],
+      items: [
+        {
+          ...serverItem,
+          id: "angle-continuation-follow",
+          category: "security",
+          entities: [],
+          matchedSignals: ["tag"],
+          personalizedScore: 128,
+          sourceName: "Security Desk",
+          sourceSlug: "security-desk",
+          tags: ["prompt-injection"],
+          title: "Prompt injection follow-up continues the trail",
+        },
+        {
+          ...olderItem,
+          id: "unrelated-high-score-continuation",
+          category: "funding",
+          entities: ["YC"],
+          matchedSignals: [],
+          personalizedScore: 220,
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+          tags: ["seed_round"],
+          title: "Unrelated funding story should not create a trail",
+        },
+      ],
+      limit: 1,
+    });
+
+    expect(rail.followUps).toEqual([
+      {
+        id: "angle-continuation-follow",
+        reason: "prompt injection thread",
+        scoreLabel: "3 signals / 128 score",
+        sourceName: "Security Desk",
+        title: "Prompt injection follow-up continues the trail",
+      },
+    ]);
+    expect(rail.label).toBe("Active Trail");
+    expect(rail.metrics).toContainEqual({
+      label: "Top thread",
+      value: "prompt injection",
+    });
   });
 
   it("does not continue reading trails through stories rejected by similar readers", () => {
@@ -31849,6 +34055,59 @@ describe("getNewsPersonalizedPushQueue", () => {
     });
   });
 
+  it("turns tag-matched push decisions into angle training actions", () => {
+    const angleItem = {
+      ...localItem,
+      category: "security",
+      entities: [],
+      id: "train-push-angle",
+      matchedSignals: ["tag"],
+      personalizedScore: 151,
+      sourceName: "Security Desk",
+      sourceScore: 91,
+      sourceSlug: "security-desk",
+      tags: ["prompt_injection"],
+      title: "Prompt injection alert should train an angle",
+      trendScore: 90,
+    };
+    const queue = getNewsPersonalizedPushQueue({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [angleItem],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [],
+      profile: localProfile,
+      savedItems: [],
+    });
+    const pushNowStory = queue.lanes[0]?.stories[0];
+
+    expect(pushNowStory).toBeDefined();
+    if (!pushNowStory) return;
+
+    expect(
+      getNewsPersonalizedPushQueueTrainingAction({
+        item: angleItem,
+        laneKey: "push_now",
+        story: pushNowStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train push signal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("does not treat source corroboration as a reader push signal", () => {
     expect(
       getNewsPersonalizedPushQueue({
@@ -32431,6 +34690,130 @@ describe("getNewsNewsletterPlan", () => {
     expect(plan.metrics).toContainEqual({ label: "Weekly", value: "1" });
   });
 
+  it("turns newsletter lane decisions into profile training actions", () => {
+    const breakingItem = {
+      ...localItem,
+      category: "security",
+      entities: [],
+      id: "newsletter-training-angle",
+      matchedSignals: ["tag"],
+      personalizedScore: 151,
+      sourceName: "Security Desk",
+      sourceScore: 92,
+      sourceSlug: "security-desk",
+      tags: ["prompt_injection"],
+      title: "Prompt injection story should train newsletter delivery",
+      trendScore: 90,
+    };
+    const mutedItem = {
+      ...serverItem,
+      category: "funding",
+      entities: ["YC"],
+      id: "newsletter-training-muted",
+      matchedSignals: ["category"],
+      personalizedScore: 132,
+      sourceName: "VentureWire",
+      sourceScore: 82,
+      sourceSlug: "venturewire",
+      title: "Muted funding story should suppress newsletters",
+      trendScore: 88,
+    };
+    const weeklyItem = {
+      ...olderItem,
+      category: "robotics",
+      entities: ["Figure"],
+      id: "newsletter-training-weekly",
+      matchedSignals: ["exploration"],
+      personalizedScore: 109,
+      sourceName: "Robotics Desk",
+      sourceScore: 82,
+      sourceSlug: "robotics-desk",
+      title: "Exploration story waits for weekly recap",
+      trendScore: 80,
+    };
+    const plan = getNewsNewsletterPlan({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "funding"
+            ? "Funding"
+            : category === "robotics"
+              ? "Robotics"
+              : category,
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [breakingItem, mutedItem, weeklyItem],
+      limit: 2,
+      negativeFeedbackItems: [
+        {
+          ...serverItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "negative-newsletter-training-funding",
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+      ],
+      positiveFeedbackItems: [],
+      profile: localProfile,
+      savedItems: [],
+    });
+    const breakingStory = plan.lanes[0]?.stories[0];
+    const weeklyStory = plan.lanes[2]?.stories[0];
+    const mutedStory = plan.lanes[3]?.stories[0];
+
+    expect(breakingStory).toBeDefined();
+    expect(weeklyStory).toBeDefined();
+    expect(mutedStory).toBeDefined();
+    if (!breakingStory || !weeklyStory || !mutedStory) return;
+
+    expect(
+      getNewsNewsletterPlanTrainingAction({
+        item: breakingItem,
+        laneKey: "breaking_note",
+        story: breakingStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train breaking signal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsNewsletterPlanTrainingAction({
+        item: weeklyItem,
+        laneKey: "weekly_recap",
+        story: weeklyStory,
+      }),
+    ).toBeNull();
+    expect(
+      getNewsNewsletterPlanTrainingAction({
+        item: mutedItem,
+        laneKey: "muted",
+        story: mutedStory,
+      }),
+    ).toEqual({
+      actionLabel: "Mute newsletter signal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("keeps newsletter packaging cold before stories are ranked", () => {
     expect(
       getNewsNewsletterPlan({
@@ -32779,6 +35162,130 @@ describe("getNewsMembershipMeter", () => {
     ]);
     expect(meter.metrics).toContainEqual({ label: "Trial", value: "1" });
     expect(meter.metrics).toContainEqual({ label: "Nurture", value: "1" });
+  });
+
+  it("turns membership lane decisions into profile training actions", () => {
+    const meterItem = {
+      ...localItem,
+      category: "security",
+      entities: [],
+      id: "membership-training-angle",
+      matchedSignals: ["tag"],
+      personalizedScore: 151,
+      sourceName: "Security Desk",
+      sourceScore: 92,
+      sourceSlug: "security-desk",
+      tags: ["prompt_injection"],
+      title: "Prompt injection story should train paid-value metering",
+      trendScore: 90,
+    };
+    const noAskItem = {
+      ...serverItem,
+      category: "funding",
+      entities: ["YC"],
+      id: "membership-training-noask",
+      matchedSignals: ["category"],
+      personalizedScore: 132,
+      sourceName: "VentureWire",
+      sourceScore: 82,
+      sourceSlug: "venturewire",
+      title: "No-ask funding story should suppress membership prompts",
+      trendScore: 88,
+    };
+    const nurtureItem = {
+      ...olderItem,
+      category: "robotics",
+      entities: ["Figure"],
+      id: "membership-training-nurture",
+      matchedSignals: ["exploration"],
+      personalizedScore: 109,
+      sourceName: "Robotics Desk",
+      sourceScore: 82,
+      sourceSlug: "robotics-desk",
+      title: "Exploration story should nurture before a paid ask",
+      trendScore: 80,
+    };
+    const meter = getNewsMembershipMeter({
+      formatCategory: (category) =>
+        category === "security"
+          ? "Security"
+          : category === "funding"
+            ? "Funding"
+            : category === "robotics"
+              ? "Robotics"
+              : category,
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [meterItem, noAskItem, nurtureItem],
+      limit: 2,
+      negativeFeedbackItems: [
+        {
+          ...serverItem,
+          category: "funding",
+          entities: ["YC"],
+          id: "negative-membership-training-funding",
+          sourceName: "VentureWire",
+          sourceSlug: "venturewire",
+        },
+      ],
+      positiveFeedbackItems: [],
+      profile: localProfile,
+      savedItems: [],
+    });
+    const meterStory = meter.lanes[0]?.stories[0];
+    const nurtureStory = meter.lanes[2]?.stories[0];
+    const noAskStory = meter.lanes[3]?.stories[0];
+
+    expect(meterStory).toBeDefined();
+    expect(nurtureStory).toBeDefined();
+    expect(noAskStory).toBeDefined();
+    if (!meterStory || !nurtureStory || !noAskStory) return;
+
+    expect(
+      getNewsMembershipMeterTrainingAction({
+        item: meterItem,
+        laneKey: "meter_value",
+        story: meterStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train meter signal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsMembershipMeterTrainingAction({
+        item: nurtureItem,
+        laneKey: "newsletter_nurture",
+        story: nurtureStory,
+      }),
+    ).toBeNull();
+    expect(
+      getNewsMembershipMeterTrainingAction({
+        item: noAskItem,
+        laneKey: "no_ask",
+        story: noAskStory,
+      }),
+    ).toEqual({
+      actionLabel: "Suppress membership signal",
+      effect: "remove",
+      label: "Funding",
+      signals: [
+        {
+          kind: "category",
+          label: "Funding",
+          signal: "funding",
+        },
+      ],
+      source: "control",
+    });
   });
 
   it("keeps membership prompts cold before stories are ranked", () => {
@@ -33417,7 +35924,7 @@ describe("getNewsProfileUpdateProposal", () => {
           ],
           shareLabel: "25%",
           summary:
-            "Reinforced stories can add durable categories, sources, or entities to the reader profile.",
+            "Reinforced stories can add durable categories, sources, entities, or angles to the reader profile.",
         },
         {
           count: 1,
@@ -33662,6 +36169,74 @@ describe("getNewsProfileUpdateProposal", () => {
     });
   });
 
+  it("proposes a specific story angle when coarse profile signals already exist", () => {
+    const proposal = getNewsProfileUpdateProposal({
+      formatCategory: (category) =>
+        category === "security" ? "Security" : category,
+      hiddenItemIds: [],
+      historyItems: [],
+      items: [
+        {
+          ...localItem,
+          category: "security",
+          entities: ["Agent Security"],
+          id: "proposal-add-angle",
+          matchedSignals: ["category", "source", "entity", "tag"],
+          personalizedScore: 149,
+          sourceName: "Security Desk",
+          sourceScore: 91,
+          sourceSlug: "security-desk",
+          tags: ["prompt_injection"],
+          title: "Prompt injection story should update the profile",
+          trendScore: 85,
+        },
+      ],
+      limit: 2,
+      negativeFeedbackItems: [],
+      positiveFeedbackItems: [],
+      profile: {
+        preferredCategories: ["security"],
+        preferredEntities: ["Agent Security"],
+        preferredSources: ["security-desk"],
+        noveltyBias: 1,
+        recencyBias: 1,
+      },
+      savedItems: [],
+    });
+    const angleProposal = proposal.lanes[0]?.proposals[0];
+
+    expect(angleProposal).toEqual({
+      actionLabel: "Add angle",
+      evidenceLabel: "149 score / 85 heat",
+      id: "add:tag:prompt_injection",
+      reason: "Reader signals make this angle a profile candidate.",
+      signalKind: "Angle",
+      signalLabel: "prompt injection",
+      signalType: "tag",
+      signalValue: "prompt_injection",
+      sourceName: "Security Desk",
+      storyId: "proposal-add-angle",
+      storyTitle: "Prompt injection story should update the profile",
+    });
+    expect(
+      angleProposal
+        ? getNewsProfileUpdateProposalTrainingAction(angleProposal)
+        : null,
+    ).toEqual({
+      actionLabel: "Apply proposal",
+      effect: "add",
+      label: "prompt injection",
+      signals: [
+        {
+          kind: "tag",
+          label: "prompt injection",
+          signal: "prompt_injection",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("does not turn hold proposals into profile-changing actions", () => {
     expect(
       getNewsProfileUpdateProposalTrainingAction({
@@ -33704,7 +36279,7 @@ describe("getNewsProfileUpdateProposal", () => {
           proposals: [],
           shareLabel: "0%",
           summary:
-            "Reinforced stories can add durable categories, sources, or entities to the reader profile.",
+            "Reinforced stories can add durable categories, sources, entities, or angles to the reader profile.",
         },
         {
           count: 0,
@@ -35284,6 +37859,81 @@ describe("getNewsChannelComparison", () => {
     ]);
   });
 
+  it("turns channel lead stories into trainable reader interests", () => {
+    const entityStory = {
+      ...serverItem,
+      id: "channel-training-entity",
+      category: "model_release",
+      entities: ["OpenAI", "GPT-6"],
+      matchedSignals: ["entity"],
+      personalizedScore: 130,
+      sourceName: "Model Desk",
+      sourceSlug: "model-desk",
+      title: "OpenAI channel lead trains an entity",
+      trendScore: 94,
+    };
+    const topicStory = {
+      ...olderItem,
+      id: "channel-training-topic",
+      category: "security",
+      entities: [],
+      matchedSignals: [],
+      personalizedScore: 126,
+      sourceName: "Security Desk",
+      sourceSlug: "security-desk",
+      title: "Security channel lead trains a topic",
+      trendScore: 90,
+    };
+    const comparison = getNewsChannelComparison({
+      items: [entityStory, topicStory],
+      limit: 2,
+    });
+
+    expect(comparison.channels.length).toBeGreaterThan(0);
+    expect(
+      getNewsChannelComparisonTrainingAction({
+        formatCategory: (category) =>
+          category === "model_release"
+            ? "Models"
+            : category === "security"
+              ? "Security"
+              : category,
+        item: entityStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train channel entity",
+      effect: "add",
+      label: "OpenAI",
+      signals: [
+        {
+          kind: "entity",
+          label: "OpenAI",
+          signal: "OpenAI",
+        },
+      ],
+      source: "control",
+    });
+    expect(
+      getNewsChannelComparisonTrainingAction({
+        formatCategory: (category) =>
+          category === "security" ? "Security" : category,
+        item: topicStory,
+      }),
+    ).toEqual({
+      actionLabel: "Train channel topic",
+      effect: "add",
+      label: "Security",
+      signals: [
+        {
+          kind: "category",
+          label: "Security",
+          signal: "security",
+        },
+      ],
+      source: "control",
+    });
+  });
+
   it("returns a stable empty comparison before stories load", () => {
     expect(getNewsChannelComparison({ items: [], limit: 3 })).toEqual({
       channels: [],
@@ -36714,22 +39364,6 @@ describe("getNewsAggregationRecoveryQueue", () => {
   });
 });
 
-describe("NewsHome aggregation recovery queue placement", () => {
-  it("renders the aggregation recovery queue with recovery actions", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsAggregationRecoveryQueue({");
-    expect(source).toContain("Aggregation Recovery Queue");
-    expect(source).toContain("aggregationRecoveryQueue.actions.map");
-    expect(source).toContain("getNewsAggregationRecoveryTrainingAction");
-    expect(source).toContain("applyAggregationRecoveryAction");
-    expect(source).toContain("recoveryAction.actionLabel");
-  });
-});
-
 describe("getNewsEntityRadar", () => {
   it("surfaces repeated entities across the current edition", () => {
     expect(
@@ -37727,22 +40361,6 @@ describe("getNewsExposureCooldownQueue", () => {
       ],
       source: "control",
     });
-  });
-});
-
-describe("NewsHome exposure cooldown queue placement", () => {
-  it("renders the exposure cooldown queue near reader satisfaction", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("getNewsExposureCooldownQueue({");
-    expect(source).toContain("Exposure Cooldown Queue");
-    expect(source).toContain("exposureCooldownQueue.cooldowns.map");
-    expect(source).toContain("getNewsExposureCooldownTrainingAction");
-    expect(source).toContain("applyExposureCooldownAction");
-    expect(source).toContain("exposureAction.actionLabel");
   });
 });
 
@@ -39799,14 +42417,128 @@ describe("getNewsForYouNextQueue", () => {
   });
 });
 
-describe("NewsHome Next For You queue request disclosure", () => {
-  it("shows Less guardrail ids as part of the next request shape", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
+describe("getNewsHomeForYouApiNextRequestResetKey", () => {
+  it("ignores exposure hydration while tracking recommendation-context changes", () => {
+    const baseBody = buildNewsHomeForYouApiRequestBody({
+      category: "agent_product",
+      collaborativeSignals: [{ newsItemId: "cohort-hit", score: 4 }],
+      currentItems: [],
+      limit: 20,
+      negativeFeedbackItems: [],
+      objective: "reader_match",
+      positiveFeedbackItems: [],
+      profile: createDefaultNewsPreferenceProfile(),
+      q: "agent browsers",
+      readerLocalHour: 8,
+      recentExposureItems: [
+        {
+          ...localItem,
+          id: "first-exposure",
+          viewedAt: "2026-07-06T08:00:00.000Z",
+        },
+      ],
+      searchMemoryItems: [],
+      semanticSimilarityMatches: [
+        { newsItemId: "semantic-anchor", similarity: 0.91 },
+      ],
+      sourceSlug: "agent-desk",
+      tag: "workflow automation",
+    });
+    const baseKey = getNewsHomeForYouApiNextRequestResetKey(baseBody);
 
-    expect(source).toContain("negativeFeedbackItemIds.length");
+    expect(
+      getNewsHomeForYouApiNextRequestResetKey({
+        ...baseBody,
+        recentExposureItems: [
+          ...baseBody.recentExposureItems,
+          {
+            category: "model_release",
+            entities: ["OpenAI"],
+            id: "new-api-exposure",
+            occurredAt: "2026-07-06T08:30:00.000Z",
+            sourceSlug: "agent-desk",
+            surface: "home_exposure",
+          },
+        ],
+      }),
+    ).toBe(baseKey);
+    expect(
+      getNewsHomeForYouApiNextRequestResetKey({
+        ...baseBody,
+        semanticSimilarityMatches: [
+          ...baseBody.semanticSimilarityMatches,
+          { newsItemId: "new-semantic-anchor", similarity: 0.88 },
+        ],
+      }),
+    ).not.toBe(baseKey);
+    expect(
+      getNewsHomeForYouApiNextRequestResetKey({
+        ...baseBody,
+        collaborativeSignals: [
+          ...baseBody.collaborativeSignals,
+          { newsItemId: "new-cohort-hit", score: 3 },
+        ],
+      }),
+    ).not.toBe(baseKey);
+    expect(
+      getNewsHomeForYouApiNextRequestResetKey({
+        ...baseBody,
+        objective: "exploration",
+      }),
+    ).not.toBe(baseKey);
+  });
+
+  it("tracks article reading history changes for reader-fresh personalization", () => {
+    const baseBody = buildNewsHomeForYouApiRequestBody({
+      category: null,
+      collaborativeSignals: [],
+      currentItems: [],
+      limit: 20,
+      negativeFeedbackItems: [],
+      objective: "reader_match",
+      positiveFeedbackItems: [],
+      profile: createDefaultNewsPreferenceProfile(),
+      q: "",
+      readerLocalHour: null,
+      recentExposureItems: [],
+      readingHistoryItems: [],
+      searchMemoryItems: [],
+      semanticSimilarityMatches: [],
+      sourceSlug: null,
+      tag: null,
+    });
+    const baseKey = getNewsHomeForYouApiNextRequestResetKey(baseBody);
+    const readStoryBody = buildNewsHomeForYouApiRequestBody({
+      category: null,
+      collaborativeSignals: [],
+      currentItems: [],
+      limit: 20,
+      negativeFeedbackItems: [],
+      objective: "reader_match",
+      positiveFeedbackItems: [],
+      profile: createDefaultNewsPreferenceProfile(),
+      q: "",
+      readerLocalHour: null,
+      recentExposureItems: [],
+      readingHistoryItems: [
+        {
+          ...localItem,
+          clusterKey: "2026-07-06:model_release:openai:agent-runtime",
+          id: "read-agent-runtime",
+          readPercent: 0.84,
+          surface: "article",
+          viewedAt: "2026-07-06T12:00:00.000Z",
+        },
+      ],
+      searchMemoryItems: [],
+      semanticSimilarityMatches: [],
+      sourceSlug: null,
+      tag: null,
+    });
+
+    expect(getNewsHomeForYouApiNextRequestResetKey(readStoryBody)).not.toBe(
+      baseKey,
+    );
   });
 });
 
@@ -41643,6 +44375,9 @@ describe("getNewsDeskSourceHealthDiagnostics", () => {
         errorMessage: "3 sources failed",
         sourceHealth: {
           emptySourceSlugs: ["google-ai-blog"],
+          emptyReasonMessages: {
+            "google-ai-blog": "No usable items were collected: 4 low-quality.",
+          },
           failedSourceSlugs: ["anthropic-news", "mistral-news"],
           failureMessages: {
             "anthropic-news": "feed unavailable",
@@ -41663,7 +44398,7 @@ describe("getNewsDeskSourceHealthDiagnostics", () => {
         state: "failed",
       },
       {
-        detail: "No items were collected in the latest refresh.",
+        detail: "No usable items were collected: 4 low-quality.",
         label: "google-ai-blog",
         state: "empty",
       },
@@ -41688,6 +44423,125 @@ describe("getNewsDeskSourceHealthDiagnostics", () => {
 });
 
 describe("getNewsProductionReadinessChecklist", () => {
+  it("prioritizes auth secret setup before refresh and schema work", () => {
+    const status = {
+      health: "unavailable",
+      activeSources: 0,
+      totalSources: 0,
+      publishedStories: 0,
+      latestPublishedAt: null,
+      latestRun: null,
+    } satisfies NewsDeskStatus;
+
+    expect(
+      getNewsProductionReadinessChecklist({
+        authConfigured: false,
+        refreshConfigured: false,
+        status,
+      }).map((item) => [item.label, item.state, item.detail]),
+    ).toContainEqual([
+      "Configure auth secret",
+      "current",
+      "Set BETTER_AUTH_SECRET or AUTH_SECRET before deploying production auth.",
+    ]);
+    expect(
+      getNewsProductionReadinessNextStep({
+        authConfigured: false,
+        refreshConfigured: false,
+        status,
+      }),
+    ).toEqual({
+      command: null,
+      label: "Configure auth secret",
+    });
+  });
+
+  it("returns the next operator command for the current production readiness step", () => {
+    expect(
+      getNewsProductionReadinessNextStep({
+        refreshConfigured: true,
+        status: {
+          health: "unavailable",
+          activeSources: 0,
+          totalSources: 0,
+          publishedStories: 0,
+          latestPublishedAt: null,
+          latestRun: null,
+        },
+      }),
+    ).toEqual({
+      command: "pnpm run db:predeploy",
+      label: "Apply database schema",
+    });
+    expect(
+      getNewsProductionReadinessNextStep({
+        refreshConfigured: true,
+        status: {
+          health: "empty",
+          activeSources: 0,
+          totalSources: 0,
+          publishedStories: 0,
+          latestPublishedAt: null,
+          latestRun: null,
+        },
+      }),
+    ).toEqual({
+      command: "pnpm run news:seed-sources",
+      label: "Seed sources",
+    });
+    expect(
+      getNewsProductionReadinessNextStep({
+        refreshConfigured: true,
+        status: {
+          health: "seeded",
+          activeSources: 6,
+          totalSources: 8,
+          publishedStories: 0,
+          latestPublishedAt: null,
+          latestRun: null,
+        },
+      }),
+    ).toEqual({
+      command: "pnpm run news:refresh:remote",
+      label: "Run first refresh",
+    });
+    expect(
+      getNewsProductionReadinessNextStep({
+        now: new Date("2026-07-01T11:00:00.000Z"),
+        refreshConfigured: true,
+        status: {
+          health: "live",
+          activeSources: 9,
+          embeddedStories: 12,
+          totalSources: 12,
+          publishedStories: 42,
+          latestPublishedAt: "2026-07-01T10:30:00.000Z",
+          latestRun: null,
+          unembeddedStories: 30,
+        },
+      }),
+    ).toEqual({
+      command: "pnpm run news:embed:remote",
+      label: "Generate embeddings",
+    });
+    expect(
+      getNewsProductionReadinessNextStep({
+        now: new Date("2026-07-01T11:00:00.000Z"),
+        refreshConfigured: true,
+        status: {
+          health: "live",
+          activeSources: 9,
+          embeddedStories: 42,
+          totalSources: 12,
+          publishedStories: 42,
+          latestPublishedAt: "2026-07-01T10:30:00.000Z",
+          latestRun: null,
+          unembeddedStories: 0,
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("prioritizes refresh secret setup while preview mode is serving", () => {
     expect(
       getNewsProductionReadinessChecklist({

@@ -6,16 +6,16 @@ import {
   attachNewsRecommendationExplanations,
   buildNewsCollaborativeSignalCondition,
   buildNewsDurableFeedbackDedupeCondition,
+  buildNewsFeedbackConflictCleanupCondition,
   buildNewsFeedCursorCondition,
   buildNewsFeedOrderByExpressions,
-  buildNewsFeedbackConflictCleanupCondition,
   buildNewsForYouCandidateConditions,
   buildNewsForYouCandidateRecallInput,
+  buildNewsForYouSessionIntent,
   buildNewsGuardrailRestoreCondition,
   buildNewsHistoryRemovalCondition,
   buildNewsHomeExposureDedupeCondition,
   buildNewsInteractionTrainingMetadata,
-  buildNewsForYouSessionIntent,
   buildNewsPositiveFeedbackRemovalCondition,
   buildNewsPreferenceRollbackAfterInteractionRemoval,
   buildNewsReaderMutationProfileResponse,
@@ -51,8 +51,8 @@ import {
   rebuildNewsPreferenceProfileFromInteractions,
   selectNewsFeedItems,
   selectNewsForYouItems,
-  selectNewsSearchMemoryItems,
   selectNewsSearchCandidateItems,
+  selectNewsSearchMemoryItems,
   selectNewsViewedHistory,
   selectUniqueNewsCollectionItems,
   shouldDedupeNewsDurableFeedbackInteraction,
@@ -339,6 +339,31 @@ describe("news router input contracts", () => {
     });
   });
 
+  it("keeps direct server For You filter intent ahead of stale search memory", () => {
+    expect(
+      buildNewsForYouSessionIntent({
+        input: NewsForYouInputSchema.parse({
+          category: "policy",
+          sourceSlug: "policy-desk",
+          tag: "deployment evidence",
+          visitorKey: "visitor-test-123",
+        }),
+        searchMemoryItems: [
+          {
+            query: "langchain agents",
+            resultCount: 3,
+            searchedAt: "2026-07-06T10:00:00.000Z",
+          },
+        ],
+      }),
+    ).toEqual({
+      category: "policy",
+      query: null,
+      sourceSlug: "policy-desk",
+      tag: "deployment_evidence",
+    });
+  });
+
   it("uses persisted search memory to widen server For You candidate recall", () => {
     const input = NewsForYouInputSchema.parse({
       visitorKey: "visitor-test-123",
@@ -384,6 +409,32 @@ describe("news router input contracts", () => {
         sessionIntent,
       }).q,
     ).toBe("frontier model pricing");
+  });
+
+  it("keeps direct server For You filters from inheriting stale search-memory recall", () => {
+    const input = NewsForYouInputSchema.parse({
+      category: "policy",
+      sourceSlug: "policy-desk",
+      tag: "deployment evidence",
+      visitorKey: "visitor-test-123",
+    });
+    const sessionIntent = buildNewsForYouSessionIntent({
+      input,
+      searchMemoryItems: [
+        {
+          query: "langchain workflow memory",
+          resultCount: 3,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ],
+    });
+
+    expect(
+      buildNewsForYouCandidateRecallInput({
+        input,
+        sessionIntent,
+      }).q,
+    ).toBeUndefined();
   });
 
   it("keeps public feed channel pagination fields out of personalized input", () => {
@@ -1177,6 +1228,20 @@ describe("news router cluster key data flow", () => {
     expect(forYouBlock).toContain("clusterKey: item.clusterKey");
   });
 
+  it("passes deep-read percent into For You positive feedback memory", async () => {
+    const source = await readFile(
+      new URL("./news.ts", import.meta.url),
+      "utf8",
+    );
+    const forYouBlock = getSourceBlock({
+      end: "  saved: publicProcedure",
+      source,
+      start: "  forYou: publicProcedure",
+    });
+
+    expect(forYouBlock).toContain("readPercent: row.metadata?.readPercent");
+  });
+
   it("passes cluster keys into collaborative cohort signals", async () => {
     const source = await readFile(
       new URL("./news.ts", import.meta.url),
@@ -1229,11 +1294,11 @@ describe("news router cluster key data flow", () => {
       end: ".limit(8)",
       source: forYouBlock,
       start: `ctx.db
-              .select({
-                metadata: NewsReaderInteraction.metadata,
-                occurredAt: NewsReaderInteraction.occurredAt,
-              })
-              .from(NewsReaderInteraction)`,
+                .select({
+                  metadata: NewsReaderInteraction.metadata,
+                  occurredAt: NewsReaderInteraction.occurredAt,
+                })
+                .from(NewsReaderInteraction)`,
     });
 
     expect(searchMemoryRowsBlock).toContain(
@@ -1606,6 +1671,46 @@ describe("selectNewsViewedHistory", () => {
     expect(history.readingHistoryItems.map((item) => item.id)).toEqual([
       "deep-article",
     ]);
+  });
+
+  it("keeps persisted search-memory views out of recent exposure cooldown", () => {
+    const history = selectNewsViewedHistory([
+      {
+        canonicalUrl: "https://example.com/search-anchor",
+        category: "agent_product",
+        clusterKey: "2026-07-01:agent_product:search-anchor",
+        entities: ["Agents"],
+        metadata: {
+          intentQuery: "agent memory",
+          resultCount: 12,
+          surface: "search",
+        },
+        newsItemId: "search-memory-anchor",
+        occurredAt: new Date("2026-07-01T09:00:00.000Z"),
+        originalUrl: "https://example.com/search-anchor",
+        sourceSlug: "agent-desk",
+        tags: ["agents"],
+        title: "Search memory anchor",
+      },
+      {
+        canonicalUrl: "https://example.com/deep-read",
+        category: "research",
+        clusterKey: "2026-07-01:research:deep-read",
+        entities: ["Benchmarks"],
+        metadata: { readPercent: 0.82, surface: "article" },
+        newsItemId: "deep-article",
+        occurredAt: new Date("2026-07-01T09:10:00.000Z"),
+        originalUrl: "https://example.com/deep-read",
+        sourceSlug: "research-lab",
+        tags: ["evals"],
+        title: "Deep article read",
+      },
+    ]);
+
+    expect(history.recentExposureItems.map((item) => item.id)).toEqual([
+      "deep-article",
+    ]);
+    expect(history.readingHistoryItemIds).toEqual(["deep-article"]);
   });
 });
 
@@ -2559,6 +2664,36 @@ describe("selectNewsSearchCandidateItems", () => {
     ]);
   });
 
+  it("keeps the latest persisted search result count for repeated queries", () => {
+    expect(
+      selectNewsSearchMemoryItems(
+        [
+          {
+            metadata: {
+              intentQuery: "agent product",
+              resultCount: 2,
+            },
+            occurredAt: new Date("2026-07-06T09:00:00.000Z"),
+          },
+          {
+            metadata: {
+              intentQuery: "agent_product",
+              resultCount: 7,
+            },
+            occurredAt: new Date("2026-07-06T10:00:00.000Z"),
+          },
+        ],
+        20,
+      ),
+    ).toEqual([
+      {
+        query: "agent product",
+        resultCount: 7,
+        searchedAt: "2026-07-06T10:00:00.000Z",
+      },
+    ]);
+  });
+
   it("ignores future-dated persisted search memory before it can steer For You", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
@@ -2700,7 +2835,9 @@ describe("selectNewsSearchCandidateItems", () => {
     });
 
     expect(recordSearchMemorySource).not.toContain("if (!item) {");
-    expect(recordSearchMemorySource).toContain("const [searchMemoryAnchorItem]");
+    expect(recordSearchMemorySource).toContain(
+      "const [searchMemoryAnchorItem]",
+    );
     expect(recordSearchMemorySource).toContain("matchedResult: Boolean(item)");
     expect(recordSearchMemorySource).toContain(
       "newsItemId: searchMemoryAnchorItem.id",
@@ -6813,6 +6950,50 @@ describe("selectNewsForYouItems", () => {
 });
 
 describe("selectUniqueNewsCollectionItems", () => {
+  it("deduplicates saved or history cluster variants while keeping the stronger collection story", () => {
+    const items = selectUniqueNewsCollectionItems([
+      {
+        ...baseNewsItem,
+        canonicalUrl: "https://mirror.example/openai-model",
+        clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:Model-Lead ",
+        id: "recent-syndicated-model-cluster",
+        originalUrl: "https://mirror.example/openai-model?utm=sidebar",
+        savedAt: "2026-07-01T09:00:00.000Z",
+        sourceScore: 84,
+        trendScore: 91,
+      },
+      {
+        ...baseNewsItem,
+        canonicalUrl: "https://official.example/frontier-model",
+        clusterKey: "2026-07-01:model_release:openai:model-lead",
+        id: "trusted-official-model-cluster",
+        originalUrl: "https://official.example/frontier-model",
+        savedAt: "2026-07-01T08:00:00.000Z",
+        sourceScore: 96,
+        trendScore: 88,
+      },
+      {
+        ...baseNewsItem,
+        canonicalUrl: "https://example.com/fresh-agent-story",
+        category: "agent_product",
+        clusterKey: "2026-07-01:agent_product:workflow",
+        entities: ["Agents"],
+        id: "fresh-agent-story",
+        originalUrl: "https://example.com/fresh-agent-story",
+        savedAt: "2026-07-01T07:00:00.000Z",
+        sourceName: "Agent Desk",
+        sourceSlug: "agent-desk",
+        sourceScore: 88,
+        trendScore: 86,
+      },
+    ]);
+
+    expect(items.map((item) => item.id)).toEqual([
+      "trusted-official-model-cluster",
+      "fresh-agent-story",
+    ]);
+  });
+
   it("deduplicates saved or history URL variants while keeping the collection slot", () => {
     const items = selectUniqueNewsCollectionItems([
       {

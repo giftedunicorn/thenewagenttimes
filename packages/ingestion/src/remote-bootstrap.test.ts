@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
 import {
   bootstrapRemoteNewsEdition,
+  formatRemoteNewsBootstrapSummary,
   RemoteNewsBootstrapNotReadyError,
   resolveRemoteNewsBootstrapCommandInput,
 } from "./remote-bootstrap";
@@ -413,6 +415,62 @@ describe("bootstrapRemoteNewsEdition", () => {
     });
   });
 
+  it("uses the operator next step in bootstrap not-ready messages", async () => {
+    const error = await bootstrapRemoteNewsEdition({
+      bootstrapSecret: "remote-refresh-secret",
+      bootstrapUrl: "https://thenewagenttimes.up.railway.app",
+      fetchEmbed: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve("{}"),
+        }),
+      fetchHealth: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () =>
+            Promise.resolve(
+              JSON.stringify({
+                actionRequired: [
+                  "Apply the database schema to the target database.",
+                ],
+                nextStep: "apply-database-schema",
+                operatorNextStep: {
+                  command: "pnpm run db:predeploy",
+                  detail: "Apply the database schema to the target database.",
+                  label: "Apply database schema",
+                  step: "apply-database-schema",
+                },
+                ready: false,
+              }),
+            ),
+        }),
+      fetchRefresh: () =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          text: () => Promise.resolve("{}"),
+        }),
+    }).catch((caughtError: unknown) => caughtError);
+
+    expect(error).toBeInstanceOf(RemoteNewsBootstrapNotReadyError);
+    expect(error).toMatchObject({
+      message:
+        'Remote news bootstrap blocked before refresh: nextStep=apply-database-schema operatorNextStep="Apply database schema" operatorCommand=pnpm run db:predeploy operatorDetail="Apply the database schema to the target database."',
+      result: {
+        health: {
+          operatorNextStep: {
+            command: "pnpm run db:predeploy",
+            detail: "Apply the database schema to the target database.",
+            label: "Apply database schema",
+            step: "apply-database-schema",
+          },
+        },
+      },
+    });
+  });
+
   it("refreshes live stories before stopping at missing embedding provider config", async () => {
     const calls: string[] = [];
     const error = await bootstrapRemoteNewsEdition({
@@ -544,6 +602,51 @@ describe("bootstrapRemoteNewsEdition", () => {
         refresh: null,
       },
     });
+  });
+});
+
+describe("formatRemoteNewsBootstrapSummary", () => {
+  it("prints operator next step details from the final health result", () => {
+    expect(
+      formatRemoteNewsBootstrapSummary({
+        embed: null,
+        embedBatches: [],
+        health: {
+          actionRequired: ["Apply the database schema to the target database."],
+          body: {},
+          commands: {
+            next: "pnpm run db:predeploy",
+          },
+          homepage: null,
+          liveReady: false,
+          nextCommand: "pnpm run db:predeploy",
+          nextStep: "apply-database-schema",
+          operatorNextStep: {
+            command: "pnpm run db:predeploy",
+            detail: "Apply the database schema to the target database.",
+            label: "Apply database schema",
+            step: "apply-database-schema",
+          },
+          ready: false,
+          semanticReady: false,
+          status: 200,
+        },
+        refresh: null,
+      }),
+    ).toBe(
+      'Remote news bootstrap: refresh=skipped embed=skipped embedBatches=0 health=200 ready=false nextStep=apply-database-schema operatorNextStep="Apply database schema" operatorCommand=pnpm run db:predeploy operatorDetail="Apply the database schema to the target database."',
+    );
+  });
+
+  it("keeps the bootstrap CLI summary on the formatter", async () => {
+    const source = await readFile(
+      new URL("./remote-bootstrap-cli.ts", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toContain("formatRemoteNewsBootstrapSummary");
   });
 });
 

@@ -7,6 +7,7 @@ export * from "./pipeline";
 export * from "./remote-bootstrap";
 export * from "./remote-embed";
 export * from "./remote-health";
+export * from "./remote-operator-next-step";
 export * from "./remote-refresh";
 export * from "./repository";
 export * from "./rss";

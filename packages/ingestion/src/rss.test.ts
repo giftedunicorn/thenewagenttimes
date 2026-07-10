@@ -90,6 +90,19 @@ const atomMediaFixture = `<?xml version="1.0"?>
   </entry>
 </feed>`;
 
+const atomMultipleAlternateFixture = `<?xml version="1.0"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>AI Atom Alternate Feed</title>
+  <entry>
+    <title>Agent benchmark report gets a readable article page</title>
+    <id>tag:example.com,2026:agent-benchmark</id>
+    <link rel="alternate" type="application/pdf" href="https://example.com/agent-benchmark.pdf" />
+    <link rel="alternate" type="text/html" href="https://example.com/agent-benchmark" />
+    <summary>A benchmark story has both PDF and HTML alternates.</summary>
+    <updated>2026-06-27T12:30:00.000Z</updated>
+  </entry>
+</feed>`;
+
 const rssInlineImageFixture = `<?xml version="1.0"?>
 <rss version="2.0">
   <channel>
@@ -164,6 +177,15 @@ describe("parseFeedXml", () => {
       title: "Frontier model story includes an enclosure image",
       url: "https://example.com/model-image",
       imageUrl: "https://example.com/model-image.jpg",
+    });
+  });
+
+  it("prefers HTML Atom alternate links over PDF alternates", () => {
+    const [item] = parseFeedXml(atomMultipleAlternateFixture);
+
+    expect(item).toMatchObject({
+      title: "Agent benchmark report gets a readable article page",
+      url: "https://example.com/agent-benchmark",
     });
   });
 

@@ -384,6 +384,7 @@ export const summarizeNewsRecommendation = <
   const isCollaborativeNegativeFeedback = item.matchedSignals.includes(
     "collaborative_negative_feedback",
   );
+  const isBreakingNews = item.matchedSignals.includes("breaking_news");
   const isSourceTrust = item.matchedSignals.includes("source_trust");
   const isAngleQuota = item.matchedSignals.includes("angle_quota");
   const isCategoryQuota = item.matchedSignals.includes("category_quota");
@@ -392,6 +393,7 @@ export const summarizeNewsRecommendation = <
   );
   const isEntityQuota = item.matchedSignals.includes("entity_quota");
   const isSourceQuota = item.matchedSignals.includes("source_quota");
+  const isDaypart = item.matchedSignals.includes("daypart");
   const hasHighHeat = item.trendScore >= 70;
   const hasFreshness = isRecentlyPublished(item.publishedAt, now);
   const hasStrongSource = item.sourceScore >= 80;
@@ -446,10 +448,10 @@ export const summarizeNewsRecommendation = <
     };
   }
 
-  if (isDiscoverySlot) {
+  if (isBreakingNews) {
+    badges.push("Breaking high-trust story");
+  } else if (isDiscoverySlot) {
     badges.push("Discovery slot");
-  } else if (isExploration) {
-    badges.push("Outside your usual mix");
   } else if (isNegativeFeedback) {
     badges.push("Dampened by Less feedback");
   } else if (isSourceTrust) {
@@ -464,13 +466,28 @@ export const summarizeNewsRecommendation = <
     badges.push("Entity diversity guardrail");
   } else if (isSourceQuota) {
     badges.push("Source diversity guardrail");
+  } else if (isHomeExposureCooldown) {
+    badges.push("Recently seen on home");
+  } else if (isReadingHistoryCooldown) {
+    badges.push("Recently read");
+  } else if (isExposureCooldown) {
+    badges.push("Fresh angle after reading");
+  } else if (isDaypart) {
+    badges.push("Timed for this edition");
+  } else if (isSourceCorroborated) {
+    badges.push("Corroborated by multiple sources");
+  } else if (isExploration) {
+    badges.push("Outside your usual mix");
   } else if (hasPersonalSignals) {
     badges.push(...getNewsRecommendationReasons({ item }));
   } else {
     badges.push("Trending now");
   }
 
-  if (hasHighHeat && (hasPersonalSignals || isDiscoverySlot || isExploration)) {
+  if (
+    hasHighHeat &&
+    (hasPersonalSignals || isBreakingNews || isDiscoverySlot || isExploration)
+  ) {
     badges.push("High heat");
   }
   if (hasFreshness) badges.push("Fresh");
@@ -487,13 +504,13 @@ export const summarizeNewsRecommendation = <
         : "story heat",
   });
 
-  if (isExploration) {
+  if (isBreakingNews) {
     return {
       badges: uniqueBadges,
       scoreLabel: `${item.personalizedScore} score`,
       summary: supportText
-        ? `Inserted as an exploration story outside your usual mix, supported by ${supportText}.`
-        : "Inserted as an exploration story outside your usual mix.",
+        ? `Promoted as a high-trust breaking story, supported by ${supportText}.`
+        : "Promoted as a high-trust breaking story.",
     };
   }
 
@@ -614,6 +631,16 @@ export const summarizeNewsRecommendation = <
     };
   }
 
+  if (isDaypart) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Timed for this edition based on the reader's local daypart, supported by ${supportText}.`
+        : "Timed for this edition based on the reader's local daypart.",
+    };
+  }
+
   if (item.matchedSignals.includes("positive_feedback")) {
     const positiveFeedbackSubject = getPositiveFeedbackSummarySubject(
       item.matchedSignals,
@@ -675,6 +702,16 @@ export const summarizeNewsRecommendation = <
       summary: supportText
         ? `Dampened by recent Less feedback from similar readers, while still supported by ${supportText}.`
         : "Dampened by recent Less feedback from similar readers.",
+    };
+  }
+
+  if (isExploration) {
+    return {
+      badges: uniqueBadges,
+      scoreLabel: `${item.personalizedScore} score`,
+      summary: supportText
+        ? `Inserted as an exploration story outside your usual mix, supported by ${supportText}.`
+        : "Inserted as an exploration story outside your usual mix.",
     };
   }
 
@@ -2329,6 +2366,7 @@ export type PositiveFeedbackNewsItem = Pick<
     clusterKey?: string | null;
     newsItemId?: string;
     occurredAt?: string;
+    readPercent?: number;
     tags?: readonly string[];
   };
 
@@ -2355,6 +2393,7 @@ export interface NewsSemanticVector extends NewsUrlReference {
 }
 
 export interface NewsSemanticSimilarityMatch {
+  clusterKey?: string | null;
   newsItemId: string;
   similarity: number;
   occurredAt?: string;
@@ -2452,10 +2491,16 @@ const getPositiveFeedbackActionSignal = (
 
 const getPositiveFeedbackActionStrength = (
   action: PositiveFeedbackAction | undefined,
-) =>
-  action
-    ? positiveFeedbackActionStrength[action]
-    : positiveFeedbackActionStrength.click_source;
+  readPercent: number | undefined,
+) => {
+  if (action) return positiveFeedbackActionStrength[action];
+  if (readPercent === undefined)
+    return positiveFeedbackActionStrength.click_source;
+
+  return (
+    positiveFeedbackActionStrength.click_source + clampReadPercent(readPercent)
+  );
+};
 
 const getPositiveFeedbackTimestamp = (occurredAt: string | undefined) => {
   if (!occurredAt) return 0;
@@ -2522,6 +2567,7 @@ const getPositiveFeedbackMatch = (
 
     const feedbackStrength = getPositiveFeedbackActionStrength(
       feedbackItem.action,
+      feedbackItem.readPercent,
     );
     const feedbackTimestamp = getPositiveFeedbackTimestamp(
       feedbackItem.occurredAt,
@@ -2817,8 +2863,10 @@ const isHomeRecentExposure = (item: RecentExposureNewsItem) => {
 
 const isContentRecentExposure = (item: RecentExposureNewsItem) => {
   if (isHomeRecentExposure(item)) return false;
+  const surface = normalizeRecentExposureSurface(item.surface);
 
-  if (item.surface?.trim().toLowerCase() !== "article") return true;
+  if (surface === "search") return false;
+  if (surface !== "article") return true;
   if (item.readPercent === undefined) return true;
 
   return item.readPercent >= minimumTrainingReadPercent;
@@ -3019,6 +3067,7 @@ export const buildNewsSemanticSimilarityMatches = ({
       if (similarity === null || similarity < minSimilarity) continue;
 
       const match = {
+        ...(candidate.clusterKey ? { clusterKey: candidate.clusterKey } : {}),
         newsItemId: candidate.newsItemId,
         occurredAt: feedback.occurredAt,
         similarity,
@@ -3088,6 +3137,10 @@ export const selectSemanticSimilarityNewsFeed = <
   if (semanticMatches.length === 0) return [...rankedItems];
 
   const semanticMatchById = new Map<string, NewsSemanticSimilarityMatch>();
+  const semanticMatchByClusterKey = new Map<
+    string,
+    NewsSemanticSimilarityMatch
+  >();
 
   for (const match of semanticMatches) {
     const currentMatch = semanticMatchById.get(match.newsItemId);
@@ -3098,11 +3151,27 @@ export const selectSemanticSimilarityNewsFeed = <
     ) {
       semanticMatchById.set(match.newsItemId, match);
     }
+
+    const clusterKey = getOptionalNewsClusterKey(match);
+
+    if (!clusterKey) continue;
+
+    const currentClusterMatch = semanticMatchByClusterKey.get(clusterKey);
+
+    if (
+      !currentClusterMatch ||
+      getSemanticMatchRank(match) > getSemanticMatchRank(currentClusterMatch)
+    ) {
+      semanticMatchByClusterKey.set(clusterKey, match);
+    }
   }
 
   return rankedItems
     .map((item, index) => {
-      const match = semanticMatchById.get(item.id);
+      const clusterKey = getOptionalNewsClusterKey(item);
+      const match =
+        semanticMatchById.get(item.id) ??
+        (clusterKey ? semanticMatchByClusterKey.get(clusterKey) : undefined);
 
       if (
         !match ||

@@ -93,12 +93,7 @@ const normalizeNewsPreferenceCategoryValue = (category: string) =>
     .replace(/_+/g, "_");
 
 const normalizeNewsSearchQueryValue = (query: string) =>
-  query
-    .trim()
-    .toLowerCase()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  query.trim().toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
 
 const optionalNewsTagFilter = z
   .string()
@@ -177,11 +172,10 @@ export const NewsHistoryInputSchema = NewsReaderProfileInputSchema.extend({
   limit: z.number().int().min(1).max(25).default(6),
 });
 
-export const NewsPositiveFeedbackInputSchema = NewsReaderProfileInputSchema.extend(
-  {
+export const NewsPositiveFeedbackInputSchema =
+  NewsReaderProfileInputSchema.extend({
     limit: z.number().int().min(1).max(25).default(6),
-  },
-);
+  });
 
 export const NewsGuardrailsInputSchema = NewsReaderProfileInputSchema.extend({
   limit: z.number().int().min(1).max(25).default(6),
@@ -204,9 +198,7 @@ export const NewsRecordSearchMemoryInputSchema =
       .number()
       .finite()
       .optional()
-      .transform((resultCount) =>
-        Math.max(0, Math.round(resultCount ?? 0)),
-      ),
+      .transform((resultCount) => Math.max(0, Math.round(resultCount ?? 0))),
   });
 
 export const NewsForYouInputSchema = NewsFeedFilterInputSchema.extend({
@@ -268,6 +260,7 @@ const NewsInteractionMetadataSchema = z
     rankSlot: z.number().int().min(0).max(240).optional(),
     readMilestone: NewsArticleReadMilestoneSchema.optional(),
     readPercent: z.number().min(0).max(1).optional(),
+    resultCount: z.number().finite().min(0).optional(),
     surface: z
       .string()
       .trim()
@@ -479,6 +472,10 @@ export const selectNewsSearchMemoryItems = (
         {
           key: getNewsSearchMemoryQueryKey(query),
           query,
+          resultCount:
+            typeof metadata.data.resultCount === "number"
+              ? Math.max(0, Math.round(metadata.data.resultCount))
+              : null,
           searchedAt: row.occurredAt.toISOString(),
           timestamp,
         },
@@ -486,24 +483,35 @@ export const selectNewsSearchMemoryItems = (
     })
     .sort((left, right) => right.timestamp - left.timestamp);
   const selectedItems: NewsSearchMemoryItem[] = [];
-  const itemByQueryKey = new Map<string, NewsSearchMemoryItem>();
+  const itemByQueryKey = new Map<
+    string,
+    { hasExplicitResultCount: boolean; item: NewsSearchMemoryItem }
+  >();
 
   for (const candidate of candidates) {
     const existingItem = itemByQueryKey.get(candidate.key);
 
     if (existingItem) {
-      existingItem.resultCount += 1;
+      if (
+        !existingItem.hasExplicitResultCount &&
+        candidate.resultCount === null
+      ) {
+        existingItem.item.resultCount += 1;
+      }
       continue;
     }
 
     const item = {
       query: candidate.query,
-      resultCount: 1,
+      resultCount: candidate.resultCount ?? 1,
       searchedAt: candidate.searchedAt,
     };
 
     selectedItems.push(item);
-    itemByQueryKey.set(candidate.key, item);
+    itemByQueryKey.set(candidate.key, {
+      hasExplicitResultCount: candidate.resultCount !== null,
+      item,
+    });
   }
 
   return selectedItems.slice(0, Math.max(0, Math.trunc(limit)));
@@ -517,12 +525,21 @@ export const buildNewsForYouSessionIntent = ({
   searchMemoryItems?: readonly NewsSearchMemoryItem[];
 }): NewsSessionIntentFilter => {
   const explicitQuery = input.q?.trim() ?? "";
+  const hasDirectFilter = Boolean(
+    input.category ?? input.sourceSlug ?? input.tag,
+  );
   const [latestSearchMemoryItem] = searchMemoryItems;
   const searchMemoryQuery = latestSearchMemoryItem?.query ?? "";
+  const query =
+    explicitQuery.length > 0
+      ? explicitQuery
+      : hasDirectFilter
+        ? null
+        : searchMemoryQuery;
 
   return {
     category: input.category ?? null,
-    query: explicitQuery.length > 0 ? explicitQuery : searchMemoryQuery,
+    query,
     sourceSlug: input.sourceSlug ?? null,
     tag: input.tag ?? null,
   };
@@ -536,8 +553,16 @@ export const buildNewsForYouCandidateRecallInput = ({
   sessionIntent: NewsSessionIntentFilter;
 }): NewsForYouInput => {
   const explicitQuery = input.q?.trim() ?? "";
+  const hasDirectFilter = Boolean(
+    input.category ?? input.sourceSlug ?? input.tag,
+  );
   const sessionQuery = sessionIntent.query?.trim() ?? "";
-  const recallQuery = explicitQuery.length > 0 ? explicitQuery : sessionQuery;
+  const recallQuery =
+    explicitQuery.length > 0
+      ? explicitQuery
+      : hasDirectFilter
+        ? ""
+        : sessionQuery;
 
   return {
     ...input,
@@ -574,7 +599,9 @@ export const selectNewsViewedHistory = (
       metadata: parsedMetadata,
     };
   });
-  const recentExposureItems = viewedHistory.map((entry) => entry.item);
+  const recentExposureItems = viewedHistory
+    .filter((entry) => entry.metadata?.surface !== "search")
+    .map((entry) => entry.item);
   const readingHistoryItems = viewedHistory
     .filter((entry) =>
       shouldIncludeNewsInteractionInReadingHistory({
@@ -2564,142 +2591,138 @@ export const newsRouter = {
 
         if (persistedProfile) {
           const searchMemoryWindowEnd = new Date();
-          const [
-            hiddenRows,
-            positiveRows,
-            searchMemoryRows,
-            viewedRows,
-          ] = await Promise.all([
-            ctx.db
-              .select({
-                canonicalUrl: NewsItem.canonicalUrl,
-                category: NewsItem.category,
-                clusterKey: NewsItem.clusterKey,
-                entities: NewsItem.entities,
-                id: NewsItem.id,
-                imageUrl: NewsItem.imageUrl,
-                newsItemId: NewsReaderInteraction.newsItemId,
-                occurredAt: NewsReaderInteraction.occurredAt,
-                originalUrl: NewsItem.originalUrl,
-                publishedAt: NewsItem.publishedAt,
-                sourceName: NewsSource.name,
-                sourceSlug: NewsSource.slug,
-                sourceScore: NewsItem.sourceScore,
-                sourceType: NewsSource.sourceType,
-                summary: NewsItem.summary,
-                tags: NewsItem.tags,
-                title: NewsItem.title,
-                trendScore: NewsItem.trendScore,
-              })
-              .from(NewsReaderInteraction)
-              .innerJoin(
-                NewsItem,
-                eq(NewsReaderInteraction.newsItemId, NewsItem.id),
-              )
-              .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-              .where(
-                compactConditions([
-                  eq(
-                    NewsReaderInteraction.readerProfileId,
-                    persistedProfile.id,
-                  ),
-                  eq(NewsReaderInteraction.action, "hide"),
-                  eq(NewsItem.status, "published"),
-                ]),
-              )
-              .orderBy(desc(NewsReaderInteraction.occurredAt))
-              .limit(500),
-            ctx.db
-              .select({
-                action: NewsReaderInteraction.action,
-                canonicalUrl: NewsItem.canonicalUrl,
-                category: NewsItem.category,
-                clusterKey: NewsItem.clusterKey,
-                entities: NewsItem.entities,
-                metadata: NewsReaderInteraction.metadata,
-                newsItemId: NewsReaderInteraction.newsItemId,
-                occurredAt: NewsReaderInteraction.occurredAt,
-                originalUrl: NewsItem.originalUrl,
-                sourceSlug: NewsSource.slug,
-                tags: NewsItem.tags,
-              })
-              .from(NewsReaderInteraction)
-              .innerJoin(
-                NewsItem,
-                eq(NewsReaderInteraction.newsItemId, NewsItem.id),
-              )
-              .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-              .where(
-                compactConditions([
-                  eq(
-                    NewsReaderInteraction.readerProfileId,
-                    persistedProfile.id,
-                  ),
-                  or(
-                    eq(NewsReaderInteraction.action, "click_source"),
-                    eq(NewsReaderInteraction.action, "save"),
-                    eq(NewsReaderInteraction.action, "share"),
+          const [hiddenRows, positiveRows, searchMemoryRows, viewedRows] =
+            await Promise.all([
+              ctx.db
+                .select({
+                  canonicalUrl: NewsItem.canonicalUrl,
+                  category: NewsItem.category,
+                  clusterKey: NewsItem.clusterKey,
+                  entities: NewsItem.entities,
+                  id: NewsItem.id,
+                  imageUrl: NewsItem.imageUrl,
+                  newsItemId: NewsReaderInteraction.newsItemId,
+                  occurredAt: NewsReaderInteraction.occurredAt,
+                  originalUrl: NewsItem.originalUrl,
+                  publishedAt: NewsItem.publishedAt,
+                  sourceName: NewsSource.name,
+                  sourceSlug: NewsSource.slug,
+                  sourceScore: NewsItem.sourceScore,
+                  sourceType: NewsSource.sourceType,
+                  summary: NewsItem.summary,
+                  tags: NewsItem.tags,
+                  title: NewsItem.title,
+                  trendScore: NewsItem.trendScore,
+                })
+                .from(NewsReaderInteraction)
+                .innerJoin(
+                  NewsItem,
+                  eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+                )
+                .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+                .where(
+                  compactConditions([
+                    eq(
+                      NewsReaderInteraction.readerProfileId,
+                      persistedProfile.id,
+                    ),
+                    eq(NewsReaderInteraction.action, "hide"),
+                    eq(NewsItem.status, "published"),
+                  ]),
+                )
+                .orderBy(desc(NewsReaderInteraction.occurredAt))
+                .limit(500),
+              ctx.db
+                .select({
+                  action: NewsReaderInteraction.action,
+                  canonicalUrl: NewsItem.canonicalUrl,
+                  category: NewsItem.category,
+                  clusterKey: NewsItem.clusterKey,
+                  entities: NewsItem.entities,
+                  metadata: NewsReaderInteraction.metadata,
+                  newsItemId: NewsReaderInteraction.newsItemId,
+                  occurredAt: NewsReaderInteraction.occurredAt,
+                  originalUrl: NewsItem.originalUrl,
+                  sourceSlug: NewsSource.slug,
+                  tags: NewsItem.tags,
+                })
+                .from(NewsReaderInteraction)
+                .innerJoin(
+                  NewsItem,
+                  eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+                )
+                .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+                .where(
+                  compactConditions([
+                    eq(
+                      NewsReaderInteraction.readerProfileId,
+                      persistedProfile.id,
+                    ),
+                    or(
+                      eq(NewsReaderInteraction.action, "click_source"),
+                      eq(NewsReaderInteraction.action, "save"),
+                      eq(NewsReaderInteraction.action, "share"),
+                      eq(NewsReaderInteraction.action, "view"),
+                    ),
+                    eq(NewsItem.status, "published"),
+                  ]),
+                )
+                .orderBy(desc(NewsReaderInteraction.occurredAt))
+                .limit(500),
+              ctx.db
+                .select({
+                  metadata: NewsReaderInteraction.metadata,
+                  occurredAt: NewsReaderInteraction.occurredAt,
+                })
+                .from(NewsReaderInteraction)
+                .where(
+                  compactConditions([
+                    eq(
+                      NewsReaderInteraction.readerProfileId,
+                      persistedProfile.id,
+                    ),
                     eq(NewsReaderInteraction.action, "view"),
-                  ),
-                  eq(NewsItem.status, "published"),
-                ]),
-              )
-              .orderBy(desc(NewsReaderInteraction.occurredAt))
-              .limit(500),
-            ctx.db
-              .select({
-                metadata: NewsReaderInteraction.metadata,
-                occurredAt: NewsReaderInteraction.occurredAt,
-              })
-              .from(NewsReaderInteraction)
-              .where(
-                compactConditions([
-                  eq(
-                    NewsReaderInteraction.readerProfileId,
-                    persistedProfile.id,
-                  ),
-                  eq(NewsReaderInteraction.action, "view"),
-                  sql`${NewsReaderInteraction.occurredAt} >= ${getNewsSearchMemoryWindowStart(searchMemoryWindowEnd)}`,
-                  sql`${NewsReaderInteraction.occurredAt} <= ${searchMemoryWindowEnd}`,
-                  sql`${NewsReaderInteraction.metadata}->>'surface' = 'search'`,
-                  sql`nullif(trim(${NewsReaderInteraction.metadata}->>'intentQuery'), '') is not null`,
-                ]),
-              )
-              .orderBy(desc(NewsReaderInteraction.occurredAt))
-              .limit(8),
-            ctx.db
-              .select({
-                canonicalUrl: NewsItem.canonicalUrl,
-                category: NewsItem.category,
-                clusterKey: NewsItem.clusterKey,
-                entities: NewsItem.entities,
-                metadata: NewsReaderInteraction.metadata,
-                newsItemId: NewsReaderInteraction.newsItemId,
-                occurredAt: NewsReaderInteraction.occurredAt,
-                originalUrl: NewsItem.originalUrl,
-                sourceSlug: NewsSource.slug,
-                tags: NewsItem.tags,
-                title: NewsItem.title,
-              })
-              .from(NewsReaderInteraction)
-              .innerJoin(
-                NewsItem,
-                eq(NewsReaderInteraction.newsItemId, NewsItem.id),
-              )
-              .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-              .where(
-                compactConditions([
-                  eq(
-                    NewsReaderInteraction.readerProfileId,
-                    persistedProfile.id,
-                  ),
-                  eq(NewsReaderInteraction.action, "view"),
-                  eq(NewsItem.status, "published"),
-                ]),
-              )
-              .orderBy(desc(NewsReaderInteraction.occurredAt))
-              .limit(500),
-          ]);
+                    sql`${NewsReaderInteraction.occurredAt} >= ${getNewsSearchMemoryWindowStart(searchMemoryWindowEnd)}`,
+                    sql`${NewsReaderInteraction.occurredAt} <= ${searchMemoryWindowEnd}`,
+                    sql`${NewsReaderInteraction.metadata}->>'surface' = 'search'`,
+                    sql`nullif(trim(${NewsReaderInteraction.metadata}->>'intentQuery'), '') is not null`,
+                  ]),
+                )
+                .orderBy(desc(NewsReaderInteraction.occurredAt))
+                .limit(8),
+              ctx.db
+                .select({
+                  canonicalUrl: NewsItem.canonicalUrl,
+                  category: NewsItem.category,
+                  clusterKey: NewsItem.clusterKey,
+                  entities: NewsItem.entities,
+                  metadata: NewsReaderInteraction.metadata,
+                  newsItemId: NewsReaderInteraction.newsItemId,
+                  occurredAt: NewsReaderInteraction.occurredAt,
+                  originalUrl: NewsItem.originalUrl,
+                  sourceSlug: NewsSource.slug,
+                  tags: NewsItem.tags,
+                  title: NewsItem.title,
+                })
+                .from(NewsReaderInteraction)
+                .innerJoin(
+                  NewsItem,
+                  eq(NewsReaderInteraction.newsItemId, NewsItem.id),
+                )
+                .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+                .where(
+                  compactConditions([
+                    eq(
+                      NewsReaderInteraction.readerProfileId,
+                      persistedProfile.id,
+                    ),
+                    eq(NewsReaderInteraction.action, "view"),
+                    eq(NewsItem.status, "published"),
+                  ]),
+                )
+                .orderBy(desc(NewsReaderInteraction.occurredAt))
+                .limit(500),
+            ]);
 
           searchMemoryItems = selectNewsSearchMemoryItems(searchMemoryRows, 1);
           hiddenNewsItemIds = hiddenRows.map((row) => row.newsItemId);
@@ -2767,6 +2790,7 @@ export const newsRouter = {
             newsItemId: row.newsItemId,
             occurredAt: row.occurredAt,
             originalUrl: row.originalUrl,
+            readPercent: row.metadata?.readPercent,
             sourceSlug: row.sourceSlug,
             tags: row.tags,
           }));
@@ -3933,7 +3957,8 @@ export const newsRouter = {
       if (!identity) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "A reader identity is required to record news search memory.",
+          message:
+            "A reader identity is required to record news search memory.",
         });
       }
 
@@ -4065,7 +4090,8 @@ export const newsRouter = {
       if (!identity) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: "A reader identity is required to remove news search memory.",
+          message:
+            "A reader identity is required to remove news search memory.",
         });
       }
 
@@ -4080,7 +4106,9 @@ export const newsRouter = {
       const removedRows = await ctx.db
         .update(NewsReaderInteraction)
         .set({
-          metadata: sql<Record<string, unknown>>`(${NewsReaderInteraction.metadata})::jsonb - 'intentQuery'`,
+          metadata: sql<
+            Record<string, unknown>
+          >`(${NewsReaderInteraction.metadata})::jsonb - 'intentQuery'`,
         })
         .where(
           buildNewsSearchMemoryRemovalCondition({

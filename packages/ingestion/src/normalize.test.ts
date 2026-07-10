@@ -31,6 +31,20 @@ describe("canonicalizeUrl", () => {
     ).toBe("https://example.com/news?id=123");
   });
 
+  it("removes unknown UTM-prefixed tracking parameters while keeping content identifiers", () => {
+    expect(
+      canonicalizeUrl(
+        "https://example.com/news?id=123&utm_reader=ios&utm_brand=agent-times",
+      ),
+    ).toBe("https://example.com/news?id=123");
+  });
+
+  it("removes bare UTM tracking parameters while keeping content identifiers", () => {
+    expect(canonicalizeUrl("https://example.com/news?id=123&utm=home")).toBe(
+      "https://example.com/news?id=123",
+    );
+  });
+
   it("normalizes trailing path slashes for story URL variants", () => {
     expect(
       canonicalizeUrl("https://example.com/news/ai-agent/?utm_source=rss#top"),
@@ -198,6 +212,19 @@ describe("inferNewsCategory", () => {
         text: "Microsoft refreshes Windows desktop wallpapers.",
       }),
     ).toBe("other");
+  });
+
+  it("classifies lab-owned browser and workflow agent launches as agent products", () => {
+    expect(
+      inferNewsCategory({
+        text: "OpenAI launches a browser agent for workflow automation.",
+      }),
+    ).toBe("agent_product");
+    expect(
+      inferNewsCategory({
+        text: "Anthropic previews a computer use agent for enterprise workflows.",
+      }),
+    ).toBe("agent_product");
   });
 });
 

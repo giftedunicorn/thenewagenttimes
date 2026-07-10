@@ -17,7 +17,7 @@ describe("handleNewsHealthRequest", () => {
     const getDeskStatus = vi.fn(() =>
       Promise.resolve(
         buildNewsDeskStatus({
-          activeSources: 8,
+          activeSources: 26,
           embeddedStories: 24,
           latestPublishedAt: "2026-07-01T08:00:00.000Z",
           latestRun: {
@@ -32,7 +32,7 @@ describe("handleNewsHealthRequest", () => {
             status: "succeeded",
           },
           publishedStories: 24,
-          totalSources: 12,
+          totalSources: 28,
           unembeddedStories: 0,
         }),
       ),
@@ -59,7 +59,7 @@ describe("handleNewsHealthRequest", () => {
         stories: true,
       },
       news: {
-        activeSources: 8,
+        activeSources: 26,
         health: "live",
         liveReady: true,
         publishedStories: 24,
@@ -75,6 +75,58 @@ describe("handleNewsHealthRequest", () => {
     expect(getDeskStatus).toHaveBeenCalledOnce();
   });
 
+  it("surfaces stale source catalogs before treating live news as production ready", async () => {
+    const response = await handleNewsHealthRequest({
+      authSecret: "configured-auth-secret",
+      embeddingApiKey: "configured-openai-key",
+      getDeskStatus: () =>
+        Promise.resolve(
+          buildNewsDeskStatus({
+            activeSources: 24,
+            embeddedStories: 24,
+            latestPublishedAt: "2026-07-01T08:00:00.000Z",
+            latestRun: {
+              errorMessage: null,
+              finishedAt: "2026-07-01T08:05:00.000Z",
+              itemsCreated: 12,
+              itemsSeen: 18,
+              itemsUpdated: 3,
+              runType: "rss",
+              sourceName: "OpenAI News",
+              startedAt: "2026-07-01T08:00:00.000Z",
+              status: "succeeded",
+            },
+            publishedStories: 24,
+            totalSources: 24,
+            unembeddedStories: 0,
+          }),
+        ),
+      refreshSecret: "configured-refresh-secret",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Run pnpm run news:refresh:remote so the deployed database seeds the current 26 active-source catalog before ingesting stories.",
+      ],
+      checks: {
+        sourceCatalog: false,
+        sources: true,
+      },
+      commands: {
+        next: "pnpm run news:refresh:remote",
+      },
+      news: {
+        activeSources: 24,
+        expectedActiveSources: 26,
+        sourceCatalogReady: false,
+        totalSources: 24,
+      },
+      nextStep: "seed-news-sources",
+      ready: false,
+    });
+  });
+
   it("keeps stale live editions out of the ready state", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
@@ -82,7 +134,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 24,
             latestPublishedAt: "2000-01-01T08:00:00.000Z",
             latestRun: {
@@ -97,7 +149,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 0,
           }),
         ),
@@ -134,7 +186,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 24,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -149,7 +201,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 0,
           }),
         ),
@@ -190,6 +242,43 @@ describe("handleNewsHealthRequest", () => {
     });
   });
 
+  it("returns an operator-readable next step with the command and action detail", async () => {
+    const response = await handleNewsHealthRequest({
+      authSecret: "configured-auth-secret",
+      embeddingApiKey: "configured-openai-key",
+      getDeskStatus: () =>
+        Promise.resolve(
+          buildNewsDeskStatus({
+            activeSources: 0,
+            latestPublishedAt: null,
+            latestRun: null,
+            publishedStories: 0,
+            totalSources: 0,
+            unavailable: true,
+          }),
+        ),
+      refreshSecret: "configured-refresh-secret",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      actionRequired: [
+        "Apply the database schema to the target database.",
+        "Seed sources and run pnpm run news:refresh:remote.",
+      ],
+      commands: {
+        next: "pnpm run db:predeploy",
+      },
+      nextStep: "apply-database-schema",
+      operatorNextStep: {
+        command: "pnpm run db:predeploy",
+        detail: "Apply the database schema to the target database.",
+        label: "Apply database schema",
+        step: "apply-database-schema",
+      },
+    });
+  });
+
   it("keeps half-applied cluster schema migrations out of the ready state", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
@@ -197,7 +286,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 24,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -212,7 +301,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 0,
           }),
         ),
@@ -249,7 +338,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 24,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -272,7 +361,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 0,
           }),
         ),
@@ -296,11 +385,11 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 10,
+            activeSources: 26,
             latestPublishedAt: null,
             latestRun: null,
             publishedStories: 0,
-            totalSources: 10,
+            totalSources: 28,
           }),
         ),
       refreshSecret: "configured-refresh-secret",
@@ -313,7 +402,7 @@ describe("handleNewsHealthRequest", () => {
       ],
       authConfigured: true,
       news: {
-        activeSources: 10,
+        activeSources: 26,
         health: "seeded",
         liveReady: false,
         publishedStories: 0,
@@ -335,7 +424,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 3,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -350,7 +439,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 21,
           }),
         ),
@@ -389,7 +478,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 3,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -404,7 +493,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 21,
           }),
         ),
@@ -443,7 +532,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 24,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -458,7 +547,7 @@ describe("handleNewsHealthRequest", () => {
               status: "succeeded",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 0,
           }),
         ),
@@ -500,7 +589,7 @@ describe("handleNewsHealthRequest", () => {
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
-            activeSources: 8,
+            activeSources: 26,
             embeddedStories: 24,
             latestPublishedAt: "2026-07-01T08:00:00.000Z",
             latestRun: {
@@ -512,6 +601,10 @@ describe("handleNewsHealthRequest", () => {
               runType: "rss",
               sourceHealth: {
                 emptySourceSlugs: ["google-ai-blog"],
+                emptyReasonMessages: {
+                  "google-ai-blog":
+                    "No usable items were collected: 4 low-quality.",
+                },
                 failedSourceSlugs: ["anthropic-news"],
                 failureMessages: {
                   "anthropic-news": "feed unavailable",
@@ -523,7 +616,7 @@ describe("handleNewsHealthRequest", () => {
               status: "partial",
             },
             publishedStories: 24,
-            totalSources: 12,
+            totalSources: 28,
             unembeddedStories: 0,
           }),
         ),
@@ -533,13 +626,17 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Inspect failed sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog. Rerun pnpm run news:refresh:remote after fixing source issues.",
+        "Inspect failed sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog (No usable items were collected: 4 low-quality.). Rerun pnpm run news:refresh:remote after fixing source issues.",
       ],
       news: {
         health: "error",
         latestRun: {
           sourceHealth: {
             emptySourceSlugs: ["google-ai-blog"],
+            emptyReasonMessages: {
+              "google-ai-blog":
+                "No usable items were collected: 4 low-quality.",
+            },
             failedSourceSlugs: ["anthropic-news"],
             failureMessages: {
               "anthropic-news": "feed unavailable",

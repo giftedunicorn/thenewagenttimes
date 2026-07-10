@@ -30,6 +30,16 @@ const trackingParams = new Set([
 
 const safeNewsItemUrlProtocols = new Set(["http:", "https:"]);
 
+const isTrackingParamName = (name: string) => {
+  const normalizedName = name.toLowerCase();
+
+  return (
+    normalizedName === "utm" ||
+    normalizedName.startsWith("utm_") ||
+    trackingParams.has(normalizedName)
+  );
+};
+
 const knownEntities = [
   "OpenAI",
   "Anthropic",
@@ -400,7 +410,7 @@ export const canonicalizeUrl = (url: string): string => {
   parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
 
   for (const param of [...parsed.searchParams.keys()]) {
-    if (trackingParams.has(param.toLowerCase())) {
+    if (isTrackingParamName(param)) {
       parsed.searchParams.delete(param);
     }
   }
@@ -490,6 +500,18 @@ export const inferNewsCategory = (input: {
   if (hasAnyToken(text, ["openai", "anthropic"])) {
     if (hasAnyToken(text, ["model", "models", "release", "api"])) {
       return "model_release";
+    }
+    if (
+      hasAnyToken(text, [
+        "agent",
+        "agents",
+        "agentic",
+        "workflow",
+        "automation",
+        "browser",
+      ])
+    ) {
+      return "agent_product";
     }
     return "big_tech";
   }

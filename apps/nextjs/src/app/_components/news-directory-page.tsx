@@ -414,32 +414,35 @@ export const getNewsDirectoryPageData = ({
     }
   }
 
-  const entries = Array.from(groups.values(), ({ items: groupItems, value }) => {
-    const latestItem = getLatestDirectoryItem(groupItems);
+  const entries = Array.from(
+    groups.values(),
+    ({ items: groupItems, value }) => {
+      const latestItem = getLatestDirectoryItem(groupItems);
 
-    if (!latestItem) return null;
+      if (!latestItem) return null;
 
-    const relatedValues = new Set(
-      groupItems.map((item) => getDirectoryRelatedValue({ item, kind })),
-    );
-    const title = getDirectoryEntryTitle({ kind, latestItem, value });
+      const relatedValues = new Set(
+        groupItems.map((item) => getDirectoryRelatedValue({ item, kind })),
+      );
+      const title = getDirectoryEntryTitle({ kind, latestItem, value });
 
-    return {
-      countLabel: formatDirectoryCount({
-        count: groupItems.length,
-        plural: "stories",
-        singular: "story",
-      }),
-      href: getDirectoryEntryHref({ kind, value }),
-      latestItem,
-      metricLabel: formatDirectoryCount({
-        count: relatedValues.size,
-        singular: getDirectoryRelatedSingular(kind),
-      }),
-      title,
-      value,
-    };
-  })
+      return {
+        countLabel: formatDirectoryCount({
+          count: groupItems.length,
+          plural: "stories",
+          singular: "story",
+        }),
+        href: getDirectoryEntryHref({ kind, value }),
+        latestItem,
+        metricLabel: formatDirectoryCount({
+          count: relatedValues.size,
+          singular: getDirectoryRelatedSingular(kind),
+        }),
+        title,
+        value,
+      };
+    },
+  )
     .filter((entry): entry is NewsDirectoryPageEntry => entry !== null)
     .sort((left, right) => {
       const countDifference =
@@ -472,8 +475,7 @@ export function NewsDirectoryPage({
 }: {
   directory: NewsDirectoryPageData;
 }) {
-  const secondaryMetricLabel =
-    getDirectoryBreadthMetricLabel(directory.kind);
+  const secondaryMetricLabel = getDirectoryBreadthMetricLabel(directory.kind);
   const isPreview = directory.status !== "ready";
   const sourceDiagnostics = directory.health.diagnostics ?? [];
 

@@ -638,18 +638,23 @@ export const getNewsArticleReadTrainingReceipt = ({
 
 export const getNewsArticleLocalHistoryItem = ({
   article,
+  readPercent,
   viewedAt,
 }: {
   article: NewsArticleItem;
+  readPercent: number;
   viewedAt: string;
 }): NewsReaderMemoryItem => ({
   canonicalUrl: article.canonicalUrl,
   category: article.category,
+  ...(article.clusterKey ? { clusterKey: article.clusterKey } : {}),
   entities: [...article.entities],
   id: article.id,
   originalUrl: article.originalUrl,
+  readPercent: Math.min(Math.max(readPercent, 0), 1),
   sourceName: article.sourceName,
   sourceSlug: article.sourceSlug,
+  surface: "article",
   title: article.title,
   viewedAt,
 });
@@ -657,16 +662,20 @@ export const getNewsArticleLocalHistoryItem = ({
 export const getNewsArticleLocalReadFeedbackItem = ({
   article,
   occurredAt,
+  readPercent,
 }: {
   article: NewsArticleItem;
   occurredAt: string;
+  readPercent: number;
 }): NewsPositiveFeedbackMemoryItem => ({
   canonicalUrl: article.canonicalUrl,
   category: article.category,
+  ...(article.clusterKey ? { clusterKey: article.clusterKey } : {}),
   entities: [...article.entities],
   id: article.id,
   occurredAt,
   originalUrl: article.originalUrl,
+  readPercent: Math.min(Math.max(readPercent, 0), 1),
   sourceName: article.sourceName,
   sourceSlug: article.sourceSlug,
   tags: [...article.tags],
@@ -682,6 +691,7 @@ export const getNewsArticleLocalSavedItem = ({
 }): NewsReaderMemoryItem => ({
   canonicalUrl: article.canonicalUrl,
   category: article.category,
+  ...(article.clusterKey ? { clusterKey: article.clusterKey } : {}),
   entities: [...article.entities],
   id: article.id,
   originalUrl: article.originalUrl,
@@ -697,14 +707,17 @@ export const getNewsArticleSaveSignalState = ({
   articleId,
   savedItems,
 }: {
-  article?: NewsUrlReference;
+  article?: NewsUrlReference & { clusterKey?: string | null };
   articleId: string;
-  savedItems: readonly ({ id: string } & NewsUrlReference)[];
+  savedItems: readonly ({
+    id: string;
+  } & NewsUrlReference & { clusterKey?: string | null })[];
 }) => {
   const articleUrlKeys = new Set(article ? getNewsDedupeUrlKeys(article) : []);
   const isSaved = savedItems.some(
     (item) =>
       item.id === articleId ||
+      (article !== undefined && hasSameArticleClusterKey(article, item)) ||
       (articleUrlKeys.size > 0 &&
         getNewsDedupeUrlKeys(item).some((urlKey) =>
           articleUrlKeys.has(urlKey),
@@ -722,14 +735,17 @@ export const getNewsArticleGuardrailSignalState = ({
   articleId,
   guardrailItems,
 }: {
-  article?: NewsUrlReference;
+  article?: NewsUrlReference & { clusterKey?: string | null };
   articleId: string;
-  guardrailItems: readonly ({ id: string } & Partial<NewsUrlReference>)[];
+  guardrailItems: readonly ({
+    id: string;
+  } & Partial<NewsUrlReference> & { clusterKey?: string | null })[];
 }) => {
   const articleUrlKeys = new Set(article ? getNewsDedupeUrlKeys(article) : []);
   const isGuardrailed = guardrailItems.some(
     (item) =>
       item.id === articleId ||
+      (article !== undefined && hasSameArticleClusterKey(article, item)) ||
       (articleUrlKeys.size > 0 &&
         getNewsDedupeUrlKeys(item).some((urlKey) =>
           articleUrlKeys.has(urlKey),
@@ -748,7 +764,9 @@ export const selectNewsArticleEligibleRelatedItems = <
   guardrailItems,
   relatedItems,
 }: {
-  guardrailItems: readonly ({ id: string } & Partial<NewsUrlReference>)[];
+  guardrailItems: readonly ({
+    id: string;
+  } & Partial<NewsUrlReference> & { clusterKey?: string | null })[];
   relatedItems: readonly TItem[];
 }) =>
   relatedItems.filter((item) => {
@@ -757,6 +775,7 @@ export const selectNewsArticleEligibleRelatedItems = <
     return !guardrailItems.some(
       (guardrailItem) =>
         guardrailItem.id === item.id ||
+        hasSameArticleClusterKey(guardrailItem, item) ||
         (itemUrlKeys.size > 0 &&
           getNewsDedupeUrlKeys(guardrailItem).some((urlKey) =>
             itemUrlKeys.has(urlKey),
@@ -773,6 +792,7 @@ export const getNewsArticleLocalGuardrailItem = ({
 }): NewsReaderMemoryItem => ({
   canonicalUrl: article.canonicalUrl,
   category: article.category,
+  ...(article.clusterKey ? { clusterKey: article.clusterKey } : {}),
   entities: [...article.entities],
   hiddenAt,
   id: article.id,
@@ -837,6 +857,7 @@ export const getNewsArticleLocalPositiveFeedbackItem = ({
   action,
   canonicalUrl: article.canonicalUrl,
   category: article.category,
+  ...(article.clusterKey ? { clusterKey: article.clusterKey } : {}),
   entities: [...article.entities],
   id: article.id,
   occurredAt,
@@ -1039,6 +1060,7 @@ const newsArticleReaderSignalCacheScopes = [
   "saved",
   "history",
   "positiveFeedback",
+  "searchMemory",
   "guardrails",
 ] as const;
 
@@ -1930,7 +1952,9 @@ const getArticleFeedbackEntitySignals = ({
 }) => {
   const angleSignalSet = getNormalizedSet(angleSignals);
 
-  return signals.filter((signal) => !angleSignalSet.has(normalizeValue(signal)));
+  return signals.filter(
+    (signal) => !angleSignalSet.has(normalizeValue(signal)),
+  );
 };
 
 const formatArticleFeedbackSignalList = (signals: readonly string[]) =>

@@ -102,6 +102,9 @@ const deskStatusWithSourceHealth = {
     },
     sourceHealth: {
       emptySourceSlugs: ["google-ai-blog"],
+      emptyReasonMessages: {
+        "google-ai-blog": "No usable items were collected: 4 low-quality.",
+      },
       failedSourceSlugs: ["anthropic-news"],
       failureMessages: {
         "anthropic-news": "feed unavailable",
@@ -165,7 +168,7 @@ describe("getNewsDirectoryPageData", () => {
         state: "failed",
       },
       {
-        detail: "No items were collected in the latest refresh.",
+        detail: "No usable items were collected: 4 low-quality.",
         label: "google-ai-blog",
         state: "empty",
       },
@@ -417,7 +420,7 @@ describe("NewsDirectoryPage", () => {
     expect(markup).toContain("anthropic-news");
     expect(markup).toContain("feed unavailable");
     expect(markup).toContain("google-ai-blog");
-    expect(markup).toContain("No items were collected in the latest refresh.");
+    expect(markup).toContain("No usable items were collected: 4 low-quality.");
     expect(markup).toContain("3 stories across 2 topics and 2 sources");
     expect(markup).toContain("Concentrated");
     expect(markup).toContain("Follow");

@@ -222,7 +222,8 @@ describe("selectNewsBriefingReaderLens", () => {
     expect(source).toContain("useTRPC");
     expect(source).toContain("useQuery");
     expect(source).toContain("readOrCreateNewsVisitorKey");
-    expect(source).toContain("readStoredNewsSearchMemoryItems");
+    expect(source).toContain("readNewsSearchMemorySnapshot");
+    expect(source).toContain("parseNewsSearchMemorySnapshot");
     expect(source).toContain("subscribeToNewsReaderMemoryStorage");
     expect(source).toContain("trpc.news.profile.queryOptions");
     expect(source).toContain("selectHydratedNewsPreferenceProfile");
@@ -243,5 +244,42 @@ describe("selectNewsBriefingReaderLens", () => {
     );
     expect(source).toContain("{ enabled: canUseServerReaderMemory }");
     expect(source).not.toContain("{ enabled: Boolean(visitorKey) }");
+  });
+
+  it("keeps browser-local daypart out of the first hydration render", async () => {
+    const source = await readFile(
+      new URL("./news-briefing-reader-lens.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getServerReaderLocalHour");
+    expect(source).toMatch(
+      /const readerLocalHour = useSyncExternalStore\([\s\S]*?subscribeToNewsBriefingReaderLocalHour,[\s\S]*?getBrowserReaderLocalHour,[\s\S]*?getServerReaderLocalHour,[\s\S]*?\);/,
+    );
+    expect(source).not.toContain(
+      "const readerLocalHour = getBrowserReaderLocalHour();",
+    );
+    expect(source).not.toContain("setReaderLocalHour");
+  });
+
+  it("keeps browser-local search memory out of the first hydration render", async () => {
+    const source = await readFile(
+      new URL("./news-briefing-reader-lens.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("readNewsSearchMemorySnapshot");
+    expect(source).toContain("parseNewsSearchMemorySnapshot");
+    expect(source).toContain("emptyNewsSearchMemorySnapshot");
+    expect(source).toMatch(
+      /const searchMemorySnapshot = useSyncExternalStore\([\s\S]*?subscribeToNewsReaderMemoryStorage,[\s\S]*?readNewsSearchMemorySnapshot,[\s\S]*?\(\) => emptyNewsSearchMemorySnapshot,[\s\S]*?\);/,
+    );
+    expect(source).toMatch(
+      /const searchMemoryItems = useMemo\([\s\S]*?parseNewsSearchMemorySnapshot\(searchMemorySnapshot\),[\s\S]*?\[searchMemorySnapshot\],[\s\S]*?\);/,
+    );
+    expect(source).not.toMatch(
+      /useState<\s*NewsSearchMemoryItem\[]\s*>\(\(\) =>\s*readStoredNewsSearchMemoryItems\(\)\s*\)/,
+    );
+    expect(source).not.toContain("setSearchMemoryItems");
   });
 });

@@ -109,14 +109,27 @@ const formatLibraryCount = ({
 }) => `${count} ${count === 1 ? singular : (plural ?? `${singular}s`)}`;
 
 const getMemoryTimestamp = (item: NewsReaderMemoryItem) => {
-  const value =
-    item.savedAt ?? item.viewedAt ?? item.hiddenAt ?? item.occurredAt;
+  const latestTimestamp = [
+    item.savedAt,
+    item.viewedAt,
+    item.hiddenAt,
+    item.occurredAt,
+  ].reduce<{ occurredAt: string; timestamp: number } | null>(
+    (latest, occurredAt) => {
+      if (typeof occurredAt !== "string") return latest;
 
-  if (!value) return null;
+      const timestamp = Date.parse(occurredAt);
 
-  const timestamp = Date.parse(value);
+      if (!Number.isFinite(timestamp)) return latest;
+      if (!latest || timestamp > latest.timestamp)
+        return { occurredAt, timestamp };
 
-  return Number.isFinite(timestamp) ? value : null;
+      return latest;
+    },
+    null,
+  );
+
+  return latestTimestamp?.occurredAt ?? null;
 };
 
 const sortLibraryEntries = (

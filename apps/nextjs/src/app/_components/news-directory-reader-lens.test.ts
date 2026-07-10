@@ -335,16 +335,22 @@ describe("NewsDirectoryReaderLens follow profile sync", () => {
       "utf8",
     );
 
-    expect(source).toContain("readStoredNewsSearchMemoryItems");
+    expect(source).toContain("readNewsSearchMemorySnapshot");
+    expect(source).toContain("parseNewsSearchMemorySnapshot");
+    expect(source).toContain("emptyNewsSearchMemorySnapshot");
     expect(source).toContain("subscribeToNewsReaderMemoryStorage");
     expect(source).toMatch(
-      /const \[searchMemoryItems, setSearchMemoryItems\] = useState\([\s\S]*?readStoredNewsSearchMemoryItems\(\),[\s\S]*?\);/,
+      /const searchMemorySnapshot = useSyncExternalStore\([\s\S]*?subscribeToNewsReaderMemoryStorage,[\s\S]*?readNewsSearchMemorySnapshot,[\s\S]*?\(\) => emptyNewsSearchMemorySnapshot,[\s\S]*?\);/,
     );
     expect(source).toMatch(
-      /subscribeToNewsReaderMemoryStorage\(\(\) =>[\s\S]*?setSearchMemoryItems\(readStoredNewsSearchMemoryItems\(\)\)/,
+      /const searchMemoryItems = useMemo\([\s\S]*?parseNewsSearchMemorySnapshot\(searchMemorySnapshot\),[\s\S]*?\[searchMemorySnapshot\],[\s\S]*?\);/,
     );
     expect(source).toMatch(
       /selectNewsDirectoryReaderLens\({[\s\S]*?directory,[\s\S]*?profile,[\s\S]*?searchMemoryItems,[\s\S]*?}\)/,
     );
+    expect(source).not.toMatch(
+      /useState\(\(\) =>\s*readStoredNewsSearchMemoryItems\(\)\s*\)/,
+    );
+    expect(source).not.toContain("setSearchMemoryItems");
   });
 });

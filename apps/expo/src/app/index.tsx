@@ -63,8 +63,9 @@ const mobileNewsProfileCategories = [
 ] as const satisfies readonly MobileNewsProfile["preferredCategories"][number][];
 
 const isMobileNewsProfileCategory = (
-  category: string,
+  category: unknown,
 ): category is MobileNewsProfile["preferredCategories"][number] =>
+  typeof category === "string" &&
   mobileNewsProfileCategories.some(
     (profileCategory) => profileCategory === category,
   );
@@ -419,6 +420,7 @@ function HistoryStoriesShelf({ items }: { items: readonly HistoryNewsItem[] }) {
 export default function Index() {
   const queryClient = useQueryClient();
   const recordedExposureIds = useRef(new Set<string>());
+  const recordedSearchMemoryQueries = useRef(new Set<string>());
   const isLoadingMoreStoriesRef = useRef(false);
   const [visitorKey, setVisitorKey] = useState<string | null>(null);
   const [readerLocalHour, setReaderLocalHour] = useState<number | null>(null);
@@ -492,6 +494,13 @@ export default function Index() {
   const recordExposure = useMutation(
     trpc.news.recordInteraction.mutationOptions(),
   );
+  const recordSearchMemory = useMutation(
+    trpc.news.recordSearchMemory.mutationOptions({
+      async onSuccess() {
+        await queryClient.invalidateQueries(trpc.news.forYou.queryFilter());
+      },
+    }),
+  );
   const removeSaved = useMutation(
     trpc.news.removeSaved.mutationOptions({
       async onSuccess() {
@@ -558,11 +567,35 @@ export default function Index() {
 
   useEffect(() => {
     recordedExposureIds.current.clear();
+    recordedSearchMemoryQueries.current.clear();
     isLoadingMoreStoriesRef.current = false;
     setHasMoreStories(true);
     setIsLoadingMoreStories(false);
     setLoadedStories([]);
   }, [activeCategory, readerLocalHour, searchQuery, visitorKey]);
+
+  useEffect(() => {
+    const trimmedSearchQuery = searchQuery.trim();
+
+    if (!visitorKey || !trimmedSearchQuery || newsQuery.isFetching) return;
+
+    const searchMemoryKey = trimmedSearchQuery.toLowerCase();
+
+    if (recordedSearchMemoryQueries.current.has(searchMemoryKey)) return;
+
+    recordedSearchMemoryQueries.current.add(searchMemoryKey);
+    recordSearchMemory.mutate({
+      query: trimmedSearchQuery,
+      resultCount: newsQuery.data?.length ?? 0,
+      visitorKey,
+    });
+  }, [
+    newsQuery.data,
+    newsQuery.isFetching,
+    recordSearchMemory,
+    searchQuery,
+    visitorKey,
+  ]);
 
   const recordFeedback = (
     item: NewsFeedItem,

@@ -45,9 +45,11 @@ import {
   readStoredNewsReaderMemoryItems,
   readStoredNewsSearchMemoryItems,
   newsSavedStorageKey as savedStorageKey,
+  selectStoredNewsSearchMemoryItems,
   subscribeToNewsReaderMemoryStorage,
   writeStoredNewsPositiveFeedbackItems,
   writeStoredNewsReaderMemoryItems,
+  writeStoredNewsSearchMemoryItems,
 } from "../../_components/news-reader-memory-storage";
 import {
   areNewsPreferenceProfilesEqual,
@@ -80,6 +82,7 @@ import {
   getNewsArticleReaderFit,
   getNewsArticleReaderSignalCacheScopes,
   getNewsArticleReadingPath,
+  getNewsArticleReadPercent,
   getNewsArticleReadTrainingReceipt,
   getNewsArticleSaveSignalState,
   getNewsArticleServerProfileAuditDisplay,
@@ -187,14 +190,17 @@ const writeStoredPositiveFeedbackItems = (
 
 const writeStoredHistoryItem = ({
   article,
+  readPercent,
   viewedAt,
 }: {
   article: NewsArticleItem;
+  readPercent: number;
   viewedAt: string;
 }) => {
   writeStoredMemoryItem({
     item: getNewsArticleLocalHistoryItem({
       article,
+      readPercent,
       viewedAt,
     }),
     storageKey: historyStorageKey,
@@ -285,6 +291,12 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       { enabled: canPersistReaderSignals && Boolean(visitorKey) },
     ),
   );
+  const searchMemoryQuery = useQuery(
+    trpc.news.searchMemory.queryOptions(
+      { limit: 20, visitorKey: visitorKey ?? undefined },
+      { enabled: canPersistReaderSignals && Boolean(visitorKey) },
+    ),
+  );
   const invalidateReaderSignalQueries = async () => {
     const invalidations = getNewsArticleReaderSignalCacheScopes().map(
       (scope) => {
@@ -304,6 +316,10 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           case "positiveFeedback":
             return queryClient.invalidateQueries(
               trpc.news.positiveFeedback.pathFilter(),
+            );
+          case "searchMemory":
+            return queryClient.invalidateQueries(
+              trpc.news.searchMemory.pathFilter(),
             );
           case "guardrails":
             return queryClient.invalidateQueries(
@@ -480,6 +496,18 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   }, [positiveFeedbackQuery.data]);
 
   useEffect(() => {
+    if (!searchMemoryQuery.data || searchMemoryQuery.data.length === 0) return;
+
+    const nextSearchMemoryItems = selectStoredNewsSearchMemoryItems([
+      ...searchMemoryQuery.data,
+      ...readStoredSearchMemoryItems(),
+    ]);
+
+    writeStoredNewsSearchMemoryItems(nextSearchMemoryItems);
+    setSearchMemoryItems(nextSearchMemoryItems);
+  }, [searchMemoryQuery.data]);
+
+  useEffect(() => {
     if (!guardrailsQuery.data || guardrailsQuery.data.length === 0) return;
 
     const nextGuardrailItems = mergeNewsReaderMemoryItems({
@@ -548,26 +576,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   useEffect(() => {
     if (!canTrackReaderSignals || !visitorKey) return;
 
-    const checkpointNodes = articleReadDepthCheckpoints
-      .map((checkpoint) => ({
-        ...checkpoint,
-        node: articleReadCheckpointRefs.current.get(checkpoint.key),
-      }))
-      .filter(
-        (
-          checkpoint,
-        ): checkpoint is (typeof articleReadDepthCheckpoints)[number] & {
-          node: HTMLSpanElement;
-        } => Boolean(checkpoint.node),
-      );
-
-    if (
-      checkpointNodes.length === 0 ||
-      typeof window.IntersectionObserver !== "function"
-    ) {
-      return;
-    }
-
     const recordCheckpointRead = (readPercent: number) => {
       const milestone = selectNewsArticleReadMilestone({
         readPercent,
@@ -600,12 +608,14 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
           writeStoredProfile(trainingState.profile);
           writeStoredHistoryItem({
             article,
+            readPercent: milestone.readPercent,
             viewedAt: occurredAt,
           });
           writeStoredPositiveFeedbackItem({
             item: getNewsArticleLocalReadFeedbackItem({
               article,
               occurredAt,
+              readPercent: milestone.readPercent,
             }),
           });
           return trainingState.profile;
@@ -625,32 +635,75 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       }
     };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
+    const recordCurrentReadDepth = () => {
+      const documentElement = document.documentElement;
+      const body = document.body;
+      const documentHeight = Math.max(
+        documentElement.clientHeight,
+        documentElement.offsetHeight,
+        documentElement.scrollHeight,
+        body.offsetHeight,
+        body.scrollHeight,
+      );
+      const readPercent = getNewsArticleReadPercent({
+        documentHeight,
+        scrollY: window.scrollY,
+        viewportHeight: window.innerHeight,
+      });
 
-          const checkpoint = checkpointNodes.find(
-            ({ node }) => node === entry.target,
-          );
+      recordCheckpointRead(readPercent);
+    };
 
-          if (!checkpoint) return;
+    const checkpointNodes = articleReadDepthCheckpoints
+      .map((checkpoint) => ({
+        ...checkpoint,
+        node: articleReadCheckpointRefs.current.get(checkpoint.key),
+      }))
+      .filter(
+        (
+          checkpoint,
+        ): checkpoint is (typeof articleReadDepthCheckpoints)[number] & {
+          node: HTMLSpanElement;
+        } => Boolean(checkpoint.node),
+      );
 
-          recordCheckpointRead(checkpoint.readPercent);
-          observer.unobserve(checkpoint.node);
-        });
-      },
-      {
-        root: null,
-        rootMargin: "0px 0px -20% 0px",
-        threshold: 0,
-      },
-    );
+    const observer =
+      checkpointNodes.length > 0 &&
+      typeof window.IntersectionObserver === "function"
+        ? new IntersectionObserver(
+            (entries) => {
+              entries.forEach((entry) => {
+                if (!entry.isIntersecting) return;
 
-    checkpointNodes.forEach(({ node }) => observer.observe(node));
+                const checkpoint = checkpointNodes.find(
+                  ({ node }) => node === entry.target,
+                );
+
+                if (!checkpoint) return;
+
+                recordCheckpointRead(checkpoint.readPercent);
+                observer?.unobserve(checkpoint.node);
+              });
+            },
+            {
+              root: null,
+              rootMargin: "0px 0px -20% 0px",
+              threshold: 0,
+            },
+          )
+        : null;
+
+    checkpointNodes.forEach(({ node }) => observer?.observe(node));
+    recordCurrentReadDepth();
+    window.addEventListener("scroll", recordCurrentReadDepth, {
+      passive: true,
+    });
+    window.addEventListener("resize", recordCurrentReadDepth);
 
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
+      window.removeEventListener("scroll", recordCurrentReadDepth);
+      window.removeEventListener("resize", recordCurrentReadDepth);
     };
     // This effect tracks browser reading depth for the active article body.
     // eslint-disable-next-line react-hooks/exhaustive-deps

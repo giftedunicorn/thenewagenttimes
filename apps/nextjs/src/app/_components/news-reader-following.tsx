@@ -230,11 +230,17 @@ const isFollowingAngleSignal = ({
 }) => {
   const normalizedSignal = normalizeFollowingSignal(signal);
 
-  if (angleLabels.has(normalizedSignal) && !entityLabels.has(normalizedSignal)) {
+  if (
+    angleLabels.has(normalizedSignal) &&
+    !entityLabels.has(normalizedSignal)
+  ) {
     return true;
   }
 
-  if (entityLabels.has(normalizedSignal) || looksLikeNamedEntitySignal(signal)) {
+  if (
+    entityLabels.has(normalizedSignal) ||
+    looksLikeNamedEntitySignal(signal)
+  ) {
     return false;
   }
 
@@ -1167,11 +1173,11 @@ export function NewsReaderFollowingView({
                     <p className="text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
                       {story.reason}
                     </p>
-	                    <NewsEditionStoryActions
-	                      isPreview={isPreview}
-	                      item={story.item}
-	                      rankSlot={index + 1}
-	                    />
+                    <NewsEditionStoryActions
+                      isPreview={isPreview}
+                      item={story.item}
+                      rankSlot={index + 1}
+                    />
                   </article>
                 ))
               ) : (
@@ -1454,11 +1460,11 @@ export function NewsReaderFollowing({
     (canUseServerReaderMemory && profileQuery.isPending)
   );
 
-	  return (
-	    <NewsReaderFollowingView
-	      following={following}
-	      isPreview={status !== "ready"}
-	      onAdd={canEditFollowing ? addFollowing : undefined}
+  return (
+    <NewsReaderFollowingView
+      following={following}
+      isPreview={status !== "ready"}
+      onAdd={canEditFollowing ? addFollowing : undefined}
       onRemove={canEditFollowing ? removeFollowing : undefined}
     />
   );

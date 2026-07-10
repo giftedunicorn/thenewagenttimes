@@ -26,6 +26,7 @@ const createMemoryItem = ({
   entities = ["OpenAI"],
   hiddenAt,
   id,
+  occurredAt,
   savedAt,
   sourceName = "Agent Desk",
   sourceSlug = "agent-desk",
@@ -37,6 +38,7 @@ const createMemoryItem = ({
   entities?: string[];
   hiddenAt?: string;
   id: string;
+  occurredAt?: string;
   savedAt?: string;
   sourceName?: string;
   sourceSlug?: string;
@@ -49,6 +51,7 @@ const createMemoryItem = ({
   entities,
   hiddenAt,
   id,
+  occurredAt,
   originalUrl: `https://source.example/${id}`,
   savedAt,
   sourceName,
@@ -191,6 +194,27 @@ describe("selectNewsReaderLibrary", () => {
     expect(library.summary).toBe(
       "6 local reader signals are available on this device.",
     );
+  });
+
+  it("uses the latest valid reader memory timestamp in library sections", () => {
+    const library = selectNewsReaderLibrary({
+      guardrailItems: [],
+      historyItems: [],
+      savedItems: [
+        createMemoryItem({
+          id: "saved-with-invalid-first-timestamp",
+          occurredAt: "2026-07-06T11:45:00.000Z",
+          savedAt: "not-a-date",
+          title: "Recovered saved story timestamp",
+        }),
+      ],
+      searchItems: [],
+    });
+
+    expect(library.sections[0]?.entries[0]).toMatchObject({
+      timestamp: "2026-07-06T11:45:00.000Z",
+      title: "Recovered saved story timestamp",
+    });
   });
 
   it("recalls current stories from saved, read, and search memory", () => {

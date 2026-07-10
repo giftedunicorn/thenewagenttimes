@@ -21,7 +21,9 @@ import {
   selectHydratedNewsPreferenceProfile,
 } from "./news-home-model";
 import {
-  readStoredNewsSearchMemoryItems,
+  emptyNewsSearchMemorySnapshot,
+  parseNewsSearchMemorySnapshot,
+  readNewsSearchMemorySnapshot,
   subscribeToNewsReaderMemoryStorage,
 } from "./news-reader-memory-storage";
 import {
@@ -229,6 +231,10 @@ export const selectNewsBriefingReaderLens = ({
 
 const getBrowserReaderLocalHour = () =>
   typeof window === "undefined" ? null : new Date().getHours();
+
+const getServerReaderLocalHour = () => null;
+
+const subscribeToNewsBriefingReaderLocalHour = () => () => undefined;
 
 export function NewsBriefingReaderLensView({
   isPreview = false,
@@ -466,9 +472,6 @@ export function NewsBriefingReaderLens({
     readOrCreateNewsVisitorKey(),
   );
   const canUseServerReaderMemory = status === "ready" && Boolean(visitorKey);
-  const [searchMemoryItems, setSearchMemoryItems] = useState<
-    NewsSearchMemoryItem[]
-  >(() => readStoredNewsSearchMemoryItems());
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -496,13 +499,21 @@ export function NewsBriefingReaderLens({
 
     writeStoredNewsPreferenceProfile(nextProfile);
   }, [profile, profileQuery.data]);
-  useEffect(() => {
-    return subscribeToNewsReaderMemoryStorage(() => {
-      setSearchMemoryItems(readStoredNewsSearchMemoryItems());
-    });
-  }, []);
+  const readerLocalHour = useSyncExternalStore(
+    subscribeToNewsBriefingReaderLocalHour,
+    getBrowserReaderLocalHour,
+    getServerReaderLocalHour,
+  );
+  const searchMemorySnapshot = useSyncExternalStore(
+    subscribeToNewsReaderMemoryStorage,
+    readNewsSearchMemorySnapshot,
+    () => emptyNewsSearchMemorySnapshot,
+  );
+  const searchMemoryItems = useMemo(
+    () => parseNewsSearchMemorySnapshot(searchMemorySnapshot),
+    [searchMemorySnapshot],
+  );
 
-  const readerLocalHour = getBrowserReaderLocalHour();
   const lens = useMemo(
     () =>
       selectNewsBriefingReaderLens({

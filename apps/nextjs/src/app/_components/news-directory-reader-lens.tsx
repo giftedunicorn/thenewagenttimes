@@ -20,7 +20,9 @@ import {
   selectHydratedNewsPreferenceProfile,
 } from "./news-home-model";
 import {
-  readStoredNewsSearchMemoryItems,
+  emptyNewsSearchMemorySnapshot,
+  parseNewsSearchMemorySnapshot,
+  readNewsSearchMemorySnapshot,
   subscribeToNewsReaderMemoryStorage,
 } from "./news-reader-memory-storage";
 import {
@@ -279,8 +281,14 @@ export function NewsDirectoryReaderLens({
     () => readStoredProfile(profileSnapshot),
     [profileSnapshot],
   );
-  const [searchMemoryItems, setSearchMemoryItems] = useState(() =>
-    readStoredNewsSearchMemoryItems(),
+  const searchMemorySnapshot = useSyncExternalStore(
+    subscribeToNewsReaderMemoryStorage,
+    readNewsSearchMemorySnapshot,
+    () => emptyNewsSearchMemorySnapshot,
+  );
+  const searchMemoryItems = useMemo(
+    () => parseNewsSearchMemorySnapshot(searchMemorySnapshot),
+    [searchMemorySnapshot],
   );
   useEffect(() => {
     if (!profileQuery.data?.persisted) return;
@@ -294,14 +302,6 @@ export function NewsDirectoryReaderLens({
 
     writeStoredNewsPreferenceProfile(nextProfile);
   }, [profile, profileQuery.data]);
-  useEffect(
-    () =>
-      subscribeToNewsReaderMemoryStorage(() => {
-        setSearchMemoryItems(readStoredNewsSearchMemoryItems());
-      }),
-    [],
-  );
-
   const lens = useMemo(
     () =>
       selectNewsDirectoryReaderLens({

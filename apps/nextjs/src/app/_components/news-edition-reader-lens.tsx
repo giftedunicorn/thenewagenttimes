@@ -159,7 +159,7 @@ export const applyNewsEditionFollowAction = ({
               normalizedProfile.preferredEntities,
               filter.value,
             )
-        : [...normalizedProfile.preferredEntities],
+          : [...normalizedProfile.preferredEntities],
     preferredSources:
       filter.kind === "source"
         ? toggleProfileSignal(normalizedProfile.preferredSources, filter.value)
@@ -187,7 +187,8 @@ export const getNewsEditionFollowState = ({
     const normalizedSearchValue = normalizeSearchIntentSignalKey(filter.value);
 
     return signals.some(
-      (signal) => normalizeSearchIntentSignalKey(signal) === normalizedSearchValue,
+      (signal) =>
+        normalizeSearchIntentSignalKey(signal) === normalizedSearchValue,
     );
   };
   const isFollowing =

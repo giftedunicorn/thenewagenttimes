@@ -145,9 +145,12 @@ describe("NewsArticle", () => {
   });
 
   it("syncs a local trained profile into an empty server profile", async () => {
-    const source = await readFile(new URL("./news-article.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
 
     expect(source).toContain("serverProfileSyncSnapshotRef");
     expect(source).toContain("getNewsPreferenceProfileStorageValue(profile)");
@@ -163,9 +166,12 @@ describe("NewsArticle", () => {
   });
 
   it("hydrates server reading history into local article memory", async () => {
-    const source = await readFile(new URL("./news-article.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
 
     expect(source).toMatch(
       /const historyQuery = useQuery\([\s\S]*?trpc\.news\.history\.queryOptions\([\s\S]*?\{ limit: 6, visitorKey: visitorKey \?\? undefined \},[\s\S]*?\{ enabled: canPersistReaderSignals && Boolean\(visitorKey\) \},[\s\S]*?\),[\s\S]*?\);/,
@@ -182,9 +188,12 @@ describe("NewsArticle", () => {
   });
 
   it("hydrates server explicit positive feedback into local article memory", async () => {
-    const source = await readFile(new URL("./news-article.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
     const hydrationEffectStart = source.indexOf(
       "useEffect(() => {\n    if (!positiveFeedbackQuery.data",
     );
@@ -211,5 +220,50 @@ describe("NewsArticle", () => {
     expect(hydrationEffectBlock).toContain(
       "writeStoredPositiveFeedbackItems(nextPositiveFeedbackItems);",
     );
+  });
+
+  it("hydrates server search memory into the article reader lens", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+
+    expect(source).toMatch(
+      /const searchMemoryQuery = useQuery\([\s\S]*?trpc\.news\.searchMemory\.queryOptions\([\s\S]*?\{ limit: 20, visitorKey: visitorKey \?\? undefined \},[\s\S]*?\{ enabled: canPersistReaderSignals && Boolean\(visitorKey\) \},[\s\S]*?\),[\s\S]*?\);/,
+    );
+    expect(source).toMatch(
+      /if \(!searchMemoryQuery\.data \|\| searchMemoryQuery\.data\.length === 0\) return;/,
+    );
+    expect(source).toMatch(
+      /const nextSearchMemoryItems = selectStoredNewsSearchMemoryItems\(\[[\s\S]*?\.\.\.searchMemoryQuery\.data,[\s\S]*?\.\.\.readStoredSearchMemoryItems\(\),[\s\S]*?\]\);/,
+    );
+    expect(source).toContain(
+      "writeStoredNewsSearchMemoryItems(nextSearchMemoryItems);",
+    );
+    expect(source).toContain("setSearchMemoryItems(nextSearchMemoryItems);");
+  });
+
+  it("refreshes article search memory after article reader actions persist", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      {
+        encoding: "utf8",
+      },
+    );
+    const invalidationStart = source.indexOf(
+      "const invalidateReaderSignalQueries = async () => {",
+    );
+    const invalidationEnd = source.indexOf(
+      "  const recordInteraction = useMutation(",
+      invalidationStart,
+    );
+    const invalidationBlock = source.slice(invalidationStart, invalidationEnd);
+
+    expect(invalidationStart).toBeGreaterThanOrEqual(0);
+    expect(invalidationEnd).toBeGreaterThan(invalidationStart);
+    expect(invalidationBlock).toContain('case "searchMemory":');
+    expect(invalidationBlock).toContain("trpc.news.searchMemory.pathFilter()");
   });
 });

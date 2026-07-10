@@ -174,6 +174,7 @@ describe("getNewsEditionStoryGuardrailStorageUpdate", () => {
     const unrelatedSaved: NewsReaderMemoryItem = {
       ...story,
       canonicalUrl: "https://example.com/news/agent-runtime",
+      clusterKey: "agent-runtime",
       id: "saved-agent-runtime",
       originalUrl: "https://source.example/agent-runtime",
       savedAt: "2026-07-06T08:30:00.000Z",
@@ -267,6 +268,7 @@ describe("getNewsEditionStoryPositiveStorageUpdate", () => {
     const unrelatedGuardrail: NewsReaderMemoryItem = {
       ...story,
       canonicalUrl: "https://example.com/news/agent-runtime",
+      clusterKey: "agent-runtime",
       hiddenAt: "2026-07-06T08:45:00.000Z",
       id: "hidden-agent-runtime",
       originalUrl: "https://source.example/agent-runtime",
@@ -275,6 +277,7 @@ describe("getNewsEditionStoryPositiveStorageUpdate", () => {
     const unrelatedSaved: NewsReaderMemoryItem = {
       ...story,
       canonicalUrl: "https://example.com/news/agent-runtime",
+      clusterKey: "agent-runtime",
       id: "saved-agent-runtime",
       originalUrl: "https://source.example/agent-runtime",
       savedAt: "2026-07-06T08:30:00.000Z",
@@ -305,6 +308,93 @@ describe("getNewsEditionStoryPositiveStorageUpdate", () => {
     expect(
       update.positiveFeedbackItems.map((item) => `${item.id}:${item.action}`),
     ).toEqual(["edition-model-router:save", "saved-agent-runtime:save"]);
+  });
+});
+
+describe("NewsEditionStoryActions cluster memory", () => {
+  it("preserves story cluster keys across edition reader-memory updates", async () => {
+    const actionsModule = await import("./news-edition-story-actions");
+    const {
+      getNewsEditionStoryGuardrailStorageUpdate,
+      getNewsEditionStoryHistoryStorageUpdate,
+      getNewsEditionStoryPositiveStorageUpdate,
+    } = actionsModule as {
+      getNewsEditionStoryGuardrailStorageUpdate?: (input: {
+        guardrailItems: readonly NewsReaderMemoryItem[];
+        item: NewsHomeItem;
+        occurredAt: string;
+        positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+        savedItems: readonly NewsReaderMemoryItem[];
+      }) => {
+        guardrailItems: NewsReaderMemoryItem[];
+        positiveFeedbackItems: NewsPositiveFeedbackMemoryItem[];
+        savedItems: NewsReaderMemoryItem[];
+      };
+      getNewsEditionStoryHistoryStorageUpdate?: (input: {
+        item: NewsHomeItem;
+        occurredAt: string;
+        storedItems: readonly NewsReaderMemoryItem[];
+      }) => NewsReaderMemoryItem[];
+      getNewsEditionStoryPositiveStorageUpdate?: (input: {
+        action: "save" | "share" | "click_source";
+        guardrailItems: readonly NewsReaderMemoryItem[];
+        item: NewsHomeItem;
+        occurredAt: string;
+        positiveFeedbackItems: readonly NewsPositiveFeedbackMemoryItem[];
+        savedItems: readonly NewsReaderMemoryItem[];
+      }) => {
+        guardrailItems: NewsReaderMemoryItem[];
+        positiveFeedbackItems: NewsPositiveFeedbackMemoryItem[];
+        savedItems: NewsReaderMemoryItem[];
+      };
+    };
+
+    expect(getNewsEditionStoryGuardrailStorageUpdate).toEqual(
+      expect.any(Function),
+    );
+    expect(getNewsEditionStoryHistoryStorageUpdate).toEqual(
+      expect.any(Function),
+    );
+    expect(getNewsEditionStoryPositiveStorageUpdate).toEqual(
+      expect.any(Function),
+    );
+    if (
+      !getNewsEditionStoryGuardrailStorageUpdate ||
+      !getNewsEditionStoryHistoryStorageUpdate ||
+      !getNewsEditionStoryPositiveStorageUpdate
+    ) {
+      return;
+    }
+
+    const historyItems = getNewsEditionStoryHistoryStorageUpdate({
+      item: story,
+      occurredAt: "2026-07-06T11:00:00.000Z",
+      storedItems: [],
+    });
+    const guardrailUpdate = getNewsEditionStoryGuardrailStorageUpdate({
+      guardrailItems: [],
+      item: story,
+      occurredAt: "2026-07-06T11:05:00.000Z",
+      positiveFeedbackItems: [],
+      savedItems: [],
+    });
+    const positiveUpdate = getNewsEditionStoryPositiveStorageUpdate({
+      action: "save",
+      guardrailItems: [],
+      item: story,
+      occurredAt: "2026-07-06T11:10:00.000Z",
+      positiveFeedbackItems: [],
+      savedItems: [],
+    });
+
+    expect(historyItems[0]?.clusterKey).toBe(story.clusterKey);
+    expect(guardrailUpdate.guardrailItems[0]?.clusterKey).toBe(
+      story.clusterKey,
+    );
+    expect(positiveUpdate.positiveFeedbackItems[0]?.clusterKey).toBe(
+      story.clusterKey,
+    );
+    expect(positiveUpdate.savedItems[0]?.clusterKey).toBe(story.clusterKey);
   });
 });
 
@@ -344,5 +434,6 @@ describe("NewsEditionStoryActions server cache invalidation", () => {
     expect(invalidateBlock).toContain(
       "trpc.news.positiveFeedback.pathFilter()",
     );
+    expect(invalidateBlock).toContain("trpc.news.searchMemory.pathFilter()");
   });
 });

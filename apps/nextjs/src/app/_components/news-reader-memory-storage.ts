@@ -144,6 +144,18 @@ const isFreshPastTimestamp = (timestamp: number, retentionMs: number) => {
   return timestamp <= now && now - timestamp <= retentionMs;
 };
 
+const getLatestValidTimestamp = (
+  timestamps: readonly (null | string | undefined)[],
+) =>
+  timestamps.reduce<number | null>((latest, timestamp) => {
+    const time = Date.parse(timestamp ?? "");
+
+    if (!Number.isFinite(time)) return latest;
+    if (latest === null || time > latest) return time;
+
+    return latest;
+  }, null);
+
 const isFreshNewsSearchMemoryItem = (item: NewsSearchMemoryItem) => {
   const searchedAt = Date.parse(item.searchedAt);
 
@@ -151,15 +163,21 @@ const isFreshNewsSearchMemoryItem = (item: NewsSearchMemoryItem) => {
 };
 
 const isFreshNewsGuardrailMemoryItem = (item: NewsReaderMemoryItem) => {
-  const hiddenAt = Date.parse(item.hiddenAt ?? item.occurredAt ?? "");
+  const hiddenAt = getLatestValidTimestamp([item.hiddenAt, item.occurredAt]);
 
-  return isFreshPastTimestamp(hiddenAt, newsGuardrailMemoryRetentionMs);
+  return isFreshPastTimestamp(
+    hiddenAt ?? Number.NaN,
+    newsGuardrailMemoryRetentionMs,
+  );
 };
 
 const isFreshNewsHomeExposureMemoryItem = (item: NewsReaderMemoryItem) => {
-  const viewedAt = Date.parse(item.viewedAt ?? item.occurredAt ?? "");
+  const viewedAt = getLatestValidTimestamp([item.viewedAt, item.occurredAt]);
 
-  return isFreshPastTimestamp(viewedAt, newsHomeExposureMemoryRetentionMs);
+  return isFreshPastTimestamp(
+    viewedAt ?? Number.NaN,
+    newsHomeExposureMemoryRetentionMs,
+  );
 };
 
 const selectFreshNewsReaderMemoryItems = (
@@ -195,6 +213,25 @@ export const selectStoredNewsSearchMemoryItems = (
   }
 
   return searchItems.sort(sortSearchMemoryItems).slice(0, 20);
+};
+
+export const emptyNewsSearchMemorySnapshot = "[]";
+
+export const readNewsSearchMemorySnapshot = () => {
+  if (typeof window === "undefined") return emptyNewsSearchMemorySnapshot;
+
+  return (
+    window.localStorage.getItem(newsSearchStorageKey) ??
+    emptyNewsSearchMemorySnapshot
+  );
+};
+
+export const parseNewsSearchMemorySnapshot = (snapshot: string) => {
+  try {
+    return selectStoredNewsSearchMemoryItems(JSON.parse(snapshot) as unknown);
+  } catch {
+    return [];
+  }
 };
 
 export const readStoredNewsReaderMemoryItems = (storageKey: string) =>

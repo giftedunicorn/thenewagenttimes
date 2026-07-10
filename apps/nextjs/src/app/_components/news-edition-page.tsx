@@ -257,7 +257,7 @@ const getNewsEditionMetadataDescription = (edition: NewsEditionPageData) => {
       ? `Latest ${edition.filter.title} AI news from ${newsEditionSiteName}.`
       : edition.filter.kind === "entity"
         ? `Latest AI news about ${edition.filter.title} from ${newsEditionSiteName}.`
-      : `Latest AI news from ${edition.filter.title} on ${newsEditionSiteName}.`;
+        : `Latest AI news from ${edition.filter.title} on ${newsEditionSiteName}.`;
   }
 
   const { sourceCount, topicCount } = getEditionCounts(edition);
@@ -279,7 +279,7 @@ const getNewsEditionMetadataDescription = (edition: NewsEditionPageData) => {
     ? `Latest ${edition.filter.title} AI news from ${newsEditionSiteName}: ${storyCountText} from ${sourceCountText} across ${topicCountText}.`
     : edition.filter.kind === "entity"
       ? `Latest AI news about ${edition.filter.title} on ${newsEditionSiteName}: ${storyCountText} from ${sourceCountText} across ${topicCountText}.`
-    : `Latest AI news from ${edition.filter.title} on ${newsEditionSiteName}: ${storyCountText} across ${topicCountText}.`;
+      : `Latest AI news from ${edition.filter.title} on ${newsEditionSiteName}: ${storyCountText} across ${topicCountText}.`;
 };
 
 export const getNewsEditionPageMetadata = ({

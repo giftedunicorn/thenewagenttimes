@@ -430,6 +430,7 @@ describe("getNewsArticleLocalHistoryItem", () => {
     expect(
       getNewsArticleLocalHistoryItem({
         article,
+        readPercent: 0.42,
         viewedAt: "2026-07-01T09:30:00.000Z",
       }),
     ).toEqual({
@@ -438,8 +439,10 @@ describe("getNewsArticleLocalHistoryItem", () => {
       entities: ["OpenAI", "Agents"],
       id: "article-openai-agents",
       originalUrl: "https://source.example/openai-agents",
+      readPercent: 0.42,
       sourceName: "OpenAI News",
       sourceSlug: "openai-news",
+      surface: "article",
       title: "OpenAI releases a new agent stack",
       viewedAt: "2026-07-01T09:30:00.000Z",
     });
@@ -452,6 +455,7 @@ describe("getNewsArticleLocalReadFeedbackItem", () => {
       getNewsArticleLocalReadFeedbackItem({
         article,
         occurredAt: "2026-07-01T09:40:00.000Z",
+        readPercent: 0.86,
       }),
     ).toEqual({
       canonicalUrl: "https://example.com/openai-agents",
@@ -460,6 +464,7 @@ describe("getNewsArticleLocalReadFeedbackItem", () => {
       id: "article-openai-agents",
       occurredAt: "2026-07-01T09:40:00.000Z",
       originalUrl: "https://source.example/openai-agents",
+      readPercent: 0.86,
       sourceName: "OpenAI News",
       sourceSlug: "openai-news",
       tags: ["model", "agent"],
@@ -486,6 +491,64 @@ describe("getNewsArticleLocalSavedItem", () => {
       sourceSlug: "openai-news",
       tags: ["model", "agent"],
       title: "OpenAI releases a new agent stack",
+    });
+  });
+});
+
+describe("article local reader memory cluster keys", () => {
+  it("preserves article cluster keys across history, positive, saved, and Less memory", () => {
+    const clusteredArticle = {
+      ...article,
+      clusterKey: "2026-07-01:model_release:openai:agents",
+    };
+
+    expect(
+      getNewsArticleLocalHistoryItem({
+        article: clusteredArticle,
+        readPercent: 0.82,
+        viewedAt: "2026-07-01T09:30:00.000Z",
+      }),
+    ).toMatchObject({
+      clusterKey: "2026-07-01:model_release:openai:agents",
+      id: "article-openai-agents",
+    });
+    expect(
+      getNewsArticleLocalReadFeedbackItem({
+        article: clusteredArticle,
+        occurredAt: "2026-07-01T09:40:00.000Z",
+        readPercent: 0.82,
+      }),
+    ).toMatchObject({
+      clusterKey: "2026-07-01:model_release:openai:agents",
+      id: "article-openai-agents",
+    });
+    expect(
+      getNewsArticleLocalSavedItem({
+        article: clusteredArticle,
+        savedAt: "2026-07-01T09:45:00.000Z",
+      }),
+    ).toMatchObject({
+      clusterKey: "2026-07-01:model_release:openai:agents",
+      id: "article-openai-agents",
+    });
+    expect(
+      getNewsArticleLocalGuardrailItem({
+        article: clusteredArticle,
+        hiddenAt: "2026-07-01T10:15:00.000Z",
+      }),
+    ).toMatchObject({
+      clusterKey: "2026-07-01:model_release:openai:agents",
+      id: "article-openai-agents",
+    });
+    expect(
+      getNewsArticleLocalPositiveFeedbackItem({
+        action: "share",
+        article: clusteredArticle,
+        occurredAt: "2026-07-01T09:50:00.000Z",
+      }),
+    ).toMatchObject({
+      clusterKey: "2026-07-01:model_release:openai:agents",
+      id: "article-openai-agents",
     });
   });
 });
@@ -523,6 +586,30 @@ describe("getNewsArticleSaveSignalState", () => {
             canonicalUrl: null,
             id: "cached-openai-agents",
             originalUrl: "https://example.com/openai-agents?utm=saved",
+          },
+        ],
+      }),
+    ).toEqual({
+      isSaved: true,
+      label: "Remove saved signal",
+    });
+  });
+
+  it("switches the article save action into a remove action for saved cluster variants", () => {
+    expect(
+      getNewsArticleSaveSignalState({
+        article: {
+          canonicalUrl: "https://example.com/openai-agents#article",
+          clusterKey: "2026-07-01:model_release:openai:agents",
+          originalUrl: "https://source.example/openai-agents?utm=reader",
+        },
+        articleId: "article-cluster-variant",
+        savedItems: [
+          {
+            canonicalUrl: "https://example.com/different-openai-agents",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:Agents ",
+            id: "cached-openai-agents-cluster",
+            originalUrl: "https://source.example/different-openai-agents",
           },
         ],
       }),
@@ -583,6 +670,30 @@ describe("getNewsArticleGuardrailSignalState", () => {
       label: "Restore signal",
     });
   });
+
+  it("switches the article Less action into a restore action for guardrailed cluster variants", () => {
+    expect(
+      getNewsArticleGuardrailSignalState({
+        article: {
+          canonicalUrl: "https://example.com/openai-agents#article",
+          clusterKey: "2026-07-01:model_release:openai:agents",
+          originalUrl: "https://source.example/openai-agents?utm=reader",
+        },
+        articleId: "article-cluster-variant",
+        guardrailItems: [
+          {
+            canonicalUrl: "https://example.com/different-openai-agents",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:Agents ",
+            id: "cached-openai-agents-cluster",
+            originalUrl: "https://source.example/different-openai-agents",
+          },
+        ],
+      }),
+    ).toEqual({
+      isGuardrailed: true,
+      label: "Restore signal",
+    });
+  });
 });
 
 describe("selectNewsArticleEligibleRelatedItems", () => {
@@ -618,6 +729,37 @@ describe("selectNewsArticleEligibleRelatedItems", () => {
           },
         ],
         relatedItems: [hiddenById, hiddenByUrl, visibleNextRead],
+      }).map((item) => item.id),
+    ).toEqual(["visible-next-read"]);
+  });
+
+  it("removes guardrailed related stories by cluster before article recommendations", () => {
+    const hiddenByCluster = {
+      ...relatedItem,
+      canonicalUrl: "https://example.com/openai-agent-cluster-follow-up",
+      clusterKey: "2026-07-01:model_release:openai:agents",
+      id: "hidden-by-cluster-variant",
+      originalUrl: "https://source.example/openai-agent-cluster-follow-up",
+    };
+    const visibleNextRead = {
+      ...relatedItem,
+      canonicalUrl: "https://example.com/visible-next-read",
+      clusterKey: "2026-07-01:agent_product:runtime:visible",
+      id: "visible-next-read",
+      originalUrl: "https://source.example/visible-next-read",
+    };
+
+    expect(
+      selectNewsArticleEligibleRelatedItems({
+        guardrailItems: [
+          {
+            canonicalUrl: "https://example.com/different-openai-story",
+            clusterKey: " 2026-07-01:MODEL_RELEASE:OpenAI:Agents ",
+            id: "stored-hidden-cluster",
+            originalUrl: "https://source.example/different-openai-story",
+          },
+        ],
+        relatedItems: [hiddenByCluster, visibleNextRead],
       }).map((item) => item.id),
     ).toEqual(["visible-next-read"]);
   });
@@ -673,6 +815,7 @@ describe("getNewsArticleGuardrailStorageUpdate", () => {
       ...getNewsArticleLocalReadFeedbackItem({
         article,
         occurredAt: "2026-07-01T09:55:00.000Z",
+        readPercent: 0.82,
       }),
       canonicalUrl: "https://example.com/openai-agents#read",
       id: "read-openai-agents-variant",
@@ -708,6 +851,7 @@ describe("getNewsArticleGuardrailStorageUpdate", () => {
           title: "Agent runtime read story",
         },
         occurredAt: "2026-07-01T09:25:00.000Z",
+        readPercent: 0.82,
       }),
     };
 
@@ -787,6 +931,7 @@ describe("getNewsArticlePositiveStorageUpdate", () => {
           title: "Agent runtime read story",
         },
         occurredAt: "2026-07-01T09:25:00.000Z",
+        readPercent: 0.82,
       }),
     };
 
@@ -1064,6 +1209,7 @@ describe("getNewsArticleReaderSignalCacheScopes", () => {
       "saved",
       "history",
       "positiveFeedback",
+      "searchMemory",
       "guardrails",
     ]);
   });
@@ -1117,6 +1263,20 @@ describe("NewsArticle persisted reader memory hydration", () => {
     );
     expect(source).toMatch(
       /if \(!guardrailsQuery\.data \|\| guardrailsQuery\.data\.length === 0\) return;[\s\S]*?const nextGuardrailItems = mergeNewsReaderMemoryItems\({[\s\S]*?localItems: readStoredMemoryItems\(guardrailStorageKey\),[\s\S]*?serverItems: guardrailsQuery\.data,[\s\S]*?}\);[\s\S]*?writeStoredMemoryItems\({[\s\S]*?items: nextGuardrailItems,[\s\S]*?storageKey: guardrailStorageKey,[\s\S]*?}\);/,
+    );
+  });
+
+  it("stores article read depth with local history memory", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /const writeStoredHistoryItem = \(\{[\s\S]*?readPercent,[\s\S]*?viewedAt,[\s\S]*?readPercent: number;[\s\S]*?getNewsArticleLocalHistoryItem\({[\s\S]*?readPercent,[\s\S]*?viewedAt,[\s\S]*?}\)/,
+    );
+    expect(source).toMatch(
+      /writeStoredHistoryItem\({[\s\S]*?article,[\s\S]*?readPercent: milestone\.readPercent,[\s\S]*?viewedAt: occurredAt,[\s\S]*?}\)/,
     );
   });
 
@@ -1190,6 +1350,32 @@ describe("NewsArticle search memory fit", () => {
 });
 
 describe("NewsArticle read feedback memory", () => {
+  it("falls back to scroll depth when read checkpoints are skipped", async () => {
+    const source = await readFile(
+      new URL("./news-article.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain("getNewsArticleReadPercent");
+    expect(source).toContain("const recordCurrentReadDepth = () => {");
+    const scrollDepthBlock =
+      source
+        .split("const recordCurrentReadDepth = () => {")[1]
+        ?.split("recordCheckpointRead(readPercent);")[0] ?? "";
+
+    expect(scrollDepthBlock).toContain("getNewsArticleReadPercent({");
+    expect(scrollDepthBlock).toContain("documentHeight");
+    expect(scrollDepthBlock).toContain("scrollY: window.scrollY");
+    expect(scrollDepthBlock).toContain("viewportHeight: window.innerHeight");
+    expect(source).toContain(
+      'window.addEventListener("scroll", recordCurrentReadDepth, {',
+    );
+    expect(source).toContain(
+      'window.addEventListener("resize", recordCurrentReadDepth)',
+    );
+    expect(source).toContain("recordCurrentReadDepth();");
+  });
+
   it("persists deep article reads as positive read feedback for For You", async () => {
     const source = await readFile(
       new URL("./news-article.tsx", import.meta.url),
@@ -1217,6 +1403,9 @@ describe("NewsArticle read feedback memory", () => {
       "item: getNewsArticleLocalReadFeedbackItem({",
     );
     expect(deepReadTrainingBlock).toContain("occurredAt,");
+    expect(deepReadTrainingBlock).toContain(
+      "readPercent: milestone.readPercent",
+    );
   });
 });
 

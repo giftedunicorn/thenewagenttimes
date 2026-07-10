@@ -62,8 +62,9 @@ const newsArticleProfileCategories = [
 ] as const satisfies readonly NewsArticleProfile["preferredCategories"][number][];
 
 const isNewsArticleProfileCategory = (
-  category: string,
+  category: unknown,
 ): category is NewsArticleProfile["preferredCategories"][number] =>
+  typeof category === "string" &&
   newsArticleProfileCategories.some(
     (profileCategory) => profileCategory === category,
   );

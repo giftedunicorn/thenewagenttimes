@@ -58,6 +58,7 @@ const toNewsEditionStoryMemoryItem = ({
 }): NewsReaderMemoryItem => ({
   canonicalUrl: item.canonicalUrl,
   category: item.category,
+  ...(item.clusterKey ? { clusterKey: item.clusterKey } : {}),
   entities: [...item.entities],
   id: item.id,
   originalUrl: item.originalUrl,
@@ -314,6 +315,7 @@ export function NewsEditionStoryActions({
       queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
       queryClient.invalidateQueries(trpc.news.history.pathFilter()),
       queryClient.invalidateQueries(trpc.news.positiveFeedback.pathFilter()),
+      queryClient.invalidateQueries(trpc.news.searchMemory.pathFilter()),
       queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
     ]);
   };

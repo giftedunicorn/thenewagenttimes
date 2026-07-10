@@ -77,7 +77,8 @@ const getEntityLatestPublishedAt = (items: readonly NewsHomeItem[]) => {
 
       if (
         !existingPublishedAt ||
-        new Date(publishedAt).getTime() > new Date(existingPublishedAt).getTime()
+        new Date(publishedAt).getTime() >
+          new Date(existingPublishedAt).getTime()
       ) {
         latestByEntity.set(key, publishedAt);
         entityLabelsByKey.set(key, value);

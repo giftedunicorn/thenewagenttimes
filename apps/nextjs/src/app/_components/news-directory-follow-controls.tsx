@@ -7,11 +7,11 @@ import type { NewsPreferenceProfile } from "@acme/validators";
 import { Button } from "@acme/ui/button";
 import { normalizeNewsPreferenceProfile } from "@acme/validators";
 
-import type { NewsHomeStatus } from "./news-home-model";
 import type {
   NewsDirectoryPageEntry,
   NewsDirectoryPageKind,
 } from "./news-directory-page";
+import type { NewsHomeStatus } from "./news-home-model";
 import { useTRPC } from "~/trpc/react";
 import {
   createDefaultNewsPreferenceProfile,
@@ -160,7 +160,7 @@ export const isNewsDirectoryFollowingSignalActive = ({
       ? normalizedProfile.preferredCategories
       : kind === "entity"
         ? normalizedProfile.preferredEntities
-      : normalizedProfile.preferredSources;
+        : normalizedProfile.preferredSources;
   const normalizedSignal = normalizeDirectoryFollowSignal(signal);
 
   return values.some(

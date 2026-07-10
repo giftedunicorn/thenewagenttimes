@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   clearStoredNewsReaderMemoryItems,
+  emptyNewsSearchMemorySnapshot,
   newsGuardrailStorageKey,
   newsHistoryStorageKey,
   newsHomeExposureStorageKey,
@@ -10,6 +11,8 @@ import {
   newsReaderMemoryChangeEventName,
   newsSavedStorageKey,
   newsSearchStorageKey,
+  parseNewsSearchMemorySnapshot,
+  readNewsSearchMemorySnapshot,
   readStoredNewsPositiveFeedbackItems,
   readStoredNewsReaderMemoryItems,
   readStoredNewsSearchMemoryItems,
@@ -248,6 +251,53 @@ describe("news reader memory storage", () => {
     ]);
   });
 
+  it("uses fresh fallback timestamps before expiring volatile reader memory", () => {
+    createWindowStub();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-07T00:00:00.000Z"));
+
+    const refreshedGuardrail = {
+      canonicalUrl: "https://example.com/refreshed-less",
+      category: "agent_product",
+      entities: ["OpenAI"],
+      hiddenAt: "2026-05-01T08:35:00.000Z",
+      id: "refreshed-less-agent",
+      occurredAt: "2026-07-06T08:35:00.000Z",
+      originalUrl: "https://source.example/refreshed-less",
+      sourceName: "Agent Desk",
+      sourceSlug: "agent-desk",
+      tags: ["agents"],
+      title: "Refreshed Less story",
+    };
+    const refreshedExposure = {
+      canonicalUrl: "https://example.com/refreshed-exposure",
+      category: "model_release",
+      entities: ["Frontier Model"],
+      id: "refreshed-home-exposure",
+      occurredAt: "2026-07-06T08:35:00.000Z",
+      originalUrl: "https://source.example/refreshed-exposure",
+      sourceName: "Model Desk",
+      sourceSlug: "model-desk",
+      tags: ["model"],
+      title: "Refreshed exposed story",
+      viewedAt: "2026-05-01T08:35:00.000Z",
+    };
+
+    writeStoredNewsReaderMemoryItems(newsGuardrailStorageKey, [
+      refreshedGuardrail,
+    ]);
+    writeStoredNewsReaderMemoryItems(newsHomeExposureStorageKey, [
+      refreshedExposure,
+    ]);
+
+    expect(readStoredNewsReaderMemoryItems(newsGuardrailStorageKey)).toEqual([
+      refreshedGuardrail,
+    ]);
+    expect(readStoredNewsReaderMemoryItems(newsHomeExposureStorageKey)).toEqual(
+      [refreshedExposure],
+    );
+  });
+
   it("drops future-dated volatile memory before it can steer local recommendations", () => {
     createWindowStub();
     vi.useFakeTimers();
@@ -398,6 +448,34 @@ describe("news reader memory storage", () => {
         searchedAt: "2026-07-06T08:50:00.000Z",
       },
     ]);
+  });
+
+  it("exposes stable search memory snapshots for hydration-safe subscribers", () => {
+    expect(readNewsSearchMemorySnapshot()).toBe(emptyNewsSearchMemorySnapshot);
+
+    createWindowStub();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-07T00:00:00.000Z"));
+
+    writeStoredNewsSearchMemoryItems([
+      {
+        query: "browser agents",
+        resultCount: 4,
+        searchedAt: "2026-07-06T08:35:00.000Z",
+      },
+    ]);
+
+    const snapshot = readNewsSearchMemorySnapshot();
+
+    expect(snapshot).not.toBe(emptyNewsSearchMemorySnapshot);
+    expect(parseNewsSearchMemorySnapshot(snapshot)).toEqual([
+      {
+        query: "browser agents",
+        resultCount: 4,
+        searchedAt: "2026-07-06T08:35:00.000Z",
+      },
+    ]);
+    expect(parseNewsSearchMemorySnapshot("not-json")).toEqual([]);
   });
 
   it("deduplicates search memory across hyphenated and underscored query variants", () => {

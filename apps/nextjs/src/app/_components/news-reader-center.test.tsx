@@ -615,6 +615,109 @@ describe("getNewsReaderCenterData", () => {
     );
   });
 
+  it("uses API exposure occurredAt timestamps in reader memory audit ordering", () => {
+    const apiExposureItem: NewsReaderMemoryItem = {
+      ...homeExposureItem,
+      id: "api-home-exposed-agent",
+      title: "API exposed agent story",
+      viewedAt: undefined,
+      occurredAt: "2026-07-06T10:30:00.000Z",
+    };
+    const center = getNewsReaderCenterData({
+      guardrailItems: [],
+      historyItems: [],
+      homeExposureItems: [homeExposureItem, apiExposureItem],
+      positiveFeedbackItems: [],
+      profile,
+      savedItems: [],
+      searchItems: [],
+    });
+
+    expect(center.recentSignals[0]).toEqual({
+      href: "/news/api-home-exposed-agent",
+      label: "Home exposure",
+      occurredAt: "2026-07-06T10:30:00.000Z",
+      sourceName: "Agent Desk",
+      title: "API exposed agent story",
+    });
+  });
+
+  it("uses the latest timestamp field when reader memory has mixed timestamps", () => {
+    const mixedTimestampItem: NewsReaderMemoryItem = {
+      ...savedItem,
+      id: "mixed-api-exposure",
+      occurredAt: "2026-07-06T11:30:00.000Z",
+      savedAt: "2026-07-06T08:35:00.000Z",
+      title: "Mixed timestamp exposure story",
+    };
+    const center = getNewsReaderCenterData({
+      guardrailItems: [],
+      historyItems: [],
+      homeExposureItems: [],
+      positiveFeedbackItems: [],
+      profile,
+      savedItems: [mixedTimestampItem],
+      searchItems: [],
+    });
+
+    expect(center.recentSignals[0]).toEqual({
+      href: "/news/mixed-api-exposure",
+      label: "Saved",
+      occurredAt: "2026-07-06T11:30:00.000Z",
+      sourceName: "Agent Desk",
+      title: "Mixed timestamp exposure story",
+    });
+  });
+
+  it("ignores invalid reader memory timestamps when ordering recent signals", () => {
+    const invalidTimestampItem: NewsReaderMemoryItem = {
+      ...savedItem,
+      id: "invalid-saved-valid-occurred",
+      occurredAt: "2026-07-06T11:45:00.000Z",
+      savedAt: "not-a-date",
+      title: "Recovered valid timestamp story",
+    };
+    const center = getNewsReaderCenterData({
+      guardrailItems: [],
+      historyItems: [],
+      homeExposureItems: [],
+      positiveFeedbackItems: [],
+      profile,
+      savedItems: [invalidTimestampItem],
+      searchItems: [],
+    });
+
+    expect(center.recentSignals[0]).toEqual({
+      href: "/news/invalid-saved-valid-occurred",
+      label: "Saved",
+      occurredAt: "2026-07-06T11:45:00.000Z",
+      sourceName: "Agent Desk",
+      title: "Recovered valid timestamp story",
+    });
+  });
+
+  it("deduplicates saved recent signals when saved memory and positive save memory overlap", () => {
+    const positiveSavedItem: NewsPositiveFeedbackMemoryItem = {
+      ...savedItem,
+      action: "save",
+      occurredAt: "2026-07-06T08:40:00.000Z",
+    };
+    const center = getNewsReaderCenterData({
+      guardrailItems: [],
+      historyItems: [],
+      homeExposureItems: [],
+      positiveFeedbackItems: [positiveSavedItem],
+      profile,
+      savedItems: [savedItem],
+      searchItems: [],
+    });
+    const recentSignalKeys = center.recentSignals.map(
+      (signal) => `${signal.label}-${signal.href}`,
+    );
+
+    expect(recentSignalKeys).toEqual(["Saved-/news/saved-agent"]);
+  });
+
   it("previews current stories ranked by profile and local memory impact", () => {
     const center = getNewsReaderCenterData({
       guardrailItems: [],
@@ -1507,9 +1610,8 @@ Agents<`);
     expect(markup).toContain("Generate home exposure");
     expect(markup).toContain("Open the front page so recently seen stories");
     expect(markup).toContain("Ranking inputs");
-    expect(markup).toContain("Recommendation Audit");
+    expect(markup).not.toContain("Recommendation Audit");
     expect(markup).toContain("Profile interests");
-    expect(markup).toContain("Local behavior");
     expect(markup).toContain("Profile Impact");
     expect(markup).toContain("2 current stories match your profile");
     expect(markup).toContain("Agent browser systems ship controls");
@@ -1668,17 +1770,17 @@ Agents<`);
     expect(readerSource).toContain(
       "onImportProfile={canEditReaderCenterProfile ? importProfile : undefined}",
     );
-    expect(readerSource).toContain(
-      "onProfileDraftSave={canEditReaderCenterProfile ? saveProfileDraft : undefined}",
+    expect(readerSource).toMatch(
+      /onProfileDraftSave=\{[\s\S]*?canEditReaderCenterProfile \? saveProfileDraft : undefined[\s\S]*?\}/,
     );
-    expect(readerSource).toContain(
-      "onQuickStartApply={canEditReaderCenterProfile ? applyQuickStart : undefined}",
+    expect(readerSource).toMatch(
+      /onQuickStartApply=\{[\s\S]*?canEditReaderCenterProfile \? applyQuickStart : undefined[\s\S]*?\}/,
     );
-    expect(readerSource).toContain(
-      "onMemoryTrainingSuggestionApply={canEditReaderCenterProfile ? applyMemoryTrainingSuggestion : undefined}",
+    expect(readerSource).toMatch(
+      /onMemoryTrainingSuggestionApply=\{[\s\S]*?canEditReaderCenterProfile \? applyMemoryTrainingSuggestion : undefined[\s\S]*?\}/,
     );
-    expect(readerSource).toContain(
-      "onSearchIntentPromotionApply={canEditReaderCenterProfile ? applySearchIntentPromotion : undefined}",
+    expect(readerSource).toMatch(
+      /onSearchIntentPromotionApply=\{[\s\S]*?canEditReaderCenterProfile \? applySearchIntentPromotion : undefined[\s\S]*?\}/,
     );
     expect(readerSource).toContain(
       "onReset={canEditReaderCenterProfile ? resetReaderCenter : undefined}",
@@ -1712,11 +1814,27 @@ Agents<`);
       removeSearchStart,
       removeSearchEnd,
     );
+    const removeSearchMutationStart = readerSource.indexOf(
+      "const removeSearchMemory = useMutation(",
+    );
+    const removeSearchMutationEnd = readerSource.indexOf(
+      "  const persistServerProfile = (profile: NewsPreferenceProfile) => {",
+      removeSearchMutationStart,
+    );
+    const removeSearchMutationBlock = readerSource.slice(
+      removeSearchMutationStart,
+      removeSearchMutationEnd,
+    );
 
     expect(readerSource).toContain(
       "trpc.news.removeSearchMemory.mutationOptions",
     );
-    expect(readerSource).toContain(
+    expect(removeSearchMutationStart).toBeGreaterThanOrEqual(0);
+    expect(removeSearchMutationEnd).toBeGreaterThan(removeSearchMutationStart);
+    expect(removeSearchMutationBlock).toContain(
+      "queryClient.invalidateQueries(trpc.news.forYou.pathFilter())",
+    );
+    expect(removeSearchMutationBlock).toContain(
       "queryClient.invalidateQueries(trpc.news.searchMemory.pathFilter())",
     );
     expect(readerSource).toContain(
@@ -1767,10 +1885,34 @@ Agents<`);
       /if \(!guardrailsQuery\.data \|\| guardrailsQuery\.data\.length === 0\) return;[\s\S]*?writeStoredNewsReaderMemoryItems\([\s\S]*?newsGuardrailStorageKey,[\s\S]*?mergeNewsReaderMemoryItems\({[\s\S]*?localItems: readStoredNewsReaderMemoryItems\(newsGuardrailStorageKey\),[\s\S]*?serverItems: guardrailsQuery\.data,[\s\S]*?}\),[\s\S]*?\);/,
     );
     expect(readerSource).toMatch(
-      /if \(!positiveFeedbackQuery\.data \|\| positiveFeedbackQuery\.data\.length === 0\) return;[\s\S]*?writeStoredNewsPositiveFeedbackItems\([\s\S]*?positiveFeedbackQuery\.data\.reduce<NewsPositiveFeedbackMemoryItem\[]>\([\s\S]*?mergeNewsHomePositiveFeedbackItems\({[\s\S]*?currentItems,[\s\S]*?nextItem,[\s\S]*?}\),[\s\S]*?readStoredNewsPositiveFeedbackItems\(\),[\s\S]*?\)[\s\S]*?\);/,
+      /if \(!positiveFeedbackQuery\.data \|\| positiveFeedbackQuery\.data\.length === 0\)[\s\S]*?return;[\s\S]*?writeStoredNewsPositiveFeedbackItems\([\s\S]*?positiveFeedbackQuery\.data\.reduce<NewsPositiveFeedbackMemoryItem\[]>\([\s\S]*?mergeNewsHomePositiveFeedbackItems\({[\s\S]*?currentItems,[\s\S]*?nextItem,[\s\S]*?}\),[\s\S]*?readStoredNewsPositiveFeedbackItems\(\),[\s\S]*?\)[\s\S]*?\);/,
     );
     expect(readerSource).toMatch(
       /if \(!searchMemoryQuery\.data \|\| searchMemoryQuery\.data\.length === 0\) return;[\s\S]*?writeStoredNewsSearchMemoryItems\([\s\S]*?selectStoredNewsSearchMemoryItems\(\[[\s\S]*?\.\.\.searchMemoryQuery\.data,[\s\S]*?\.\.\.readStoredNewsSearchMemoryItems\(\),[\s\S]*?\]\)[\s\S]*?\);/,
     );
+  });
+});
+
+describe("NewsReaderCenter lab surface", () => {
+  it("selects the recommendation lab without duplicating hydration", async () => {
+    const source = await readFile(
+      new URL("./news-reader-center.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('surface = "center"');
+    expect(source).toContain('surface === "lab"');
+    expect(source).toContain("<NewsRecommendationLabView center={center} />");
+    expect(source).toContain('href="/reader/lab"');
+  });
+
+  it("serves the lab from a noindex reader route", async () => {
+    const routeSource = await readFile(
+      new URL("../reader/lab/page.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(routeSource).toContain('surface="lab"');
+    expect(routeSource).toContain("index: false");
   });
 });

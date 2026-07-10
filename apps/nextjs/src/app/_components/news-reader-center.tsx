@@ -62,6 +62,7 @@ import {
   writeStoredNewsForYouObjective,
   writeStoredNewsPreferenceProfile,
 } from "./news-reader-profile-storage";
+import { NewsRecommendationLabView } from "./news-recommendation-lab";
 
 interface NewsReaderCenterMetric {
   label: string;
@@ -608,13 +609,27 @@ const toReaderCenterSignalValues = (
   }));
 
 const getMemoryTimestamp = (item: NewsReaderMemoryItem) => {
-  const occurredAt = item.savedAt ?? item.viewedAt ?? item.hiddenAt ?? null;
+  const latestTimestamp = [
+    item.savedAt,
+    item.viewedAt,
+    item.hiddenAt,
+    item.occurredAt,
+  ].reduce<{ occurredAt: string; timestamp: number } | null>(
+    (latest, occurredAt) => {
+      if (typeof occurredAt !== "string") return latest;
 
-  if (!occurredAt) return null;
+      const timestamp = Date.parse(occurredAt);
 
-  const timestamp = Date.parse(occurredAt);
+      if (!Number.isFinite(timestamp)) return latest;
+      if (!latest || timestamp > latest.timestamp)
+        return { occurredAt, timestamp };
 
-  return Number.isFinite(timestamp) ? occurredAt : null;
+      return latest;
+    },
+    null,
+  );
+
+  return latestTimestamp?.occurredAt ?? null;
 };
 
 const sortMemoryItemsByTimestamp = (
@@ -2414,7 +2429,16 @@ export const getNewsReaderCenterData = ({
       .filter(
         (signal): signal is NewsReaderCenterRecentSignal => signal !== null,
       )
-      .sort(sortRecentSignalsByTimestamp),
+      .sort(sortRecentSignalsByTimestamp)
+      .filter((signal, index, signals) => {
+        const signalKey = `${signal.label}:${signal.href}`;
+
+        return (
+          signals.findIndex(
+            (candidate) => `${candidate.label}:${candidate.href}` === signalKey,
+          ) === index
+        );
+      }),
     recommendationAudit: getNewsReaderCenterRecommendationAudit({
       guardrailItems,
       historyItems,
@@ -3283,6 +3307,9 @@ export function NewsReaderCenterView({
               <Link href="/">Tune For You</Link>
             </Button>
             <Button asChild className="rounded-none" variant="outline">
+              <Link href="/reader/lab">Recommendation Lab</Link>
+            </Button>
+            <Button asChild className="rounded-none" variant="outline">
               <Link href="/reader/library">Reader Library</Link>
             </Button>
             <Button asChild className="rounded-none" variant="outline">
@@ -3378,70 +3405,6 @@ export function NewsReaderCenterView({
               )}
             </div>
           </div>
-          <div className="border-b border-[#161616]/25 py-5 dark:border-[#f4f1ea]/20">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-2xl font-black">Recommendation Audit</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                  {center.recommendationAudit.summary}
-                </p>
-              </div>
-              <span className="border border-[#161616] px-2 py-1 text-sm font-black dark:border-[#f4f1ea]">
-                {center.recommendationAudit.label}
-              </span>
-            </div>
-            <div className="mt-4 grid gap-3">
-              {center.recommendationAudit.stories.length > 0 ? (
-                center.recommendationAudit.stories.map((story) => (
-                  <article
-                    className="grid gap-3 border-t border-[#161616]/25 pt-3 dark:border-[#f4f1ea]/20"
-                    key={story.href}
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="text-xl leading-tight font-black">
-                          <Link className="hover:underline" href={story.href}>
-                            {story.title}
-                          </Link>
-                        </h3>
-                        <p className="mt-1 text-sm leading-6 text-[#5b5750] dark:text-[#bbb4aa]">
-                          {story.sourceName} / {story.summary}
-                        </p>
-                      </div>
-                      <span className="shrink-0 font-mono text-[11px] tracking-[0.12em] text-[#8a241c] uppercase dark:text-[#ff8b7e]">
-                        {story.signalCountLabel}
-                      </span>
-                    </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {story.signals.map((signal) => (
-                        <div
-                          className="border-t border-[#161616]/15 pt-2 text-sm dark:border-[#f4f1ea]/10"
-                          key={`${story.href}-${signal.label}`}
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-2">
-                            <span className="font-semibold">
-                              {signal.label}
-                            </span>
-                            <span className="font-mono text-[11px] text-[#5b5750] dark:text-[#bbb4aa]">
-                              {signal.tone} / {signal.weightLabel}
-                            </span>
-                          </div>
-                          <p className="mt-1 leading-5 text-[#5b5750] dark:text-[#bbb4aa]">
-                            {signal.detail}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </article>
-                ))
-              ) : (
-                <p className="border-t border-[#161616]/25 pt-3 text-sm leading-6 text-[#5b5750] dark:border-[#f4f1ea]/20 dark:text-[#bbb4aa]">
-                  Use profile, search, save, read, share, exposure, and Less
-                  signals to make current story ranking auditable.
-                </p>
-              )}
-            </div>
-          </div>
           <div className="grid grid-cols-[6rem_minmax(0,1fr)_8rem] gap-3 border-b border-[#161616]/25 py-2 font-mono text-[10px] tracking-[0.12em] uppercase dark:border-[#f4f1ea]/20">
             <span>Signal</span>
             <span>Story</span>
@@ -3487,9 +3450,11 @@ export function NewsReaderCenterView({
 export function NewsReaderCenter({
   items = emptyNewsReaderCenterItems,
   status = "ready",
+  surface = "center",
 }: {
   items?: readonly NewsHomeItem[];
   status?: NewsHomeStatus;
+  surface?: "center" | "lab";
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
@@ -3570,7 +3535,10 @@ export function NewsReaderCenter({
   const removeSearchMemory = useMutation(
     trpc.news.removeSearchMemory.mutationOptions({
       onSuccess: async () => {
-        await queryClient.invalidateQueries(trpc.news.searchMemory.pathFilter());
+        await Promise.all([
+          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
+          queryClient.invalidateQueries(trpc.news.searchMemory.pathFilter()),
+        ]);
       },
     }),
   );
@@ -3652,7 +3620,8 @@ export function NewsReaderCenter({
   }, [historyQuery.data]);
 
   useEffect(() => {
-    if (!positiveFeedbackQuery.data || positiveFeedbackQuery.data.length === 0) return;
+    if (!positiveFeedbackQuery.data || positiveFeedbackQuery.data.length === 0)
+      return;
 
     writeStoredNewsPositiveFeedbackItems(
       positiveFeedbackQuery.data.reduce<NewsPositiveFeedbackMemoryItem[]>(
@@ -3786,7 +3755,9 @@ export function NewsReaderCenter({
     setCenter(createEmptyReaderCenterData(items));
   };
 
-  return (
+  return surface === "lab" ? (
+    <NewsRecommendationLabView center={center} />
+  ) : (
     <NewsReaderCenterView
       center={center}
       exportHref={getNewsReaderCenterExportHref(center)}
@@ -3795,10 +3766,18 @@ export function NewsReaderCenter({
         setCenter(readCurrentCenter());
       }}
       onImportProfile={canEditReaderCenterProfile ? importProfile : undefined}
-      onProfileDraftSave={canEditReaderCenterProfile ? saveProfileDraft : undefined}
-      onQuickStartApply={canEditReaderCenterProfile ? applyQuickStart : undefined}
-      onMemoryTrainingSuggestionApply={canEditReaderCenterProfile ? applyMemoryTrainingSuggestion : undefined}
-      onSearchIntentPromotionApply={canEditReaderCenterProfile ? applySearchIntentPromotion : undefined}
+      onProfileDraftSave={
+        canEditReaderCenterProfile ? saveProfileDraft : undefined
+      }
+      onQuickStartApply={
+        canEditReaderCenterProfile ? applyQuickStart : undefined
+      }
+      onMemoryTrainingSuggestionApply={
+        canEditReaderCenterProfile ? applyMemoryTrainingSuggestion : undefined
+      }
+      onSearchIntentPromotionApply={
+        canEditReaderCenterProfile ? applySearchIntentPromotion : undefined
+      }
       onSearchMemoryRemove={removeSearchMemoryItem}
       onReset={canEditReaderCenterProfile ? resetReaderCenter : undefined}
     />

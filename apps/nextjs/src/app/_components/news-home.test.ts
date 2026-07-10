@@ -77,7 +77,9 @@ describe("NewsHome discovery navigation", () => {
     });
 
     expect(source).toContain("storyTimeline.events.map");
-    expect(source).toContain("href={`/entities/${encodeURIComponent(entity)}`}");
+    expect(source).toContain(
+      "href={`/entities/${encodeURIComponent(entity)}`}",
+    );
   });
 
   it("puts the A1 lead story before recommendation training controls", async () => {
@@ -135,6 +137,9 @@ describe("NewsHome discovery navigation", () => {
     expect(source).toContain("trpc.news.recordSearchMemory.mutationOptions");
     expect(recordSearchIntentStart).toBeGreaterThanOrEqual(0);
     expect(recordSearchIntentEnd).toBeGreaterThan(recordSearchIntentStart);
+    expect(recordSearchIntentBlock).toContain(
+      "if (!canPersistProfile) return;",
+    );
     expect(recordSearchIntentBlock).toContain("if (!visitorKey) return;");
     expect(recordSearchIntentBlock).toContain("recordSearchMemory({");
     expect(recordSearchIntentBlock).toContain("visitorKey,");
@@ -144,6 +149,36 @@ describe("NewsHome discovery navigation", () => {
     expect(source).toMatch(
       /recordHomeSearchIntent\(\{\s*query: trend\.query,\s*resultCount:/,
     );
+  });
+
+  it("keeps homepage search in-page so server search memory can persist", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+    const applyExploreSearchStart = source.indexOf(
+      "const applyExploreSearch = (event: FormEvent<HTMLFormElement>) => {",
+    );
+    const applyExploreSearchEnd = source.indexOf(
+      "  const clearExploreFilters = () => {",
+      applyExploreSearchStart,
+    );
+    const applyExploreSearchBlock = source.slice(
+      applyExploreSearchStart,
+      applyExploreSearchEnd,
+    );
+
+    expect(applyExploreSearchStart).toBeGreaterThanOrEqual(0);
+    expect(applyExploreSearchEnd).toBeGreaterThan(applyExploreSearchStart);
+    expect(applyExploreSearchBlock).toMatch(
+      /event\.preventDefault\(\);\s*const trimmedSearchDraft = searchDraft\.trim\(\);/,
+    );
+    expect(applyExploreSearchBlock).toMatch(
+      /if \(!trimmedSearchDraft\) return;/,
+    );
+    expect(applyExploreSearchBlock).toContain(
+      "setSearchQuery(trimmedSearchDraft);",
+    );
+    expect(applyExploreSearchBlock).toContain("query: trimmedSearchDraft,");
   });
 
   it("persists home exposure memory locally before cooldown guidance runs", async () => {
@@ -161,30 +196,177 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("surfaces the next personalized page queue beside the home feed", async () => {
+  it("clears local saved and positive anchors when Less is recorded", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
+    const recordStoryActionStart = source.indexOf(
+      "  const recordStoryAction = (",
+    );
+    const recordStoryActionEnd = source.indexOf(
+      "  const restoreGuardrailItem = (",
+      recordStoryActionStart,
+    );
+    const recordStoryActionBlock = source.slice(
+      recordStoryActionStart,
+      recordStoryActionEnd,
+    );
+    const hideActionStart = recordStoryActionBlock.indexOf(
+      '    if (action === "hide") {',
+    );
+    const hideActionEnd = recordStoryActionBlock.indexOf(
+      '    if (action === "click_source" || action === "save" || action === "share")',
+      hideActionStart,
+    );
+    const hideActionBlock = recordStoryActionBlock.slice(
+      hideActionStart,
+      hideActionEnd,
+    );
 
-    expect(source).toContain("getNewsForYouNextQueue");
-    expect(source).toContain("const nextForYouQueue = getNewsForYouNextQueue");
-    expect(source).toContain("Next For You Queue");
-    expect(source).toContain("nextForYouQueue.nextRequest.excludeNewsItemIds");
-    expect(source).toContain("nextForYouQueue.notices.map");
-    expect(source).toContain("getNewsForYouNextQueueTrainingAction");
-    expect(source).toContain("applyForYouNextQueueAction");
+    expect(recordStoryActionStart).toBeGreaterThanOrEqual(0);
+    expect(recordStoryActionEnd).toBeGreaterThan(recordStoryActionStart);
+    expect(hideActionStart).toBeGreaterThanOrEqual(0);
+    expect(hideActionEnd).toBeGreaterThan(hideActionStart);
+    expect(hideActionBlock).toContain("setLocalSavedItems((current) => {");
+    expect(hideActionBlock).toMatch(
+      /removeNewsReaderMemoryItem\({[\s\S]*?item,[\s\S]*?itemId: item\.id,[\s\S]*?items: current,[\s\S]*?}\)/,
+    );
+    expect(hideActionBlock).toContain(
+      "writeStoredMemoryItems(savedStorageKey, nextItems);",
+    );
+    expect(hideActionBlock).toContain(
+      "setPositiveFeedbackItems((current) => {",
+    );
+    expect(hideActionBlock).toContain("removeNewsHomePositiveFeedbackItem({");
+    expect(hideActionBlock).toContain(
+      'removeNewsHomePositiveFeedbackActionItem({\n          action: "share",',
+    );
+    expect(hideActionBlock).toContain(
+      'removeNewsHomePositiveFeedbackActionItem({\n          action: "click_source",',
+    );
+    expect(hideActionBlock).toContain(
+      "writeStoredPositiveFeedbackItems(nextItems);",
+    );
   });
 
-  it("lets live wire notices train real-time recommendation preferences", async () => {
+  it("passes production auth readiness from the home route into the desk status panel", async () => {
+    const source = await readFile(new URL("../page.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("env.BETTER_AUTH_SECRET ?? env.AUTH_SECRET");
+    expect(source).toContain("authConfigured={Boolean");
+  });
+
+  it("preserves story cluster keys across local home reader memory", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+    const savedHelperStart = source.indexOf("const toLocalSavedMemoryItem = (");
+    const savedHelperEnd = source.indexOf(
+      "const toLocalGuardrailMemoryItem = (",
+      savedHelperStart,
+    );
+    const helperStart = source.indexOf(
+      "const toLocalHomeExposureMemoryItem = (",
+    );
+    const helperEnd = source.indexOf(
+      "const readNewsForYouApiExposureItems = (",
+      helperStart,
+    );
+    const savedHelperBlock = source.slice(savedHelperStart, savedHelperEnd);
+    const helperBlock = source.slice(helperStart, helperEnd);
+    const guardrailHelperStart = savedHelperEnd;
+    const guardrailHelperEnd = helperStart;
+    const guardrailHelperBlock = source.slice(
+      guardrailHelperStart,
+      guardrailHelperEnd,
+    );
+
+    expect(savedHelperStart).toBeGreaterThanOrEqual(0);
+    expect(savedHelperEnd).toBeGreaterThan(savedHelperStart);
+    expect(savedHelperBlock).toContain(
+      "...(item.clusterKey ? { clusterKey: item.clusterKey } : {})",
+    );
+    expect(guardrailHelperStart).toBeGreaterThanOrEqual(0);
+    expect(guardrailHelperEnd).toBeGreaterThan(guardrailHelperStart);
+    expect(guardrailHelperBlock).toContain(
+      "...(item.clusterKey ? { clusterKey: item.clusterKey } : {})",
+    );
+    expect(helperStart).toBeGreaterThanOrEqual(0);
+    expect(helperEnd).toBeGreaterThan(helperStart);
+    expect(helperBlock).toContain(
+      "...(item.clusterKey ? { clusterKey: item.clusterKey } : {})",
+    );
+  });
+
+  it("preserves API exposure cluster keys when hydrating local For You memory", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+    const readExposureStart = source.indexOf(
+      "const readNewsForYouApiExposureItems = (",
+    );
+    const readExposureEnd = source.indexOf(
+      "const readStoredHistoryItems =",
+      readExposureStart,
+    );
+    const readExposureBlock = source.slice(readExposureStart, readExposureEnd);
+
+    expect(readExposureStart).toBeGreaterThanOrEqual(0);
+    expect(readExposureEnd).toBeGreaterThan(readExposureStart);
+    expect(readExposureBlock).toContain('typeof item.clusterKey === "string"');
+    expect(readExposureBlock).toContain("clusterKey: item.clusterKey");
+  });
+
+  it("renders source clusters as trainable aggregation actions", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
 
-    expect(source).toContain("getNewsLiveWire");
-    expect(source).toContain("Live Wire");
-    expect(source).toContain("liveWire.notices.map");
-    expect(source).toContain("getNewsLiveWireTrainingAction");
-    expect(source).toContain("applyLiveWireAction");
+    expect(source).toContain("getNewsSourceClusterTrainingAction");
+    expect(source).toContain("applySourceClusterAction");
+    expect(source).toContain("sourceClusterAction.actionLabel");
+  });
+
+  it("renders corroborated claims as trainable aggregation actions", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("getNewsClaimTrackerTrainingAction");
+    expect(source).toContain("applyClaimTrackerAction");
+    expect(source).toContain("claimAction.actionLabel");
+  });
+
+  it("renders story timeline events as trainable recommendation actions", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("getNewsStoryTimelineTrainingAction");
+    expect(source).toContain("applyStoryTimelineAction");
+    expect(source).toContain("timelineAction.actionLabel");
+  });
+
+  it("renders coverage threads as trainable recommendation actions", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("getNewsCoverageThreadTrainingAction");
+    expect(source).toContain("applyCoverageThreadAction");
+    expect(source).toContain("coverageThreadAction.actionLabel");
+  });
+
+  it("renders verified consensus threads as trainable recommendation actions", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("getNewsConsensusThreadTrainingAction");
+    expect(source).toContain("applyConsensusThreadAction");
+    expect(source).toContain("consensusAction.actionLabel");
   });
 
   it("posts local reader memory to the For You API when loading more stories", async () => {
@@ -199,7 +381,7 @@ describe("NewsHome discovery navigation", () => {
     expect(source).toContain("searchMemoryItems");
   });
 
-  it("posts merged explicit, saved, and history memory to the For You API", async () => {
+  it("posts selected positive feedback memory and separate reading history to the For You API", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
@@ -216,12 +398,9 @@ describe("NewsHome discovery navigation", () => {
     );
     const loadMoreRequestStart = source.indexOf(
       "buildNewsHomeForYouApiRequestBody({",
-      source.indexOf("if (loadMoreRoute === \"forYou\")"),
+      source.indexOf('if (loadMoreRoute === "forYou")'),
     );
-    const loadMoreRequestEnd = source.indexOf(
-      "}),",
-      loadMoreRequestStart,
-    );
+    const loadMoreRequestEnd = source.indexOf("}),", loadMoreRequestStart);
     const loadMoreRequestBlock = source.slice(
       loadMoreRequestStart,
       loadMoreRequestEnd,
@@ -242,10 +421,7 @@ describe("NewsHome discovery navigation", () => {
       /const positiveFeedbackAnchors = useMemo\([\s\S]*?selectNewsHomePositiveFeedbackAnchors\(\{[\s\S]*?explicitFeedbackItems: positiveFeedbackItems,[\s\S]*?historyItems,[\s\S]*?savedItems,[\s\S]*?\}\)/,
     );
     expect(source).toMatch(
-      /const positiveFeedbackMemoryItems = useMemo\([\s\S]*?mergeNewsHomePositiveFeedbackItems\(\{[\s\S]*?currentItems,[\s\S]*?nextItem,[\s\S]*?\}\)/,
-    );
-    expect(source).toMatch(
-      /const positiveFeedbackMemoryItems = useMemo\([\s\S]*?\.\.\.positiveFeedbackItems,[\s\S]*?\.\.\.serverPositiveFeedbackItems,[\s\S]*?\.\.\.savedItems\.flatMap/,
+      /const positiveFeedbackMemoryItems = useMemo\([\s\S]*?selectNewsHomePositiveFeedbackMemoryItems\(\{[\s\S]*?historyItems,[\s\S]*?positiveFeedbackItems,[\s\S]*?savedItems,[\s\S]*?serverPositiveFeedbackItems,[\s\S]*?\}\)/,
     );
     expect(source).toMatch(
       /getNewsHomeCollaborativeRankingSignals\(\{[\s\S]*?historyItems,[\s\S]*?positiveFeedbackItems: positiveFeedbackMemoryItems,[\s\S]*?savedItems,[\s\S]*?\}\)/,
@@ -258,6 +434,37 @@ describe("NewsHome discovery navigation", () => {
     );
     expect(loadMoreRequestBlock).toContain(
       "positiveFeedbackItems: positiveFeedbackMemoryItems",
+    );
+    expect(primaryRequestBlock).toContain("readingHistoryItems: historyItems");
+    expect(loadMoreRequestBlock).toContain("readingHistoryItems: historyItems");
+  });
+
+  it("keeps passive reading history out of inline positive feedback memory", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+    const positiveFeedbackMemoryStart = source.indexOf(
+      "const positiveFeedbackMemoryItems = useMemo(() => {",
+    );
+    const positiveFeedbackMemoryEnd = source.indexOf(
+      "  const positiveFeedbackAnchors = useMemo(",
+      positiveFeedbackMemoryStart,
+    );
+    const positiveFeedbackMemoryBlock = source.slice(
+      positiveFeedbackMemoryStart,
+      positiveFeedbackMemoryEnd,
+    );
+
+    expect(positiveFeedbackMemoryStart).toBeGreaterThanOrEqual(0);
+    expect(positiveFeedbackMemoryEnd).toBeGreaterThan(
+      positiveFeedbackMemoryStart,
+    );
+    expect(positiveFeedbackMemoryBlock).toContain(
+      "selectNewsHomePositiveFeedbackMemoryItems({",
+    );
+    expect(positiveFeedbackMemoryBlock).not.toContain("historyItems.flatMap");
+    expect(positiveFeedbackMemoryBlock).not.toContain(
+      "getLatestNewsReaderMemoryTimestamp",
     );
   });
 
@@ -278,19 +485,16 @@ describe("NewsHome discovery navigation", () => {
     );
     const loadMoreRequestStart = source.indexOf(
       "buildNewsHomeForYouApiRequestBody({",
-      source.indexOf("if (loadMoreRoute === \"forYou\")"),
+      source.indexOf('if (loadMoreRoute === "forYou")'),
     );
-    const loadMoreRequestEnd = source.indexOf(
-      "}),",
-      loadMoreRequestStart,
-    );
+    const loadMoreRequestEnd = source.indexOf("}),", loadMoreRequestStart);
     const loadMoreRequestBlock = source.slice(
       loadMoreRequestStart,
       loadMoreRequestEnd,
     );
 
     expect(source).toMatch(
-      /const recentExposureMemoryItems = useMemo\([\s\S]*?mergeNewsReaderMemoryItems\(\{[\s\S]*?limit: 80,[\s\S]*?localItems: localHomeExposureItems,[\s\S]*?serverItems: historyItems,[\s\S]*?\}\)/,
+      /const recentExposureMemoryItems = useMemo\([\s\S]*?mergeNewsReaderMemoryItems\(\{[\s\S]*?limit: 80,[\s\S]*?localItems: localHomeExposureItems,[\s\S]*?serverItems: historyItems\.map\(\(item\) => \(\{[\s\S]*?surface: "article"[\s\S]*?\}\)\),[\s\S]*?\}\)/,
     );
     expect(primaryRequestBlock).toContain(
       "recentExposureItems: recentExposureMemoryItems",
@@ -304,17 +508,34 @@ describe("NewsHome discovery navigation", () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
+    const primaryForYouEffectStart = source.indexOf(
+      'if (primaryFeedRoute !== "forYou" || !forYouApiQuery.data) return;',
+    );
+    const primaryForYouEffectEnd = source.indexOf(
+      "const forYouApiContext = forYouApiQuery.data?.context",
+      primaryForYouEffectStart,
+    );
+    const primaryForYouEffectBlock = source.slice(
+      primaryForYouEffectStart,
+      primaryForYouEffectEnd,
+    );
 
     expect(source).toContain("NewsHomeForYouApiNextRequest");
     expect(source).toContain("fetchNewsHomeForYouApiPayload");
     expect(source).toContain("readNewsForYouApiExposureItems");
+    expect(source).toContain("readPercent: item.readPercent");
     expect(source).toContain("applyForYouApiExposureMemory");
     expect(source).toContain("unseenExposureItems");
+    expect(primaryForYouEffectStart).toBeGreaterThanOrEqual(0);
+    expect(primaryForYouEffectEnd).toBeGreaterThan(primaryForYouEffectStart);
     expect(source).toMatch(
       /selectActiveNewsReaderMemoryItem\(\{[\s\S]*?memoryItems: recordedHomeExposureItemsRef\.current/,
     );
-    expect(source).toMatch(
+    expect(primaryForYouEffectBlock).toMatch(
       /applyForYouApiExposureMemory\(\s*forYouApiQuery\.data\.nextRequest\?\.recentExposureItems,\s*\)/,
+    );
+    expect(primaryForYouEffectBlock).toContain(
+      "setHasMoreItems(forYouApiQuery.data.hasMore)",
     );
     expect(source).toMatch(
       /const forYouApiPayload =\s*await fetchNewsHomeForYouApiPayload/,
@@ -323,6 +544,60 @@ describe("NewsHome discovery navigation", () => {
       /applyForYouApiExposureMemory\(\s*forYouApiPayload\.nextRequest\?\.recentExposureItems,\s*\)/,
     );
     expect(source).toContain("nextItems = forYouApiPayload.items");
+    expect(source).toContain("nextHasMoreItems = forYouApiPayload.hasMore");
+  });
+
+  it("replays For You API nextRequest semantic and collaborative memory when loading more", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+    const loadMoreForYouStart = source.indexOf(
+      'if (loadMoreRoute === "forYou")',
+    );
+    const loadMoreForYouEnd = source.indexOf("} else {", loadMoreForYouStart);
+    const loadMoreForYouBlock = source.slice(
+      loadMoreForYouStart,
+      loadMoreForYouEnd,
+    );
+
+    expect(source).toContain("NewsHomeForYouApiNextRequest | null");
+    expect(source).toContain(
+      "collaborativeSignals?: readonly NewsCollaborativeSignal[];",
+    );
+    expect(source).toContain(
+      "semanticSimilarityMatches?: readonly NewsSemanticSimilarityMatch[];",
+    );
+    expect(source).toContain(
+      "setForYouApiNextRequest(forYouApiQuery.data.nextRequest ?? null);",
+    );
+    expect(loadMoreForYouStart).toBeGreaterThanOrEqual(0);
+    expect(loadMoreForYouEnd).toBeGreaterThan(loadMoreForYouStart);
+    expect(loadMoreForYouBlock).toMatch(
+      /collaborativeSignals:\s*forYouApiNextRequest\?\.collaborativeSignals \?\?\s*collaborativeRankingSignals/,
+    );
+    expect(loadMoreForYouBlock).toMatch(
+      /semanticSimilarityMatches:\s*forYouApiNextRequest\?\.semanticSimilarityMatches \?\? \[\]/,
+    );
+    expect(loadMoreForYouBlock).toContain(
+      "setForYouApiNextRequest(forYouApiPayload.nextRequest ?? null);",
+    );
+  });
+
+  it("clears stale For You API nextRequest memory when the first-page request changes", async () => {
+    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
+      encoding: "utf8",
+    });
+
+    expect(source).toContain("getNewsHomeForYouApiNextRequestResetKey");
+    expect(source).toMatch(
+      /const forYouApiNextRequestResetKey = useMemo\(\s*\(\) =>\s*getNewsHomeForYouApiNextRequestResetKey\(forYouApiRequestBody\),\s*\[forYouApiRequestBody\],\s*\);/,
+    );
+    expect(source).toMatch(
+      /useEffect\(\(\) => \{\s*setForYouApiNextRequest\(null\);\s*}, \[forYouApiNextRequestResetKey\]\);/,
+    );
+    expect(source).not.toMatch(
+      /useEffect\(\(\) => \{\s*setForYouApiNextRequest\(null\);\s*}, \[forYouApiRequestBody\]\);/,
+    );
   });
 
   it("passes the reader key into live search candidates for personalized ranking", async () => {
@@ -372,6 +647,14 @@ describe("NewsHome discovery navigation", () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
+    const fetchPayloadStart = source.indexOf(
+      "const fetchNewsHomeForYouApiPayload = async",
+    );
+    const fetchPayloadEnd = source.indexOf(
+      "export function NewsHome",
+      fetchPayloadStart,
+    );
+    const fetchPayloadBlock = source.slice(fetchPayloadStart, fetchPayloadEnd);
 
     expect(source).toContain("const forYouApiQuery = useQuery({");
     expect(source).toContain(
@@ -382,17 +665,20 @@ describe("NewsHome discovery navigation", () => {
     );
     expect(source).toContain("readerStateHydrated");
     expect(source).toContain("forYouApiQuery.data?.items ?? []");
+    expect(fetchPayloadStart).toBeGreaterThanOrEqual(0);
+    expect(fetchPayloadEnd).toBeGreaterThan(fetchPayloadStart);
+    expect(fetchPayloadBlock).toContain('typeof payload.hasMore === "boolean"');
+    expect(fetchPayloadBlock).toContain("? payload.hasMore : false");
   });
 
   it("waits for server reader memory before the first personalized API page", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
-    const forYouQueryStart = source.indexOf("const forYouApiQuery = useQuery({");
-    const forYouQueryEnd = source.indexOf(
-      "});",
-      forYouQueryStart,
+    const forYouQueryStart = source.indexOf(
+      "const forYouApiQuery = useQuery({",
     );
+    const forYouQueryEnd = source.indexOf("});", forYouQueryStart);
     const forYouQueryBlock = source.slice(forYouQueryStart, forYouQueryEnd);
 
     expect(source).toMatch(
@@ -553,79 +839,60 @@ describe("NewsHome discovery navigation", () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
+    const contextMemoryStart = source.indexOf("const forYouApiContextMemory");
+    const contextMemoryEnd = source.indexOf(
+      "const serverRecommendedItems",
+      contextMemoryStart,
+    );
+    const contextMemoryBlock = source.slice(
+      contextMemoryStart,
+      contextMemoryEnd,
+    );
 
-    expect(source).toContain("const forYouApiContext = forYouApiQuery.data?.context");
-    expect(source).toContain("const forYouApiContextMemory");
+    expect(source).toContain(
+      "const forYouApiContext = forYouApiQuery.data?.context",
+    );
+    expect(contextMemoryStart).toBeGreaterThanOrEqual(0);
+    expect(contextMemoryEnd).toBeGreaterThan(contextMemoryStart);
     expect(source).toContain("Live API context");
     expect(source).toContain("forYouApiContextMemory.map");
-    expect(source).toContain("forYouApiContext.profileSignalCount");
-    expect(source).toContain("forYouApiContext.memory.collaborativeSignals");
-    expect(source).toContain("forYouApiContext.memory.semanticSimilarity");
-  });
-
-  it("uses angle-aware active checks for front-page preference angle controls", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-    const anglesControlStart = source.indexOf('<PreferenceGroup title="Angles">');
-    const anglesControlEnd = source.indexOf(
-      '<PreferenceGroup title="Entities">',
-      anglesControlStart,
+    expect(contextMemoryBlock).toContain("forYouApiContext.profileSignalCount");
+    expect(contextMemoryBlock).toContain("forYouApiContext.daypart.label");
+    expect(contextMemoryBlock).toContain(
+      "forYouApiContext.sessionIntent.active",
     );
-    const anglesControlBlock = source.slice(
-      anglesControlStart,
-      anglesControlEnd,
+    expect(source).toContain("forYouApiContext?.sessionIntent.fallbackReason");
+    expect(source).toContain('"direct_filter"');
+    expect(source).toContain("const forYouApiDirectFilterLabel");
+    expect(source).toContain(
+      "getCategoryLabel(forYouApiContext.filters.category)",
     );
-
-    expect(anglesControlStart).toBeGreaterThanOrEqual(0);
-    expect(anglesControlEnd).toBeGreaterThan(anglesControlStart);
-    expect(source).toContain("const hasAngleValue =");
-    expect(anglesControlBlock).toMatch(
-      /const active = hasAngleValue\(\s*profile\.preferredEntities,\s*angle\.signal,\s*\);/,
+    expect(source).toContain("forYouApiContext.filters.sourceSlug");
+    expect(source).toContain("forYouApiContext.filters.tag");
+    expect(source).toContain("Direct filter");
+    expect(source).toContain("Search memory fallback");
+    expect(contextMemoryBlock).toContain(
+      "forYouApiContext.degradedSignals.length",
     );
-    expect(anglesControlBlock).not.toContain(
-      "entity.toLowerCase() === angle.signal.toLowerCase()",
+    expect(contextMemoryBlock).toContain("Signal health");
+    expect(contextMemoryBlock).toContain("forYouApiContext.rankingStages");
+    expect(contextMemoryBlock).toContain("Pipeline");
+    expect(contextMemoryBlock).toContain("getNewsForYouApiPipelineSummary");
+    expect(contextMemoryBlock).toContain("Guardrails");
+    expect(contextMemoryBlock).toContain(
+      "getNewsForYouApiPipelineGuardrailSummary",
     );
-  });
-
-  it("uses case-insensitive entity checks for front-page preference entity controls and toggles", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-    const entitiesControlStart = source.indexOf(
-      '<PreferenceGroup title="Entities">',
+    expect(contextMemoryBlock).toContain("Training");
+    expect(contextMemoryBlock).toContain(
+      "getNewsForYouApiTrainingSignalSummary",
     );
-    const entitiesControlEnd = source.indexOf(
-      "</PreferenceGroup>",
-      entitiesControlStart,
+    expect(contextMemoryBlock).toContain("forYouApiContext.pagination");
+    expect(contextMemoryBlock).toContain("Page");
+    expect(contextMemoryBlock).toContain(
+      "forYouApiContext.memory.collaborativeSignals",
     );
-    const entitiesControlBlock = source.slice(
-      entitiesControlStart,
-      entitiesControlEnd,
-    );
-
-    expect(entitiesControlStart).toBeGreaterThanOrEqual(0);
-    expect(entitiesControlEnd).toBeGreaterThan(entitiesControlStart);
-    expect(source).toContain("const hasEntityValue =");
-    expect(source).toContain("const addEntityValue =");
-    expect(source).toContain("const removeEntityValue =");
-    expect(entitiesControlBlock).toMatch(
-      /const active = hasEntityValue\(\s*profile\.preferredEntities,\s*entity,?\s*\);/,
-    );
-    expect(entitiesControlBlock).not.toContain(
-      "profile.preferredEntities.includes(entity)",
-    );
-    expect(source).toMatch(
-      /removeEntityValue\(\s*currentProfile\.preferredEntities,\s*signal\.signal,\s*\)/,
-    );
-    expect(source).toMatch(
-      /addEntityValue\(\s*currentProfile\.preferredEntities,\s*signal\.signal,\s*\)/,
-    );
-    expect(source).toMatch(
-      /removeEntityValue\(\s*beforeProfile\.preferredEntities,\s*suggestion\.signal,\s*\)/,
-    );
-    expect(source).toMatch(
-      /addEntityValue\(\s*beforeProfile\.preferredEntities,\s*suggestion\.signal,\s*\)/,
+    expect(contextMemoryBlock).toContain(
+      "forYouApiContext.memory.semanticSimilarity",
     );
   });
 
@@ -696,187 +963,38 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("wires sidebar reader queues into reader story actions", async () => {
+  it("renders section front leads as trainable recommendation actions", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
 
-    expect(source).toMatch(
-      /exposureCooldownQueue\.cooldowns\.map\(\(story, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readerRetentionPlan\.slots\.map\(\(slot, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(slot\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /recommendationDiversityRepairQueue\.repairs\.map\(\s*\(repair, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(repair\.candidate\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /recommendationRotationQueue\.entries\.map\(\(entry, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(entry\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readerJourneyMap\.steps\.map\(\(step, index\) => \{[\s\S]*?const item = step\.id\s*\? rankedItemsById\.get\(step\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readerScorecards\.scorecards\.map\(\(scorecard, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(scorecard\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readerDaypartPlan\.lanes\.map\(\(lane, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(lane\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readerDigest\.nextReads\.map\(\(story, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readerWatchlist\.entries\.map\(\(entry, index\) => \{[\s\S]*?const item = entry\.topStory\s*\? rankedItemsById\.get\(entry\.topStory\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
+    expect(source).toContain("getNewsSectionFrontTrainingAction");
+    expect(source).toContain("applySectionFrontAction");
+    expect(source).toContain("sectionFrontAction.actionLabel");
   });
+});
 
-  it("wires growth and editorial story lanes into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
+describe("NewsHome public surface", () => {
+  it("keeps news and lightweight training while excluding lab diagnostics", async () => {
+    const source = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(source).toMatch(
-      /suggestion\.impactStories\.map\(\s*\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /lane\.proposals\.map\(\(proposal, proposalIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(proposal\.storyId\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{proposalIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /discoveryLadder\.rungs\.map\(\(rung, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(rung\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /guardrailRecoveryPlan\.candidates\.map\(\(candidate, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(candidate\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /breakingEscalationQueue\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-  });
+    expect(source).toContain("For You Control Strip");
+    expect(source).toContain("Channel Rail");
+    expect(source).toContain("Load more");
+    expect(source).toContain('href="/reader"');
 
-  it("wires distribution and learning story lanes into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /personalizedPushQueue\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /newsletterPlan\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /membershipMeter\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /modelTrainingBatch\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-  });
-
-  it("wires operations story lanes into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /distributionQueue\.queues\.map\(\(queue\) =>[\s\S]*?queue\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /nextRefreshPlan\.slots\.map\(\(slot, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(slot\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /aggregationIntake\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /alertRouting\.lanes\.map\(\(lane\) =>[\s\S]*?lane\.stories\.map\(\(story, storyIndex\) => \{[\s\S]*?const item = rankedItemsById\.get\(story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{storyIndex \+ 1\}/,
-    );
-  });
-
-  it("wires next personalized page candidates into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /nextForYouQueue\.candidates\.map\(\(candidate, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(candidate\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("wires continuation follow-up recommendations into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /continuationRail\.followUps\.map\(\(followUp, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(followUp\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("wires session intent lead candidates into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /sessionIntent\.intents\.map\(\(intent, index\) => \{[\s\S]*?const leadItem = intent\.leadStory\s*\? rankedItemsById\.get\(intent\.leadStory\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{leadItem\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("wires signal board top-ranked stories into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /rankedItems\.slice\(0, 5\)\.map\(\(story, index\) => \{[\s\S]*?<StoryAction[\s\S]*?item=\{story\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("surfaces edition freshness inside the desk status panel", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsDeskFreshnessStatus");
-    expect(source).toContain("const deskFreshnessStatus");
-    expect(source).toMatch(
-      /<StatusLine[\s\S]*?label="Freshness"[\s\S]*?value=\{deskFreshnessStatus\.label\}/,
-    );
-    expect(source).toContain("{deskFreshnessStatus.detail}");
-  });
-
-  it("wires right-rail recommendation queues into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /missedCoverage\.stories\.map\(\(item, index\) => \{[\s\S]*?const story = rankedItemsById\.get\(item\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{story\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /liveWire\.updates\.map\(\(update, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(update\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /editionSchedule\.slots\.map\(\(slot, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(slot\.story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /readingQueue\.slots\.map\(\(slot, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(slot\.story\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /hotBoard\.entries\.map\(\(entry, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(entry\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /channelComparison\.channels\.map\(\(channel, index\) => \{[\s\S]*?const leadItem = rankedItemsById\.get\(channel\.lead\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{leadItem\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /historyItems\.map\(\(item, index\) => \{[\s\S]*?const story = rankedItemsById\.get\(item\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{story\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /savedItems\.map\(\(item, index\) => \{[\s\S]*?const story = rankedItemsById\.get\(item\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{story\}[\s\S]*?rankSlot=\{index \+ 1\}[\s\S]*?savedItem=\{selectSavedItemForStory\(story\)\}/,
-    );
-    expect(source).toMatch(
-      /guardrailShelf\.items\.map\(\(item, index\) => \{[\s\S]*?const story = rankedItemsById\.get\(item\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{story\}[\s\S]*?guardrailItem=\{selectGuardrailItemForStory\(story\)\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
+    for (const labHeading of [
+      "Experiment Allocation",
+      "Model Training Batch",
+      "Profile Update Proposal",
+      "Recommendation Audit",
+      "Ranking Pipeline",
+      "Reader Cohorts",
+    ]) {
+      expect(source).not.toContain(`>${labHeading}<`);
+    }
   });
 });

@@ -673,13 +673,16 @@ describe("Railway Next.js deployment config", () => {
     expect(expoArticleRoute).toContain("trpc.news.profile.queryFilter()");
   });
 
-  test("Next.js home renders coverage-thread verification status", async () => {
-    const newsHome = await readFile(
-      path.join(repoRoot, "apps/nextjs/src/app/_components/news-home.tsx"),
+  test("Next.js threads render coverage verification status", async () => {
+    const threadsPage = await readFile(
+      path.join(
+        repoRoot,
+        "apps/nextjs/src/app/_components/news-threads-page.tsx",
+      ),
       "utf8",
     );
 
-    expect(newsHome).toContain("thread.verificationLabel");
-    expect(newsHome).toContain("thread.verificationSummary");
+    expect(threadsPage).toContain("thread.verificationLabel");
+    expect(threadsPage).toContain("thread.verificationSummary");
   });
 });

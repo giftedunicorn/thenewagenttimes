@@ -1637,7 +1637,7 @@ Agents<`);
     const [routeSource, homeSource, readerSource, searchSource] =
       await Promise.all([
         readFile(new URL("../reader/page.tsx", import.meta.url), "utf8"),
-        readFile(new URL("./news-home.tsx", import.meta.url), "utf8"),
+        readFile(new URL("./news-public-front-page.tsx", import.meta.url), "utf8"),
         readFile(new URL("./news-reader-center.tsx", import.meta.url), "utf8"),
         readFile(new URL("../search/page.tsx", import.meta.url), "utf8"),
       ]);

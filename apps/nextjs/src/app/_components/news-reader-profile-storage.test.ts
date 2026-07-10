@@ -359,7 +359,6 @@ describe("news reader profile storage", () => {
     expect(homeSource).toContain("areNewsPreferenceProfilesEqual");
     expect(homeSource).toContain("subscribeToNewsPreferenceProfileStorage");
     expect(homeSource).toContain("readStoredNewsForYouObjective");
-    expect(homeSource).toContain("writeStoredNewsForYouObjective");
     expect(homeSource).toContain("writeStoredNewsPreferenceProfile(");
     expect(articleSource).toContain(
       "../../_components/news-reader-profile-storage",

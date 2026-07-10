@@ -587,7 +587,7 @@ describe("NewsReaderFollowingView", () => {
         readFile(new URL("./news-reader-library.tsx", import.meta.url), {
           encoding: "utf8",
         }),
-        readFile(new URL("./news-home.tsx", import.meta.url), {
+        readFile(new URL("./news-public-front-page.tsx", import.meta.url), {
           encoding: "utf8",
         }),
       ]);

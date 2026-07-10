@@ -706,7 +706,7 @@ describe("selectNewsCoverageThreads", () => {
         new URL("../threads/[threadKey]/page.tsx", import.meta.url),
         "utf8",
       ),
-      readFile(new URL("./news-home.tsx", import.meta.url), "utf8"),
+      readFile(new URL("./news-public-front-page.tsx", import.meta.url), "utf8"),
     ]);
 
     expect(routeSource).toContain("getNewsHomeData");

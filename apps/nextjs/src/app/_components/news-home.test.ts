@@ -17,6 +17,34 @@ describe("formatNewsTime", () => {
   });
 });
 
+describe("public news homepage", () => {
+  it("uses a publication structure and excludes internal analysis sections", async () => {
+    const homeSource = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
+    const viewSource = await readFile(
+      new URL("./news-public-front-page.tsx", import.meta.url),
+      "utf8",
+    );
+    const source = `${homeSource}\n${viewSource}`;
+
+    expect(source).toContain("Latest");
+    expect(source).toContain("Most Read");
+    expect(source).toContain("Editor's Picks");
+    expect(source).toContain("Latest News");
+    expect(source).toContain("For You");
+
+    expect(source).not.toContain(">Front Page Layout<");
+    expect(source).not.toContain(">Slot Mix<");
+    expect(source).not.toContain(">Source Clusters<");
+    expect(source).not.toContain(">Claim Tracker<");
+    expect(source).not.toContain(">Story Timeline<");
+    expect(source).not.toContain(">Multi-source clusters<");
+    expect(source).not.toContain(">Consensus Board<");
+  });
+});
+
 describe("edition landing routes", () => {
   it("routes topics and sources through the shared edition page", async () => {
     const topicRoute = await readFile(
@@ -48,9 +76,10 @@ describe("edition landing routes", () => {
 
 describe("NewsHome discovery navigation", () => {
   it("exposes briefing, directory, reader memory, and RSS discovery links from the front page", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
+    const source = await readFile(
+      new URL("./news-public-front-page.tsx", import.meta.url),
+      "utf8",
+    );
 
     expect(source).toContain('href="/briefing"');
     expect(source).toContain('href="/topics"');
@@ -58,61 +87,6 @@ describe("NewsHome discovery navigation", () => {
     expect(source).toContain('href="/sources"');
     expect(source).toContain('href="/reader/library"');
     expect(source).toContain('href="/rss.xml"');
-  });
-
-  it("links front-page briefing entities into entity editions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("editionBriefing.entities.map");
-    expect(source).toContain(
-      "href={`/entities/${encodeURIComponent(entity.entity)}`}",
-    );
-  });
-
-  it("links story timeline entities into entity editions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("storyTimeline.events.map");
-    expect(source).toContain(
-      "href={`/entities/${encodeURIComponent(entity)}`}",
-    );
-  });
-
-  it("puts the A1 lead story before recommendation training controls", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-    const leadStoryIndex = source.indexOf("A1 Lead Story");
-    const searchTrendsIndex = source.indexOf("Search Trends");
-    const trainingControlsIndex = source.indexOf("For You Control Strip");
-
-    expect(leadStoryIndex).toBeGreaterThanOrEqual(0);
-    expect(searchTrendsIndex).toBeGreaterThan(leadStoryIndex);
-    expect(trainingControlsIndex).toBeGreaterThan(leadStoryIndex);
-  });
-
-  it("labels story visuals and reserves a stable image frame", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain('role="img"');
-    expect(source).toContain("aria-label={`Visual for ${item.title}`}");
-    expect(source).toContain("aspect-[16/10]");
-    expect(source).toContain("w-full max-w-full");
-    expect(source).toContain(
-      "aspect-[16/10] min-h-52 w-full max-w-full self-start",
-    );
-    expect(source).toMatch(
-      /className="[^"]*grid[^"]*min-h-\[420px\][^"]*grid-cols-\[minmax\(0,1fr\)\][^"]*"/,
-    );
-    expect(source).toMatch(
-      /className="[^"]*grid[^"]*grid-cols-\[minmax\(0,1fr\)\][^"]*gap-3[^"]*border/,
-    );
   });
 
   it("records homepage inline search intent before it steers recommendations", async () => {
@@ -144,10 +118,7 @@ describe("NewsHome discovery navigation", () => {
     expect(recordSearchIntentBlock).toContain("recordSearchMemory({");
     expect(recordSearchIntentBlock).toContain("visitorKey,");
     expect(source).toMatch(
-      /recordHomeSearchIntent\(\{\s*query: lead\.query,\s*resultCount:/,
-    );
-    expect(source).toMatch(
-      /recordHomeSearchIntent\(\{\s*query: trend\.query,\s*resultCount:/,
+      /recordHomeSearchIntent\(\{\s*query: trimmedSearchDraft,\s*resultCount: items\.length/,
     );
   });
 
@@ -319,56 +290,6 @@ describe("NewsHome discovery navigation", () => {
     expect(readExposureBlock).toContain("clusterKey: item.clusterKey");
   });
 
-  it("renders source clusters as trainable aggregation actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsSourceClusterTrainingAction");
-    expect(source).toContain("applySourceClusterAction");
-    expect(source).toContain("sourceClusterAction.actionLabel");
-  });
-
-  it("renders corroborated claims as trainable aggregation actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsClaimTrackerTrainingAction");
-    expect(source).toContain("applyClaimTrackerAction");
-    expect(source).toContain("claimAction.actionLabel");
-  });
-
-  it("renders story timeline events as trainable recommendation actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsStoryTimelineTrainingAction");
-    expect(source).toContain("applyStoryTimelineAction");
-    expect(source).toContain("timelineAction.actionLabel");
-  });
-
-  it("renders coverage threads as trainable recommendation actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsCoverageThreadTrainingAction");
-    expect(source).toContain("applyCoverageThreadAction");
-    expect(source).toContain("coverageThreadAction.actionLabel");
-  });
-
-  it("renders verified consensus threads as trainable recommendation actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsConsensusThreadTrainingAction");
-    expect(source).toContain("applyConsensusThreadAction");
-    expect(source).toContain("consensusAction.actionLabel");
-  });
-
   it("posts local reader memory to the For You API when loading more stories", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
@@ -512,7 +433,7 @@ describe("NewsHome discovery navigation", () => {
       'if (primaryFeedRoute !== "forYou" || !forYouApiQuery.data) return;',
     );
     const primaryForYouEffectEnd = source.indexOf(
-      "const forYouApiContext = forYouApiQuery.data?.context",
+      "const serverRecommendedItems",
       primaryForYouEffectStart,
     );
     const primaryForYouEffectBlock = source.slice(
@@ -597,49 +518,6 @@ describe("NewsHome discovery navigation", () => {
     );
     expect(source).not.toMatch(
       /useEffect\(\(\) => \{\s*setForYouApiNextRequest\(null\);\s*}, \[forYouApiRequestBody\]\);/,
-    );
-  });
-
-  it("passes the reader key into live search candidates for personalized ranking", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-    const searchCandidatesStart = source.indexOf(
-      "trpc.news.searchCandidates.queryOptions",
-    );
-    const searchCandidatesEnd = source.indexOf(
-      "},\n      { enabled: shouldFetchLiveSearchCandidates }",
-      searchCandidatesStart,
-    );
-    const searchCandidatesBlock = source.slice(
-      searchCandidatesStart,
-      searchCandidatesEnd,
-    );
-
-    expect(searchCandidatesStart).toBeGreaterThanOrEqual(0);
-    expect(searchCandidatesEnd).toBeGreaterThan(searchCandidatesStart);
-    expect(searchCandidatesBlock).toContain(
-      "profile: toServerProfile(profile)",
-    );
-    expect(searchCandidatesBlock).toContain("visitorKey");
-  });
-
-  it("renders live search recommendation reasons beside candidate leads", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("lead.reasonLabel");
-    expect(source).toContain("{lead.reasonLabel} / {lead.topicLabel}");
-  });
-
-  it("wires live search leads into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /searchCandidateRail\.leads\.map\(\(lead, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(lead\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
     );
   });
 
@@ -835,67 +713,6 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("surfaces the live For You API context beside the training controls", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-    const contextMemoryStart = source.indexOf("const forYouApiContextMemory");
-    const contextMemoryEnd = source.indexOf(
-      "const serverRecommendedItems",
-      contextMemoryStart,
-    );
-    const contextMemoryBlock = source.slice(
-      contextMemoryStart,
-      contextMemoryEnd,
-    );
-
-    expect(source).toContain(
-      "const forYouApiContext = forYouApiQuery.data?.context",
-    );
-    expect(contextMemoryStart).toBeGreaterThanOrEqual(0);
-    expect(contextMemoryEnd).toBeGreaterThan(contextMemoryStart);
-    expect(source).toContain("Live API context");
-    expect(source).toContain("forYouApiContextMemory.map");
-    expect(contextMemoryBlock).toContain("forYouApiContext.profileSignalCount");
-    expect(contextMemoryBlock).toContain("forYouApiContext.daypart.label");
-    expect(contextMemoryBlock).toContain(
-      "forYouApiContext.sessionIntent.active",
-    );
-    expect(source).toContain("forYouApiContext?.sessionIntent.fallbackReason");
-    expect(source).toContain('"direct_filter"');
-    expect(source).toContain("const forYouApiDirectFilterLabel");
-    expect(source).toContain(
-      "getCategoryLabel(forYouApiContext.filters.category)",
-    );
-    expect(source).toContain("forYouApiContext.filters.sourceSlug");
-    expect(source).toContain("forYouApiContext.filters.tag");
-    expect(source).toContain("Direct filter");
-    expect(source).toContain("Search memory fallback");
-    expect(contextMemoryBlock).toContain(
-      "forYouApiContext.degradedSignals.length",
-    );
-    expect(contextMemoryBlock).toContain("Signal health");
-    expect(contextMemoryBlock).toContain("forYouApiContext.rankingStages");
-    expect(contextMemoryBlock).toContain("Pipeline");
-    expect(contextMemoryBlock).toContain("getNewsForYouApiPipelineSummary");
-    expect(contextMemoryBlock).toContain("Guardrails");
-    expect(contextMemoryBlock).toContain(
-      "getNewsForYouApiPipelineGuardrailSummary",
-    );
-    expect(contextMemoryBlock).toContain("Training");
-    expect(contextMemoryBlock).toContain(
-      "getNewsForYouApiTrainingSignalSummary",
-    );
-    expect(contextMemoryBlock).toContain("forYouApiContext.pagination");
-    expect(contextMemoryBlock).toContain("Page");
-    expect(contextMemoryBlock).toContain(
-      "forYouApiContext.memory.collaborativeSignals",
-    );
-    expect(contextMemoryBlock).toContain(
-      "forYouApiContext.memory.semanticSimilarity",
-    );
-  });
-
   it("does not issue the legacy tRPC For You query beside the memory-aware API", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
@@ -917,84 +734,4 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("wires front-page briefing recommendations into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("const rankedItemsById = useMemo(");
-    expect(source).toMatch(
-      /briefingPack\.slots\.map\(\(slot, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(slot\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /frontPageLayout\.sections\.map\(\(section, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(section\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /frontPageSlotMix\.slots\.map\(\(slot, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(slot\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("wires evidence and timeline recommendations into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /sourceClusters\.clusters\.map\(\(cluster, index\) => \{[\s\S]*?const leadItem = cluster\.lead\s*\? rankedItemsById\.get\(cluster\.lead\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{leadItem\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /claimTracker\.claims\.map\(\(claim, index\) => \{[\s\S]*?const leadItem = claim\.lead\s*\? rankedItemsById\.get\(claim\.lead\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{leadItem\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /storyTimeline\.events\.map\(\(event, index\) => \{[\s\S]*?const item = rankedItemsById\.get\(event\.id\);[\s\S]*?<StoryAction[\s\S]*?item=\{item\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("wires coverage thread recommendations into reader story actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toMatch(
-      /coverageThreads\.threads\.map\(\(thread, index\) => \{[\s\S]*?const leadItem = thread\.lead\s*\? rankedItemsById\.get\(thread\.lead\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{leadItem\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-    expect(source).toMatch(
-      /consensusBoard\.threads\.map\(\(thread, index\) => \{[\s\S]*?const leadStory = thread\.stories\[0\];[\s\S]*?const leadItem = leadStory\s*\? rankedItemsById\.get\(leadStory\.id\)\s*: undefined;[\s\S]*?<StoryAction[\s\S]*?item=\{leadItem\}[\s\S]*?rankSlot=\{index \+ 1\}/,
-    );
-  });
-
-  it("renders section front leads as trainable recommendation actions", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-
-    expect(source).toContain("getNewsSectionFrontTrainingAction");
-    expect(source).toContain("applySectionFrontAction");
-    expect(source).toContain("sectionFrontAction.actionLabel");
-  });
-});
-
-describe("NewsHome public surface", () => {
-  it("keeps news and lightweight training while excluding lab diagnostics", async () => {
-    const source = await readFile(
-      new URL("./news-home.tsx", import.meta.url),
-      "utf8",
-    );
-
-    expect(source).toContain("For You Control Strip");
-    expect(source).toContain("Channel Rail");
-    expect(source).toContain("Load more");
-    expect(source).toContain('href="/reader"');
-
-    for (const labHeading of [
-      "Experiment Allocation",
-      "Model Training Batch",
-      "Profile Update Proposal",
-      "Recommendation Audit",
-      "Ranking Pipeline",
-      "Reader Cohorts",
-    ]) {
-      expect(source).not.toContain(`>${labHeading}<`);
-    }
-  });
 });

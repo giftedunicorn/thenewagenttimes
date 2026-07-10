@@ -29,8 +29,8 @@ describe("Railway Next.js deployment config", () => {
     [
       "repo root",
       "railway.json",
-      "pnpm run deploy:nextjs",
-      "pnpm run start:nextjs",
+      "pnpm run build:railway",
+      "pnpm run start:railway",
     ],
     [
       "Next.js app",
@@ -57,7 +57,7 @@ describe("Railway Next.js deployment config", () => {
       "pnpm --dir ../.. run start:nextjs",
     ],
   ])(
-    "%s uses the Next.js build and start commands",
+    "%s uses the expected Railway build and start commands",
     async (_, configPath, buildCommand, startCommand) => {
       const config = await readJson<RailwayConfig>(configPath);
 
@@ -91,7 +91,7 @@ describe("Railway Next.js deployment config", () => {
   });
 
   test.each([
-    ["repo root", "railway.json", "pnpm run db:predeploy"],
+    ["repo root", "railway.json", "pnpm run predeploy:railway"],
     ["Next.js app", "apps/nextjs/railway.json", "pnpm run db:predeploy"],
     [
       "TanStack app fallback",
@@ -140,7 +140,7 @@ describe("Railway Next.js deployment config", () => {
     expect(deployScript).toContain("news_item_cluster_key_idx");
   });
 
-  test("workspace scripts keep every Railway root pointed at Next.js", async () => {
+  test("workspace scripts dispatch Railway web and cron service roles", async () => {
     const rootPackage = await readJson<PackageManifest>("package.json");
     const nextPackage = await readJson<PackageManifest>(
       "apps/nextjs/package.json",
@@ -157,6 +157,15 @@ describe("Railway Next.js deployment config", () => {
     );
     expect(rootPackage.scripts?.["start:nextjs"]).toBe(
       "HOSTNAME=0.0.0.0 pnpm exec dotenv -e .env -- node apps/nextjs/.next/standalone/apps/nextjs/server.js",
+    );
+    expect(rootPackage.scripts?.["build:railway"]).toBe(
+      'if [ "$RAILWAY_SERVICE_NAME" = "news-refresh-cron" ]; then pnpm -F @acme/ingestion typecheck; else pnpm run deploy:nextjs; fi',
+    );
+    expect(rootPackage.scripts?.["predeploy:railway"]).toBe(
+      'if [ "$RAILWAY_SERVICE_NAME" = "news-refresh-cron" ]; then exit 0; else pnpm run db:predeploy; fi',
+    );
+    expect(rootPackage.scripts?.["start:railway"]).toBe(
+      'if [ "$RAILWAY_SERVICE_NAME" = "news-refresh-cron" ]; then pnpm run news:bootstrap:remote 100 10; else pnpm run start:nextjs; fi',
     );
 
     expect(nextPackage.scripts?.["deploy:nextjs"]).toBe(
@@ -388,6 +397,21 @@ describe("Railway Next.js deployment config", () => {
     expect(expoHomeRoute).toContain('returnKeyType="search"');
     expect(expoHomeRoute).toContain("Search AI news");
     expect(expoHomeRoute).toContain("Clear");
+  });
+
+  test("Expo shell records mobile search memory for future For You sessions", async () => {
+    const expoHomeRoute = await readFile(
+      path.join(repoRoot, "apps/expo/src/app/index.tsx"),
+      "utf8",
+    );
+
+    expect(expoHomeRoute).toContain(
+      "trpc.news.recordSearchMemory.mutationOptions",
+    );
+    expect(expoHomeRoute).toContain("recordSearchMemory");
+    expect(expoHomeRoute).toContain("recordedSearchMemoryQueries");
+    expect(expoHomeRoute).toContain("query: trimmedSearchQuery");
+    expect(expoHomeRoute).toContain("resultCount: newsQuery.data?.length ?? 0");
   });
 
   test("Expo shell renders mobile reader memory from recommendation signals", async () => {

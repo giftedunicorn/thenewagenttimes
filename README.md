@@ -217,17 +217,21 @@ pnpm run news:refresh:remote
 news sources, and ingests active RSS feeds. After that, the homepage should
 switch from preview stories to live published news rows.
 
-For a deployed service, a Railway cron can call the app over HTTP instead of
-connecting directly to the database:
+Production uses a separate Railway service named `news-refresh-cron`. It is
+connected to the same repository and `main` branch, runs every two hours with
+`0 */2 * * *`, and calls the app over HTTP instead of connecting directly to
+the database. The root Railway scripts dispatch by `RAILWAY_SERVICE_NAME`, so
+the web service still builds and starts Next.js while the cron service runs:
 
 ```bash
-pnpm run news:refresh:remote
-pnpm run news:embed:remote
-pnpm run news:bootstrap:remote
+pnpm run news:bootstrap:remote 100 10
 ```
 
-The commands read `NEWS_REFRESH_SECRET` plus either the task-specific remote
-URL or `RAILWAY_PUBLIC_DOMAIN`.
+The cron service needs `NEWS_BOOTSTRAP_URL`, `NEWS_EMBED_LIMIT`,
+`NEWS_BOOTSTRAP_EMBED_BATCHES`, and a reference to the web service's
+`NEWS_REFRESH_SECRET`. The bootstrap command refreshes every active source,
+embeds pending stories in bounded batches, verifies `/api/news/health`, and
+then exits so Railway can schedule the next run.
 
 ## Verification
 

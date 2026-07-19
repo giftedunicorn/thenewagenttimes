@@ -75,9 +75,7 @@ describe("Railway Next.js deployment config", () => {
   test("cron runs as an HTTP-only scheduler configured by cron.json", async () => {
     const config = await readJson<RailwayConfig>("packages/cron/railway.json");
 
-    expect(config.build?.buildCommand).toBe(
-      "pnpm --filter @acme/cron... build",
-    );
+    expect(config.build?.buildCommand).toBe("pnpm --filter @acme/cron build");
     expect(config.deploy).toMatchObject({
       restartPolicyType: "ALWAYS",
       startCommand: "pnpm --filter @acme/cron start",

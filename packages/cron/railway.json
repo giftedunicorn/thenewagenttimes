@@ -2,15 +2,7 @@
   "$schema": "https://railway.com/railway.schema.json",
   "build": {
     "builder": "RAILPACK",
-    "buildCommand": "pnpm --filter @acme/cron... build",
-    "watchPatterns": [
-      "packages/cron/**",
-      "tooling/**",
-      "package.json",
-      "pnpm-lock.yaml",
-      "pnpm-workspace.yaml",
-      "turbo.json"
-    ]
+    "buildCommand": "pnpm --filter @acme/cron build"
   },
   "deploy": {
     "restartPolicyType": "ALWAYS",

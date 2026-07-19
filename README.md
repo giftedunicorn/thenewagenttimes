@@ -180,10 +180,9 @@ sends an authenticated request to `/api/cron/news-refresh` over Railway's
 private network. It never imports the database package or performs service
 operations itself.
 
-Each HTTP attempt is aborted after 30 seconds, and transient network or server
-failures are attempted up to three times. The Next.js endpoint owns queue writes
-and uses a deterministic two-hour key, so retries for the same window return the
-existing job instead of creating duplicate work.
+Each HTTP request is aborted after 30 seconds. The Next.js endpoint owns queue
+writes and uses a deterministic two-hour key, so repeated requests for the same
+window return the existing job instead of creating duplicate work.
 
 ## Health Check
 
@@ -205,7 +204,6 @@ When `NEWS_HEALTH_URL` is empty, the health command can use Railway's
 ```bash
 pnpm --filter @acme/db test
 pnpm --filter @acme/background-worker test
-pnpm --filter @acme/cron test
 pnpm --filter @acme/ingestion test
 pnpm --filter @acme/nextjs test
 pnpm typecheck

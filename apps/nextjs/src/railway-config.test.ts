@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, test } from "vitest";
 
@@ -12,7 +12,10 @@ interface RailwayConfig {
     buildCommand?: string;
   };
   deploy?: {
+    cronSchedule?: string;
     preDeployCommand?: string[];
+    restartPolicyMaxRetries?: number;
+    restartPolicyType?: string;
     startCommand?: string;
   };
 }
@@ -29,93 +32,67 @@ describe("Railway Next.js deployment config", () => {
     [
       "repo root",
       "railway.json",
-      "pnpm run build:railway",
-      "pnpm run start:railway",
+      "pnpm run deploy:nextjs",
+      "pnpm run db:predeploy",
     ],
     [
       "Next.js app",
       "apps/nextjs/railway.json",
       "pnpm run deploy:nextjs",
-      "pnpm run start:nextjs",
-    ],
-    [
-      "TanStack app fallback",
-      "apps/tanstack-start/railway.json",
-      "pnpm run deploy:nextjs",
-      "pnpm run start:nextjs",
-    ],
-    [
-      "API package fallback",
-      "packages/api/railway.json",
-      "pnpm --dir ../.. run deploy:nextjs",
-      "pnpm --dir ../.. run start:nextjs",
-    ],
-    [
-      "database package fallback",
-      "packages/db/railway.json",
-      "pnpm --dir ../.. run deploy:nextjs",
-      "pnpm --dir ../.. run start:nextjs",
+      "pnpm run db:predeploy",
     ],
   ])(
-    "%s uses the expected Railway build and start commands",
-    async (_, configPath, buildCommand, startCommand) => {
+    "%s directly configures the web service",
+    async (_, configPath, buildCommand, preDeployCommand) => {
       const config = await readJson<RailwayConfig>(configPath);
 
       expect(config.build?.buildCommand).toBe(buildCommand);
-      expect(config.deploy?.startCommand).toBe(startCommand);
+      expect(config.deploy).toMatchObject({
+        preDeployCommand: [preDeployCommand],
+        restartPolicyMaxRetries: 10,
+        restartPolicyType: "ON_FAILURE",
+        startCommand: "pnpm run start:nextjs",
+      });
     },
   );
 
-  test("shared package Railway fallbacks do not advertise standalone app builds", async () => {
-    const apiPackage = await readJson<PackageManifest>(
-      "packages/api/package.json",
-    );
-    const dbPackage = await readJson<PackageManifest>(
-      "packages/db/package.json",
+  test("background worker has direct build/start commands and always restarts", async () => {
+    const config = await readJson<RailwayConfig>(
+      "packages/background-worker/railway.json",
     );
 
-    expect(apiPackage.scripts?.build).toBe("tsc");
-    expect(dbPackage.scripts?.build).toBe("tsc");
+    expect(config.build?.buildCommand).toBe(
+      "pnpm --filter @acme/background-worker... build",
+    );
+    expect(config.deploy).toMatchObject({
+      drainingSeconds: 600,
+      restartPolicyType: "ALWAYS",
+      startCommand: "pnpm --filter @acme/background-worker start",
+    });
+    expect(config.deploy?.preDeployCommand).toBeUndefined();
   });
 
-  test("shared package Railway fallbacks expose a start script for Railpack detection", async () => {
-    const apiPackage = await readJson<PackageManifest>(
-      "packages/api/package.json",
-    );
-    const dbPackage = await readJson<PackageManifest>(
-      "packages/db/package.json",
-    );
+  test("cron has direct one-shot commands and a native UTC schedule", async () => {
+    const config = await readJson<RailwayConfig>("packages/cron/railway.json");
 
-    expect(apiPackage.scripts?.start).toBe("pnpm --dir ../.. run start:nextjs");
-    expect(dbPackage.scripts?.start).toBe("pnpm --dir ../.. run start:nextjs");
+    expect(config.build?.buildCommand).toBe(
+      "pnpm --filter @acme/cron... build",
+    );
+    expect(config.deploy).toMatchObject({
+      cronSchedule: "0 */2 * * *",
+      restartPolicyType: "NEVER",
+      startCommand: "pnpm --filter @acme/cron start",
+    });
+    expect(config.deploy?.preDeployCommand).toBeUndefined();
   });
 
   test.each([
-    ["repo root", "railway.json", "pnpm run predeploy:railway"],
-    ["Next.js app", "apps/nextjs/railway.json", "pnpm run db:predeploy"],
-    [
-      "TanStack app fallback",
-      "apps/tanstack-start/railway.json",
-      "pnpm run db:predeploy",
-    ],
-    [
-      "API package fallback",
-      "packages/api/railway.json",
-      "pnpm --dir ../.. run db:predeploy",
-    ],
-    [
-      "database package fallback",
-      "packages/db/railway.json",
-      "pnpm --dir ../.. run db:predeploy",
-    ],
-  ])(
-    "%s syncs the database schema before Railway starts the app",
-    async (_, configPath, preDeployCommand) => {
-      const config = await readJson<RailwayConfig>(configPath);
-
-      expect(config.deploy?.preDeployCommand).toEqual([preDeployCommand]);
-    },
-  );
+    "apps/tanstack-start/railway.json",
+    "packages/api/railway.json",
+    "packages/db/railway.json",
+  ])("removes misleading Next.js fallback config %s", async (configPath) => {
+    await expect(access(path.join(repoRoot, configPath))).rejects.toThrow();
+  });
 
   test("Railway schema sync safely backfills news clusters before Drizzle push", async () => {
     const rootPackage = await readJson<PackageManifest>("package.json");
@@ -140,13 +117,10 @@ describe("Railway Next.js deployment config", () => {
     expect(deployScript).toContain("news_item_cluster_key_idx");
   });
 
-  test("workspace scripts dispatch Railway web and cron service roles", async () => {
+  test("workspace scripts expose direct web commands without role dispatch", async () => {
     const rootPackage = await readJson<PackageManifest>("package.json");
     const nextPackage = await readJson<PackageManifest>(
       "apps/nextjs/package.json",
-    );
-    const tanstackPackage = await readJson<PackageManifest>(
-      "apps/tanstack-start/package.json",
     );
 
     expect(rootPackage.scripts?.build).toBe(
@@ -158,15 +132,9 @@ describe("Railway Next.js deployment config", () => {
     expect(rootPackage.scripts?.["start:nextjs"]).toBe(
       "HOSTNAME=0.0.0.0 pnpm exec dotenv -e .env -- node apps/nextjs/.next/standalone/apps/nextjs/server.js",
     );
-    expect(rootPackage.scripts?.["build:railway"]).toBe(
-      'if [ "$RAILWAY_SERVICE_NAME" = "news-refresh-cron" ]; then pnpm -F @acme/ingestion typecheck; else pnpm run deploy:nextjs; fi',
-    );
-    expect(rootPackage.scripts?.["predeploy:railway"]).toBe(
-      'if [ "$RAILWAY_SERVICE_NAME" = "news-refresh-cron" ]; then exit 0; else pnpm run db:predeploy; fi',
-    );
-    expect(rootPackage.scripts?.["start:railway"]).toBe(
-      'if [ "$RAILWAY_SERVICE_NAME" = "news-refresh-cron" ]; then pnpm run news:bootstrap:remote 100 10; else pnpm run start:nextjs; fi',
-    );
+    expect(rootPackage.scripts).not.toHaveProperty("build:railway");
+    expect(rootPackage.scripts).not.toHaveProperty("predeploy:railway");
+    expect(rootPackage.scripts).not.toHaveProperty("start:railway");
 
     expect(nextPackage.scripts?.["deploy:nextjs"]).toBe(
       "pnpm --dir ../.. run deploy:nextjs",
@@ -174,29 +142,14 @@ describe("Railway Next.js deployment config", () => {
     expect(nextPackage.scripts?.["start:nextjs"]).toBe(
       "pnpm --dir ../.. run start:nextjs",
     );
-
-    expect(tanstackPackage.scripts?.["deploy:nextjs"]).toBe(
-      "pnpm --dir ../.. run deploy:nextjs",
-    );
-    expect(tanstackPackage.scripts?.build).toBe(
-      "pnpm --dir ../.. run deploy:nextjs",
-    );
-    expect(tanstackPackage.scripts?.["build:tanstack"]).toBe(
-      "pnpm --dir ../.. run deploy:nextjs",
-    );
-    expect(tanstackPackage.scripts?.["start:nextjs"]).toBe(
-      "pnpm --dir ../.. run start:nextjs",
-    );
-    expect(tanstackPackage.scripts?.start).toBe(
-      "pnpm --dir ../.. run start:nextjs",
-    );
-    expect(tanstackPackage.scripts?.["start:tanstack"]).toBe(
-      "pnpm --dir ../.. run start:nextjs",
-    );
   });
 
   test("standalone start has a static asset sync step", async () => {
     const rootPackage = await readJson<PackageManifest>("package.json");
+    const nextConfig = await readFile(
+      path.join(repoRoot, "apps/nextjs/next.config.js"),
+      "utf8",
+    );
 
     expect(rootPackage.scripts?.["build:nextjs"]).toBe(
       "turbo run build -F @acme/nextjs... && pnpm run sync:nextjs-standalone",
@@ -215,6 +168,8 @@ describe("Railway Next.js deployment config", () => {
     expect(syncScript).toContain(".next/standalone/apps/nextjs");
     expect(syncScript).toContain("public");
     expect(syncScript).toContain("await cp(copyJob.from, copyJob.to");
+    expect(nextConfig).toContain("outputFileTracingRoot: repoRoot");
+    expect(nextConfig).toContain("turbopack: { root: repoRoot }");
   });
 
   test("standalone runtime declares direct Postgres driver dependencies", async () => {

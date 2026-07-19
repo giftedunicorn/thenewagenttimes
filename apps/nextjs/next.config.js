@@ -1,6 +1,10 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url);
+const appRoot = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(appRoot, "../..");
 
 // Import env files to validate at build time. Use jiti so we can load .ts files in here.
 await jiti.import("./src/env");
@@ -8,6 +12,8 @@ await jiti.import("./src/env");
 /** @type {import("next").NextConfig} */
 const config = {
   output: "standalone",
+  outputFileTracingRoot: repoRoot,
+  turbopack: { root: repoRoot },
 
   /** Enables hot reloading for local packages without a build step */
   transpilePackages: [

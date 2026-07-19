@@ -1,26 +1,30 @@
 # The New AI Times
 
-The New AI Times is a news aggregation and recommendation system for AI news. The web app presents a newspaper-style front page, reader preference signals, personalized ranking, saved and recently read stories, article-level context, and Railway-ready deployment commands.
+The New AI Times is an AI news aggregation and recommendation system. The
+production architecture separates web traffic, scheduled triggers, and
+long-running ingestion work.
 
-## Apps
-
-```text
-apps/nextjs          Next.js web application for the news product
-apps/expo            Legacy mobile shell retained in the monorepo
-apps/tanstack-start  Legacy experimental web shell retained in the monorepo
-```
-
-The production Railway service should deploy the Next.js app through the root monorepo scripts, not the Expo or TanStack Start examples.
-
-## Packages
+## Repository Structure
 
 ```text
-packages/api         tRPC routers for news, profiles, interactions, and feeds
-packages/db          Drizzle schema and database client
-packages/ingestion   Source seeding, RSS ingestion, refresh, and embedding jobs
-packages/ui          Shared UI components
-packages/validators  Ranking, recommendation, profile, and dedupe logic
+apps/nextjs                 Production news website and enqueue-only APIs
+apps/expo                   Mobile shell
+apps/tanstack-start         Legacy experimental web shell
+packages/api                tRPC news and reader APIs
+packages/db                 Drizzle schemas, database client, and job queue
+packages/ingestion          News refresh and embedding domain logic
+packages/background-worker Long-running background job processor
+packages/cron               One-shot Railway schedule producer
+packages/ui                 Shared UI components
+packages/validators         Ranking and recommendation logic
 ```
+
+`background_job` in PostgreSQL is the contract between producers and workers.
+The cron process and manual web endpoints insert jobs. The background worker
+claims them with a lease, renews the lease while working, records success or
+failure, retries recoverable failures with backoff, and reclaims expired jobs.
+
+The services share `POSTGRES_URL`; they do not call each other over HTTP.
 
 ## Local Setup
 
@@ -31,216 +35,171 @@ pnpm run build:nextjs
 pnpm run start:nextjs
 ```
 
-Useful news commands:
+Useful direct-development commands:
 
 ```bash
 pnpm run news:seed-sources
-pnpm run news:ingest:rss:active
 pnpm run news:refresh
-pnpm run news:ingest:arxiv-ai
-pnpm run news:bootstrap:remote
-pnpm run news:health:remote
-pnpm run news:refresh:remote
-pnpm run news:embed:remote
 pnpm run news:embed:pending
+pnpm run news:health:remote
+pnpm --filter @acme/background-worker dev
+pnpm --filter @acme/cron start
 ```
 
-Database schema changes live in `packages/db/src/schemas/*`. Do not hand-edit migration files.
+Database schema changes live in `packages/db/src/schemas/*`. Generate schema
+updates with the project workflow; do not hand-edit migration files.
 
-## Railway
+## Railway Services
 
-Railway should use the root directory and the `main` branch.
+Create three services from the same repository and branch. In each Railway
+service, select its checked-in config file once:
 
-The checked-in `railway.json` configures Railpack with:
+| Service             | Railway config path                        | Process                  |
+| ------------------- | ------------------------------------------ | ------------------------ |
+| `web`               | `/apps/nextjs/railway.json`                | Next.js web server       |
+| `background-worker` | `/packages/background-worker/railway.json` | Always-on queue worker   |
+| `cron`              | `/packages/cron/railway.json`              | Native UTC cron producer |
+
+`/railway.json` is also a direct web configuration for deployments that use the
+repository root.
+
+Config-as-code supplies build, start, restart, watch, predeploy, and cron
+settings. Railway still requires the config path to be selected for each
+service; a `railway.json` file does not create multiple Railway services.
+
+### Rollout Order
+
+An existing `news-refresh-cron` service may still be configured to read
+`/railway.json`. Change its **Config File Path** to
+`/packages/cron/railway.json` before deploying this revision. Otherwise that
+scheduled service will start the web server instead of enqueueing a job.
+Remove any service-level custom Build Command, Start Command, or Pre-deploy
+Command left by the previous `news:bootstrap:remote` deployment so the checked-in
+config remains authoritative.
+
+Deploy in this order:
+
+1. Pause the existing cron schedule while changing its config path.
+2. Deploy `web` first so its predeploy step installs the `background_job`
+   schema.
+3. Create `background-worker` from the same GitHub repository and `main` branch,
+   select `/packages/background-worker/railway.json`, and clear custom command
+   overrides.
+4. Deploy and resume `cron` with `/packages/cron/railway.json`.
+
+The `web`, `background-worker`, and `cron` services must reference the same
+`POSTGRES_URL`.
+
+### Web
+
+The web service builds and starts Next.js directly:
 
 ```bash
 pnpm run deploy:nextjs
+pnpm run db:predeploy
 pnpm run start:nextjs
 ```
 
-The Next.js app is built with `output: "standalone"`, and the root start script runs:
+Only the web service runs `db:predeploy`. The worker and cron services never
+apply schema changes.
 
-```bash
-node apps/nextjs/.next/standalone/apps/nextjs/server.js
-```
-
-The build script also syncs `.next/static` and `public` into the standalone
-directory so Railway serves CSS, JavaScript chunks, fonts, and icons from the
-standalone server.
-
-If Railway creates or selects a service rooted at `apps/tanstack-start`, use the
-checked-in `apps/tanstack-start/railway.json`. It delegates that service back to
-the root Next.js build and start commands so the deployed page is The New AI
-Times, not the legacy TanStack Start scaffold.
-The TanStack package's default `build` and `start` scripts also delegate to the
-root Next.js deployment commands as a fallback for Railpack package-script
-detection. Use `build:tanstack` and `start:tanstack` only when explicitly
-testing the legacy shell.
-
-Do not intentionally configure Railway services with `packages/api` or
-`packages/db` as the app root. They are shared workspace packages, not
-standalone web services; a Railway app should point at the repo root or
-`apps/nextjs` so Railpack sees the workspace lockfile, Next.js app, and root
-deployment scripts. The package-level `railway.json` files are defensive
-fallbacks only: if Railway is accidentally rooted at `packages/api` or
-`packages/db`, they delegate build and start back to the root Next.js service
-instead of letting Railpack fail with "No start command detected."
-
-Required production environment variables:
+Required web variables:
 
 ```text
 POSTGRES_URL
-BETTER_AUTH_SECRET
-AUTH_SECRET
+BETTER_AUTH_SECRET or AUTH_SECRET
 NEWS_REFRESH_SECRET
+```
+
+`NEWS_REFRESH_SECRET` protects the optional manual producer endpoints:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $NEWS_REFRESH_SECRET" \
+  -H "Idempotency-Key: operator-refresh-2026-07-19T12:00Z" \
+  https://your-domain.example/api/news/refresh
+
+curl -X POST \
+  -H "Authorization: Bearer $NEWS_REFRESH_SECRET" \
+  -H "Idempotency-Key: operator-embed-2026-07-19T12:00Z" \
+  "https://your-domain.example/api/news/embed?limit=25"
+```
+
+Both endpoints only insert a `background_job` and return `202 Accepted`; they
+do not run refresh or embedding work inside the HTTP request. If an HTTP client
+times out before receiving the response, retry with the same `Idempotency-Key`.
+The unique queue key returns the original job instead of creating duplicate
+work.
+
+### Background Worker
+
+Required worker variables:
+
+```text
+POSTGRES_URL
 OPENAI_API_KEY
 ```
 
-`OPENAI_API_KEY` is required before running `pnpm run news:embed:remote` on a
-deployed service or `pnpm run news:embed:pending` with direct database access.
-`OPENAI_EMBEDDING_MODEL` is optional and defaults to
-`text-embedding-3-small`.
+Optional worker variables:
 
-`NEWS_HEALTH_URL` is optional for `pnpm run news:health:remote`. It accepts the
-deployed app base URL, `/api/news/health`, `/api/news/refresh`, or
-`/api/news/embed`. When omitted, the command falls back to `NEWS_REFRESH_URL`,
-`NEWS_EMBED_URL`, `NEWS_BOOTSTRAP_URL`, or `RAILWAY_PUBLIC_DOMAIN`.
+```text
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+NEWS_EMBED_LIMIT=25
+BACKGROUND_WORKER_ID=
+BACKGROUND_WORKER_IDLE_MS=5000
+BACKGROUND_WORKER_ERROR_MS=15000
+BACKGROUND_WORKER_LEASE_MS=300000
+BACKGROUND_WORKER_HEARTBEAT_MS=60000
+```
 
-`NEWS_REFRESH_URL` is optional on Railway when `RAILWAY_PUBLIC_DOMAIN` is
-available. It accepts the deployed app base URL, `/api/news/refresh`,
-`/api/news/health`, or `/api/news/embed`. When omitted, the command falls back
-to `NEWS_HEALTH_URL`, `NEWS_EMBED_URL`, or `RAILWAY_PUBLIC_DOMAIN`.
+A worker process claims one job at a time. PostgreSQL transaction-level locking
+also prevents multiple worker replicas from holding active job leases
+simultaneously, so refresh and embedding cannot overlap.
 
-`NEWS_EMBED_URL` follows the same pattern for remote semantic embedding jobs.
-It can be omitted when `NEWS_HEALTH_URL`, `NEWS_REFRESH_URL`, or
-`RAILWAY_PUBLIC_DOMAIN` is available.
+A successful `news_refresh` automatically enqueues the first `news_embed`
+batch. Full successful embedding batches enqueue the next batch until the queue
+is drained. Failed batches stop chaining and are recorded for inspection.
 
-`NEWS_BOOTSTRAP_URL` is optional for `pnpm run news:bootstrap:remote`. It
-accepts the deployed app base URL, `/api/news/health`, `/api/news/refresh`, or
-`/api/news/embed`. When omitted, the command falls back to `NEWS_HEALTH_URL`,
-`NEWS_REFRESH_URL`, `NEWS_EMBED_URL`, or `RAILWAY_PUBLIC_DOMAIN`.
-`NEWS_BOOTSTRAP_EMBED_BATCHES` optionally sets how many embedding batches the
-bootstrap command may run if semantic health is still pending after the first
-batch. It defaults to `1`.
+### Cron
 
-`NEWS_REFRESH_SECRET` protects `POST /api/news/refresh`. Send it as
-`Authorization: Bearer <secret>` or `x-news-refresh-secret: <secret>` from a
-Railway cron, manual curl, or other scheduler.
+The cron service requires only:
 
-Use `/api/news/health` after deploy to check whether the web process, auth
-secret, refresh secret, embedding provider, schema, sources, first refresh, and
-semantic embeddings are ready. It returns top-level `ready`, `checks` for
-automation, `news.liveReady` for live published stories,
-`news.semanticReady` for completed embeddings, `actionRequired` with the
-next production bootstrap step, and `commands.next` with the matching repo
-command when the next step can be run from the workspace. The `nextStep` value
-is a stable
-machine-readable summary such as
-`configure-auth-secret`, `configure-embedding-provider`,
-`apply-database-schema`, `run-news-refresh`, `embed-news-stories`, or `ready`.
+```text
+POSTGRES_URL
+```
 
-You can check the deployed service from the repo root:
+Railway runs it every two hours with the UTC schedule `0 */2 * * *`. The process
+creates one deterministic `news_refresh` job per two-hour window and exits.
+Duplicate Railway invocations for the same window are successful no-ops.
+
+Database connections wait at most 10 seconds, database statements at most 30
+seconds, and the entire cron process has a 60-second hard deadline. A stalled
+run exits nonzero instead of blocking later Railway schedules indefinitely.
+
+## Health Check
+
+`GET /api/news/health` reports schema, source catalog, refresh freshness,
+published stories, and embedding readiness.
+
+From the repository:
 
 ```bash
-NEWS_HEALTH_URL=https://thenewagenttimes.up.railway.app \
+NEWS_HEALTH_URL=https://your-domain.example \
 pnpm run news:health:remote
 ```
 
-`NEWS_REFRESH_URL` is used by `pnpm run news:refresh:remote`. It accepts the
-deployed app base URL, `/api/news/refresh`, `/api/news/health`, or
-`/api/news/embed`. If it is not set, the command falls back to
-`NEWS_HEALTH_URL`, `NEWS_EMBED_URL`, or `RAILWAY_PUBLIC_DOMAIN` and calls the
-deployed app over HTTPS:
-
-```bash
-NEWS_REFRESH_URL=https://thenewagenttimes.up.railway.app \
-NEWS_REFRESH_SECRET=replace-me \
-pnpm run news:refresh:remote
-```
-
-`NEWS_EMBED_URL` is used by `pnpm run news:embed:remote`. It accepts the
-deployed app base URL, `/api/news/embed`, `/api/news/health`, or
-`/api/news/refresh`. The endpoint uses the same `NEWS_REFRESH_SECRET`, runs a
-bounded pending-or-failed embedding batch, and requires `OPENAI_API_KEY` to be
-configured on the deployed service:
-
-```bash
-NEWS_EMBED_URL=https://thenewagenttimes.up.railway.app \
-NEWS_REFRESH_SECRET=replace-me \
-NEWS_EMBED_LIMIT=25 \
-pnpm run news:embed:remote
-```
-
-You can also pass just a batch limit when the URL comes from
-`NEWS_EMBED_URL`, `NEWS_HEALTH_URL`, `NEWS_REFRESH_URL`, or
-`RAILWAY_PUBLIC_DOMAIN`:
-
-```bash
-pnpm run news:embed:remote 25
-```
-
-After the database schema and required Railway variables are configured, the
-single bootstrap command runs a health preflight, remote refresh, remote
-embedding batch, and final health check in order. Missing auth secret, refresh
-secret, or database schema stops the command before refresh and prints the
-health `nextStep`. A missing `OPENAI_API_KEY` does not block live story refresh;
-bootstrap will refresh stories first, then stop before embedding and report
-`configure-embedding-provider`.
-
-```bash
-NEWS_BOOTSTRAP_URL=https://thenewagenttimes.up.railway.app \
-NEWS_REFRESH_SECRET=replace-me \
-NEWS_EMBED_LIMIT=25 \
-NEWS_BOOTSTRAP_EMBED_BATCHES=4 \
-pnpm run news:bootstrap:remote
-```
-
-You can also pass the embedding batch limit and maximum batch count when the URL
-comes from the environment:
-
-```bash
-pnpm run news:bootstrap:remote 25 4
-```
-
-For a new Railway database, the app can build and start before the news tables
-exist, but the front page will use preview stories until the schema and sources
-are bootstrapped. Run the deploy schema sync only when you intend to update the
-target database. For a deployed service, prefer the remote refresh so the same
-Railway environment, secret, and public URL are used:
-
-```bash
-pnpm run db:predeploy
-pnpm run news:refresh:remote
-```
-
-`news:refresh:remote` calls the deployed app over HTTPS, seeds the configured AI
-news sources, and ingests active RSS feeds. After that, the homepage should
-switch from preview stories to live published news rows.
-
-Production uses a separate Railway service named `news-refresh-cron`. It is
-connected to the same repository and `main` branch, runs every two hours with
-`0 */2 * * *`, and calls the app over HTTP instead of connecting directly to
-the database. The root Railway scripts dispatch by `RAILWAY_SERVICE_NAME`, so
-the web service still builds and starts Next.js while the cron service runs:
-
-```bash
-pnpm run news:bootstrap:remote 100 10
-```
-
-The cron service needs `NEWS_BOOTSTRAP_URL`, `NEWS_EMBED_LIMIT`,
-`NEWS_BOOTSTRAP_EMBED_BATCHES`, and a reference to the web service's
-`NEWS_REFRESH_SECRET`. The bootstrap command refreshes every active source,
-embeds pending stories in bounded batches, verifies `/api/news/health`, and
-then exits so Railway can schedule the next run.
+When `NEWS_HEALTH_URL` is empty, the health command can use Railway's
+`RAILWAY_PUBLIC_DOMAIN`.
 
 ## Verification
 
-Run focused checks before deployment:
-
 ```bash
-pnpm -F @acme/validators test
-pnpm -F @acme/api test
-pnpm -F @acme/nextjs test
-pnpm -F @acme/nextjs typecheck
-pnpm run build:nextjs
+pnpm --filter @acme/db test
+pnpm --filter @acme/background-worker test
+pnpm --filter @acme/cron test
+pnpm --filter @acme/ingestion test
+pnpm --filter @acme/nextjs test
+pnpm typecheck
+pnpm lint
+pnpm format
 ```

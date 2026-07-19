@@ -6,6 +6,8 @@
   },
   "deploy": {
     "preDeployCommand": ["pnpm run db:predeploy"],
-    "startCommand": "pnpm run start:nextjs"
+    "startCommand": "pnpm run start:nextjs",
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 10
   }
 }

@@ -306,7 +306,7 @@ describe("checkRemoteNewsHealth", () => {
                 commands: {
                   next: null,
                   schema: "pnpm run db:predeploy",
-                  refresh: "pnpm --filter @acme/cron start",
+                  refresh: null,
                 },
                 news: {
                   liveReady: true,
@@ -335,7 +335,7 @@ describe("checkRemoteNewsHealth", () => {
         ],
         commands: {
           next: null,
-          refresh: "pnpm --filter @acme/cron start",
+          refresh: null,
           schema: "pnpm run db:predeploy",
         },
         body: {

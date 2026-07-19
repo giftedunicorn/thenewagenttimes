@@ -16,6 +16,7 @@ export const env = createEnv({
    * This way you can ensure the app isn't built with invalid env vars.
    */
   server: {
+    CRON_SECRET: z.string().min(16).optional(),
     NEWS_REFRESH_SECRET: z.string().min(16).optional(),
     POSTGRES_URL: z.url(),
     RAILWAY_PUBLIC_DOMAIN: z.string().optional(),

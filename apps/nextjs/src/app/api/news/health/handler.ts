@@ -149,7 +149,7 @@ const getNewsHealthActions = ({
   }
 
   if (!refreshConfigured) {
-    actions.push("Set NEWS_REFRESH_SECRET in the Railway service environment.");
+    actions.push("Set CRON_SECRET in the Railway service environment.");
   }
 
   if (!isNewsSchemaReady({ schemaReadiness, status })) {
@@ -228,7 +228,7 @@ const newsHealthCommands = {
   bootstrap: null,
   embed: null,
   health: "pnpm run news:health:remote",
-  refresh: "pnpm --filter @acme/cron start",
+  refresh: null,
   schema: "pnpm run db:predeploy",
   seedSources: "pnpm run news:seed-sources",
 } as const;

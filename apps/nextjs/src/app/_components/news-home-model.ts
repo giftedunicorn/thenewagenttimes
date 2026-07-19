@@ -32315,10 +32315,10 @@ const newsProductionReadinessCommands: Record<string, string | null> = {
   "Apply database schema": "pnpm run db:predeploy",
   "Configure auth secret": null,
   "Generate embeddings": null,
-  "Keep edition fresh": "pnpm --filter @acme/cron start",
+  "Keep edition fresh": null,
   "Live stories": null,
   "Protect refresh endpoint": null,
-  "Run first refresh": "pnpm --filter @acme/cron start",
+  "Run first refresh": null,
   "Seed sources": "pnpm run news:seed-sources",
 };
 

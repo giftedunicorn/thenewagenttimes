@@ -9,5 +9,5 @@ export const GET = () =>
     authSecret: env.BETTER_AUTH_SECRET ?? env.AUTH_SECRET,
     getDeskStatus: getNewsDeskStatus,
     getSchemaReadiness: getNewsSchemaReadiness,
-    refreshSecret: env.NEWS_REFRESH_SECRET,
+    refreshSecret: env.CRON_SECRET,
   });

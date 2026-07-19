@@ -44365,7 +44365,7 @@ describe("getNewsProductionReadinessChecklist", () => {
         },
       }),
     ).toEqual({
-      command: "pnpm --filter @acme/cron start",
+      command: null,
       label: "Run first refresh",
     });
     expect(

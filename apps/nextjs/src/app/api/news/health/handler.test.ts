@@ -111,7 +111,7 @@ describe("handleNewsHealthRequest", () => {
         sources: true,
       },
       commands: {
-        next: "pnpm --filter @acme/cron start",
+        next: null,
       },
       news: {
         activeSources: 24,
@@ -162,7 +162,7 @@ describe("handleNewsHealthRequest", () => {
         stories: true,
       },
       commands: {
-        next: "pnpm --filter @acme/cron start",
+        next: null,
       },
       news: {
         freshReady: false,
@@ -640,7 +640,7 @@ describe("handleNewsHealthRequest", () => {
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
         "Set BETTER_AUTH_SECRET or AUTH_SECRET in the Railway service environment.",
-        "Set NEWS_REFRESH_SECRET in the Railway service environment.",
+        "Set CRON_SECRET in the Railway service environment.",
         "Apply the database schema to the target database.",
         "Deploy the schema, then enqueue a news refresh.",
       ],
@@ -697,7 +697,7 @@ describe("handleNewsHealthRequest", () => {
         embed: null,
         health: "pnpm run news:health:remote",
         next: "pnpm run db:predeploy",
-        refresh: "pnpm --filter @acme/cron start",
+        refresh: null,
         schema: "pnpm run db:predeploy",
         seedSources: "pnpm run news:seed-sources",
       },

@@ -14,17 +14,19 @@ packages/api                tRPC news and reader APIs
 packages/db                 Drizzle schemas, database client, and job queue
 packages/ingestion          News refresh and embedding domain logic
 packages/background-worker Long-running background job processor
-packages/cron               One-shot Railway schedule producer
+packages/cron               Long-running HTTP schedule dispatcher
 packages/ui                 Shared UI components
 packages/validators         Ranking and recommendation logic
 ```
 
 `background_job` in PostgreSQL is the contract between producers and workers.
-The cron process and manual web endpoints insert jobs. The background worker
-claims them with a lease, renews the lease while working, records success or
-failure, retries recoverable failures with backoff, and reclaims expired jobs.
+The Next.js cron and manual endpoints insert jobs. The background worker claims
+them with a lease, renews the lease while working, records success or failure,
+retries recoverable failures with backoff, and reclaims expired jobs.
 
-The services share `POSTGRES_URL`; they do not call each other over HTTP.
+Only the web and background worker services access PostgreSQL. The cron service
+has no database dependency and calls the protected Next.js cron API over
+Railway's private network.
 
 ## Local Setup
 
@@ -54,41 +56,38 @@ updates with the project workflow; do not hand-edit migration files.
 Create three services from the same repository and branch. In each Railway
 service, select its checked-in config file once:
 
-| Service             | Railway config path                        | Process                  |
-| ------------------- | ------------------------------------------ | ------------------------ |
-| `web`               | `/apps/nextjs/railway.json`                | Next.js web server       |
-| `background-worker` | `/packages/background-worker/railway.json` | Always-on queue worker   |
-| `cron`              | `/packages/cron/railway.json`              | Native UTC cron producer |
+| Service             | Railway config path                        | Process                |
+| ------------------- | ------------------------------------------ | ---------------------- |
+| `web`               | `/apps/nextjs/railway.json`                | Next.js web server     |
+| `background-worker` | `/packages/background-worker/railway.json` | Always-on queue worker |
+| `cron`              | `/packages/cron/railway.json`              | HTTP cron scheduler    |
 
 `/railway.json` is also a direct web configuration for deployments that use the
 repository root.
 
-Config-as-code supplies build, start, restart, watch, predeploy, and cron
-settings. Railway still requires the config path to be selected for each
-service; a `railway.json` file does not create multiple Railway services.
+Config-as-code supplies build, start, restart, watch, and predeploy settings.
+Railway still requires the config path to be selected for each service; a
+`railway.json` file does not create multiple Railway services.
 
 ### Rollout Order
 
-An existing `news-refresh-cron` service may still be configured to read
-`/railway.json`. Change its **Config File Path** to
-`/packages/cron/railway.json` before deploying this revision. Otherwise that
-scheduled service will start the web server instead of enqueueing a job.
-Remove any service-level custom Build Command, Start Command, or Pre-deploy
-Command left by the previous `news:bootstrap:remote` deployment so the checked-in
+Configure the `news-refresh-cron` service to read
+`/packages/cron/railway.json`. Remove any Railway service-level Cron Schedule,
+custom Build Command, Start Command, or Pre-deploy Command so the checked-in
 config remains authoritative.
 
 Deploy in this order:
 
-1. Pause the existing cron schedule while changing its config path.
-2. Deploy `web` first so its predeploy step installs the `background_job`
+1. Deploy `web` first so its predeploy step installs the `background_job`
    schema.
-3. Create `background-worker` from the same GitHub repository and `main` branch,
+2. Create `background-worker` from the same GitHub repository and `main` branch,
    select `/packages/background-worker/railway.json`, and clear custom command
    overrides.
-4. Deploy and resume `cron` with `/packages/cron/railway.json`.
+3. Deploy `cron` with `/packages/cron/railway.json` as an always-on service.
 
-The `web`, `background-worker`, and `cron` services must reference the same
-`POSTGRES_URL`.
+The `web` and `background-worker` services must reference the same
+`POSTGRES_URL`. The `web` and `cron` services must reference the same
+`CRON_SECRET`.
 
 ### Web
 
@@ -100,14 +99,15 @@ pnpm run db:predeploy
 pnpm run start:nextjs
 ```
 
-Only the web service runs `db:predeploy`. The worker and cron services never
-apply schema changes.
+Only the web service runs `db:predeploy`. The worker never applies schema
+changes, and the cron service does not connect to the database.
 
 Required web variables:
 
 ```text
 POSTGRES_URL
 BETTER_AUTH_SECRET or AUTH_SECRET
+CRON_SECRET
 NEWS_REFRESH_SECRET
 ```
 
@@ -162,19 +162,28 @@ is drained. Failed batches stop chaining and are recorded for inspection.
 
 ### Cron
 
-The cron service requires only:
+Required cron variable:
 
 ```text
-POSTGRES_URL
+CRON_SECRET
 ```
 
-Railway runs it every two hours with the UTC schedule `0 */2 * * *`. The process
-creates one deterministic `news_refresh` job per two-hour window and exits.
-Duplicate Railway invocations for the same window are successful no-ops.
+Optional cron variables:
 
-Database connections wait at most 10 seconds, database statements at most 30
-seconds, and the entire cron process has a 60-second hard deadline. A stalled
-run exits nonzero instead of blocking later Railway schedules indefinitely.
+```text
+CRON_BASE_URL=http://thenewaitimes.railway.internal:8080
+CRON_CONFIG_PATH=cron.json
+```
+
+The always-on process reads `packages/cron/cron.json`. At `0 */2 * * *` UTC it
+sends an authenticated request to `/api/cron/news-refresh` over Railway's
+private network. It never imports the database package or performs service
+operations itself.
+
+Each HTTP attempt is aborted after 30 seconds, and transient network or server
+failures are attempted up to three times. The Next.js endpoint owns queue writes
+and uses a deterministic two-hour key, so retries for the same window return the
+existing job instead of creating duplicate work.
 
 ## Health Check
 

@@ -8,7 +8,10 @@ describe("database client", () => {
     });
 
     expect(source).toContain('"drizzle-orm/node-postgres"');
-    expect(source).toContain("connection: connectionString");
+    expect(source).toContain(
+      "connection: getPostgresConnectionConfig(connectionString)",
+    );
+    expect(source).toContain('from "./postgres-config"');
     expect(source).toContain("process.env.POSTGRES_URL");
     expect(source).not.toContain("@vercel/postgres");
     expect(source).not.toContain("drizzle-orm/vercel-postgres");

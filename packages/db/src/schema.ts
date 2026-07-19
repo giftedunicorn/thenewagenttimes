@@ -483,3 +483,4 @@ export const CreateNewsReaderInteractionSchema = createInsertSchema(
 });
 
 export * from "./auth-schema";
+export * from "./schemas/background-job";

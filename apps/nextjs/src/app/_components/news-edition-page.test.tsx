@@ -202,7 +202,7 @@ describe("NewsEditionPage", () => {
 
     expect(
       getNewsEditionPageStructuredData({
-        baseUrl: "https://thenewagenttimes.test",
+        baseUrl: "https://thenewaitimes.test",
         edition,
       }),
     ).toEqual({
@@ -213,7 +213,7 @@ describe("NewsEditionPage", () => {
       isPartOf: {
         "@type": "WebSite",
         name: "The New AI Times",
-        url: "https://thenewagenttimes.test/",
+        url: "https://thenewaitimes.test/",
       },
       mainEntity: {
         "@type": "ItemList",
@@ -222,19 +222,19 @@ describe("NewsEditionPage", () => {
             "@type": "ListItem",
             name: "Lead agent workflow story",
             position: 1,
-            url: "https://thenewagenttimes.test/news/lead-story",
+            url: "https://thenewaitimes.test/news/lead-story",
           },
           {
             "@type": "ListItem",
             name: "Recommendation story",
             position: 2,
-            url: "https://thenewagenttimes.test/news/river-story",
+            url: "https://thenewaitimes.test/news/river-story",
           },
         ],
         numberOfItems: 2,
       },
       name: "Agents",
-      url: "https://thenewagenttimes.test/topics/agent-product",
+      url: "https://thenewaitimes.test/topics/agent-product",
     });
   });
 
@@ -315,13 +315,13 @@ describe("NewsEditionPage", () => {
 
     expect(
       getNewsEditionPageStructuredData({
-        baseUrl: "https://thenewagenttimes.test",
+        baseUrl: "https://thenewaitimes.test",
         edition,
       }),
     ).toMatchObject({
       "@type": "SearchResultsPage",
       name: "Search: browser agents",
-      url: "https://thenewagenttimes.test/search?q=browser%20agents",
+      url: "https://thenewaitimes.test/search?q=browser%20agents",
     });
   });
 
@@ -631,7 +631,7 @@ describe("NewsEditionPage", () => {
     expect(markup).toContain('type="application/ld+json"');
     expect(markup).toContain('"@type":"CollectionPage"');
     expect(markup).toContain(
-      '"url":"https://thenewagenttimes.com/news/lead-story"',
+      '"url":"https://thenewaitimes.com/news/lead-story"',
     );
   });
 

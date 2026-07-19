@@ -39,7 +39,7 @@ const createSitemapItem = ({
 describe("getNewsSitemapEntries", () => {
   it("builds discoverable sitemap entries for home, core surfaces, feeds, machine discovery, topics, entities, sources, and stories", () => {
     const entries = getNewsSitemapEntries({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: [
         createSitemapItem({
           category: "agent_product",
@@ -67,163 +67,163 @@ describe("getNewsSitemapEntries", () => {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 1,
-        url: "https://thenewagenttimes.test/",
+        url: "https://thenewaitimes.test/",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.9,
-        url: "https://thenewagenttimes.test/briefing",
+        url: "https://thenewaitimes.test/briefing",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.85,
-        url: "https://thenewagenttimes.test/threads",
+        url: "https://thenewaitimes.test/threads",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.7,
-        url: "https://thenewagenttimes.test/search",
+        url: "https://thenewaitimes.test/search",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.65,
-        url: "https://thenewagenttimes.test/reader",
+        url: "https://thenewaitimes.test/reader",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.55,
-        url: "https://thenewagenttimes.test/reader/following",
+        url: "https://thenewaitimes.test/reader/following",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.55,
-        url: "https://thenewagenttimes.test/reader/library",
+        url: "https://thenewaitimes.test/reader/library",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.45,
-        url: "https://thenewagenttimes.test/reader/onboarding",
+        url: "https://thenewaitimes.test/reader/onboarding",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.6,
-        url: "https://thenewagenttimes.test/rss.xml",
+        url: "https://thenewaitimes.test/rss.xml",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.6,
-        url: "https://thenewagenttimes.test/feed.json",
+        url: "https://thenewaitimes.test/feed.json",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.5,
-        url: "https://thenewagenttimes.test/llms.txt",
+        url: "https://thenewaitimes.test/llms.txt",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.5,
-        url: "https://thenewagenttimes.test/opensearch.xml",
+        url: "https://thenewaitimes.test/opensearch.xml",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.8,
-        url: "https://thenewagenttimes.test/topics",
+        url: "https://thenewaitimes.test/topics",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.8,
-        url: "https://thenewagenttimes.test/sources",
+        url: "https://thenewaitimes.test/sources",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.78,
-        url: "https://thenewagenttimes.test/entities",
+        url: "https://thenewaitimes.test/entities",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T08:35:00.000Z",
         priority: 0.75,
-        url: "https://thenewagenttimes.test/topics/agent-product",
+        url: "https://thenewaitimes.test/topics/agent-product",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.75,
-        url: "https://thenewagenttimes.test/topics/model-release",
+        url: "https://thenewaitimes.test/topics/model-release",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T08:35:00.000Z",
         priority: 0.7,
-        url: "https://thenewagenttimes.test/sources/agent-desk",
+        url: "https://thenewaitimes.test/sources/agent-desk",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.7,
-        url: "https://thenewagenttimes.test/sources/model-desk",
+        url: "https://thenewaitimes.test/sources/model-desk",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.7,
-        url: "https://thenewagenttimes.test/entities/OpenAI",
+        url: "https://thenewaitimes.test/entities/OpenAI",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.7,
-        url: "https://thenewagenttimes.test/entities/Agents",
+        url: "https://thenewaitimes.test/entities/Agents",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T08:35:00.000Z",
         priority: 0.72,
-        url: "https://thenewagenttimes.test/threads/openai-agents",
+        url: "https://thenewaitimes.test/threads/openai-agents",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.72,
-        url: "https://thenewagenttimes.test/threads/frontier-model",
+        url: "https://thenewaitimes.test/threads/frontier-model",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-05T10:05:00.000Z",
         priority: 0.72,
-        url: "https://thenewagenttimes.test/threads/agent-followup",
+        url: "https://thenewaitimes.test/threads/agent-followup",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T08:35:00.000Z",
         priority: 0.85,
-        url: "https://thenewagenttimes.test/news/openai-agents",
+        url: "https://thenewaitimes.test/news/openai-agents",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.85,
-        url: "https://thenewagenttimes.test/news/frontier-model",
+        url: "https://thenewaitimes.test/news/frontier-model",
       },
       {
         changeFrequency: "hourly",
         lastModified: "2026-07-05T10:05:00.000Z",
         priority: 0.85,
-        url: "https://thenewagenttimes.test/news/agent-followup",
+        url: "https://thenewaitimes.test/news/agent-followup",
       },
     ]);
   });
@@ -231,7 +231,7 @@ describe("getNewsSitemapEntries", () => {
   it("normalizes robots metadata to the public sitemap URL", () => {
     expect(
       getNewsRobotsPolicy({
-        baseUrl: "https://thenewagenttimes.test",
+        baseUrl: "https://thenewaitimes.test",
       }),
     ).toEqual({
       rules: {
@@ -239,7 +239,7 @@ describe("getNewsSitemapEntries", () => {
         disallow: "/api/",
         userAgent: "*",
       },
-      sitemap: "https://thenewagenttimes.test/sitemap.xml",
+      sitemap: "https://thenewaitimes.test/sitemap.xml",
     });
   });
 

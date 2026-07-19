@@ -6,7 +6,7 @@ import { getNewsOpenSearchDescription } from "./news-search-discovery";
 describe("getNewsOpenSearchDescription", () => {
   it("builds an OpenSearch description for browser news search discovery", () => {
     const description = getNewsOpenSearchDescription({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
     });
 
     expect(description).toContain('<?xml version="1.0" encoding="UTF-8"?>');
@@ -18,10 +18,10 @@ describe("getNewsOpenSearchDescription", () => {
       "<Description>Search The New AI Times for AI agents, models, funding, research, and sources.</Description>",
     );
     expect(description).toContain(
-      '<Url type="text/html" method="get" template="https://thenewagenttimes.test/search?q={searchTerms}" />',
+      '<Url type="text/html" method="get" template="https://thenewaitimes.test/search?q={searchTerms}" />',
     );
     expect(description).toContain(
-      '<Url type="application/rss+xml" method="get" template="https://thenewagenttimes.test/rss.xml" />',
+      '<Url type="application/rss+xml" method="get" template="https://thenewaitimes.test/rss.xml" />',
     );
     expect(description).toContain("<InputEncoding>UTF-8</InputEncoding>");
     expect(description).toContain("<OutputEncoding>UTF-8</OutputEncoding>");
@@ -29,11 +29,11 @@ describe("getNewsOpenSearchDescription", () => {
 
   it("escapes OpenSearch XML values from configured base URLs", () => {
     const description = getNewsOpenSearchDescription({
-      baseUrl: "https://thenewagenttimes.test/?ref=agents&mode=<search>",
+      baseUrl: "https://thenewaitimes.test/?ref=agents&mode=<search>",
     });
 
     expect(description).toContain(
-      "https://thenewagenttimes.test/search?q={searchTerms}",
+      "https://thenewaitimes.test/search?q={searchTerms}",
     );
     expect(description).not.toContain("mode=<search>");
   });

@@ -21,9 +21,9 @@ const toHttpsUrl = (domain: string | undefined) => {
 const deploymentDomain =
   env.RAILWAY_PUBLIC_DOMAIN ??
   env.VERCEL_PROJECT_PRODUCTION_URL ??
-  "thenewagenttimes.com";
+  "thenewaitimes.com";
 const productionUrl =
-  toHttpsUrl(deploymentDomain) ?? "https://thenewagenttimes.com";
+  toHttpsUrl(deploymentDomain) ?? "https://thenewaitimes.com";
 const railwayBaseUrl = toHttpsUrl(env.RAILWAY_PUBLIC_DOMAIN);
 const vercelPreviewUrl = toHttpsUrl(env.VERCEL_URL);
 const vercelProductionUrl = toHttpsUrl(env.VERCEL_PROJECT_PRODUCTION_URL);

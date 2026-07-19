@@ -251,7 +251,7 @@ describe("Railway Next.js deployment config", () => {
       "utf8",
     );
 
-    expect(authServer).toContain("thenewagenttimes.com");
+    expect(authServer).toContain("thenewaitimes.com");
     expect(authServer).not.toContain("turbo.t3.gg");
   });
 

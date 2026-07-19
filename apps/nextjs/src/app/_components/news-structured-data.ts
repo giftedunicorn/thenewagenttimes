@@ -1,5 +1,5 @@
 export const newsStructuredDataSiteName = "The New AI Times";
-export const newsStructuredDataDefaultBaseUrl = "https://thenewagenttimes.com";
+export const newsStructuredDataDefaultBaseUrl = "https://thenewaitimes.com";
 
 export const getNewsStructuredDataUrl = ({
   baseUrl = newsStructuredDataDefaultBaseUrl,

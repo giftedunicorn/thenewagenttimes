@@ -9,10 +9,7 @@ import { handleNewsForYouRequest } from "./handler";
 const createItem = (
   overrides: Partial<NewsHomeItem> &
     Partial<
-      Pick<
-        RankedNewsItem<NewsHomeItem>,
-        "matchedSignals" | "personalizedScore"
-      >
+      Pick<RankedNewsItem<NewsHomeItem>, "matchedSignals" | "personalizedScore">
     > &
     Pick<NewsHomeItem, "id" | "title">,
 ): NewsHomeItem => {
@@ -198,7 +195,7 @@ describe("handleNewsForYouRequest", () => {
   it("returns a personalized For You page with explanations and next request shape", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           excludeNewsItemIds: [" ", "model-launch", ""],
           limit: 2,
@@ -297,7 +294,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 92,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -344,7 +341,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -390,7 +387,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -421,7 +418,7 @@ describe("handleNewsForYouRequest", () => {
   it("keeps exact Less feedback out of the next For You page", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 3,
           negativeFeedbackItems: [
@@ -490,7 +487,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           negativeFeedbackItems: [
@@ -549,7 +546,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           excludeNewsItemIds: existingExcludedIds,
           limit: 1,
@@ -583,7 +580,7 @@ describe("handleNewsForYouRequest", () => {
     );
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           excludeNewsItemIds: [...repeatedExcludedIds, "model-launch"],
           limit: 2,
@@ -636,7 +633,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 84,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -672,7 +669,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 88,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -743,7 +740,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 71,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 4,
           objective: "market_heat",
@@ -866,7 +863,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 93,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 7,
           objective: "market_heat",
@@ -972,7 +969,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 75,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 4,
           objective: "reader_match",
@@ -1079,7 +1076,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 75,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 4,
           objective: "market_heat",
@@ -1142,7 +1139,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 78,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -1210,7 +1207,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 3,
           objective: "market_heat",
@@ -1279,7 +1276,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 3,
           objective: "reader_match",
@@ -1364,7 +1361,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 67,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 4,
           objective: "reader_match",
@@ -1426,51 +1423,48 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 76,
             }),
           ]),
-        request: new Request(
-          "https://thenewagenttimes.test/api/news/for-you",
-          {
-            body: JSON.stringify({
-              limit: 2,
-              objective: "reader_match",
-              profile: {
-                noveltyBias: 1,
-                preferredCategories: [],
-                preferredEntities: [],
-                preferredSources: [],
-                recencyBias: 1,
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
+          body: JSON.stringify({
+            limit: 2,
+            objective: "reader_match",
+            profile: {
+              noveltyBias: 1,
+              preferredCategories: [],
+              preferredEntities: [],
+              preferredSources: [],
+              recencyBias: 1,
+            },
+            recentExposureItems: [
+              {
+                category: "model_release",
+                clusterKey: "2026-07-06:model_release:frontier-model",
+                entities: ["Frontier Model"],
+                id: "already-read-frontier-model",
+                occurredAt: "2026-07-06T11:30:00.000Z",
+                sourceName: "Model Desk",
+                sourceSlug: "model-desk",
+                surface: "article",
+                tags: ["models"],
+                title: "Already read frontier model story",
               },
-              recentExposureItems: [
-                {
-                  category: "model_release",
-                  clusterKey: "2026-07-06:model_release:frontier-model",
-                  entities: ["Frontier Model"],
-                  id: "already-read-frontier-model",
-                  occurredAt: "2026-07-06T11:30:00.000Z",
-                  sourceName: "Model Desk",
-                  sourceSlug: "model-desk",
-                  surface: "article",
-                  tags: ["models"],
-                  title: "Already read frontier model story",
-                },
-              ],
-              readingHistoryItems: [
-                {
-                  category: "model_release",
-                  clusterKey: "2026-07-06:model_release:frontier-model",
-                  entities: ["Frontier Model"],
-                  id: "already-read-frontier-model",
-                  occurredAt: "2026-07-06T11:30:00.000Z",
-                  sourceName: "Model Desk",
-                  sourceSlug: "model-desk",
-                  surface: "article",
-                  tags: ["models"],
-                  title: "Already read frontier model story",
-                },
-              ],
-            }),
-            method: "POST",
-          },
-        ),
+            ],
+            readingHistoryItems: [
+              {
+                category: "model_release",
+                clusterKey: "2026-07-06:model_release:frontier-model",
+                entities: ["Frontier Model"],
+                id: "already-read-frontier-model",
+                occurredAt: "2026-07-06T11:30:00.000Z",
+                sourceName: "Model Desk",
+                sourceSlug: "model-desk",
+                surface: "article",
+                tags: ["models"],
+                title: "Already read frontier model story",
+              },
+            ],
+          }),
+          method: "POST",
+        }),
       });
 
       expect(response.status).toBe(200);
@@ -1531,37 +1525,34 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 76,
             }),
           ]),
-        request: new Request(
-          "https://thenewagenttimes.test/api/news/for-you",
-          {
-            body: JSON.stringify({
-              limit: 2,
-              objective: "reader_match",
-              profile: {
-                noveltyBias: 1,
-                preferredCategories: [],
-                preferredEntities: [],
-                preferredSources: [],
-                recencyBias: 1,
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
+          body: JSON.stringify({
+            limit: 2,
+            objective: "reader_match",
+            profile: {
+              noveltyBias: 1,
+              preferredCategories: [],
+              preferredEntities: [],
+              preferredSources: [],
+              recencyBias: 1,
+            },
+            readingHistoryItems: [
+              {
+                category: "model_release",
+                clusterKey: "2026-07-01:model_release:frontier-model",
+                entities: ["Frontier Model"],
+                id: "already-read-frontier-model",
+                occurredAt: "2026-07-01T11:30:00.000Z",
+                sourceName: "Model Desk",
+                sourceSlug: "model-desk",
+                surface: "article",
+                tags: ["models"],
+                title: "Already read frontier model story",
               },
-              readingHistoryItems: [
-                {
-                  category: "model_release",
-                  clusterKey: "2026-07-01:model_release:frontier-model",
-                  entities: ["Frontier Model"],
-                  id: "already-read-frontier-model",
-                  occurredAt: "2026-07-01T11:30:00.000Z",
-                  sourceName: "Model Desk",
-                  sourceSlug: "model-desk",
-                  surface: "article",
-                  tags: ["models"],
-                  title: "Already read frontier model story",
-                },
-              ],
-            }),
-            method: "POST",
-          },
-        ),
+            ],
+          }),
+          method: "POST",
+        }),
       });
 
       expect(response.status).toBe(200);
@@ -1622,51 +1613,48 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 76,
             }),
           ]),
-        request: new Request(
-          "https://thenewagenttimes.test/api/news/for-you",
-          {
-            body: JSON.stringify({
-              limit: 2,
-              objective: "reader_match",
-              positiveFeedbackItems: [
-                {
-                  category: "model_release",
-                  clusterKey: "2026-07-06:model_release:frontier-model",
-                  entities: ["Frontier Model"],
-                  id: "already-read-frontier-model",
-                  newsItemId: "already-read-frontier-model",
-                  occurredAt: "2026-07-06T11:30:00.000Z",
-                  sourceName: "Model Desk",
-                  sourceSlug: "model-desk",
-                  tags: ["models"],
-                  title: "Already read frontier model story",
-                },
-              ],
-              profile: {
-                noveltyBias: 1,
-                preferredCategories: [],
-                preferredEntities: [],
-                preferredSources: [],
-                recencyBias: 1,
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
+          body: JSON.stringify({
+            limit: 2,
+            objective: "reader_match",
+            positiveFeedbackItems: [
+              {
+                category: "model_release",
+                clusterKey: "2026-07-06:model_release:frontier-model",
+                entities: ["Frontier Model"],
+                id: "already-read-frontier-model",
+                newsItemId: "already-read-frontier-model",
+                occurredAt: "2026-07-06T11:30:00.000Z",
+                sourceName: "Model Desk",
+                sourceSlug: "model-desk",
+                tags: ["models"],
+                title: "Already read frontier model story",
               },
-              readingHistoryItems: [
-                {
-                  category: "model_release",
-                  clusterKey: "2026-07-06:model_release:frontier-model",
-                  entities: ["Frontier Model"],
-                  id: "already-read-frontier-model",
-                  occurredAt: "2026-07-06T11:30:00.000Z",
-                  sourceName: "Model Desk",
-                  sourceSlug: "model-desk",
-                  surface: "article",
-                  tags: ["models"],
-                  title: "Already read frontier model story",
-                },
-              ],
-            }),
-            method: "POST",
-          },
-        ),
+            ],
+            profile: {
+              noveltyBias: 1,
+              preferredCategories: [],
+              preferredEntities: [],
+              preferredSources: [],
+              recencyBias: 1,
+            },
+            readingHistoryItems: [
+              {
+                category: "model_release",
+                clusterKey: "2026-07-06:model_release:frontier-model",
+                entities: ["Frontier Model"],
+                id: "already-read-frontier-model",
+                occurredAt: "2026-07-06T11:30:00.000Z",
+                sourceName: "Model Desk",
+                sourceSlug: "model-desk",
+                surface: "article",
+                tags: ["models"],
+                title: "Already read frontier model story",
+              },
+            ],
+          }),
+          method: "POST",
+        }),
       });
 
       expect(response.status).toBe(200);
@@ -1719,7 +1707,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 97,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -1822,7 +1810,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 74,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 6,
           objective: "reader_match",
@@ -1958,7 +1946,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 75,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 5,
             objective: "reader_match",
@@ -2008,7 +1996,7 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates repeated Less feedback before carrying it into the next For You request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve([]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           negativeFeedbackItems: [
@@ -2056,7 +2044,7 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates Less feedback by cluster before carrying it into the next For You request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve([]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           negativeFeedbackItems: [
@@ -2128,7 +2116,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 3,
           negativeFeedbackItems: [
@@ -2207,7 +2195,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 72,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             negativeFeedbackItems: [
@@ -2271,7 +2259,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 72,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             negativeFeedbackItems: [
@@ -2338,7 +2326,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           excludeNewsItemIds: ["seen-model-story"],
           limit: 2,
@@ -2384,7 +2372,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 88,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 1,
             objective: "reader_match",
@@ -2451,7 +2439,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           excludeNewsItemIds: ["seen-model-story"],
           limit: 2,
@@ -2493,7 +2481,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 72,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             excludeNewsItemIds: ["agent-browser"],
             limit: 2,
@@ -2554,7 +2542,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 72,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             excludeNewsItemIds: ["agent-browser"],
             limit: 2,
@@ -2625,7 +2613,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 72,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -2678,7 +2666,7 @@ describe("handleNewsForYouRequest", () => {
     try {
       const response = await handleNewsForYouRequest({
         getItems: () => Promise.resolve([]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             recentExposureItems: [
@@ -2732,7 +2720,7 @@ describe("handleNewsForYouRequest", () => {
     try {
       const response = await handleNewsForYouRequest({
         getItems: () => Promise.resolve([]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             recentExposureItems: [
@@ -2776,7 +2764,7 @@ describe("handleNewsForYouRequest", () => {
     try {
       const response = await handleNewsForYouRequest({
         getItems: () => Promise.resolve([]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             recentExposureItems: [
@@ -2851,7 +2839,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -2881,7 +2869,7 @@ describe("handleNewsForYouRequest", () => {
   it("falls back to broad For You candidates when search memory has no current matches", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -2935,7 +2923,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -2965,7 +2953,7 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates normalized search memory before carrying it into the next For You request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           searchMemoryItems: [
@@ -3000,7 +2988,7 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates separator-equivalent search memory before carrying it into the next For You request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           searchMemoryItems: [
@@ -3040,7 +3028,7 @@ describe("handleNewsForYouRequest", () => {
   it("normalizes direct search filters before echoing the next For You request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           q: `  deployment\nevidence\t${"model ".repeat(40)}pricing  `,
@@ -3062,7 +3050,7 @@ describe("handleNewsForYouRequest", () => {
   it("matches direct search filters across hyphenated and underscored topic text", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           q: "model-release",
@@ -3108,7 +3096,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 80,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 1,
             objective: "reader_match",
@@ -3165,7 +3153,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 70,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 1,
             objective: "reader_match",
@@ -3217,7 +3205,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 70,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 1,
             objective: "reader_match",
@@ -3266,7 +3254,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 79,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -3317,7 +3305,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 92,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -3374,7 +3362,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           category: "policy",
           limit: 2,
@@ -3430,7 +3418,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -3495,7 +3483,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -3546,7 +3534,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -3598,7 +3586,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 82,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -3681,7 +3669,7 @@ describe("handleNewsForYouRequest", () => {
       );
       const response = await handleNewsForYouRequest({
         getItems: () => Promise.resolve([]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 1,
             objective: "reader_match",
@@ -3746,7 +3734,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 82,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -3820,7 +3808,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 82,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -3904,7 +3892,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 82,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 3,
             objective: "reader_match",
@@ -3987,7 +3975,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           collaborativeSignals: [
             {
@@ -4043,7 +4031,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           collaborativeSignals: [
             {
@@ -4109,7 +4097,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4171,7 +4159,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4227,7 +4215,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           collaborativeSignals: [
             {
@@ -4268,7 +4256,7 @@ describe("handleNewsForYouRequest", () => {
   it("dedupes collaborative signals by cluster before replaying them", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve([]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           collaborativeSignals: [
             {
@@ -4343,7 +4331,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 81,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4396,7 +4384,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4455,7 +4443,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4507,7 +4495,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4563,7 +4551,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4609,7 +4597,7 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates semantic similarity matches by cluster before replaying the next For You request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve([]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4667,7 +4655,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 79,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -4726,7 +4714,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 79,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -4781,7 +4769,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 79,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4830,7 +4818,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 79,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4880,7 +4868,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 82,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -4945,14 +4933,14 @@ describe("handleNewsForYouRequest", () => {
           }),
         ]),
       getSemanticSimilarityMatches,
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
           positiveFeedbackItems: [
             {
               action: "save",
-              canonicalUrl: "https://thenewagenttimes.test/policy-feedback",
+              canonicalUrl: "https://thenewaitimes.test/policy-feedback",
               category: "policy",
               entities: ["Regulators"],
               id: "policy-feedback",
@@ -5030,14 +5018,14 @@ describe("handleNewsForYouRequest", () => {
           }),
         ]),
       getSemanticSimilarityMatches,
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
           positiveFeedbackItems: [
             {
               action: "save",
-              canonicalUrl: "https://thenewagenttimes.test/policy-feedback",
+              canonicalUrl: "https://thenewaitimes.test/policy-feedback",
               category: "policy",
               entities: ["Regulators"],
               id: "policy-feedback",
@@ -5113,14 +5101,14 @@ describe("handleNewsForYouRequest", () => {
           }),
         ]),
       getSemanticSimilarityMatches,
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
           positiveFeedbackItems: [
             {
               action: "save",
-              canonicalUrl: "https://thenewagenttimes.test/policy-feedback",
+              canonicalUrl: "https://thenewaitimes.test/policy-feedback",
               category: "policy",
               entities: ["Regulators"],
               id: "policy-feedback",
@@ -5190,14 +5178,14 @@ describe("handleNewsForYouRequest", () => {
             }),
           ]),
         getSemanticSimilarityMatches,
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
             positiveFeedbackItems: [
               {
                 action: "save",
-                canonicalUrl: "https://thenewagenttimes.test/policy-feedback",
+                canonicalUrl: "https://thenewaitimes.test/policy-feedback",
                 category: "policy",
                 entities: ["Regulators"],
                 id: "policy-feedback",
@@ -5266,7 +5254,7 @@ describe("handleNewsForYouRequest", () => {
           }),
         ]),
       getSemanticSimilarityMatches,
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -5317,7 +5305,7 @@ describe("handleNewsForYouRequest", () => {
           }),
           createItem({
             category: "model_release",
-            canonicalUrl: "https://thenewagenttimes.test/model-launch",
+            canonicalUrl: "https://thenewaitimes.test/model-launch",
             entities: ["Frontier Model"],
             id: "model-launch",
             sourceName: "Model Desk",
@@ -5327,7 +5315,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -5391,7 +5379,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 72,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -5441,21 +5429,20 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates repeated positive feedback before carrying it into the next request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
           positiveFeedbackItems: [
             {
               action: "save",
-              canonicalUrl: "https://thenewagenttimes.test/model-launch",
+              canonicalUrl: "https://thenewaitimes.test/model-launch",
               category: "model_release",
               entities: ["Frontier Model"],
               id: "saved-model-story",
               newsItemId: "saved-model-story",
               occurredAt: "2026-07-06T09:30:00.000Z",
-              originalUrl:
-                "https://thenewagenttimes.test/model-launch?utm=save",
+              originalUrl: "https://thenewaitimes.test/model-launch?utm=save",
               sourceName: "Model Desk",
               sourceSlug: "model-desk",
               tags: ["models"],
@@ -5463,14 +5450,13 @@ describe("handleNewsForYouRequest", () => {
             },
             {
               action: "share",
-              canonicalUrl: "https://thenewagenttimes.test/model-launch",
+              canonicalUrl: "https://thenewaitimes.test/model-launch",
               category: "model_release",
               entities: ["Frontier Model"],
               id: "shared-model-story",
               newsItemId: "saved-model-story",
               occurredAt: "2026-07-06T09:45:00.000Z",
-              originalUrl:
-                "https://thenewagenttimes.test/model-launch?utm=share",
+              originalUrl: "https://thenewaitimes.test/model-launch?utm=share",
               sourceName: "Model Desk",
               sourceSlug: "model-desk",
               tags: ["models"],
@@ -5497,22 +5483,21 @@ describe("handleNewsForYouRequest", () => {
   it("deduplicates positive feedback by cluster before carrying it into the next request", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve([]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
           positiveFeedbackItems: [
             {
               action: "save",
-              canonicalUrl: "https://thenewagenttimes.test/model-launch",
+              canonicalUrl: "https://thenewaitimes.test/model-launch",
               category: "model_release",
               clusterKey: "2026-07-06:model_release:frontier-model",
               entities: ["Frontier Model"],
               id: "saved-model-story",
               newsItemId: "saved-model-story",
               occurredAt: "2026-07-06T09:30:00.000Z",
-              originalUrl:
-                "https://thenewagenttimes.test/model-launch?utm=save",
+              originalUrl: "https://thenewaitimes.test/model-launch?utm=save",
               sourceName: "Model Desk",
               sourceSlug: "model-desk",
               tags: ["models"],
@@ -5568,7 +5553,7 @@ describe("handleNewsForYouRequest", () => {
             }),
             createItem({
               category: "model_release",
-              canonicalUrl: "https://thenewagenttimes.test/model-launch",
+              canonicalUrl: "https://thenewaitimes.test/model-launch",
               entities: ["Frontier Model"],
               id: "model-launch",
               sourceName: "Model Desk",
@@ -5578,7 +5563,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 70,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 1,
             objective: "reader_match",
@@ -5627,7 +5612,7 @@ describe("handleNewsForYouRequest", () => {
           }),
           createItem({
             category: "model_release",
-            canonicalUrl: "https://thenewagenttimes.test/model-launch",
+            canonicalUrl: "https://thenewaitimes.test/model-launch",
             entities: ["Frontier Model"],
             id: "model-launch",
             sourceName: "Model Desk",
@@ -5637,7 +5622,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -5676,7 +5661,7 @@ describe("handleNewsForYouRequest", () => {
         Promise.resolve([
           createItem({
             category: "model_release",
-            canonicalUrl: "https://thenewagenttimes.test/saved-model-story",
+            canonicalUrl: "https://thenewaitimes.test/saved-model-story",
             entities: ["Frontier Model"],
             id: "saved-model-story",
             sourceName: "Model Desk",
@@ -5687,7 +5672,7 @@ describe("handleNewsForYouRequest", () => {
           }),
           createItem({
             category: "agent_product",
-            canonicalUrl: "https://thenewagenttimes.test/fresh-agent-story",
+            canonicalUrl: "https://thenewaitimes.test/fresh-agent-story",
             entities: ["OpenAI"],
             id: "fresh-agent-story",
             sourceName: "Agent Desk",
@@ -5697,14 +5682,14 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
           positiveFeedbackItems: [
             {
               action: "save",
-              canonicalUrl: "https://thenewagenttimes.test/saved-model-story",
+              canonicalUrl: "https://thenewaitimes.test/saved-model-story",
               category: "model_release",
               entities: ["Frontier Model"],
               id: "saved-model-story",
@@ -5756,7 +5741,7 @@ describe("handleNewsForYouRequest", () => {
               trendScore: 72,
             }),
           ]),
-        request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+        request: new Request("https://thenewaitimes.test/api/news/for-you", {
           body: JSON.stringify({
             limit: 2,
             objective: "reader_match",
@@ -5814,7 +5799,7 @@ describe("handleNewsForYouRequest", () => {
           }),
           createItem({
             category: "model_release",
-            canonicalUrl: "https://thenewagenttimes.test/model-launch",
+            canonicalUrl: "https://thenewaitimes.test/model-launch",
             entities: ["Frontier Model"],
             id: "model-launch",
             sourceName: "Model Desk",
@@ -5824,7 +5809,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           objective: "reader_match",
@@ -5855,9 +5840,7 @@ describe("handleNewsForYouRequest", () => {
       "agent-browser",
       "model-launch",
     ]);
-    expect(payload.items[1]?.matchedSignals).not.toContain(
-      "positive_feedback",
-    );
+    expect(payload.items[1]?.matchedSignals).not.toContain("positive_feedback");
     expect(payload.items[1]?.matchedSignals).not.toContain(
       "positive_read_feedback",
     );
@@ -5876,7 +5859,7 @@ describe("handleNewsForYouRequest", () => {
           }),
           createItem({
             category: "model_release",
-            canonicalUrl: "https://thenewagenttimes.test/model-launch",
+            canonicalUrl: "https://thenewaitimes.test/model-launch",
             entities: ["Frontier Model"],
             id: "model-launch",
             sourceName: "Model Desk",
@@ -5886,7 +5869,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -5939,7 +5922,7 @@ describe("handleNewsForYouRequest", () => {
           }),
           createItem({
             category: "model_release",
-            canonicalUrl: "https://thenewagenttimes.test/model-launch",
+            canonicalUrl: "https://thenewaitimes.test/model-launch",
             entities: ["Frontier Model"],
             id: "model-launch",
             sourceName: "Model Desk",
@@ -5949,7 +5932,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 70,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           objective: "reader_match",
@@ -5998,7 +5981,7 @@ describe("handleNewsForYouRequest", () => {
   it("returns a replayable next request with profile and reader memory", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           negativeFeedbackItems: [
@@ -6070,7 +6053,7 @@ describe("handleNewsForYouRequest", () => {
   it("applies active search and channel filters before personalized ranking", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           category: "policy",
           limit: 2,
@@ -6122,7 +6105,7 @@ describe("handleNewsForYouRequest", () => {
             trendScore: 95,
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           category: " Model-Release ",
           limit: 2,
@@ -6158,7 +6141,7 @@ describe("handleNewsForYouRequest", () => {
             title: "Frontier model release shifts eval policy",
           }),
         ]),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 2,
           tag: "browser agents",
@@ -6203,7 +6186,7 @@ describe("handleNewsForYouRequest", () => {
     ];
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(broadPoolItems),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           q: "deployment evidence",
@@ -6245,7 +6228,7 @@ describe("handleNewsForYouRequest", () => {
     ];
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(broadPoolItems),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 1,
           searchMemoryItems: [
@@ -6274,7 +6257,7 @@ describe("handleNewsForYouRequest", () => {
   it("falls back to a default profile and clamps invalid limits", async () => {
     const response = await handleNewsForYouRequest({
       getItems: () => Promise.resolve(items),
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: JSON.stringify({
           limit: 999,
           profile: {
@@ -6300,7 +6283,7 @@ describe("handleNewsForYouRequest", () => {
     const getItems = vi.fn(() => Promise.resolve(items));
     const response = await handleNewsForYouRequest({
       getItems,
-      request: new Request("https://thenewagenttimes.test/api/news/for-you", {
+      request: new Request("https://thenewaitimes.test/api/news/for-you", {
         body: "{",
         method: "POST",
       }),

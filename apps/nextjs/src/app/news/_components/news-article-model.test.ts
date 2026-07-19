@@ -179,7 +179,7 @@ describe("getNewsArticleStructuredData", () => {
           ...article,
           imageUrl: "https://cdn.example.com/openai-agents.png",
         },
-        baseUrl: "https://thenewagenttimes.test",
+        baseUrl: "https://thenewaitimes.test",
       }),
     ).toEqual({
       "@context": "https://schema.org",
@@ -206,13 +206,12 @@ describe("getNewsArticleStructuredData", () => {
       image: ["https://cdn.example.com/openai-agents.png"],
       isAccessibleForFree: true,
       keywords: ["model", "agent", "OpenAI", "Agents"],
-      mainEntityOfPage:
-        "https://thenewagenttimes.test/news/article-openai-agents",
+      mainEntityOfPage: "https://thenewaitimes.test/news/article-openai-agents",
       publisher: {
         "@type": "Organization",
         name: "The New AI Times",
       },
-      url: "https://thenewagenttimes.test/news/article-openai-agents",
+      url: "https://thenewaitimes.test/news/article-openai-agents",
     });
   });
 
@@ -223,11 +222,11 @@ describe("getNewsArticleStructuredData", () => {
           ...article,
           imageUrl: "/news-images/new-ai-times-agent-browsers.png",
         },
-        baseUrl: "https://thenewagenttimes.test",
+        baseUrl: "https://thenewaitimes.test",
       }),
     ).toMatchObject({
       image: [
-        "https://thenewagenttimes.test/news-images/new-ai-times-agent-browsers.png",
+        "https://thenewaitimes.test/news-images/new-ai-times-agent-browsers.png",
       ],
     });
   });

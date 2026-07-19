@@ -12,37 +12,37 @@ describe("resolveRemoteNewsHealthUrl", () => {
   it("keeps an explicit health endpoint", () => {
     expect(
       resolveRemoteNewsHealthUrl(
-        "https://thenewagenttimes.up.railway.app/api/news/health",
+        "https://thenewaitimes.up.railway.app/api/news/health",
       ),
-    ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+    ).toBe("https://thenewaitimes.up.railway.app/api/news/health");
   });
 
   it("turns an app base URL into the health endpoint", () => {
     expect(
-      resolveRemoteNewsHealthUrl("https://thenewagenttimes.up.railway.app"),
-    ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+      resolveRemoteNewsHealthUrl("https://thenewaitimes.up.railway.app"),
+    ).toBe("https://thenewaitimes.up.railway.app/api/news/health");
   });
 
   it("turns an explicit refresh endpoint into the health endpoint", () => {
     expect(
       resolveRemoteNewsHealthUrl(
-        "https://thenewagenttimes.up.railway.app/api/news/refresh",
+        "https://thenewaitimes.up.railway.app/api/news/refresh",
       ),
-    ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+    ).toBe("https://thenewaitimes.up.railway.app/api/news/health");
   });
 
   it("turns an explicit embed endpoint into the health endpoint", () => {
     expect(
       resolveRemoteNewsHealthUrl(
-        "https://thenewagenttimes.up.railway.app/api/news/embed",
+        "https://thenewaitimes.up.railway.app/api/news/embed",
       ),
-    ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+    ).toBe("https://thenewaitimes.up.railway.app/api/news/health");
   });
 
   it("uses the Railway public domain when the health URL is not configured", () => {
-    expect(
-      resolveRemoteNewsHealthUrl("", "thenewagenttimes.up.railway.app"),
-    ).toBe("https://thenewagenttimes.up.railway.app/api/news/health");
+    expect(resolveRemoteNewsHealthUrl("", "thenewaitimes.up.railway.app")).toBe(
+      "https://thenewaitimes.up.railway.app/api/news/health",
+    );
   });
 });
 
@@ -52,13 +52,13 @@ describe("resolveRemoteNewsHealthCommandInput", () => {
       resolveRemoteNewsHealthCommandInput({
         argv: ["https://custom.example/api/news/refresh"],
         env: {
-          NEWS_HEALTH_URL: "https://thenewagenttimes.up.railway.app",
-          RAILWAY_PUBLIC_DOMAIN: "thenewagenttimes.up.railway.app",
+          NEWS_HEALTH_URL: "https://thenewaitimes.up.railway.app",
+          RAILWAY_PUBLIC_DOMAIN: "thenewaitimes.up.railway.app",
         },
       }),
     ).toEqual({
       healthUrl: "https://custom.example/api/news/refresh",
-      railwayPublicDomain: "thenewagenttimes.up.railway.app",
+      railwayPublicDomain: "thenewaitimes.up.railway.app",
     });
   });
 
@@ -69,13 +69,13 @@ describe("resolveRemoteNewsHealthCommandInput", () => {
         env: {
           NEWS_BOOTSTRAP_URL: "https://obsolete.example/bootstrap",
           NEWS_EMBED_URL: "https://obsolete.example/embed",
-          NEWS_HEALTH_URL: "https://thenewagenttimes.up.railway.app",
+          NEWS_HEALTH_URL: "https://thenewaitimes.up.railway.app",
           NEWS_REFRESH_URL: "https://obsolete.example/refresh",
           RAILWAY_PUBLIC_DOMAIN: "fallback.up.railway.app",
         },
       }),
     ).toEqual({
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
       railwayPublicDomain: "fallback.up.railway.app",
     });
   });
@@ -89,13 +89,13 @@ describe("resolveRemoteNewsHealthCommandInput", () => {
           NEWS_EMBED_URL: "",
           NEWS_HEALTH_URL: "   ",
           NEWS_REFRESH_URL:
-            "https://thenewagenttimes.up.railway.app/api/news/refresh",
-          RAILWAY_PUBLIC_DOMAIN: "thenewagenttimes.up.railway.app",
+            "https://thenewaitimes.up.railway.app/api/news/refresh",
+          RAILWAY_PUBLIC_DOMAIN: "thenewaitimes.up.railway.app",
         },
       }),
     ).toEqual({
       healthUrl: undefined,
-      railwayPublicDomain: "thenewagenttimes.up.railway.app",
+      railwayPublicDomain: "thenewaitimes.up.railway.app",
     });
   });
 });
@@ -138,13 +138,13 @@ describe("checkRemoteNewsHealth", () => {
             ),
         });
       },
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
     });
 
     expect(requests).toEqual([
       {
         method: "GET",
-        url: "https://thenewagenttimes.up.railway.app/api/news/health",
+        url: "https://thenewaitimes.up.railway.app/api/news/health",
       },
     ]);
     expect(result).toEqual({
@@ -213,7 +213,7 @@ describe("checkRemoteNewsHealth", () => {
               }),
             ),
         }),
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
     }).catch((caughtError: unknown) => caughtError);
 
     expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
@@ -260,7 +260,7 @@ describe("checkRemoteNewsHealth", () => {
               }),
             ),
         }),
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
     }).catch((caughtError: unknown) => caughtError);
 
     expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
@@ -323,7 +323,7 @@ describe("checkRemoteNewsHealth", () => {
               }),
             ),
         }),
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
     }).catch((caughtError: unknown) => caughtError);
 
     expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
@@ -372,7 +372,7 @@ describe("checkRemoteNewsHealth", () => {
           status: 200,
           text: () => Promise.resolve("<html>TanStack Start</html>"),
         }),
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
     }).catch((caughtError: unknown) => caughtError);
 
     expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
@@ -397,7 +397,7 @@ describe("checkRemoteNewsHealth", () => {
           status: 404,
           text: () => Promise.resolve("<html>Create Next App</html>"),
         }),
-      healthUrl: "https://thenewagenttimes.up.railway.app",
+      healthUrl: "https://thenewaitimes.up.railway.app",
     }).catch((caughtError: unknown) => caughtError);
 
     expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);

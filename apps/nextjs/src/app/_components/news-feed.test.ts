@@ -39,7 +39,7 @@ const countOccurrences = (text: string, value: string) =>
 describe("getNewsRssFeed", () => {
   it("builds a valid RSS feed from homepage news items", () => {
     const feed = getNewsRssFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: [
         createFeedItem({
           id: "openai-agents",
@@ -53,7 +53,7 @@ describe("getNewsRssFeed", () => {
     expect(feed).toContain('<rss version="2.0"');
     expect(feed).toContain("<title>The New AI Times</title>");
     expect(feed).toContain(
-      '<atom:link href="https://thenewagenttimes.test/rss.xml" rel="self" type="application/rss+xml" />',
+      '<atom:link href="https://thenewaitimes.test/rss.xml" rel="self" type="application/rss+xml" />',
     );
     expect(feed).toContain(
       "<lastBuildDate>Mon, 06 Jul 2026 08:35:00 GMT</lastBuildDate>",
@@ -62,7 +62,7 @@ describe("getNewsRssFeed", () => {
       "<title>OpenAI &amp; Anthropic &lt;agent stack&gt;</title>",
     );
     expect(feed).toContain(
-      "<link>https://thenewagenttimes.test/news/openai-agents</link>",
+      "<link>https://thenewaitimes.test/news/openai-agents</link>",
     );
     expect(feed).toContain("<category>agent_product</category>");
     expect(feed).toContain(
@@ -73,7 +73,7 @@ describe("getNewsRssFeed", () => {
 
   it("adds media RSS image metadata for visual news readers", () => {
     const feed = getNewsRssFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: [
         createFeedItem({
           id: "visual-agent-story",
@@ -92,7 +92,7 @@ describe("getNewsRssFeed", () => {
 
   it("converts local media RSS image paths into absolute URLs for aggregators", () => {
     const feed = getNewsRssFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: [
         createFeedItem({
           id: "local-visual-agent-story",
@@ -104,13 +104,13 @@ describe("getNewsRssFeed", () => {
     });
 
     expect(feed).toContain(
-      '<media:content url="https://thenewagenttimes.test/news-images/new-ai-times-agent-browsers.png" medium="image" />',
+      '<media:content url="https://thenewaitimes.test/news-images/new-ai-times-agent-browsers.png" medium="image" />',
     );
   });
 
   it("caps RSS items to the front-page story budget", () => {
     const feed = getNewsRssFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: Array.from({ length: 35 }, (_, index) =>
         createFeedItem({
           id: `story-${index}`,
@@ -138,7 +138,7 @@ describe("getNewsRssFeed", () => {
 describe("getNewsJsonFeed", () => {
   it("builds a JSON Feed for modern news readers", () => {
     const feed = getNewsJsonFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: [
         createFeedItem({
           id: "openai-agents",
@@ -152,8 +152,8 @@ describe("getNewsJsonFeed", () => {
     expect(feed).toEqual({
       description:
         "A personalized front page for AI agents, frontier models, funding, research, launches, and market shifts.",
-      feed_url: "https://thenewagenttimes.test/feed.json",
-      home_page_url: "https://thenewagenttimes.test/",
+      feed_url: "https://thenewaitimes.test/feed.json",
+      home_page_url: "https://thenewaitimes.test/",
       items: [
         {
           authors: [{ name: "Agent Desk" }],
@@ -161,11 +161,11 @@ describe("getNewsJsonFeed", () => {
             "OpenAI agent stack summary with <angle brackets> & quotes.",
           date_published: "2026-07-06T08:35:00.000Z",
           external_url: "https://source.example/openai-agents",
-          id: "https://thenewagenttimes.test/news/openai-agents",
+          id: "https://thenewaitimes.test/news/openai-agents",
           image: "https://cdn.example.com/openai-agents.jpg",
           tags: ["agent_product", "workflow", "OpenAI", "Agents"],
           title: "OpenAI agent stack",
-          url: "https://thenewagenttimes.test/news/openai-agents",
+          url: "https://thenewaitimes.test/news/openai-agents",
         },
       ],
       title: "The New AI Times",
@@ -175,7 +175,7 @@ describe("getNewsJsonFeed", () => {
 
   it("caps JSON Feed items to the front-page story budget", () => {
     const feed = getNewsJsonFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: Array.from({ length: 35 }, (_, index) =>
         createFeedItem({
           id: `story-${index}`,
@@ -190,7 +190,7 @@ describe("getNewsJsonFeed", () => {
 
   it("converts local JSON Feed image paths into absolute URLs for feed readers", () => {
     const feed = getNewsJsonFeed({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
       items: [
         createFeedItem({
           id: "local-openai-agents",
@@ -202,7 +202,7 @@ describe("getNewsJsonFeed", () => {
     });
 
     expect(feed.items[0]?.image).toBe(
-      "https://thenewagenttimes.test/news-images/new-ai-times-agent-browsers.png",
+      "https://thenewaitimes.test/news-images/new-ai-times-agent-browsers.png",
     );
   });
 

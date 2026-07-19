@@ -330,7 +330,7 @@ describe("getNewsSemanticSimilarityMatches", () => {
         ],
         items: [
           {
-            canonicalUrl: "https://thenewagenttimes.test/preview-story",
+            canonicalUrl: "https://thenewaitimes.test/preview-story",
             clusterKey: "preview-story",
             id: "preview-story",
             originalUrl: null,
@@ -911,8 +911,7 @@ describe("getNewsRunSkipDiagnosticsFromMetadata", () => {
         sourceHealth: {
           emptySourceSlugs: ["google-ai-blog"],
           emptyReasonMessages: {
-            "google-ai-blog":
-              "No usable items were collected: 4 low-quality.",
+            "google-ai-blog": "No usable items were collected: 4 low-quality.",
           },
           failedSourceSlugs: ["anthropic-news"],
           failureMessages: {

@@ -21,7 +21,7 @@ describe("getNewsLlmsText", () => {
   it("builds an llms.txt index for AI agents and search tools", async () => {
     const discoveryModule = await loadNewsAgentDiscovery();
     const llmsText = discoveryModule?.getNewsLlmsText({
-      baseUrl: "https://thenewagenttimes.test",
+      baseUrl: "https://thenewaitimes.test",
     });
 
     expect(llmsText).toContain("# The New AI Times");
@@ -29,41 +29,41 @@ describe("getNewsLlmsText", () => {
       "> AI news aggregation, editorial briefing, search, feeds, and reader-personalization surfaces.",
     );
     expect(llmsText).toContain(
-      "- [Front Page](https://thenewagenttimes.test/): Personalized AI news edition with For You ranking.",
+      "- [Front Page](https://thenewaitimes.test/): Personalized AI news edition with For You ranking.",
     );
     expect(llmsText).toContain(
-      "- [Search](https://thenewagenttimes.test/search): Search AI stories, sources, entities, and tags.",
+      "- [Search](https://thenewaitimes.test/search): Search AI stories, sources, entities, and tags.",
     );
     expect(llmsText).toContain(
-      "- [Coverage Threads](https://thenewagenttimes.test/threads): Follow clustered AI stories across sources and verification state.",
+      "- [Coverage Threads](https://thenewaitimes.test/threads): Follow clustered AI stories across sources and verification state.",
     );
     expect(llmsText).toContain(
-      "- [Reader Center](https://thenewagenttimes.test/reader): Inspect and tune local reader preferences.",
+      "- [Reader Center](https://thenewaitimes.test/reader): Inspect and tune local reader preferences.",
     );
     expect(llmsText).toContain(
-      "- [Following](https://thenewagenttimes.test/reader/following): Manage followed topics, sources, entities, and angles.",
+      "- [Following](https://thenewaitimes.test/reader/following): Manage followed topics, sources, entities, and angles.",
     );
     expect(llmsText).toContain(
-      "- [Reader Library](https://thenewagenttimes.test/reader/library): Review saved, read, hidden, positive, and search memory.",
+      "- [Reader Library](https://thenewaitimes.test/reader/library): Review saved, read, hidden, positive, and search memory.",
     );
     expect(llmsText).toContain(
-      "- [Reader Onboarding](https://thenewagenttimes.test/reader/onboarding): Seed a new local For You profile.",
+      "- [Reader Onboarding](https://thenewaitimes.test/reader/onboarding): Seed a new local For You profile.",
     );
     expect(llmsText).toContain(
-      "- [JSON Feed](https://thenewagenttimes.test/feed.json): Machine-readable feed for modern news readers.",
+      "- [JSON Feed](https://thenewaitimes.test/feed.json): Machine-readable feed for modern news readers.",
     );
     expect(llmsText).toContain(
-      "- [OpenSearch](https://thenewagenttimes.test/opensearch.xml): Browser and agent search discovery document.",
+      "- [OpenSearch](https://thenewaitimes.test/opensearch.xml): Browser and agent search discovery document.",
     );
   });
 
   it("normalizes configured base URLs to the site origin", async () => {
     const discoveryModule = await loadNewsAgentDiscovery();
     const llmsText = discoveryModule?.getNewsLlmsText({
-      baseUrl: "https://thenewagenttimes.test/path?ref=agent",
+      baseUrl: "https://thenewaitimes.test/path?ref=agent",
     });
 
-    expect(llmsText).toContain("https://thenewagenttimes.test/search");
+    expect(llmsText).toContain("https://thenewaitimes.test/search");
     expect(llmsText).not.toContain("/path?ref=agent");
   });
 

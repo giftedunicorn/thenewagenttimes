@@ -1,0 +1,22 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "RAILPACK",
+    "buildCommand": "pnpm --filter @acme/background-worker... build",
+    "watchPatterns": [
+      "packages/background-worker/**",
+      "packages/db/**",
+      "packages/ingestion/**",
+      "tooling/**",
+      "package.json",
+      "pnpm-lock.yaml",
+      "pnpm-workspace.yaml",
+      "turbo.json"
+    ]
+  },
+  "deploy": {
+    "drainingSeconds": 600,
+    "restartPolicyType": "ALWAYS",
+    "startCommand": "pnpm --filter @acme/background-worker start"
+  }
+}

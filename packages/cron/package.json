@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"
   },
   "dependencies": {
-    "@acme/db": "workspace:*",
+    "croner": "^9.0.0",
     "tsx": "^4.21.0"
   },
   "devDependencies": {

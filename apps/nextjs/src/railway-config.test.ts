@@ -72,17 +72,17 @@ describe("Railway Next.js deployment config", () => {
     expect(config.deploy?.preDeployCommand).toBeUndefined();
   });
 
-  test("cron has direct one-shot commands and a native UTC schedule", async () => {
+  test("cron runs as an HTTP-only scheduler configured by cron.json", async () => {
     const config = await readJson<RailwayConfig>("packages/cron/railway.json");
 
     expect(config.build?.buildCommand).toBe(
       "pnpm --filter @acme/cron... build",
     );
     expect(config.deploy).toMatchObject({
-      cronSchedule: "0 */2 * * *",
-      restartPolicyType: "NEVER",
+      restartPolicyType: "ALWAYS",
       startCommand: "pnpm --filter @acme/cron start",
     });
+    expect(config.deploy?.cronSchedule).toBeUndefined();
     expect(config.deploy?.preDeployCommand).toBeUndefined();
   });
 

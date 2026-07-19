@@ -1,0 +1,10 @@
+{
+  "baseUrl": "http://thenewaitimes.railway.internal:8080",
+  "jobs": [
+    {
+      "name": "news-refresh",
+      "schedule": "0 */2 * * *",
+      "path": "/api/cron/news-refresh"
+    }
+  ]
+}

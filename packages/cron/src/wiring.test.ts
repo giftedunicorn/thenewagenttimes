@@ -5,14 +5,14 @@ const readJson = async (url: URL) =>
   JSON.parse(await readFile(url, "utf8")) as Record<string, unknown>;
 
 describe("cron package wiring", () => {
-  it("uses the compiled package contract with only the database runtime dependency", async () => {
+  it("uses an HTTP-only runtime without a database dependency", async () => {
     const packageJson = await readJson(
       new URL("../package.json", import.meta.url),
     );
 
     expect(packageJson).toMatchObject({
       dependencies: {
-        "@acme/db": "workspace:*",
+        croner: "^9.0.0",
         tsx: "^4.21.0",
       },
       name: "@acme/cron",
@@ -29,22 +29,27 @@ describe("cron package wiring", () => {
       type: "module",
     });
     expect(packageJson.dependencies).toEqual({
-      "@acme/db": "workspace:*",
+      croner: "^9.0.0",
       tsx: "^4.21.0",
     });
   });
 
-  it("keeps a hard process deadline around enqueue and database close", async () => {
-    const entrypoint = await readFile(
-      new URL("./index.ts", import.meta.url),
-      "utf8",
-    );
+  it("declares the news refresh schedule and Next.js API path in cron.json", async () => {
+    const config = await readJson(new URL("../cron.json", import.meta.url));
 
-    expect(entrypoint).toContain("startCronExecutionWatchdog");
-    expect(entrypoint).toContain("process.exit(1)");
+    expect(config).toEqual({
+      baseUrl: "http://thenewaitimes.railway.internal:8080",
+      jobs: [
+        {
+          name: "news-refresh",
+          path: "/api/cron/news-refresh",
+          schedule: "0 */2 * * *",
+        },
+      ],
+    });
   });
 
-  it("defines a direct one-shot UTC Railway cron deployment", async () => {
+  it("defines a long-running Railway scheduler deployment", async () => {
     const railway = await readJson(new URL("../railway.json", import.meta.url));
 
     expect(railway).toEqual({
@@ -54,7 +59,6 @@ describe("cron package wiring", () => {
         buildCommand: "pnpm --filter @acme/cron... build",
         watchPatterns: [
           "packages/cron/**",
-          "packages/db/**",
           "tooling/**",
           "package.json",
           "pnpm-lock.yaml",
@@ -63,8 +67,7 @@ describe("cron package wiring", () => {
         ],
       },
       deploy: {
-        cronSchedule: "0 */2 * * *",
-        restartPolicyType: "NEVER",
+        restartPolicyType: "ALWAYS",
         startCommand: "pnpm --filter @acme/cron start",
       },
     });

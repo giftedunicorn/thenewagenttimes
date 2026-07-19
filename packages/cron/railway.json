@@ -5,7 +5,6 @@
     "buildCommand": "pnpm --filter @acme/cron... build",
     "watchPatterns": [
       "packages/cron/**",
-      "packages/db/**",
       "tooling/**",
       "package.json",
       "pnpm-lock.yaml",
@@ -14,8 +13,7 @@
     ]
   },
   "deploy": {
-    "cronSchedule": "0 */2 * * *",
-    "restartPolicyType": "NEVER",
+    "restartPolicyType": "ALWAYS",
     "startCommand": "pnpm --filter @acme/cron start"
   }
 }

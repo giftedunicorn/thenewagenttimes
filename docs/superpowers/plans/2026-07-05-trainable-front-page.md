@@ -509,7 +509,7 @@ Use the existing Playwright CLI wrapper:
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 PWCLI="$CODEX_HOME/skills/playwright/scripts/playwright_cli.sh"
 "$PWCLI" close-all
-"$PWCLI" open https://thenewagenttimes-production.up.railway.app/
+"$PWCLI" open https://thenewaitimes-production.up.railway.app/
 "$PWCLI" console
 "$PWCLI" eval "(() => ({ title: document.title, text: document.body.innerText.slice(0, 2200), hasControlStrip: document.body.innerText.includes('For You Control Strip') }))()"
 "$PWCLI" close-all
@@ -534,13 +534,13 @@ Expected: local commits push to `origin/main`.
 Use the Railway workflow already used for this project:
 
 ```bash
-RAILWAY_CALLER=skill:use-railway@1.3.4 RAILWAY_AGENT_SESSION=railway-skill-20260705-thenewagenttimes npx --yes @railway/cli up --project 41f2f713-fc37-4c22-8be2-2c76dcc86ca6 --environment c1e668e3-2f5c-4918-bf2d-ddbd61420d92 --service 950c9857-42ea-4f61-8f38-77a232621716 --detach -m "add trainable for you control strip"
+RAILWAY_CALLER=skill:use-railway@1.3.4 RAILWAY_AGENT_SESSION=railway-skill-20260705-thenewaitimes npx --yes @railway/cli up --project 41f2f713-fc37-4c22-8be2-2c76dcc86ca6 --environment c1e668e3-2f5c-4918-bf2d-ddbd61420d92 --service 950c9857-42ea-4f61-8f38-77a232621716 --detach -m "add trainable for you control strip"
 ```
 
 Poll until terminal success:
 
 ```bash
-RAILWAY_CALLER=skill:use-railway@1.3.4 RAILWAY_AGENT_SESSION=railway-skill-20260705-thenewagenttimes npx --yes @railway/cli deployment list --project 41f2f713-fc37-4c22-8be2-2c76dcc86ca6 --environment c1e668e3-2f5c-4918-bf2d-ddbd61420d92 --service 950c9857-42ea-4f61-8f38-77a232621716 --limit 1 --json
+RAILWAY_CALLER=skill:use-railway@1.3.4 RAILWAY_AGENT_SESSION=railway-skill-20260705-thenewaitimes npx --yes @railway/cli deployment list --project 41f2f713-fc37-4c22-8be2-2c76dcc86ca6 --environment c1e668e3-2f5c-4918-bf2d-ddbd61420d92 --service 950c9857-42ea-4f61-8f38-77a232621716 --limit 1 --json
 ```
 
 Expected: latest deployment reaches `SUCCESS`. Do not report deployment success while status is `BUILDING`, `DEPLOYING`, `QUEUED`, `FAILED`, or `CRASHED`.
@@ -553,7 +553,7 @@ Run:
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 PWCLI="$CODEX_HOME/skills/playwright/scripts/playwright_cli.sh"
 "$PWCLI" close-all
-"$PWCLI" open https://thenewagenttimes-production.up.railway.app/
+"$PWCLI" open https://thenewaitimes-production.up.railway.app/
 "$PWCLI" console
 "$PWCLI" eval "(() => ({ title: document.title, firstText: document.body.innerText.slice(0, 2600), hasControlStrip: document.body.innerText.includes('For You Control Strip'), controlBeforeChannel: document.body.innerText.indexOf('For You Control Strip') < document.body.innerText.indexOf('Channel Rail') }))()"
 "$PWCLI" close-all

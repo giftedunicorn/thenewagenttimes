@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build the first data accumulation pipeline for The News Agent Times. The pipeline should seed trusted AI news sources, ingest normalized AI news items from RSS and manual inputs, deduplicate them, record ingestion runs, and prepare embedding vectors for search and ranking.
+Build the first data accumulation pipeline for The New AI Times. The pipeline should seed trusted AI news sources, ingest normalized AI news items from RSS and manual inputs, deduplicate them, record ingestion runs, and prepare embedding vectors for search and ranking.
 
 This phase turns the existing data foundation into a system that can start collecting durable news data. It does not build the public homepage, semantic vector search, large-scale crawlers, or paid/API-specific source integrations.
 

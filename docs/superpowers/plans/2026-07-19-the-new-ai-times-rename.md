@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Remove the old The New Agent Times / `thenewagenttimes` identity from the repository, GitHub, Railway, production URLs, and local checkout.
+**Goal:** Standardize The New AI Times / `thenewaitimes` across the repository, GitHub, Railway, production URLs, and local checkout.
 
 **Architecture:** Treat `The New AI Times` as the display brand and `thenewaitimes` as the stable technical slug. Preserve database and Railway resource IDs while renaming human-readable resources and host references in one coordinated rollout.
 
@@ -13,6 +13,7 @@
 ### Task 1: Rename Repository-Owned Identifiers
 
 **Files:**
+
 - Modify: `package.json`
 - Modify: `apps/nextjs/src/auth/server.ts`
 - Modify: `apps/nextjs/src/app/_components/news-structured-data.ts`
@@ -28,6 +29,7 @@
 ### Task 2: Normalize Product Documentation
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: affected files under `docs/superpowers/specs`
 - Modify: affected files under `docs/superpowers/plans`
@@ -42,6 +44,7 @@
 ### Task 3: Verify and Integrate
 
 **Files:**
+
 - Verify all files changed by Tasks 1 and 2.
 
 - [ ] Run `pnpm typecheck` and expect all Turbo tasks to pass.
@@ -53,7 +56,8 @@
 ### Task 4: Rename GitHub and Railway
 
 **Resources:**
-- GitHub repository: `giftedunicorn/thenewagenttimes`
+
+- GitHub owner: `giftedunicorn`
 - Railway project ID: `41f2f713-fc37-4c22-8be2-2c76dcc86ca6`
 - Railway Web service ID: `950c9857-42ea-4f61-8f38-77a232621716`
 
@@ -67,6 +71,7 @@
 ### Task 5: Cut Over URLs and Local Path
 
 **Resources:**
+
 - Railway Web service ID: `950c9857-42ea-4f61-8f38-77a232621716`
 - Local parent directory: `/Users/fengliu/Desktop/tfm`
 
@@ -75,5 +80,5 @@
 - [ ] Remove the old generated domain only after the new domain passes.
 - [ ] Confirm all three Railway services use their expected `railway.json`.
 - [ ] Remove the feature worktree and merged feature branch.
-- [ ] Rename the local checkout directory from `thenewagenttimes` to `thenewaitimes`.
+- [ ] Rename the legacy local checkout directory to `thenewaitimes`.
 - [ ] Confirm the renamed checkout is clean and `HEAD` equals `origin/main`.

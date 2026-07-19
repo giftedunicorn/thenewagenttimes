@@ -2,7 +2,7 @@
 
 ## Goal
 
-Build the first backend foundation for The News Agent Times: a public AI agent news aggregation platform that can also provide structured trend material to internal incubation projects. This phase defines durable news, source, vector, signal, and ingestion data shapes, plus read-only API contracts that future public pages, crawler jobs, embedding workers, and internal trend tools can share.
+Build the first backend foundation for The New AI Times: a public AI agent news aggregation platform that can also provide structured trend material to internal incubation projects. This phase defines durable news, source, vector, signal, and ingestion data shapes, plus read-only API contracts that future public pages, crawler jobs, embedding workers, and internal trend tools can share.
 
 ## Current Context
 

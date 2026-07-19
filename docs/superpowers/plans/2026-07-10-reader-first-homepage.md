@@ -736,8 +736,8 @@ Start a clean local server on an unused port and request `/`:
 
 ```bash
 PORT=3101 pnpm -F @acme/nextjs dev
-curl -sS --max-time 60 http://127.0.0.1:3101/ -o /tmp/thenewagenttimes-home-after.html -w 'status=%{http_code} bytes=%{size_download} total=%{time_total}\n'
-rg -o '<(a|button)(\\s|>)' /tmp/thenewagenttimes-home-after.html | sort | uniq -c
+curl -sS --max-time 60 http://127.0.0.1:3101/ -o /tmp/thenewaitimes-home-after.html -w 'status=%{http_code} bytes=%{size_download} total=%{time_total}\n'
+rg -o '<(a|button)(\\s|>)' /tmp/thenewaitimes-home-after.html | sort | uniq -c
 ```
 
 Expected: HTTP 200, response size materially below the 1,086,629-byte baseline, and button count materially below the 734-button baseline.

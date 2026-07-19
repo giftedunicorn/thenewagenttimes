@@ -2,9 +2,9 @@
 
 ## Objective
 
-Rename the product and its technical slug from The New Agent Times /
-`thenewagenttimes` to The New AI Times / `thenewaitimes` without changing
-database contracts or unrelated workspace package names.
+Standardize the product as The New AI Times with the technical slug
+`thenewaitimes` without changing database contracts or unrelated workspace
+package names.
 
 ## Scope
 
@@ -18,12 +18,12 @@ database contracts or unrelated workspace package names.
   local `origin`.
 - Rename the Railway project and Web service to `thenewaitimes`.
 - Point all Railway source integrations at the renamed GitHub repository.
-- Update Worker and Cron reference variables from
-  `${{thenewagenttimes.POSTGRES_URL}}` to `${{thenewaitimes.POSTGRES_URL}}`.
+- Update Worker and Cron reference variables to
+  `${{thenewaitimes.POSTGRES_URL}}`.
 - Replace the old Railway-generated Web domain with a `thenewaitimes` domain,
   then verify the production health endpoint.
-- Rename the local checkout directory to `thenewaitimes` after all active
-  worktrees are removed.
+- Rename the legacy local checkout directory to `thenewaitimes` after all
+  active worktrees are removed.
 
 ## Non-Goals
 

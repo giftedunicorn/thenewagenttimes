@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first durable data and read API foundation for The News Agent Times without running migrations or implementing crawlers, embeddings, vector similarity search, or public UI.
+**Goal:** Build the first durable data and read API foundation for The New AI Times without running migrations or implementing crawlers, embeddings, vector similarity search, or public UI.
 
 **Architecture:** Keep the first implementation inside the existing monorepo boundaries. `packages/db/src/schema.ts` owns Drizzle tables and Zod schemas; `packages/db/src/index.ts` exports the Drizzle query helpers the API needs; `packages/api/src/router/news.ts` owns read-only `news` procedures and input schemas; `packages/api/src/root.ts` registers the router.
 

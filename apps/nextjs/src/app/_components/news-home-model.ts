@@ -864,7 +864,7 @@ export const getNewsDeskFreshnessStatus = ({
   }
 
   return {
-    detail: `Latest live story is older than ${maxStoryAgeHours} hours. Run news:refresh:remote.`,
+    detail: `Latest live story is older than ${maxStoryAgeHours} hours. A background refresh is required.`,
     label: "Needs refresh",
     maxStoryAgeHours,
     state: "stale",
@@ -2386,7 +2386,10 @@ const isValidStoredNewsReaderMemoryTimestamp = (
 const normalizeStoredNewsReaderMemorySurface = (value: unknown) => {
   if (typeof value !== "string") return null;
 
-  const surface = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const surface = value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 
   if (surface === "article") return "article";
   if (
@@ -2740,7 +2743,8 @@ export const selectNewsHomePositiveFeedbackMemoryItems = ({
     }),
     ...historyItems.flatMap((item): NewsPositiveFeedbackMemoryItem[] => {
       const readPercent =
-        typeof item.readPercent === "number" && Number.isFinite(item.readPercent)
+        typeof item.readPercent === "number" &&
+        Number.isFinite(item.readPercent)
           ? Math.min(Math.max(item.readPercent, 0), 1)
           : undefined;
 
@@ -32247,8 +32251,8 @@ export const getNewsProductionReadinessChecklist = ({
   } satisfies NewsProductionReadinessItem;
   const refreshSecretItem = {
     detail: refreshConfigured
-      ? "NEWS_REFRESH_SECRET is configured for scheduled refresh calls."
-      : "Set NEWS_REFRESH_SECRET before scheduling refresh calls.",
+      ? "NEWS_REFRESH_SECRET is configured for manual refresh requests."
+      : "Set NEWS_REFRESH_SECRET before using the manual refresh endpoint.",
     label: "Protect refresh endpoint",
     state: refreshConfigured ? "done" : "current",
   } satisfies NewsProductionReadinessItem;
@@ -32263,8 +32267,8 @@ export const getNewsProductionReadinessChecklist = ({
     detail: refreshReady
       ? "The collection job has produced a successful or live run."
       : sourcesReady
-        ? "Run news:refresh or news:refresh:remote to collect stories."
-        : "Run news:refresh or news:refresh:remote after sources exist.",
+        ? "Wait for the scheduled refresh or enqueue a manual refresh."
+        : "Enqueue a refresh after sources exist.",
     label: "Run first refresh",
     state: refreshReady ? "done" : sourcesReady ? "current" : "pending",
   } satisfies NewsProductionReadinessItem;
@@ -32274,7 +32278,7 @@ export const getNewsProductionReadinessChecklist = ({
       : liveReady
         ? unembeddedStories > 0
           ? `${unembeddedStories} published stories still need embeddings for semantic recommendations.`
-          : "Run news:embed:remote so semantic recommendations can use the live edition."
+          : "The background worker will generate embeddings for the live edition."
         : "Generate embeddings after the first live refresh.",
     label: "Generate embeddings",
     state: embeddingsReady ? "done" : liveReady ? "current" : "pending",
@@ -32310,11 +32314,11 @@ export const getNewsProductionReadinessChecklist = ({
 const newsProductionReadinessCommands: Record<string, string | null> = {
   "Apply database schema": "pnpm run db:predeploy",
   "Configure auth secret": null,
-  "Generate embeddings": "pnpm run news:embed:remote",
-  "Keep edition fresh": "pnpm run news:refresh:remote",
+  "Generate embeddings": null,
+  "Keep edition fresh": "pnpm --filter @acme/cron start",
   "Live stories": null,
   "Protect refresh endpoint": null,
-  "Run first refresh": "pnpm run news:refresh:remote",
+  "Run first refresh": "pnpm --filter @acme/cron start",
   "Seed sources": "pnpm run news:seed-sources",
 };
 

@@ -12,7 +12,6 @@ import {
 
 interface HandleNewsHealthRequestInput {
   authSecret?: string | undefined;
-  embeddingApiKey?: string | undefined;
   getDeskStatus: () => Promise<NewsDeskStatus>;
   getSchemaReadiness?: (() => Promise<NewsSchemaReadiness>) | undefined;
   refreshSecret: string | undefined;
@@ -35,7 +34,6 @@ interface NewsExpectedSourceCatalog {
 
 type NewsHealthNextStep =
   | "apply-database-schema"
-  | "configure-embedding-provider"
   | "embed-news-stories"
   | "configure-auth-secret"
   | "configure-refresh-secret"
@@ -99,7 +97,7 @@ const isNewsSourceCatalogReady = ({
 const getNewsSourceCatalogAction = (
   expectedSourceCatalog: NewsExpectedSourceCatalog,
 ) =>
-  `Run pnpm run news:refresh:remote so the deployed database seeds the current ${expectedSourceCatalog.activeSources} active-source catalog before ingesting stories.`;
+  `Enqueue a news refresh so the worker seeds the current ${expectedSourceCatalog.activeSources} active-source catalog before ingesting stories.`;
 
 const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
   const sourceHealth = status.latestRun?.sourceHealth;
@@ -126,32 +124,23 @@ const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
           .join(", ")}.`
       : "";
 
-  return `Inspect failed sources: ${failedSources}.${emptySources} Rerun pnpm run news:refresh:remote after fixing source issues.`;
+  return `Inspect failed sources: ${failedSources}.${emptySources} Enqueue a news refresh after fixing source issues.`;
 };
 
 const getNewsHealthActions = ({
   authConfigured,
-  embeddingConfigured,
   refreshConfigured,
   schemaReadiness,
   status,
   expectedSourceCatalog,
 }: {
   authConfigured: boolean;
-  embeddingConfigured: boolean;
   expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }) => {
   const actions: string[] = [];
-  const addEmbeddingProviderAction = () => {
-    if (!embeddingConfigured) {
-      actions.push(
-        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
-      );
-    }
-  };
 
   if (!authConfigured) {
     actions.push(
@@ -166,50 +155,42 @@ const getNewsHealthActions = ({
   if (!isNewsSchemaReady({ schemaReadiness, status })) {
     actions.push(getNewsSchemaAction(schemaReadiness));
     if (status.health === "unavailable") {
-      actions.push("Seed sources and run pnpm run news:refresh:remote.");
+      actions.push("Deploy the schema, then enqueue a news refresh.");
     }
-    addEmbeddingProviderAction();
     return actions;
   }
 
   if (!isNewsSourceCatalogReady({ expectedSourceCatalog, status })) {
     actions.push(getNewsSourceCatalogAction(expectedSourceCatalog));
-    addEmbeddingProviderAction();
     return actions;
   }
 
   if (status.health === "empty") {
-    actions.push("Seed sources and run pnpm run news:refresh:remote.");
-    addEmbeddingProviderAction();
+    actions.push("Enqueue a news refresh so the worker seeds sources.");
     return actions;
   }
 
   if (status.health === "seeded") {
-    actions.push(
-      "Run pnpm run news:refresh:remote against the deployed service.",
-    );
-    addEmbeddingProviderAction();
+    actions.push("Enqueue a news refresh for the background worker.");
     return actions;
   }
 
   if (status.health === "error") {
     actions.push(
       getFailedSourceDiagnostics(status) ??
-        "Inspect the latest ingestion run and rerun pnpm run news:refresh:remote.",
+        "Inspect the latest ingestion run and enqueue another news refresh.",
     );
   }
 
   if (status.health === "live" && !isNewsFreshReady(status)) {
     actions.push(
-      `Run pnpm run news:refresh:remote because the latest live story is older than ${newsDeskMaxStoryAgeHours} hours.`,
+      `Enqueue a news refresh because the latest live story is older than ${newsDeskMaxStoryAgeHours} hours.`,
     );
   }
 
-  addEmbeddingProviderAction();
-
   if (status.health === "live" && !isNewsSemanticReady(status)) {
     actions.push(
-      "Run pnpm run news:embed:remote so semantic recommendations can use the live edition.",
+      "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
     );
   }
 
@@ -244,31 +225,28 @@ const getNewsHomepageHealth = (status: NewsDeskStatus) => {
 };
 
 const newsHealthCommands = {
-  bootstrap: "pnpm run news:bootstrap:remote",
-  embed: "pnpm run news:embed:remote",
+  bootstrap: null,
+  embed: null,
   health: "pnpm run news:health:remote",
-  refresh: "pnpm run news:refresh:remote",
+  refresh: "pnpm --filter @acme/cron start",
   schema: "pnpm run db:predeploy",
   seedSources: "pnpm run news:seed-sources",
 } as const;
 
 const getNewsHealthChecks = ({
   authConfigured,
-  embeddingConfigured,
   refreshConfigured,
   schemaReadiness,
   status,
   expectedSourceCatalog,
 }: {
   authConfigured: boolean;
-  embeddingConfigured: boolean;
   expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }) => ({
   auth: authConfigured,
-  embeddingProvider: embeddingConfigured,
   freshness: isNewsFreshReady(status),
   refreshSecret: refreshConfigured,
   schema: isNewsSchemaReady({ schemaReadiness, status }),
@@ -282,7 +260,6 @@ const areNewsHealthChecksReady = (
   checks: ReturnType<typeof getNewsHealthChecks>,
 ) =>
   checks.auth &&
-  checks.embeddingProvider &&
   checks.freshness &&
   checks.refreshSecret &&
   checks.schema &&
@@ -293,14 +270,12 @@ const areNewsHealthChecksReady = (
 
 const getNewsHealthNextStep = ({
   authConfigured,
-  embeddingConfigured,
   refreshConfigured,
   schemaReadiness,
   status,
   expectedSourceCatalog,
 }: {
   authConfigured: boolean;
-  embeddingConfigured: boolean;
   expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
@@ -320,7 +295,6 @@ const getNewsHealthNextStep = ({
   if (status.health === "live" && !isNewsFreshReady(status)) {
     return "run-news-refresh";
   }
-  if (!embeddingConfigured) return "configure-embedding-provider";
   if (!isNewsSemanticReady(status)) return "embed-news-stories";
 
   return "ready";
@@ -338,7 +312,6 @@ const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
     case "embed-news-stories":
       return newsHealthCommands.embed;
     case "configure-auth-secret":
-    case "configure-embedding-provider":
     case "configure-refresh-secret":
     case "ready":
       return null;
@@ -348,7 +321,6 @@ const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
 const newsHealthNextStepLabels: Record<NewsHealthNextStep, string> = {
   "apply-database-schema": "Apply database schema",
   "configure-auth-secret": "Configure auth secret",
-  "configure-embedding-provider": "Configure embedding provider",
   "configure-refresh-secret": "Configure refresh secret",
   "embed-news-stories": "Generate embeddings",
   "inspect-ingestion-run": "Inspect ingestion run",
@@ -376,13 +348,11 @@ const getNewsHealthOperatorNextStep = ({
 
 export const handleNewsHealthRequest = async ({
   authSecret,
-  embeddingApiKey,
   getDeskStatus,
   getSchemaReadiness,
   refreshSecret,
 }: HandleNewsHealthRequestInput) => {
   const authConfigured = Boolean(authSecret?.trim());
-  const embeddingConfigured = Boolean(embeddingApiKey?.trim());
   const refreshConfigured = Boolean(refreshSecret?.trim());
   const expectedSourceCatalog = expectedNewsSourceCatalog;
   const [status, schemaReadinessResult] = await Promise.all([
@@ -395,7 +365,6 @@ export const handleNewsHealthRequest = async ({
     schemaReadinessResult ?? getDefaultNewsSchemaReadiness(status);
   const checks = getNewsHealthChecks({
     authConfigured,
-    embeddingConfigured,
     expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,
@@ -403,7 +372,6 @@ export const handleNewsHealthRequest = async ({
   });
   const actionRequired = getNewsHealthActions({
     authConfigured,
-    embeddingConfigured,
     expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,
@@ -411,7 +379,6 @@ export const handleNewsHealthRequest = async ({
   });
   const nextStep = getNewsHealthNextStep({
     authConfigured,
-    embeddingConfigured,
     expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,

@@ -40,7 +40,6 @@ describe("handleNewsHealthRequest", () => {
 
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus,
       refreshSecret: "configured-refresh-secret",
     });
@@ -51,7 +50,6 @@ describe("handleNewsHealthRequest", () => {
       authConfigured: true,
       checks: {
         auth: true,
-        embeddingProvider: true,
         refreshSecret: true,
         schema: true,
         semantic: true,
@@ -78,7 +76,6 @@ describe("handleNewsHealthRequest", () => {
   it("surfaces stale source catalogs before treating live news as production ready", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -107,14 +104,14 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Run pnpm run news:refresh:remote so the deployed database seeds the current 26 active-source catalog before ingesting stories.",
+        "Enqueue a news refresh so the worker seeds the current 26 active-source catalog before ingesting stories.",
       ],
       checks: {
         sourceCatalog: false,
         sources: true,
       },
       commands: {
-        next: "pnpm run news:refresh:remote",
+        next: "pnpm --filter @acme/cron start",
       },
       news: {
         activeSources: 24,
@@ -130,7 +127,6 @@ describe("handleNewsHealthRequest", () => {
   it("keeps stale live editions out of the ready state", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -159,14 +155,14 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Run pnpm run news:refresh:remote because the latest live story is older than 72 hours.",
+        "Enqueue a news refresh because the latest live story is older than 72 hours.",
       ],
       checks: {
         freshness: false,
         stories: true,
       },
       commands: {
-        next: "pnpm run news:refresh:remote",
+        next: "pnpm --filter @acme/cron start",
       },
       news: {
         freshReady: false,
@@ -182,7 +178,6 @@ describe("handleNewsHealthRequest", () => {
   it("surfaces cluster schema gaps even when legacy news tables are reachable", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -219,7 +214,6 @@ describe("handleNewsHealthRequest", () => {
       ],
       checks: {
         auth: true,
-        embeddingProvider: true,
         refreshSecret: true,
         schema: false,
         semantic: true,
@@ -245,7 +239,6 @@ describe("handleNewsHealthRequest", () => {
   it("returns an operator-readable next step with the command and action detail", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -264,7 +257,7 @@ describe("handleNewsHealthRequest", () => {
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
         "Apply the database schema to the target database.",
-        "Seed sources and run pnpm run news:refresh:remote.",
+        "Deploy the schema, then enqueue a news refresh.",
       ],
       commands: {
         next: "pnpm run db:predeploy",
@@ -282,7 +275,6 @@ describe("handleNewsHealthRequest", () => {
   it("keeps half-applied cluster schema migrations out of the ready state", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -334,7 +326,6 @@ describe("handleNewsHealthRequest", () => {
   it("surfaces the latest refresh yield diagnostics for production checks", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -381,7 +372,6 @@ describe("handleNewsHealthRequest", () => {
   it("reports that seeded sources still need a refresh before live news is ready", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -397,9 +387,7 @@ describe("handleNewsHealthRequest", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      actionRequired: [
-        "Run pnpm run news:refresh:remote against the deployed service.",
-      ],
+      actionRequired: ["Enqueue a news refresh for the background worker."],
       authConfigured: true,
       news: {
         activeSources: 26,
@@ -420,7 +408,6 @@ describe("handleNewsHealthRequest", () => {
   it("keeps live news unready until published stories have embeddings", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -449,7 +436,7 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Run pnpm run news:embed:remote so semantic recommendations can use the live edition.",
+        "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
       ],
       checks: {
         auth: true,
@@ -471,10 +458,9 @@ describe("handleNewsHealthRequest", () => {
     });
   });
 
-  it("surfaces missing embedding provider config before semantic embedding jobs run", async () => {
+  it("uses database progress without requiring the worker secret in web", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: undefined,
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -503,12 +489,10 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
-        "Run pnpm run news:embed:remote so semantic recommendations can use the live edition.",
+        "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
       ],
       checks: {
         auth: true,
-        embeddingProvider: false,
         refreshSecret: true,
         schema: true,
         semantic: false,
@@ -520,7 +504,7 @@ describe("handleNewsHealthRequest", () => {
         ready: false,
         semanticReady: false,
       },
-      nextStep: "configure-embedding-provider",
+      nextStep: "embed-news-stories",
       ready: false,
     });
   });
@@ -528,7 +512,6 @@ describe("handleNewsHealthRequest", () => {
   it("surfaces missing auth secret even when the news loop is live", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: undefined,
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -562,7 +545,6 @@ describe("handleNewsHealthRequest", () => {
       authConfigured: false,
       checks: {
         auth: false,
-        embeddingProvider: true,
         refreshSecret: true,
         schema: true,
         semantic: true,
@@ -585,7 +567,6 @@ describe("handleNewsHealthRequest", () => {
   it("surfaces failed source diagnostics for partial aggregate refreshes", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: "configured-openai-key",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -626,7 +607,7 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Inspect failed sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog (No usable items were collected: 4 low-quality.). Rerun pnpm run news:refresh:remote after fixing source issues.",
+        "Inspect failed sources: anthropic-news (feed unavailable). Empty sources: google-ai-blog (No usable items were collected: 4 low-quality.). Enqueue a news refresh after fixing source issues.",
       ],
       news: {
         health: "error",
@@ -651,7 +632,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("keeps the web health reachable while surfacing schema and secret gaps", async () => {
     const response = await handleNewsHealthRequest({
-      embeddingApiKey: undefined,
       getDeskStatus: () => Promise.reject(new Error("relation does not exist")),
       refreshSecret: undefined,
     });
@@ -662,13 +642,11 @@ describe("handleNewsHealthRequest", () => {
         "Set BETTER_AUTH_SECRET or AUTH_SECRET in the Railway service environment.",
         "Set NEWS_REFRESH_SECRET in the Railway service environment.",
         "Apply the database schema to the target database.",
-        "Seed sources and run pnpm run news:refresh:remote.",
-        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+        "Deploy the schema, then enqueue a news refresh.",
       ],
       authConfigured: false,
       checks: {
         auth: false,
-        embeddingProvider: false,
         refreshSecret: false,
         schema: false,
         semantic: false,
@@ -696,10 +674,9 @@ describe("handleNewsHealthRequest", () => {
     });
   });
 
-  it("prioritizes database schema setup before semantic embedding provider setup", async () => {
+  it("prioritizes database schema setup before queued processing", async () => {
     const response = await handleNewsHealthRequest({
       authSecret: "configured-auth-secret",
-      embeddingApiKey: undefined,
       getDeskStatus: () => Promise.reject(new Error("relation does not exist")),
       refreshSecret: "configured-refresh-secret",
     });
@@ -708,21 +685,19 @@ describe("handleNewsHealthRequest", () => {
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
         "Apply the database schema to the target database.",
-        "Seed sources and run pnpm run news:refresh:remote.",
-        "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+        "Deploy the schema, then enqueue a news refresh.",
       ],
       checks: {
         auth: true,
-        embeddingProvider: false,
         refreshSecret: true,
         schema: false,
       },
       commands: {
-        bootstrap: "pnpm run news:bootstrap:remote",
-        embed: "pnpm run news:embed:remote",
+        bootstrap: null,
+        embed: null,
         health: "pnpm run news:health:remote",
         next: "pnpm run db:predeploy",
-        refresh: "pnpm run news:refresh:remote",
+        refresh: "pnpm --filter @acme/cron start",
         schema: "pnpm run db:predeploy",
         seedSources: "pnpm run news:seed-sources",
       },

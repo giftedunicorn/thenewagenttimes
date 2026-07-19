@@ -2011,7 +2011,6 @@ describe("NewsHome edition landing links", () => {
     expect(getNewsTopicHref("agent_product")).toBe("/topics/agent-product");
     expect(getNewsTopicHref("Model_Release")).toBe("/topics/model-release");
   });
-
 });
 
 describe("toNewsHomeItemFromPublicFeedItem", () => {
@@ -44125,7 +44124,7 @@ describe("getNewsDeskFreshnessStatus", () => {
       }),
     ).toEqual({
       detail:
-        "Latest live story is older than 72 hours. Run news:refresh:remote.",
+        "Latest live story is older than 72 hours. A background refresh is required.",
       label: "Needs refresh",
       maxStoryAgeHours: 72,
       state: "stale",
@@ -44366,7 +44365,7 @@ describe("getNewsProductionReadinessChecklist", () => {
         },
       }),
     ).toEqual({
-      command: "pnpm run news:refresh:remote",
+      command: "pnpm --filter @acme/cron start",
       label: "Run first refresh",
     });
     expect(
@@ -44385,7 +44384,7 @@ describe("getNewsProductionReadinessChecklist", () => {
         },
       }),
     ).toEqual({
-      command: "pnpm run news:embed:remote",
+      command: null,
       label: "Generate embeddings",
     });
     expect(
@@ -44421,7 +44420,8 @@ describe("getNewsProductionReadinessChecklist", () => {
       }),
     ).toEqual([
       {
-        detail: "Set NEWS_REFRESH_SECRET before scheduling refresh calls.",
+        detail:
+          "Set NEWS_REFRESH_SECRET before using the manual refresh endpoint.",
         label: "Protect refresh endpoint",
         state: "current",
       },
@@ -44437,7 +44437,7 @@ describe("getNewsProductionReadinessChecklist", () => {
         state: "pending",
       },
       {
-        detail: "Run news:refresh or news:refresh:remote after sources exist.",
+        detail: "Enqueue a refresh after sources exist.",
         label: "Run first refresh",
         state: "pending",
       },
@@ -44529,7 +44529,7 @@ describe("getNewsProductionReadinessChecklist", () => {
     ).toContainEqual([
       "Keep edition fresh",
       "current",
-      "Latest live story is older than 72 hours. Run news:refresh:remote.",
+      "Latest live story is older than 72 hours. A background refresh is required.",
     ]);
   });
 

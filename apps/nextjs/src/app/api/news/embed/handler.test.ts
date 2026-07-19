@@ -2,221 +2,198 @@ import { describe, expect, it, vi } from "vitest";
 
 import { handleNewsEmbedRequest } from "./handler";
 
+const request = (search = "", secret = "correct-secret-value") =>
+  new Request(`https://example.com/api/news/embed${search}`, {
+    headers: { authorization: `Bearer ${secret}` },
+    method: "POST",
+  });
+
 describe("handleNewsEmbedRequest", () => {
   it("rejects embedding attempts when the server secret is not configured", async () => {
-    const embed = vi.fn(() => Promise.resolve({ embedded: 0, failed: 0 }));
+    const enqueue = vi.fn();
 
     const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
+      enqueue,
       expectedSecret: undefined,
-      request: new Request("https://example.com/api/news/embed", {
-        method: "POST",
-      }),
+      generateId: () => "request-1",
+      request: request(),
     });
 
     expect(response.status).toBe(503);
     await expect(response.json()).resolves.toEqual({
       error: "NEWS_REFRESH_SECRET is not configured",
     });
-    expect(embed).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
   it("rejects requests without the expected bearer token", async () => {
-    const embed = vi.fn(() => Promise.resolve({ embedded: 0, failed: 0 }));
+    const enqueue = vi.fn();
 
     const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
+      enqueue,
       expectedSecret: "correct-secret-value",
-      request: new Request("https://example.com/api/news/embed", {
-        headers: { authorization: "Bearer wrong-secret" },
-        method: "POST",
-      }),
+      generateId: () => "request-1",
+      request: request("", "wrong-secret"),
     });
 
     expect(response.status).toBe(401);
     await expect(response.json()).resolves.toEqual({ error: "Unauthorized" });
-    expect(embed).not.toHaveBeenCalled();
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it("rejects embedding attempts when the OpenAI key is not configured", async () => {
-    const embed = vi.fn(() => Promise.resolve({ embedded: 0, failed: 0 }));
-
-    const response = await handleNewsEmbedRequest({
-      apiKey: undefined,
-      embed,
-      expectedSecret: "correct-secret-value",
-      request: new Request("https://example.com/api/news/embed", {
-        headers: { authorization: "Bearer correct-secret-value" },
-        method: "POST",
-      }),
+  it("enqueues a uniquely keyed embedding batch and returns 202", async () => {
+    const enqueue = vi.fn().mockResolvedValue({
+      job: {
+        id: "job-1",
+        jobType: "news_embed",
+        status: "queued",
+      },
+      status: "queued",
     });
 
-    expect(response.status).toBe(503);
+    const response = await handleNewsEmbedRequest({
+      enqueue,
+      expectedSecret: "correct-secret-value",
+      generateId: () => "request-1",
+      request: request("?limit=40"),
+    });
+
+    expect(response.status).toBe(202);
     await expect(response.json()).resolves.toEqual({
-      error: "OPENAI_API_KEY is not configured",
+      enqueueStatus: "queued",
+      job: {
+        id: "job-1",
+        status: "queued",
+        type: "news_embed",
+      },
+      ok: true,
     });
-    expect(embed).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledOnce();
+    expect(enqueue).toHaveBeenCalledWith({
+      dedupeKey: "manual-news-embed:request-1",
+      jobType: "news_embed",
+      payload: {
+        batch: 0,
+        limit: 40,
+      },
+    });
   });
 
-  it("runs the embedding job and returns its summary when authorized", async () => {
-    const embed = vi.fn(({ limit }: { limit: number }) =>
-      Promise.resolve({ embedded: limit - 1, failed: 1 }),
-    );
+  it("bounds invalid limits without requiring an OpenAI key in Next.js", async () => {
+    const enqueue = vi.fn().mockResolvedValue({
+      job: {
+        id: "job-2",
+        jobType: "news_embed",
+        status: "queued",
+      },
+      status: "queued",
+    });
+
+    const highResponse = await handleNewsEmbedRequest({
+      enqueue,
+      expectedSecret: "correct-secret-value",
+      generateId: () => "request-2",
+      request: request("?limit=400"),
+    });
+    const invalidResponse = await handleNewsEmbedRequest({
+      enqueue,
+      expectedSecret: "correct-secret-value",
+      generateId: () => "request-3",
+      request: request("?limit=invalid"),
+    });
+
+    expect(highResponse.status).toBe(202);
+    expect(invalidResponse.status).toBe(202);
+    expect(enqueue).toHaveBeenNthCalledWith(1, {
+      dedupeKey: "manual-news-embed:request-2",
+      jobType: "news_embed",
+      payload: { batch: 0, limit: 100 },
+    });
+    expect(enqueue).toHaveBeenNthCalledWith(2, {
+      dedupeKey: "manual-news-embed:request-3",
+      jobType: "news_embed",
+      payload: { batch: 0, limit: 25 },
+    });
+  });
+
+  it("returns the existing job metadata for a duplicate enqueue", async () => {
+    const enqueue = vi.fn().mockResolvedValue({
+      job: {
+        id: "existing-job",
+        jobType: "news_embed",
+        status: "succeeded",
+      },
+      status: "duplicate",
+    });
 
     const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
+      enqueue,
       expectedSecret: "correct-secret-value",
+      generateId: () => "request-4",
       request: new Request("https://example.com/api/news/embed", {
-        headers: { authorization: "Bearer correct-secret-value" },
+        headers: {
+          authorization: "Bearer correct-secret-value",
+          "idempotency-key": "client-request-42",
+        },
         method: "POST",
       }),
     });
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      embedded: 24,
-      failed: 1,
-      limit: 25,
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({
+      enqueueStatus: "duplicate",
+      job: {
+        id: "existing-job",
+        status: "succeeded",
+        type: "news_embed",
+      },
       ok: true,
     });
-    expect(embed).toHaveBeenCalledWith({ limit: 25 });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dedupeKey: "manual-news-embed:client-request-42",
+      }),
+    );
   });
 
-  it("tells operators to retry embeddings when the provider fails part of the batch", async () => {
-    const embed = vi.fn(({ limit }: { limit: number }) =>
-      Promise.resolve({ embedded: limit - 1, failed: 1 }),
-    );
-
+  it("rejects an oversized idempotency key before enqueueing", async () => {
+    const enqueue = vi.fn();
     const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
+      enqueue,
       expectedSecret: "correct-secret-value",
+      generateId: () => "request-5",
       request: new Request("https://example.com/api/news/embed", {
-        headers: { authorization: "Bearer correct-secret-value" },
+        headers: {
+          authorization: "Bearer correct-secret-value",
+          "idempotency-key": "x".repeat(201),
+        },
         method: "POST",
       }),
     });
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      actionRequired: [
-        "Retry pnpm run news:embed:remote; 1 story failed to embed in this batch.",
-      ],
-      commands: {
-        embed: "pnpm run news:embed:remote",
-        next: "pnpm run news:embed:remote",
-      },
-      nextStep: "retry-news-embeddings",
-      ok: true,
-      ready: false,
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Idempotency-Key must be at most 200 characters",
     });
+    expect(enqueue).not.toHaveBeenCalled();
   });
 
-  it("points operators to the health check when the embedding batch drains", async () => {
-    const embed = vi.fn(() => Promise.resolve({ embedded: 3, failed: 0 }));
+  it("returns structured JSON when enqueueing fails", async () => {
+    const enqueue = vi
+      .fn()
+      .mockRejectedValue(new Error("database connection unavailable"));
 
     const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
+      enqueue,
       expectedSecret: "correct-secret-value",
-      request: new Request("https://example.com/api/news/embed?limit=25", {
-        headers: { authorization: "Bearer correct-secret-value" },
-        method: "POST",
-      }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      actionRequired: [
-        "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
-      ],
-      commands: {
-        health: "pnpm run news:health:remote",
-        next: "pnpm run news:health:remote",
-      },
-      nextStep: "check-news-health",
-      ok: true,
-      ready: true,
-    });
-  });
-
-  it("returns an operator-readable next step after an embedding batch", async () => {
-    const embed = vi.fn(() => Promise.resolve({ embedded: 3, failed: 0 }));
-
-    const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
-      expectedSecret: "correct-secret-value",
-      request: new Request("https://example.com/api/news/embed?limit=25", {
-        headers: { authorization: "Bearer correct-secret-value" },
-        method: "POST",
-      }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      commands: {
-        next: "pnpm run news:health:remote",
-      },
-      nextStep: "check-news-health",
-      operatorNextStep: {
-        command: "pnpm run news:health:remote",
-        detail:
-          "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
-        label: "Check news health",
-        step: "check-news-health",
-      },
-    });
-  });
-
-  it("accepts bounded embedding batch limits from the request URL", async () => {
-    const embed = vi.fn(({ limit }: { limit: number }) =>
-      Promise.resolve({ embedded: limit, failed: 0 }),
-    );
-
-    const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
-      expectedSecret: "correct-secret-value",
-      request: new Request("https://example.com/api/news/embed?limit=400", {
-        headers: { "x-news-refresh-secret": "correct-secret-value" },
-        method: "POST",
-      }),
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      embedded: 100,
-      failed: 0,
-      limit: 100,
-      ok: true,
-    });
-    expect(embed).toHaveBeenCalledWith({ limit: 100 });
-  });
-
-  it("returns structured JSON when the embedding job fails", async () => {
-    const embed = vi.fn(() =>
-      Promise.reject(new Error("embedding provider timed out")),
-    );
-
-    const response = await handleNewsEmbedRequest({
-      apiKey: "openai-key",
-      embed,
-      expectedSecret: "correct-secret-value",
-      request: new Request("https://example.com/api/news/embed?limit=10", {
-        headers: { authorization: "Bearer correct-secret-value" },
-        method: "POST",
-      }),
+      generateId: () => "request-5",
+      request: request(),
     });
 
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "embedding provider timed out",
+      error: "database connection unavailable",
       ok: false,
     });
-    expect(embed).toHaveBeenCalledWith({ limit: 10 });
   });
 });

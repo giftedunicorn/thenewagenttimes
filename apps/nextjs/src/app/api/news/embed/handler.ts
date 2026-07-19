@@ -1,26 +1,27 @@
-export interface NewsEmbedSummary {
-  embedded: number;
-  failed: number;
+interface EnqueueResult {
+  job: {
+    id: string;
+    status: "failed" | "queued" | "running" | "succeeded";
+  };
+  status: "duplicate" | "queued";
 }
 
 interface HandleNewsEmbedRequestInput {
-  apiKey: string | undefined;
-  embed: (input: { limit: number }) => Promise<NewsEmbedSummary>;
+  enqueue: (input: {
+    dedupeKey: string;
+    jobType: "news_embed";
+    payload: {
+      batch: number;
+      limit: number;
+    };
+  }) => Promise<EnqueueResult>;
   expectedSecret: string | undefined;
+  generateId: () => string;
   request: Request;
 }
 
-type NewsEmbedNextStep =
-  | "check-news-health"
-  | "embed-news-stories"
-  | "retry-news-embeddings";
-
 const defaultNewsEmbedLimit = 25;
 const maxNewsEmbedLimit = 100;
-const newsEmbedCommands = {
-  embed: "pnpm run news:embed:remote",
-  health: "pnpm run news:health:remote",
-} as const;
 
 const readRequestSecret = (request: Request) => {
   const authorization = request.headers.get("authorization");
@@ -42,77 +43,19 @@ const readNewsEmbedLimit = (request: Request) => {
   return Math.min(Math.max(Math.trunc(parsedLimit), 1), maxNewsEmbedLimit);
 };
 
-const getNewsEmbedErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Unknown news embedding failure";
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "Unknown background job failure";
 
-const getNewsEmbedNextStep = ({
-  failed,
-  embedded,
-  limit,
-}: NewsEmbedSummary & { limit: number }): NewsEmbedNextStep => {
-  if (failed > 0) return "retry-news-embeddings";
-  if (embedded >= limit) return "embed-news-stories";
-
-  return "check-news-health";
+const readIdempotencyKey = (request: Request) => {
+  const value = request.headers.get("idempotency-key")?.trim();
+  if (!value) return undefined;
+  return value;
 };
-
-const getNewsEmbedActionRequired = ({
-  failed,
-  nextStep,
-}: {
-  failed: number;
-  nextStep: NewsEmbedNextStep;
-}) => {
-  switch (nextStep) {
-    case "retry-news-embeddings":
-      return [
-        `Retry pnpm run news:embed:remote; ${failed} ${
-          failed === 1 ? "story" : "stories"
-        } failed to embed in this batch.`,
-      ];
-    case "embed-news-stories":
-      return [
-        "Run pnpm run news:embed:remote again; this batch filled the limit and more stories may remain.",
-      ];
-    case "check-news-health":
-      return [
-        "Run pnpm run news:health:remote to confirm semantic recommendations are ready.",
-      ];
-  }
-};
-
-const getNewsEmbedCommandForNextStep = (nextStep: NewsEmbedNextStep) =>
-  nextStep === "check-news-health"
-    ? newsEmbedCommands.health
-    : newsEmbedCommands.embed;
-
-const newsEmbedNextStepLabels: Record<NewsEmbedNextStep, string> = {
-  "check-news-health": "Check news health",
-  "embed-news-stories": "Continue embeddings",
-  "retry-news-embeddings": "Retry embeddings",
-};
-
-const getNewsEmbedOperatorNextStep = ({
-  actionRequired,
-  command,
-  nextStep,
-}: {
-  actionRequired: readonly string[];
-  command: string;
-  nextStep: NewsEmbedNextStep;
-}) => ({
-  command,
-  detail:
-    actionRequired[0] ??
-    "Embedding batch completed; run the health check to confirm semantic readiness.",
-  label: newsEmbedNextStepLabels[nextStep],
-  step: nextStep,
-});
 
 export const handleNewsEmbedRequest = async ({
-  apiKey,
-  embed,
+  enqueue,
   expectedSecret,
+  generateId,
   request,
 }: HandleNewsEmbedRequestInput) => {
   if (!expectedSecret) {
@@ -126,47 +69,41 @@ export const handleNewsEmbedRequest = async ({
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  if (!apiKey?.trim()) {
+  const idempotencyKey = readIdempotencyKey(request);
+  if (idempotencyKey && idempotencyKey.length > 200) {
     return Response.json(
-      { error: "OPENAI_API_KEY is not configured" },
-      { status: 503 },
+      { error: "Idempotency-Key must be at most 200 characters" },
+      { status: 400 },
     );
   }
 
-  const limit = readNewsEmbedLimit(request);
-  let result: NewsEmbedSummary;
-
   try {
-    result = await embed({ limit });
+    const requestId = idempotencyKey ?? generateId();
+    const result = await enqueue({
+      dedupeKey: `manual-news-embed:${requestId}`,
+      jobType: "news_embed",
+      payload: {
+        batch: 0,
+        limit: readNewsEmbedLimit(request),
+      },
+    });
+
+    return Response.json(
+      {
+        enqueueStatus: result.status,
+        job: {
+          id: result.job.id,
+          status: result.job.status,
+          type: "news_embed",
+        },
+        ok: true,
+      },
+      { status: 202 },
+    );
   } catch (error) {
     return Response.json(
-      { error: getNewsEmbedErrorMessage(error), ok: false },
+      { error: getErrorMessage(error), ok: false },
       { status: 500 },
     );
   }
-  const nextStep = getNewsEmbedNextStep({ ...result, limit });
-  const actionRequired = getNewsEmbedActionRequired({
-    failed: result.failed,
-    nextStep,
-  });
-  const nextCommand = getNewsEmbedCommandForNextStep(nextStep);
-
-  return Response.json({
-    actionRequired,
-    commands: {
-      embed: newsEmbedCommands.embed,
-      health: newsEmbedCommands.health,
-      next: nextCommand,
-    },
-    ok: true,
-    operatorNextStep: getNewsEmbedOperatorNextStep({
-      actionRequired,
-      command: nextCommand,
-      nextStep,
-    }),
-    ready: nextStep === "check-news-health",
-    nextStep,
-    limit,
-    ...result,
-  });
 };

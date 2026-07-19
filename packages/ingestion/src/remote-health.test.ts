@@ -62,38 +62,15 @@ describe("resolveRemoteNewsHealthCommandInput", () => {
     });
   });
 
-  it("falls back to refresh, embed, bootstrap, or Railway public URLs", () => {
+  it("uses only the dedicated health URL and Railway public domain", () => {
     expect(
       resolveRemoteNewsHealthCommandInput({
         argv: [],
         env: {
-          NEWS_REFRESH_URL:
-            "https://thenewagenttimes.up.railway.app/api/news/refresh",
-        },
-      }),
-    ).toEqual({
-      healthUrl: "https://thenewagenttimes.up.railway.app/api/news/refresh",
-      railwayPublicDomain: undefined,
-    });
-
-    expect(
-      resolveRemoteNewsHealthCommandInput({
-        argv: [],
-        env: {
-          NEWS_EMBED_URL:
-            "https://thenewagenttimes.up.railway.app/api/news/embed",
-        },
-      }),
-    ).toEqual({
-      healthUrl: "https://thenewagenttimes.up.railway.app/api/news/embed",
-      railwayPublicDomain: undefined,
-    });
-
-    expect(
-      resolveRemoteNewsHealthCommandInput({
-        argv: [],
-        env: {
-          NEWS_BOOTSTRAP_URL: "https://thenewagenttimes.up.railway.app",
+          NEWS_BOOTSTRAP_URL: "https://obsolete.example/bootstrap",
+          NEWS_EMBED_URL: "https://obsolete.example/embed",
+          NEWS_HEALTH_URL: "https://thenewagenttimes.up.railway.app",
+          NEWS_REFRESH_URL: "https://obsolete.example/refresh",
           RAILWAY_PUBLIC_DOMAIN: "fallback.up.railway.app",
         },
       }),
@@ -103,7 +80,7 @@ describe("resolveRemoteNewsHealthCommandInput", () => {
     });
   });
 
-  it("skips blank environment URLs while resolving fallback health targets", () => {
+  it("does not revive removed producer URL fallbacks", () => {
     expect(
       resolveRemoteNewsHealthCommandInput({
         argv: [],
@@ -117,7 +94,7 @@ describe("resolveRemoteNewsHealthCommandInput", () => {
         },
       }),
     ).toEqual({
-      healthUrl: "https://thenewagenttimes.up.railway.app/api/news/refresh",
+      healthUrl: undefined,
       railwayPublicDomain: "thenewagenttimes.up.railway.app",
     });
   });
@@ -315,22 +292,21 @@ describe("checkRemoteNewsHealth", () => {
             Promise.resolve(
               JSON.stringify({
                 actionRequired: [
-                  "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+                  "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
                 ],
                 checks: {
                   auth: true,
-                  embeddingProvider: false,
                   refreshSecret: true,
                   schema: true,
                   semantic: false,
                   sources: true,
                   stories: true,
                 },
-                nextStep: "configure-embedding-provider",
+                nextStep: "embed-news-stories",
                 commands: {
                   next: null,
                   schema: "pnpm run db:predeploy",
-                  refresh: "pnpm run news:refresh:remote",
+                  refresh: "pnpm --filter @acme/cron start",
                 },
                 news: {
                   liveReady: true,
@@ -339,9 +315,9 @@ describe("checkRemoteNewsHealth", () => {
                 operatorNextStep: {
                   command: null,
                   detail:
-                    "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
-                  label: "Configure embedding provider",
-                  step: "configure-embedding-provider",
+                    "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
+                  label: "Generate embeddings",
+                  step: "embed-news-stories",
                 },
                 ready: false,
               }),
@@ -352,20 +328,19 @@ describe("checkRemoteNewsHealth", () => {
 
     expect(error).toBeInstanceOf(RemoteNewsHealthNotReadyError);
     expect(error).toMatchObject({
-      message:
-        "Remote news health is not ready: nextStep=configure-embedding-provider",
+      message: "Remote news health is not ready: nextStep=embed-news-stories",
       result: {
         actionRequired: [
-          "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+          "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
         ],
         commands: {
           next: null,
-          refresh: "pnpm run news:refresh:remote",
+          refresh: "pnpm --filter @acme/cron start",
           schema: "pnpm run db:predeploy",
         },
         body: {
           actionRequired: [
-            "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
+            "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
           ],
           news: {
             liveReady: true,
@@ -373,14 +348,14 @@ describe("checkRemoteNewsHealth", () => {
           },
         },
         liveReady: true,
-        nextStep: "configure-embedding-provider",
+        nextStep: "embed-news-stories",
         nextCommand: null,
         operatorNextStep: {
           command: null,
           detail:
-            "Set OPENAI_API_KEY in the Railway service environment before running semantic embeddings.",
-          label: "Configure embedding provider",
-          step: "configure-embedding-provider",
+            "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
+          label: "Generate embeddings",
+          step: "embed-news-stories",
         },
         ready: false,
         semanticReady: false,
@@ -454,9 +429,7 @@ describe("checkRemoteNewsHealth", () => {
       checkRemoteNewsHealth({
         healthUrl: "",
       }),
-    ).rejects.toThrow(
-      "NEWS_HEALTH_URL, NEWS_REFRESH_URL, NEWS_EMBED_URL, NEWS_BOOTSTRAP_URL, or RAILWAY_PUBLIC_DOMAIN is required",
-    );
+    ).rejects.toThrow("NEWS_HEALTH_URL or RAILWAY_PUBLIC_DOMAIN is required");
   });
 });
 

@@ -25,10 +25,7 @@
     "ingest:news:active": "tsx src/cli.ts ingest:news:active",
     "refresh:rss": "tsx src/cli.ts refresh:rss",
     "refresh:news": "tsx src/cli.ts refresh:news",
-    "bootstrap:remote": "tsx src/remote-bootstrap-cli.ts",
     "health:remote": "tsx src/remote-health-cli.ts",
-    "refresh:remote": "tsx src/remote-cli.ts",
-    "embed:remote": "tsx src/remote-embed-cli.ts",
     "embed:pending": "tsx src/cli.ts embed:pending",
     "test": "vitest run",
     "typecheck": "tsc --noEmit --emitDeclarationOnly false"

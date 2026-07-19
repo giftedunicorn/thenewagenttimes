@@ -93,13 +93,7 @@ export const resolveRemoteNewsHealthCommandInput = ({
   CheckRemoteNewsHealthInput,
   "fetchHealth"
 > => ({
-  healthUrl: getFirstNonBlankValue(
-    argv[0],
-    env.NEWS_HEALTH_URL,
-    env.NEWS_REFRESH_URL,
-    env.NEWS_EMBED_URL,
-    env.NEWS_BOOTSTRAP_URL,
-  ),
+  healthUrl: getFirstNonBlankValue(argv[0], env.NEWS_HEALTH_URL),
   railwayPublicDomain: env.RAILWAY_PUBLIC_DOMAIN,
 });
 
@@ -114,9 +108,7 @@ export const resolveRemoteNewsHealthUrl = (
       : resolveRailwayPublicUrl(railwayPublicDomain);
 
   if (!trimmedUrl) {
-    throw new Error(
-      "NEWS_HEALTH_URL, NEWS_REFRESH_URL, NEWS_EMBED_URL, NEWS_BOOTSTRAP_URL, or RAILWAY_PUBLIC_DOMAIN is required",
-    );
+    throw new Error("NEWS_HEALTH_URL or RAILWAY_PUBLIC_DOMAIN is required");
   }
 
   const url = new URL(trimmedUrl);

@@ -51,3 +51,4 @@ export function initAuth<
 
 export type Auth = ReturnType<typeof initAuth>;
 export type Session = Auth["$Infer"]["Session"];
+export type { AppSession, SessionReader } from "./session";

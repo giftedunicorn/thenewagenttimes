@@ -11,7 +11,7 @@ import SuperJSON from "superjson";
 
 import * as Api from "@acme/api";
 
-import { auth } from "~/auth/server";
+import { getAppSession } from "~/auth/server";
 import { env } from "~/env";
 import { getBaseUrl } from "~/lib/url";
 
@@ -25,7 +25,10 @@ export const makeTRPCClient = createIsomorphicFn()
           createContext: () => {
             const headers = new Headers(getRequestHeaders());
             headers.set("x-trpc-source", "tanstack-start-server");
-            return Api.createTRPCContext({ auth, headers });
+            return Api.createTRPCContext({
+              getSession: getAppSession,
+              headers,
+            });
           },
         }),
       ],

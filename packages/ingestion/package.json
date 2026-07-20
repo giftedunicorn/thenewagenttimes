@@ -11,6 +11,7 @@
   "license": "MIT",
   "scripts": {
     "build": "tsc",
+    "backfill:images": "tsx src/cli.ts backfill:images",
     "clean": "git clean -xdf .cache .turbo dist node_modules",
     "dev": "tsc",
     "format": "prettier --check . --ignore-path ../../.gitignore",

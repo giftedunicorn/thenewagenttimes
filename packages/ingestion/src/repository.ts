@@ -1,5 +1,5 @@
 import type { db as dbClient } from "@acme/db/client";
-import { and, eq, inArray } from "@acme/db";
+import { and, desc, eq, inArray, lt, or, sql } from "@acme/db";
 import {
   IngestionRun,
   NewsItem,
@@ -47,13 +47,14 @@ export type NewsItemRefreshDbUpdateValues = NewsItemRefreshUpdateValues & {
 
 export const getNewsItemRefreshUpdateValues = (
   item: NewsItemInput,
+  options: { existingImageUrl?: string | null } = {},
 ): NewsItemRefreshUpdateValues => ({
   authorName: item.authorName ?? null,
   bodyText: item.bodyText ?? null,
   category: item.category,
   clusterKey: item.clusterKey,
   entities: item.entities ?? [],
-  imageUrl: item.imageUrl ?? null,
+  imageUrl: item.imageUrl ?? options.existingImageUrl ?? null,
   language: item.language ?? "en",
   originalUrl: item.originalUrl,
   publishedAt: item.publishedAt,
@@ -67,13 +68,26 @@ export const getNewsItemRefreshUpdateValues = (
 
 export const getNewsItemRefreshDbUpdateValues = (
   item: NewsItemInput,
-  options: { resetEmbedding?: boolean } = {},
+  options: {
+    existingImageUrl?: string | null;
+    resetEmbedding?: boolean;
+  } = {},
 ): NewsItemRefreshDbUpdateValues => ({
-  ...getNewsItemRefreshUpdateValues(item),
+  ...getNewsItemRefreshUpdateValues(item, {
+    existingImageUrl: options.existingImageUrl,
+  }),
   ...((options.resetEmbedding ?? true)
     ? ({ embeddingStatus: "pending" } as const)
     : {}),
 });
+
+export const isCrossSourceNewsItemRefresh = ({
+  existingSourceId,
+  incomingSourceId,
+}: {
+  existingSourceId: string;
+  incomingSourceId: string;
+}) => existingSourceId !== incomingSourceId;
 
 const areStringArraysEqual = (
   left: readonly string[],
@@ -126,6 +140,9 @@ export const getIngestionRunFinishUpdateValues = (
 
 export const buildEmbeddingQueueCondition = () =>
   inArray(NewsItem.embeddingStatus, ["pending", "failed"]);
+
+export const buildMissingNewsImageCondition = () =>
+  or(sql`${NewsItem.imageUrl} is null`, eq(NewsItem.imageUrl, ""));
 
 export const createDbNewsRepository = (): NewsRepository => ({
   async seedSources(sources: NewsSourceInput[]) {
@@ -194,7 +211,6 @@ export const createDbNewsRepository = (): NewsRepository => ({
 
   async upsertNewsItem(item: NewsItemInput) {
     const db = await getDbClient();
-    const updateValues = getNewsItemRefreshUpdateValues(item);
     const [existing] = await db
       .select({
         authorName: NewsItem.authorName,
@@ -208,6 +224,7 @@ export const createDbNewsRepository = (): NewsRepository => ({
         originalUrl: NewsItem.originalUrl,
         publishedAt: NewsItem.publishedAt,
         sourceScore: NewsItem.sourceScore,
+        sourceId: NewsItem.sourceId,
         status: NewsItem.status,
         summary: NewsItem.summary,
         tags: NewsItem.tags,
@@ -219,6 +236,19 @@ export const createDbNewsRepository = (): NewsRepository => ({
       .limit(1);
 
     if (existing) {
+      if (
+        isCrossSourceNewsItemRefresh({
+          existingSourceId: existing.sourceId,
+          incomingSourceId: item.sourceId,
+        })
+      ) {
+        return "duplicate";
+      }
+
+      const updateValues = getNewsItemRefreshUpdateValues(item, {
+        existingImageUrl: existing.imageUrl,
+      });
+
       if (!shouldUpdateNewsItemFromRefresh(existing, updateValues)) {
         return "duplicate";
       }
@@ -230,7 +260,13 @@ export const createDbNewsRepository = (): NewsRepository => ({
 
       await db
         .update(NewsItem)
-        .set(getNewsItemRefreshDbUpdateValues(item, { resetEmbedding }))
+        .set({
+          ...getNewsItemRefreshDbUpdateValues(item, {
+            existingImageUrl: existing.imageUrl,
+            resetEmbedding,
+          }),
+          imageUrl: item.imageUrl ?? sql`${NewsItem.imageUrl}`,
+        })
         .where(eq(NewsItem.id, existing.id));
 
       return "updated";
@@ -244,10 +280,19 @@ export const createDbNewsRepository = (): NewsRepository => ({
 
     if (result.length > 0) return "created";
 
+    const conflictUpdateValues = getNewsItemRefreshDbUpdateValues(item);
     const updatedRows = await db
       .update(NewsItem)
-      .set(getNewsItemRefreshDbUpdateValues(item))
-      .where(eq(NewsItem.canonicalUrl, item.canonicalUrl))
+      .set({
+        ...conflictUpdateValues,
+        imageUrl: item.imageUrl ?? sql`${NewsItem.imageUrl}`,
+      })
+      .where(
+        and(
+          eq(NewsItem.canonicalUrl, item.canonicalUrl),
+          eq(NewsItem.sourceId, item.sourceId),
+        ),
+      )
       .returning({ id: NewsItem.id });
 
     return updatedRows.length > 0 ? "updated" : "duplicate";
@@ -283,5 +328,51 @@ export const createDbNewsRepository = (): NewsRepository => ({
       .update(NewsItem)
       .set({ embeddingStatus: status })
       .where(eq(NewsItem.id, newsItemId));
+  },
+});
+
+export const createDbNewsImageBackfillRepository = () => ({
+  async findMissingNewsImages(input: {
+    cursor?: { id: string; publishedAt: Date };
+    limit: number;
+  }) {
+    const db = await getDbClient();
+    const cursorCondition = input.cursor
+      ? or(
+          lt(NewsItem.publishedAt, input.cursor.publishedAt),
+          and(
+            eq(NewsItem.publishedAt, input.cursor.publishedAt),
+            lt(NewsItem.id, input.cursor.id),
+          ),
+        )
+      : undefined;
+
+    return db
+      .select({
+        id: NewsItem.id,
+        pageUrl: NewsItem.originalUrl,
+        publishedAt: NewsItem.publishedAt,
+      })
+      .from(NewsItem)
+      .where(
+        and(
+          eq(NewsItem.status, "published"),
+          buildMissingNewsImageCondition(),
+          cursorCondition,
+        ),
+      )
+      .orderBy(desc(NewsItem.publishedAt), desc(NewsItem.id))
+      .limit(input.limit);
+  },
+
+  async updateMissingNewsImage(input: { id: string; imageUrl: string }) {
+    const db = await getDbClient();
+    const updatedRows = await db
+      .update(NewsItem)
+      .set({ imageUrl: input.imageUrl })
+      .where(and(eq(NewsItem.id, input.id), buildMissingNewsImageCondition()))
+      .returning({ id: NewsItem.id });
+
+    return updatedRows.length > 0;
   },
 });

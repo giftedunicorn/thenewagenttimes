@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { NewsItemInput } from "./types";
 import {
   buildEmbeddingQueueCondition,
+  buildMissingNewsImageCondition,
   getIngestionRunFinishUpdateValues,
   getNewsItemRefreshDbUpdateValues,
   getNewsItemRefreshUpdateValues,
+  isCrossSourceNewsItemRefresh,
   shouldResetNewsItemEmbeddingFromRefresh,
   shouldUpdateNewsItemFromRefresh,
 } from "./repository";
@@ -83,6 +85,36 @@ describe("getNewsItemRefreshUpdateValues", () => {
     expect("embeddingStatus" in updateValues).toBe(false);
     expect("sourceId" in updateValues).toBe(false);
   });
+
+  it("preserves a known image when a same-source refresh omits it", () => {
+    const updateValues = getNewsItemRefreshUpdateValues(newsItem, {
+      existingImageUrl: "https://example.com/original-image.jpg",
+    });
+
+    expect(updateValues.imageUrl).toBe(
+      "https://example.com/original-image.jpg",
+    );
+  });
+});
+
+describe("isCrossSourceNewsItemRefresh", () => {
+  it("identifies a canonical URL match collected from another source", () => {
+    expect(
+      isCrossSourceNewsItemRefresh({
+        existingSourceId: newsItem.sourceId,
+        incomingSourceId: "c371994a-a1a8-4c31-a32d-018ad94cff24",
+      }),
+    ).toBe(true);
+  });
+
+  it("allows the original source to refresh its own story", () => {
+    expect(
+      isCrossSourceNewsItemRefresh({
+        existingSourceId: newsItem.sourceId,
+        incomingSourceId: newsItem.sourceId,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("buildEmbeddingQueueCondition", () => {
@@ -94,6 +126,18 @@ describe("buildEmbeddingQueueCondition", () => {
     expect(sqlText).toContain("failed");
     expect(sqlText).not.toContain("embedded");
     expect(sqlText).not.toContain("skipped");
+  });
+});
+
+describe("buildMissingNewsImageCondition", () => {
+  it("matches only rows whose image is null or blank", () => {
+    const sqlText = collectSqlDebugText(
+      buildMissingNewsImageCondition(),
+    ).toLowerCase();
+
+    expect(sqlText).toContain("imageurl");
+    expect(sqlText).toContain("is null");
+    expect(sqlText).toContain("or");
   });
 });
 

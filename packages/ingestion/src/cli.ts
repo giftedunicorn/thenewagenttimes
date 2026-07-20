@@ -1,4 +1,5 @@
 import { createOpenAIEmbeddingProvider } from "./embedding";
+import { backfillMissingNewsImages } from "./image-backfill";
 import {
   embedPendingNewsItems,
   ingestActiveNewsSources,
@@ -12,7 +13,10 @@ import {
   refreshNewsSources,
   seedSources,
 } from "./pipeline";
-import { createDbNewsRepository } from "./repository";
+import {
+  createDbNewsImageBackfillRepository,
+  createDbNewsRepository,
+} from "./repository";
 
 const command = process.argv[2];
 const repository = createDbNewsRepository();
@@ -115,8 +119,26 @@ const main = async () => {
     return;
   }
 
+  if (command === "backfill:images") {
+    const batchSize = Number(process.argv[3] ?? "100");
+    const result = await backfillMissingNewsImages({
+      batchSize,
+      repository: createDbNewsImageBackfillRepository(),
+    });
+    for (const failure of result.failures) {
+      console.error(
+        `Image backfill failed: id=${failure.id} url=${failure.pageUrl} error=${failure.message}`,
+      );
+    }
+    console.log(
+      `Image backfill complete: seen=${result.seen} updated=${result.updated} skipped=${result.skipped} failed=${result.failed}`,
+    );
+    if (result.failed > 0) process.exitCode = 1;
+    return;
+  }
+
   throw new Error(
-    "Usage: cli.ts <seed:sources | ingest:rss <sourceSlug> | ingest:rss:active | ingest:github-trending | ingest:arxiv-ai | ingest:hacker-news | ingest:yc-ai | ingest:news:active | refresh:rss | refresh:news | embed:pending [limit]>",
+    "Usage: cli.ts <seed:sources | ingest:rss <sourceSlug> | ingest:rss:active | ingest:github-trending | ingest:arxiv-ai | ingest:hacker-news | ingest:yc-ai | ingest:news:active | refresh:rss | refresh:news | embed:pending [limit] | backfill:images [batchSize]>",
   );
 };
 

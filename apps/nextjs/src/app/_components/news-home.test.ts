@@ -43,6 +43,23 @@ describe("public news homepage", () => {
     expect(source).not.toContain(">Multi-source clusters<");
     expect(source).not.toContain(">Consensus Board<");
   });
+
+  it("prioritizes lead art and lazy-loads secondary story art", async () => {
+    const source = await readFile(
+      new URL("./news-public-front-page.tsx", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toContain('import Image from "next/image"');
+    expect(source).toContain("priority = false");
+    expect(source).toContain("alt={`Visual for ${item.title}`}");
+    expect(source).toContain('loading={priority ? "eager" : "lazy"}');
+    expect(source).toContain('fetchPriority={priority ? "high" : "auto"}');
+    expect(source).toContain(
+      "<StoryImage formatCategory={formatCategory} item={lead} priority",
+    );
+    expect(source).not.toContain("backgroundImage:");
+  });
 });
 
 describe("edition landing routes", () => {
@@ -220,13 +237,26 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("passes production auth readiness from the home route into the desk status panel", async () => {
-    const source = await readFile(new URL("../page.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
+  it("loads only feed data and revalidates the public homepage", async () => {
+    const route = await readFile(
+      new URL("../page.tsx", import.meta.url),
+      "utf8",
+    );
+    const home = await readFile(
+      new URL("./news-home.tsx", import.meta.url),
+      "utf8",
+    );
 
-    expect(source).toContain("env.NEXT_PUBLIC_FIREBASE_PROJECT_ID");
-    expect(source).toContain("authConfigured={Boolean");
+    expect(route).toContain("getNewsHomeFeedData()");
+    expect(route).toContain("export const revalidate = 60;");
+    expect(route).not.toContain('dynamic = "force-dynamic"');
+    expect(route).not.toContain("env.");
+    expect(route).not.toContain("deskStatus=");
+    expect(route).not.toContain("authConfigured=");
+    expect(route).not.toContain("refreshConfigured=");
+    expect(home).not.toContain("deskStatus: NewsDeskStatus");
+    expect(home).not.toContain("authConfigured: boolean");
+    expect(home).not.toContain("refreshConfigured: boolean");
   });
 
   it("preserves story cluster keys across local home reader memory", async () => {
@@ -511,10 +541,10 @@ describe("NewsHome discovery navigation", () => {
 
     expect(source).toContain("getNewsHomeForYouApiNextRequestResetKey");
     expect(source).toMatch(
-      /const forYouApiNextRequestResetKey = useMemo\(\s*\(\) =>\s*getNewsHomeForYouApiNextRequestResetKey\(forYouApiRequestBody\),\s*\[forYouApiRequestBody\],\s*\);/,
+      /const forYouApiRequestKey = useMemo\(\s*\(\) =>\s*getNewsHomeForYouApiNextRequestResetKey\(forYouApiRequestBody\),\s*\[forYouApiRequestBody\],\s*\);/,
     );
     expect(source).toMatch(
-      /useEffect\(\(\) => \{\s*setForYouApiNextRequest\(null\);\s*}, \[forYouApiNextRequestResetKey\]\);/,
+      /useEffect\(\(\) => \{\s*setForYouApiNextRequest\(null\);\s*}, \[forYouApiRequestKey\]\);/,
     );
     expect(source).not.toMatch(
       /useEffect\(\(\) => \{\s*setForYouApiNextRequest\(null\);\s*}, \[forYouApiRequestBody\]\);/,
@@ -535,11 +565,21 @@ describe("NewsHome discovery navigation", () => {
     const fetchPayloadBlock = source.slice(fetchPayloadStart, fetchPayloadEnd);
 
     expect(source).toContain("const forYouApiQuery = useQuery({");
+    expect(source).toContain("const forYouApiRequestKey = useMemo(");
     expect(source).toContain(
+      'queryKey: ["news", "for-you-api", forYouApiRequestKey]',
+    );
+    expect(source).not.toContain(
       'queryKey: ["news", "for-you-api", forYouApiRequestBody]',
     );
     expect(source).toContain(
       "queryFn: () => fetchNewsHomeForYouApiPayload(forYouApiRequestBody)",
+    );
+    expect(source).toContain(
+      "const { mutate: recordHomeExposure } = useMutation(",
+    );
+    expect(source).toContain(
+      "records.forEach((record) => recordHomeExposure(record));",
     );
     expect(source).toContain("readerStateHydrated");
     expect(source).toContain("forYouApiQuery.data?.items ?? []");

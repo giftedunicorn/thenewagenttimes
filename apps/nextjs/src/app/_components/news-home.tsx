@@ -34,7 +34,6 @@ import type {
   getNewsPersonalizationDataVaultExport,
   getNewsPreferenceTuningPlan,
   getNewsStoryQuickTuneActions,
-  NewsDeskStatus,
   NewsFeedMode,
   NewsHomeItem,
   NewsHomeStatus,
@@ -114,6 +113,8 @@ import {
   stripPersistedNewsPreferenceProfile,
   toNewsHomeItemFromPublicFeedItem,
 } from "./news-home-model";
+import { NewsPublicFrontPageView } from "./news-public-front-page";
+import { selectNewsPublicFrontPage } from "./news-public-front-page-model";
 import {
   newsGuardrailStorageKey as guardrailStorageKey,
   newsHistoryStorageKey as historyStorageKey,
@@ -140,8 +141,6 @@ import {
   subscribeToNewsPreferenceProfileStorage,
   writeStoredNewsPreferenceProfile,
 } from "./news-reader-profile-storage";
-import { NewsPublicFrontPageView } from "./news-public-front-page";
-import { selectNewsPublicFrontPage } from "./news-public-front-page-model";
 
 type RankedNewsHomeItem = RankedNewsItem<NewsHomeItem>;
 type NewsStoryQuickTuneAction = ReturnType<
@@ -187,12 +186,9 @@ type NewsTrainingUpdate = ReturnType<typeof getNewsFeedbackTrainingUpdate> & {
 type PositiveNewsHomeFeedbackItem = NewsPositiveFeedbackMemoryItem;
 
 interface NewsHomeProps {
-  authConfigured: boolean;
-  initialItems: NewsHomeItem[];
-  deskStatus: NewsDeskStatus;
-  refreshConfigured: boolean;
-  status: NewsHomeStatus;
   generatedAt: string;
+  initialItems: NewsHomeItem[];
+  status: NewsHomeStatus;
 }
 
 interface NewsHomeForYouApiNextRequest {
@@ -787,7 +783,7 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
       },
     }),
   );
-  const recordHomeExposure = useMutation(
+  const { mutate: recordHomeExposure } = useMutation(
     trpc.news.recordInteraction.mutationOptions(),
   );
   const restoreGuardrail = useMutation(
@@ -1018,6 +1014,10 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
       searchMemoryItems,
     ],
   );
+  const forYouApiRequestKey = useMemo(
+    () => getNewsHomeForYouApiNextRequestResetKey(forYouApiRequestBody),
+    [forYouApiRequestBody],
+  );
   const forYouApiQuery = useQuery({
     enabled:
       primaryFeedEnabled &&
@@ -1025,15 +1025,11 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
       readerStateHydrated &&
       serverReaderMemoryReady,
     queryFn: () => fetchNewsHomeForYouApiPayload(forYouApiRequestBody),
-    queryKey: ["news", "for-you-api", forYouApiRequestBody],
+    queryKey: ["news", "for-you-api", forYouApiRequestKey],
   });
-  const forYouApiNextRequestResetKey = useMemo(
-    () => getNewsHomeForYouApiNextRequestResetKey(forYouApiRequestBody),
-    [forYouApiRequestBody],
-  );
   useEffect(() => {
     setForYouApiNextRequest(null);
-  }, [forYouApiNextRequestResetKey]);
+  }, [forYouApiRequestKey]);
   useEffect(() => {
     if (primaryFeedRoute !== "forYou" || !forYouApiQuery.data) return;
 
@@ -1977,7 +1973,7 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
     });
 
     if (canPersistProfile) {
-      records.forEach((record) => recordHomeExposure.mutate(record));
+      records.forEach((record) => recordHomeExposure(record));
     }
   }, [
     canPersistProfile,

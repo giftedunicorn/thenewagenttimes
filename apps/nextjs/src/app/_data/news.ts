@@ -218,9 +218,12 @@ const toNullableIsoTimestamp = (
   return date.toISOString();
 };
 
-interface NewsHomeData {
+interface NewsHomeFeedData {
   items: NewsHomeItem[];
   status: NewsHomeStatus;
+}
+
+interface NewsHomeData extends NewsHomeFeedData {
   deskStatus: NewsDeskStatus;
 }
 
@@ -433,35 +436,32 @@ const buildNewsEditionCondition = ({
   return and(eq(NewsItem.status, "published"), eq(NewsSource.slug, value));
 };
 
-export const getNewsHomeData = async (): Promise<NewsHomeData> => {
+export const getNewsHomeFeedData = async (): Promise<NewsHomeFeedData> => {
   try {
-    const [rows, deskStatus] = await Promise.all([
-      db
-        .select({
-          id: NewsItem.id,
-          title: NewsItem.title,
-          summary: NewsItem.summary,
-          canonicalUrl: NewsItem.canonicalUrl,
-          clusterKey: NewsItem.clusterKey,
-          imageUrl: NewsItem.imageUrl,
-          originalUrl: NewsItem.originalUrl,
-          publishedAt: NewsItem.publishedAt,
-          category: NewsItem.category,
-          tags: NewsItem.tags,
-          entities: NewsItem.entities,
-          sourceScore: NewsItem.sourceScore,
-          trendScore: NewsItem.trendScore,
-          sourceName: NewsSource.name,
-          sourceSlug: NewsSource.slug,
-          sourceType: NewsSource.sourceType,
-        })
-        .from(NewsItem)
-        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-        .where(eq(NewsItem.status, "published"))
-        .orderBy(...buildNewsHomeCandidateOrderByExpressions())
-        .limit(90),
-      getNewsDeskStatus(),
-    ]);
+    const rows = await db
+      .select({
+        id: NewsItem.id,
+        title: NewsItem.title,
+        summary: NewsItem.summary,
+        canonicalUrl: NewsItem.canonicalUrl,
+        clusterKey: NewsItem.clusterKey,
+        imageUrl: NewsItem.imageUrl,
+        originalUrl: NewsItem.originalUrl,
+        publishedAt: NewsItem.publishedAt,
+        category: NewsItem.category,
+        tags: NewsItem.tags,
+        entities: NewsItem.entities,
+        sourceScore: NewsItem.sourceScore,
+        trendScore: NewsItem.trendScore,
+        sourceName: NewsSource.name,
+        sourceSlug: NewsSource.slug,
+        sourceType: NewsSource.sourceType,
+      })
+      .from(NewsItem)
+      .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
+      .where(eq(NewsItem.status, "published"))
+      .orderBy(...buildNewsHomeCandidateOrderByExpressions())
+      .limit(90);
     const liveItems = selectInitialNewsHomeItems({
       items: rows.map((row) => ({
         ...row,
@@ -473,15 +473,22 @@ export const getNewsHomeData = async (): Promise<NewsHomeData> => {
     return {
       items: liveItems.length > 0 ? liveItems : getPreviewNewsHomeItems(),
       status: liveItems.length > 0 ? "ready" : "empty",
-      deskStatus,
     };
   } catch {
     return {
       items: getPreviewNewsHomeItems(),
       status: "unavailable",
-      deskStatus: getUnavailableNewsDeskStatus(),
     };
   }
+};
+
+export const getNewsHomeData = async (): Promise<NewsHomeData> => {
+  const [feed, deskStatus] = await Promise.all([
+    getNewsHomeFeedData(),
+    getNewsDeskStatus().catch(() => getUnavailableNewsDeskStatus()),
+  ]);
+
+  return { ...feed, deskStatus };
 };
 
 export const getNewsCollaborativeSignals = async ({

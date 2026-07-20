@@ -39,7 +39,6 @@ describe("handleNewsHealthRequest", () => {
     );
 
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus,
       refreshSecret: "configured-refresh-secret",
     });
@@ -47,9 +46,7 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [],
-      authConfigured: true,
       checks: {
-        auth: true,
         refreshSecret: true,
         schema: true,
         semantic: true,
@@ -75,7 +72,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("surfaces stale source catalogs before treating live news as production ready", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -126,7 +122,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("keeps stale live editions out of the ready state", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -177,7 +172,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("surfaces cluster schema gaps even when legacy news tables are reachable", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -213,7 +207,6 @@ describe("handleNewsHealthRequest", () => {
         "Apply the database schema so news_item.cluster_key is available.",
       ],
       checks: {
-        auth: true,
         refreshSecret: true,
         schema: false,
         semantic: true,
@@ -238,7 +231,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("returns an operator-readable next step with the command and action detail", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -274,7 +266,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("keeps half-applied cluster schema migrations out of the ready state", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -325,7 +316,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("surfaces the latest refresh yield diagnostics for production checks", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -371,7 +361,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("reports that seeded sources still need a refresh before live news is ready", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -388,7 +377,6 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: ["Enqueue a news refresh for the background worker."],
-      authConfigured: true,
       news: {
         activeSources: 26,
         health: "seeded",
@@ -407,7 +395,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("keeps live news unready until published stories have embeddings", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -439,7 +426,6 @@ describe("handleNewsHealthRequest", () => {
         "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
       ],
       checks: {
-        auth: true,
         refreshSecret: true,
         schema: true,
         semantic: false,
@@ -460,7 +446,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("uses database progress without requiring the worker secret in web", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -492,7 +477,6 @@ describe("handleNewsHealthRequest", () => {
         "The background worker must finish embedding the live edition; inspect failed background jobs if progress stops.",
       ],
       checks: {
-        auth: true,
         refreshSecret: true,
         schema: true,
         semantic: false,
@@ -509,64 +493,8 @@ describe("handleNewsHealthRequest", () => {
     });
   });
 
-  it("surfaces missing auth secret even when the news loop is live", async () => {
-    const response = await handleNewsHealthRequest({
-      authSecret: undefined,
-      getDeskStatus: () =>
-        Promise.resolve(
-          buildNewsDeskStatus({
-            activeSources: 26,
-            embeddedStories: 24,
-            latestPublishedAt: "2026-07-01T08:00:00.000Z",
-            latestRun: {
-              errorMessage: null,
-              finishedAt: "2026-07-01T08:05:00.000Z",
-              itemsCreated: 12,
-              itemsSeen: 18,
-              itemsUpdated: 3,
-              runType: "rss",
-              sourceName: "OpenAI News",
-              startedAt: "2026-07-01T08:00:00.000Z",
-              status: "succeeded",
-            },
-            publishedStories: 24,
-            totalSources: 28,
-            unembeddedStories: 0,
-          }),
-        ),
-      refreshSecret: "configured-refresh-secret",
-    });
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      actionRequired: [
-        "Set BETTER_AUTH_SECRET or AUTH_SECRET in the Railway service environment.",
-      ],
-      authConfigured: false,
-      checks: {
-        auth: false,
-        refreshSecret: true,
-        schema: true,
-        semantic: true,
-        sources: true,
-        stories: true,
-      },
-      news: {
-        health: "live",
-        liveReady: true,
-        ready: true,
-        semanticReady: true,
-      },
-      nextStep: "configure-auth-secret",
-      ready: false,
-      refreshConfigured: true,
-      web: "ready",
-    });
-  });
-
   it("surfaces failed source diagnostics for partial aggregate refreshes", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () =>
         Promise.resolve(
           buildNewsDeskStatus({
@@ -639,14 +567,11 @@ describe("handleNewsHealthRequest", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       actionRequired: [
-        "Set BETTER_AUTH_SECRET or AUTH_SECRET in the Railway service environment.",
         "Set CRON_SECRET in the Railway service environment.",
         "Apply the database schema to the target database.",
         "Deploy the schema, then enqueue a news refresh.",
       ],
-      authConfigured: false,
       checks: {
-        auth: false,
         refreshSecret: false,
         schema: false,
         semantic: false,
@@ -666,7 +591,7 @@ describe("handleNewsHealthRequest", () => {
         servingNewsExperience: true,
         title: "The New AI Times",
       },
-      nextStep: "configure-auth-secret",
+      nextStep: "configure-refresh-secret",
       ok: true,
       ready: false,
       refreshConfigured: false,
@@ -676,7 +601,6 @@ describe("handleNewsHealthRequest", () => {
 
   it("prioritizes database schema setup before queued processing", async () => {
     const response = await handleNewsHealthRequest({
-      authSecret: "configured-auth-secret",
       getDeskStatus: () => Promise.reject(new Error("relation does not exist")),
       refreshSecret: "configured-refresh-secret",
     });
@@ -688,7 +612,6 @@ describe("handleNewsHealthRequest", () => {
         "Deploy the schema, then enqueue a news refresh.",
       ],
       checks: {
-        auth: true,
         refreshSecret: true,
         schema: false,
       },

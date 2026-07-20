@@ -5,10 +5,12 @@ import { selectNewsPublicFrontPage } from "./news-public-front-page-model";
 
 const makeStory = (
   id: string,
-  overrides: Partial<NewsHomeItem & {
-    matchedSignals: string[];
-    personalizedScore: number;
-  }> = {},
+  overrides: Partial<
+    NewsHomeItem & {
+      matchedSignals: string[];
+      personalizedScore: number;
+    }
+  > = {},
 ) => ({
   id,
   title: `Story ${id}`,

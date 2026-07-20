@@ -1,7 +1,6 @@
 "use client";
 
 import NiceModal from "@ebay/nice-modal-react";
-import { Trans, useLingui } from "@lingui/react/macro";
 
 import { Button } from "@acme/ui/button";
 import {
@@ -25,13 +24,12 @@ const getInitials = (name: string | null, email: string | null) =>
     .join("");
 
 export function AuthMenu() {
-  const { t } = useLingui();
   const { signOut, status, user } = useAuth();
 
   if (status === "loading") {
     return (
       <Button className="h-8 rounded-none" disabled size="sm" variant="outline">
-        <Trans>Loading account</Trans>
+        Loading account
       </Button>
     );
   }
@@ -45,7 +43,7 @@ export function AuthMenu() {
         variant="outline"
         onClick={() => void NiceModal.show(Modals.LoginModal)}
       >
-        <Trans>Sign in</Trans>
+        Sign in
       </Button>
     );
   }
@@ -56,14 +54,14 @@ export function AuthMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          aria-label={t`Open account menu`}
+          aria-label="Open account menu"
           className="size-8 overflow-hidden rounded-full border-[#171717] p-0 dark:border-[#f5f3ed]"
           size="icon"
           variant="outline"
         >
           {user.photoURL ? (
             <span
-              aria-label={t`Account image`}
+              aria-label="Account image"
               className="size-full bg-cover bg-center"
               role="img"
               style={{ backgroundImage: `url("${user.photoURL}")` }}
@@ -77,16 +75,14 @@ export function AuthMenu() {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuLabel>
-          <span className="block">
-            <Trans>Reader account</Trans>
-          </span>
+          <span className="block">Reader account</span>
           <span className="text-muted-foreground mt-1 block truncate text-xs font-normal">
             {user.email}
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={() => void signOut()}>
-          <Trans>Sign out</Trans>
+          Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

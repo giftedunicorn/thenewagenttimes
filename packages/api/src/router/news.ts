@@ -36,7 +36,6 @@ import {
   NewsReaderInteraction,
   NewsReaderInteractionActionSchema,
   NewsReaderProfile,
-  NewsSignal,
   NewsSource,
 } from "@acme/db/schema";
 import {
@@ -129,10 +128,6 @@ const NewsFeedBaseInputSchema = NewsFeedFilterInputSchema.extend({
 export const NewsFeedInputSchema = NewsFeedBaseInputSchema.extend({
   cursorTrendScore: z.number().finite().optional(),
   mode: NewsPublicFeedModeSchema.default("trending"),
-});
-
-export const NewsByIdInputSchema = z.object({
-  id: z.string().uuid(),
 });
 
 const NewsPreferenceCategoryInputSchema = z.preprocess(
@@ -3365,84 +3360,6 @@ export const newsRouter = {
           };
         }),
       ).slice(0, input.limit);
-    }),
-
-  byId: publicProcedure
-    .input(NewsByIdInputSchema)
-    .query(async ({ ctx, input }) => {
-      const [item] = await ctx.db
-        .select({
-          id: NewsItem.id,
-          title: NewsItem.title,
-          summary: NewsItem.summary,
-          bodyText: NewsItem.bodyText,
-          canonicalUrl: NewsItem.canonicalUrl,
-          clusterKey: NewsItem.clusterKey,
-          originalUrl: NewsItem.originalUrl,
-          imageUrl: NewsItem.imageUrl,
-          authorName: NewsItem.authorName,
-          language: NewsItem.language,
-          publishedAt: NewsItem.publishedAt,
-          collectedAt: NewsItem.collectedAt,
-          category: NewsItem.category,
-          tags: NewsItem.tags,
-          entities: NewsItem.entities,
-          sourceScore: NewsItem.sourceScore,
-          trendScore: NewsItem.trendScore,
-          embeddingStatus: NewsItem.embeddingStatus,
-          source: {
-            id: NewsSource.id,
-            name: NewsSource.name,
-            slug: NewsSource.slug,
-            homepageUrl: NewsSource.homepageUrl,
-            sourceType: NewsSource.sourceType,
-            credibility: NewsSource.credibility,
-          },
-        })
-        .from(NewsItem)
-        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-        .where(
-          compactConditions([
-            eq(NewsItem.id, input.id),
-            eq(NewsItem.status, "published"),
-          ]),
-        )
-        .limit(1);
-
-      if (!item) return null;
-
-      const signals = await ctx.db
-        .select({
-          signalType: NewsSignal.signalType,
-          signalValue: NewsSignal.signalValue,
-          metadata: NewsSignal.metadata,
-          observedAt: NewsSignal.observedAt,
-        })
-        .from(NewsSignal)
-        .where(eq(NewsSignal.newsItemId, input.id))
-        .orderBy(desc(NewsSignal.observedAt))
-        .limit(20);
-
-      const vectors = await ctx.db
-        .select({
-          provider: NewsItemVector.provider,
-          model: NewsItemVector.model,
-          dimension: NewsItemVector.dimension,
-          contentHash: NewsItemVector.contentHash,
-          vectorRef: NewsItemVector.vectorRef,
-          createdAt: NewsItemVector.createdAt,
-        })
-        .from(NewsItemVector)
-        .where(eq(NewsItemVector.newsItemId, input.id))
-        .orderBy(desc(NewsItemVector.createdAt))
-        .limit(5);
-
-      return {
-        ...item,
-        signals,
-        vectors,
-        hasVector: vectors.length > 0,
-      };
     }),
 
   recordInteraction: publicProcedure

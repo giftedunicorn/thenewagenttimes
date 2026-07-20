@@ -856,10 +856,7 @@ const readRecentExposureItems = (
     if (exposureOccurredAt) {
       const occurredAtTime = Date.parse(exposureOccurredAt);
 
-      if (
-        occurredAtTime > now ||
-        now - occurredAtTime > retentionMs
-      ) {
+      if (occurredAtTime > now || now - occurredAtTime > retentionMs) {
         continue;
       }
     }
@@ -1783,9 +1780,8 @@ const applyNewsForYouMemorySignals = ({
   const trustBalancedItems = selectSourceTrustBalancedNewsFeed(
     negativeFeedbackAdjustedItems,
   );
-  const sourceCorroboratedItems = selectSourceCorroboratedNewsFeed(
-    trustBalancedItems,
-  );
+  const sourceCorroboratedItems =
+    selectSourceCorroboratedNewsFeed(trustBalancedItems);
 
   return body.readerLocalHour === undefined
     ? sourceCorroboratedItems

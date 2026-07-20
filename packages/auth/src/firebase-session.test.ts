@@ -38,9 +38,7 @@ class MemoryFirebaseUserStore implements FirebaseUserStore {
 
   findByFirebaseUid(uid: string) {
     const userId = this.links.get(uid);
-    return Promise.resolve(
-      userId ? (this.users.get(userId) ?? null) : null,
-    );
+    return Promise.resolve(userId ? (this.users.get(userId) ?? null) : null);
   }
 
   async createUser(input: FirebaseUserRecord) {

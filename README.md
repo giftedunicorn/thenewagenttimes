@@ -8,8 +8,7 @@ long-running ingestion work.
 
 ```text
 apps/nextjs                 Production news website and enqueue-only APIs
-apps/expo                   Mobile shell
-apps/tanstack-start         Legacy experimental web shell
+apps/admin                  Production operations dashboard
 packages/api                tRPC news and reader APIs
 packages/db                 Drizzle schemas, database client, and job queue
 packages/ingestion          News refresh and embedding domain logic
@@ -106,9 +105,14 @@ Required web variables:
 
 ```text
 POSTGRES_URL
-BETTER_AUTH_SECRET or AUTH_SECRET
 CRON_SECRET
 NEWS_REFRESH_SECRET
+NEXT_PUBLIC_FIREBASE_API_KEY
+NEXT_PUBLIC_FIREBASE_APP_ID
+NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+NEXT_PUBLIC_FIREBASE_PROJECT_ID
+NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
 ```
 
 `NEWS_REFRESH_SECRET` protects the optional manual producer endpoints:

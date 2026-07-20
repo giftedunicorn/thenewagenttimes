@@ -12,6 +12,7 @@
   "aliases": {
     "utils": "@acme/ui",
     "components": "src/",
-    "ui": "src/"
+    "hooks": "@acme/ui/hooks",
+    "ui": "@acme/ui"
   }
 }

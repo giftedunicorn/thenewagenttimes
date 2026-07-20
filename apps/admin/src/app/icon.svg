@@ -1,0 +1,14 @@
+<svg width="512" height="512" viewBox="0 0 512 512" role="img" xmlns="http://www.w3.org/2000/svg">
+  <title>The New AI Times</title>
+  <rect width="512" height="512" rx="64" fill="#f7f5ef"/>
+  <rect x="64" y="72" width="384" height="368" fill="#fffdf7" stroke="#161616" stroke-width="18"/>
+  <path d="M104 128H408" stroke="#161616" stroke-width="16"/>
+  <path d="M104 180H408" stroke="#161616" stroke-width="10"/>
+  <path d="M104 224H408" stroke="#161616" stroke-width="10"/>
+  <path d="M104 344H408" stroke="#161616" stroke-width="10"/>
+  <path d="M104 388H320" stroke="#161616" stroke-width="10"/>
+  <rect x="104" y="264" width="118" height="54" fill="#8a241c"/>
+  <rect x="250" y="264" width="158" height="54" fill="#161616"/>
+  <text x="256" y="155" fill="#161616" font-family="Georgia, Times, serif" font-size="64" font-weight="700" text-anchor="middle">AI</text>
+  <text x="256" y="310" fill="#fffdf7" font-family="Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">TIMES</text>
+</svg>

@@ -3399,6 +3399,13 @@ describe("handleNewsForYouRequest", () => {
   });
 
   it("explains the active For You ranking pipeline in the API context", async () => {
+    const recentExposureAt = new Date(
+      Date.now() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const semanticMatchAt = new Date(
+      Date.now() - 4 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+
     const response = await handleNewsForYouRequest({
       getItems: () =>
         Promise.resolve([
@@ -3428,7 +3435,7 @@ describe("handleNewsForYouRequest", () => {
             {
               category: "agent_product",
               id: "agent-browser",
-              occurredAt: "2026-07-09T10:00:00.000Z",
+              occurredAt: recentExposureAt,
               sourceSlug: "agent-desk",
               surface: "home_exposure",
               title: "Browser agents become the workflow lead",
@@ -3437,7 +3444,7 @@ describe("handleNewsForYouRequest", () => {
           semanticSimilarityMatches: [
             {
               newsItemId: "policy-audit",
-              occurredAt: "2026-07-06T10:00:00.000Z",
+              occurredAt: semanticMatchAt,
               similarity: 0.92,
             },
           ],

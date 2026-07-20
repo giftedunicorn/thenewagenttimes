@@ -225,7 +225,7 @@ describe("NewsHome discovery navigation", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain("env.BETTER_AUTH_SECRET ?? env.AUTH_SECRET");
+    expect(source).toContain("env.NEXT_PUBLIC_FIREBASE_PROJECT_ID");
     expect(source).toContain("authConfigured={Boolean");
   });
 
@@ -733,5 +733,34 @@ describe("NewsHome discovery navigation", () => {
       /return subscribeToNewsReaderMemoryStorage\(\(\) => \{[\s\S]*?const storedGuardrails = readStoredGuardrailItems\(\);[\s\S]*?const storedHomeExposureItems = readStoredHomeExposureItems\(\);[\s\S]*?const storedRestoredGuardrailItemIds =[\s\S]*?readStoredRestoredGuardrailItemIds\(\);[\s\S]*?setLocalHomeExposureItems\(storedHomeExposureItems\);[\s\S]*?setLocalHistoryItems\(readStoredHistoryItems\(\)\);[\s\S]*?setLocalSavedItems\(readStoredSavedItems\(\)\);[\s\S]*?setLocalGuardrailItems\(storedGuardrails\);[\s\S]*?setPositiveFeedbackItems\(readStoredPositiveFeedbackItems\(\)\);[\s\S]*?setSearchMemoryItems\(readStoredSearchItems\(\)\);[\s\S]*?setRestoredGuardrailItemIds\(storedRestoredGuardrailItemIds\);[\s\S]*?setHiddenItemIds\(/,
     );
   });
+});
 
+describe("Firebase reader authentication", () => {
+  it("exposes Lingui login, account, and email callback surfaces", async () => {
+    const readSource = (url: URL) => readFile(url, "utf8").catch(() => "");
+    const [callback, menu, modal, providers, view] = await Promise.all([
+      readSource(
+        new URL("../auth/callback/email-callback.tsx", import.meta.url),
+      ),
+      readSource(new URL("./auth-menu.tsx", import.meta.url)),
+      readSource(new URL("./LoginModal.tsx", import.meta.url)),
+      readSource(new URL("../../providers/app-providers.tsx", import.meta.url)),
+      readSource(new URL("./news-public-front-page.tsx", import.meta.url)),
+    ]);
+
+    expect(view).toContain("<AuthMenu");
+    expect(providers).toContain("<LinguiClientProvider>");
+    expect(providers).toContain("<AuthProvider>");
+    expect(providers).toContain("<NiceModal.Provider>");
+    expect(modal).toContain("NiceModal.create");
+    expect(modal).toContain("@acme/ui/dialog");
+    expect(modal).toContain("<Trans>");
+    expect(modal).toContain("signInWithGoogle");
+    expect(menu).toContain("Modals.LoginModal");
+    expect(menu).toContain("signOut");
+    expect(callback).toContain("isSignInWithEmailLink");
+    expect(callback).toContain("emailForSignInKey");
+    expect(callback).toContain('type="email"');
+    expect(callback).toContain("<Trans>");
+  });
 });

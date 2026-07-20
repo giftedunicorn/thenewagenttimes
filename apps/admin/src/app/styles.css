@@ -1,0 +1,26 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@acme/tailwind-config/theme";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@source "../../../../packages/ui/src/*.{ts,tsx}";
+
+@custom-variant dark (&:where(.dark, .dark *));
+@custom-variant light (&:where(.light, .light *));
+@custom-variant auto (&:where(.auto, .auto *));
+
+@layer base {
+  :root {
+    --font-geist-sans: "Geist Variable";
+    --font-geist-mono: "Geist Mono Variable";
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    letter-spacing: var(--tracking-normal);
+  }
+}

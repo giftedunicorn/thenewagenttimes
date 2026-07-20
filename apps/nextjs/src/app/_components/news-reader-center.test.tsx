@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
   NewsPreferenceProfile,
@@ -109,6 +109,11 @@ const createWindowStub = () => {
 
   return windowStub;
 };
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-07T12:00:00.000Z"));
+});
 
 afterEach(() => {
   vi.useRealTimers();
@@ -1637,7 +1642,10 @@ Agents<`);
     const [routeSource, homeSource, readerSource, searchSource] =
       await Promise.all([
         readFile(new URL("../reader/page.tsx", import.meta.url), "utf8"),
-        readFile(new URL("./news-public-front-page.tsx", import.meta.url), "utf8"),
+        readFile(
+          new URL("./news-public-front-page.tsx", import.meta.url),
+          "utf8",
+        ),
         readFile(new URL("./news-reader-center.tsx", import.meta.url), "utf8"),
         readFile(new URL("../search/page.tsx", import.meta.url), "utf8"),
       ]);

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RankedNewsItem } from "@acme/validators";
 
@@ -190,6 +190,15 @@ interface NewsForYouTestResponse {
   degradedSignals?: string[];
   returnedCount: number;
 }
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-07T12:00:00.000Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("handleNewsForYouRequest", () => {
   it("returns a personalized For You page with explanations and next request shape", async () => {

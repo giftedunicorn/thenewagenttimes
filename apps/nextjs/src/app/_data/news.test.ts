@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildNewsHomeCandidateOrderByExpressions,
@@ -99,6 +99,15 @@ const newsDbMock = vi.hoisted(() => {
     ),
     whereCalls,
   };
+});
+
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-07-07T12:00:00.000Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 vi.mock("@acme/db/client", () => ({

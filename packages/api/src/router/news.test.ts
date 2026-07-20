@@ -1021,16 +1021,10 @@ describe("news router cluster key data flow", () => {
         start: "  history: publicProcedure",
       },
       {
-        end: "  byId: publicProcedure",
+        end: "  recordInteraction: publicProcedure",
         minimumSelects: 1,
         name: "guardrails",
         start: "  guardrails: publicProcedure",
-      },
-      {
-        end: "  recordInteraction: publicProcedure",
-        minimumSelects: 1,
-        name: "article detail",
-        start: "  byId: publicProcedure",
       },
       {
         end: "  restoreGuardrail: publicProcedure",
@@ -2620,78 +2614,92 @@ describe("selectNewsSearchCandidateItems", () => {
   });
 
   it("selects recent persisted search memory from interaction intent queries", () => {
-    const searchMemoryItems = selectNewsSearchMemoryItems(
-      [
-        {
-          metadata: {
-            intentQuery: "  Agent_Product  ",
-          },
-          occurredAt: new Date("2026-07-06T09:00:00.000Z"),
-        },
-        {
-          metadata: {
-            intentQuery: "agent product",
-          },
-          occurredAt: new Date("2026-07-06T10:00:00.000Z"),
-        },
-        {
-          metadata: {
-            intentQuery: "deployment evidence",
-          },
-          occurredAt: new Date("2026-07-06T08:00:00.000Z"),
-        },
-        {
-          metadata: {
-            intentQuery: "   ",
-          },
-          occurredAt: new Date("2026-07-06T11:00:00.000Z"),
-        },
-      ],
-      20,
-    );
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
 
-    expect(searchMemoryItems).toEqual([
-      {
-        query: "agent product",
-        resultCount: 2,
-        searchedAt: "2026-07-06T10:00:00.000Z",
-      },
-      {
-        query: "deployment evidence",
-        resultCount: 1,
-        searchedAt: "2026-07-06T08:00:00.000Z",
-      },
-    ]);
-  });
-
-  it("keeps the latest persisted search result count for repeated queries", () => {
-    expect(
-      selectNewsSearchMemoryItems(
+    try {
+      const searchMemoryItems = selectNewsSearchMemoryItems(
         [
           {
             metadata: {
-              intentQuery: "agent product",
-              resultCount: 2,
+              intentQuery: "  Agent_Product  ",
             },
             occurredAt: new Date("2026-07-06T09:00:00.000Z"),
           },
           {
             metadata: {
-              intentQuery: "agent_product",
-              resultCount: 7,
+              intentQuery: "agent product",
             },
             occurredAt: new Date("2026-07-06T10:00:00.000Z"),
           },
+          {
+            metadata: {
+              intentQuery: "deployment evidence",
+            },
+            occurredAt: new Date("2026-07-06T08:00:00.000Z"),
+          },
+          {
+            metadata: {
+              intentQuery: "   ",
+            },
+            occurredAt: new Date("2026-07-06T11:00:00.000Z"),
+          },
         ],
         20,
-      ),
-    ).toEqual([
-      {
-        query: "agent product",
-        resultCount: 7,
-        searchedAt: "2026-07-06T10:00:00.000Z",
-      },
-    ]);
+      );
+
+      expect(searchMemoryItems).toEqual([
+        {
+          query: "agent product",
+          resultCount: 2,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+        {
+          query: "deployment evidence",
+          resultCount: 1,
+          searchedAt: "2026-07-06T08:00:00.000Z",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the latest persisted search result count for repeated queries", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-09T12:00:00.000Z"));
+
+    try {
+      expect(
+        selectNewsSearchMemoryItems(
+          [
+            {
+              metadata: {
+                intentQuery: "agent product",
+                resultCount: 2,
+              },
+              occurredAt: new Date("2026-07-06T09:00:00.000Z"),
+            },
+            {
+              metadata: {
+                intentQuery: "agent_product",
+                resultCount: 7,
+              },
+              occurredAt: new Date("2026-07-06T10:00:00.000Z"),
+            },
+          ],
+          20,
+        ),
+      ).toEqual([
+        {
+          query: "agent product",
+          resultCount: 7,
+          searchedAt: "2026-07-06T10:00:00.000Z",
+        },
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("ignores future-dated persisted search memory before it can steer For You", () => {

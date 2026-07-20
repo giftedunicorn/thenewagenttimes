@@ -776,7 +776,7 @@ describe("NewsHome discovery navigation", () => {
 });
 
 describe("Firebase reader authentication", () => {
-  it("exposes Lingui login, account, and email callback surfaces", async () => {
+  it("exposes English-only login, account, and email callback surfaces", async () => {
     const readSource = (url: URL) => readFile(url, "utf8").catch(() => "");
     const [callback, menu, modal, providers, view] = await Promise.all([
       readSource(
@@ -789,18 +789,28 @@ describe("Firebase reader authentication", () => {
     ]);
 
     expect(view).toContain("<AuthMenu");
-    expect(providers).toContain("<LinguiClientProvider>");
     expect(providers).toContain("<AuthProvider>");
     expect(providers).toContain("<NiceModal.Provider>");
+    expect(providers).not.toContain("LinguiClientProvider");
     expect(modal).toContain("NiceModal.create");
     expect(modal).toContain("@acme/ui/dialog");
-    expect(modal).toContain("<Trans>");
+    expect(modal).toContain("Welcome to The New AI Times");
     expect(modal).toContain("signInWithGoogle");
+    expect(modal).not.toContain("@lingui");
+    expect(modal).not.toContain("<Trans>");
+    expect(modal).not.toContain("useLingui");
     expect(menu).toContain("Modals.LoginModal");
     expect(menu).toContain("signOut");
+    expect(menu).toContain("Reader account");
+    expect(menu).not.toContain("@lingui");
+    expect(menu).not.toContain("<Trans>");
+    expect(menu).not.toContain("useLingui");
     expect(callback).toContain("isSignInWithEmailLink");
     expect(callback).toContain("emailForSignInKey");
     expect(callback).toContain('type="email"');
-    expect(callback).toContain("<Trans>");
+    expect(callback).toContain("Signing you in");
+    expect(callback).not.toContain("@lingui");
+    expect(callback).not.toContain("<Trans>");
+    expect(callback).not.toContain("useLingui");
   });
 });

@@ -104,6 +104,106 @@ importers:
         specifier: "catalog:"
         version: 5.9.3
 
+  apps/admin:
+    dependencies:
+      "@acme/admin-api":
+        specifier: workspace:*
+        version: link:../../packages/admin-api
+      "@acme/ui":
+        specifier: workspace:*
+        version: link:../../packages/ui
+      "@fontsource-variable/geist":
+        specifier: ^5.2.8
+        version: 5.2.8
+      "@fontsource-variable/geist-mono":
+        specifier: ^5.2.7
+        version: 5.2.7
+      "@t3-oss/env-nextjs":
+        specifier: ^0.13.8
+        version: 0.13.8(arktype@2.1.20)(typescript@5.9.3)(valibot@1.0.0-beta.15(typescript@5.9.3))(zod@4.1.12)
+      "@tanstack/react-query":
+        specifier: "catalog:"
+        version: 5.90.8(react@19.1.4)
+      "@trpc/client":
+        specifier: "catalog:"
+        version: 11.7.1(@trpc/server@11.7.1(typescript@5.9.3))(typescript@5.9.3)
+      "@trpc/server":
+        specifier: "catalog:"
+        version: 11.7.1(typescript@5.9.3)
+      "@trpc/tanstack-react-query":
+        specifier: "catalog:"
+        version: 11.7.1(@tanstack/react-query@5.90.8(react@19.1.4))(@trpc/client@11.7.1(@trpc/server@11.7.1(typescript@5.9.3))(typescript@5.9.3))(@trpc/server@11.7.1(typescript@5.9.3))(react-dom@19.1.4(react@19.1.4))(react@19.1.4)(typescript@5.9.3)
+      firebase:
+        specifier: ^12.6.0
+        version: 12.16.0
+      firebase-admin:
+        specifier: ^13.6.0
+        version: 13.10.0
+      lucide-react:
+        specifier: ^0.554.0
+        version: 0.554.0(react@19.1.4)
+      next:
+        specifier: ^16.0.9
+        version: 16.0.10(@babel/core@7.28.5)(@opentelemetry/api@1.9.0)(babel-plugin-react-compiler@1.0.0)(react-dom@19.1.4(react@19.1.4))(react@19.1.4)
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
+      react:
+        specifier: catalog:react19
+        version: 19.1.4
+      react-dom:
+        specifier: catalog:react19
+        version: 19.1.4(react@19.1.4)
+      superjson:
+        specifier: 2.2.3
+        version: 2.2.3
+      zod:
+        specifier: "catalog:"
+        version: 4.1.12
+    devDependencies:
+      "@acme/eslint-config":
+        specifier: workspace:*
+        version: link:../../tooling/eslint
+      "@acme/prettier-config":
+        specifier: workspace:*
+        version: link:../../tooling/prettier
+      "@acme/tailwind-config":
+        specifier: workspace:*
+        version: link:../../tooling/tailwind
+      "@acme/tsconfig":
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      "@types/node":
+        specifier: "catalog:"
+        version: 22.18.12
+      "@types/react":
+        specifier: catalog:react19
+        version: 19.1.12
+      "@types/react-dom":
+        specifier: catalog:react19
+        version: 19.1.9(@types/react@19.1.12)
+      eslint:
+        specifier: "catalog:"
+        version: 9.38.0(jiti@2.6.1)
+      jiti:
+        specifier: ^2.5.1
+        version: 2.6.1
+      prettier:
+        specifier: "catalog:"
+        version: 3.6.2
+      tailwindcss:
+        specifier: "catalog:"
+        version: 4.1.16
+      tw-animate-css:
+        specifier: ^1.4.0
+        version: 1.4.0
+      typescript:
+        specifier: "catalog:"
+        version: 5.9.3
+      vitest:
+        specifier: "catalog:"
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@22.18.12)(vite@7.1.12(@types/node@22.18.12)(jiti@2.6.1)(lightningcss@1.30.1)(terser@5.44.0)(tsx@4.22.4)(yaml@2.8.1))
+
   apps/expo:
     dependencies:
       "@better-auth/expo":
@@ -469,6 +569,52 @@ importers:
       vite-tsconfig-paths:
         specifier: ^5.1.4
         version: 5.1.4(typescript@5.9.3)(vite@7.1.12(@types/node@22.18.12)(jiti@2.6.1)(lightningcss@1.30.1)(terser@5.44.0)(tsx@4.22.4)(yaml@2.8.1))
+
+  packages/admin-api:
+    dependencies:
+      "@acme/auth":
+        specifier: workspace:*
+        version: link:../auth
+      "@acme/db":
+        specifier: workspace:*
+        version: link:../db
+      "@trpc/server":
+        specifier: "catalog:"
+        version: 11.7.1(typescript@5.9.3)
+      drizzle-orm:
+        specifier: ^0.44.7
+        version: 0.44.7(@neondatabase/serverless@0.10.0)(@opentelemetry/api@1.9.0)(@planetscale/database@1.19.0)(@prisma/client@5.22.0(prisma@5.22.0))(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(@vercel/postgres@0.10.0(utf-8-validate@6.0.4))(better-sqlite3@12.2.0)(gel@2.0.0)(kysely@0.28.5)(mysql2@3.11.3)(pg@8.22.0)(postgres@3.4.4)(prisma@5.22.0)
+      superjson:
+        specifier: 2.2.3
+        version: 2.2.3
+      zod:
+        specifier: "catalog:"
+        version: 4.1.12
+    devDependencies:
+      "@acme/eslint-config":
+        specifier: workspace:*
+        version: link:../../tooling/eslint
+      "@acme/prettier-config":
+        specifier: workspace:*
+        version: link:../../tooling/prettier
+      "@acme/tsconfig":
+        specifier: workspace:*
+        version: link:../../tooling/typescript
+      "@types/node":
+        specifier: "catalog:"
+        version: 22.18.12
+      eslint:
+        specifier: "catalog:"
+        version: 9.38.0(jiti@2.6.1)
+      prettier:
+        specifier: "catalog:"
+        version: 3.6.2
+      typescript:
+        specifier: "catalog:"
+        version: 5.9.3
+      vitest:
+        specifier: "catalog:"
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@22.18.12)(vite@7.1.12(@types/node@22.18.12)(jiti@2.6.1)(lightningcss@1.30.1)(terser@5.44.0)(tsx@4.22.4)(yaml@2.8.1))
 
   packages/api:
     dependencies:
@@ -11298,6 +11444,14 @@ packages:
         integrity: sha512-Nv9KddBcQSlQopmBHXSsZVY5xsdlZkdH/Iey0BlcBYggMd4two7cZnKOK9vmy3nY0O5RGH99z1PCeTpPqszUYg==,
       }
     engines: { bun: ">=1.0.0", deno: ">=1.30.0", node: ">=8.0.0" }
+
+  lucide-react@0.554.0:
+    resolution:
+      {
+        integrity: sha512-St+z29uthEJVx0Is7ellNkgTEhaeSoA42I7JjOCBCrc5X6LYMGSv0P/2uS5HDLTExP5tpiqRD2PyUEOS6s9UXA==,
+      }
+    peerDependencies:
+      react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   magic-string@0.30.21:
     resolution:
@@ -23072,6 +23226,10 @@ snapshots:
 
   lru.min@1.1.2:
     optional: true
+
+  lucide-react@0.554.0(react@19.1.4):
+    dependencies:
+      react: 19.1.4
 
   magic-string@0.30.21:
     dependencies:

@@ -4,8 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   CreateNewsItemSchema,
   CreateNewsItemVectorSchema,
-  CreateNewsReaderInteractionSchema,
-  CreateNewsReaderProfileSchema,
   newsCategoryValues,
   newsEmbeddingStatusValues,
   newsReaderInteractionActionValues,
@@ -15,6 +13,27 @@ import {
 const sourceId = "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0";
 
 describe("AI news schema contracts", () => {
+  it("keeps only database tables used by the active product", async () => {
+    const [authSchemaSource, newsSchemaSource] = await Promise.all([
+      readFile(new URL("./auth-schema.ts", import.meta.url), "utf8"),
+      readFile(new URL("./schema.ts", import.meta.url), "utf8"),
+    ]);
+
+    expect(authSchemaSource).toContain('pgTable("user"');
+    expect(authSchemaSource).toContain('pgTable("account"');
+    expect(authSchemaSource).not.toContain('pgTable("session"');
+    expect(authSchemaSource).not.toContain('pgTable("verification"');
+    expect(authSchemaSource).not.toContain("accessToken");
+    expect(newsSchemaSource).toMatch(/pgTable\(\s*"news_item"/);
+    expect(newsSchemaSource).toContain('pgTable("ingestion_run"');
+    expect(newsSchemaSource).toMatch(/pgTable\(\s*"news_reader_profile"/);
+    expect(newsSchemaSource).not.toContain('pgTable("news_signal"');
+    expect(newsSchemaSource).not.toContain("relations(");
+    expect(newsSchemaSource).not.toContain("CreateIngestionRunSchema");
+    expect(newsSchemaSource).not.toContain("CreateNewsReaderProfileSchema");
+    expect(newsSchemaSource).not.toContain("CreateNewsReaderInteractionSchema");
+  });
+
   it("uses Date values for date-mode timestamp update hooks", async () => {
     const schemaSource = await readFile(
       new URL("./schema.ts", import.meta.url),
@@ -144,29 +163,5 @@ describe("AI news schema contracts", () => {
       "share",
       "hide",
     ]);
-  });
-
-  it("accepts a persisted reader preference profile", () => {
-    const result = CreateNewsReaderProfileSchema.safeParse({
-      readerKey: "visitor:test-reader",
-      preferredCategories: ["model_release", "agent_product"],
-      preferredSources: ["openai-news"],
-      preferredEntities: ["OpenAI", "Anthropic"],
-      noveltyBias: 1.2,
-      recencyBias: 0.8,
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts a reader interaction event for a published story", () => {
-    const result = CreateNewsReaderInteractionSchema.safeParse({
-      readerProfileId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      newsItemId: "6f1f9d8c-2b2b-4f28-b89a-0a3c4f5781a0",
-      action: "save",
-      metadata: { surface: "article" },
-    });
-
-    expect(result.success).toBe(true);
   });
 });

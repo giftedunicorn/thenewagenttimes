@@ -11,7 +11,6 @@ import {
 } from "../../../_components/news-home-model";
 
 interface HandleNewsHealthRequestInput {
-  authSecret?: string | undefined;
   getDeskStatus: () => Promise<NewsDeskStatus>;
   getSchemaReadiness?: (() => Promise<NewsSchemaReadiness>) | undefined;
   refreshSecret: string | undefined;
@@ -35,7 +34,6 @@ interface NewsExpectedSourceCatalog {
 type NewsHealthNextStep =
   | "apply-database-schema"
   | "embed-news-stories"
-  | "configure-auth-secret"
   | "configure-refresh-secret"
   | "inspect-ingestion-run"
   | "ready"
@@ -128,25 +126,17 @@ const getFailedSourceDiagnostics = (status: NewsDeskStatus) => {
 };
 
 const getNewsHealthActions = ({
-  authConfigured,
   refreshConfigured,
   schemaReadiness,
   status,
   expectedSourceCatalog,
 }: {
-  authConfigured: boolean;
   expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }) => {
   const actions: string[] = [];
-
-  if (!authConfigured) {
-    actions.push(
-      "Set BETTER_AUTH_SECRET or AUTH_SECRET in the Railway service environment.",
-    );
-  }
 
   if (!refreshConfigured) {
     actions.push("Set CRON_SECRET in the Railway service environment.");
@@ -234,19 +224,16 @@ const newsHealthCommands = {
 } as const;
 
 const getNewsHealthChecks = ({
-  authConfigured,
   refreshConfigured,
   schemaReadiness,
   status,
   expectedSourceCatalog,
 }: {
-  authConfigured: boolean;
   expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }) => ({
-  auth: authConfigured,
   freshness: isNewsFreshReady(status),
   refreshSecret: refreshConfigured,
   schema: isNewsSchemaReady({ schemaReadiness, status }),
@@ -259,7 +246,6 @@ const getNewsHealthChecks = ({
 const areNewsHealthChecksReady = (
   checks: ReturnType<typeof getNewsHealthChecks>,
 ) =>
-  checks.auth &&
   checks.freshness &&
   checks.refreshSecret &&
   checks.schema &&
@@ -269,19 +255,16 @@ const areNewsHealthChecksReady = (
   checks.stories;
 
 const getNewsHealthNextStep = ({
-  authConfigured,
   refreshConfigured,
   schemaReadiness,
   status,
   expectedSourceCatalog,
 }: {
-  authConfigured: boolean;
   expectedSourceCatalog: NewsExpectedSourceCatalog;
   refreshConfigured: boolean;
   schemaReadiness: NewsSchemaReadiness;
   status: NewsDeskStatus;
 }): NewsHealthNextStep => {
-  if (!authConfigured) return "configure-auth-secret";
   if (!refreshConfigured) return "configure-refresh-secret";
   if (!isNewsSchemaReady({ schemaReadiness, status })) {
     return "apply-database-schema";
@@ -311,7 +294,6 @@ const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
       return newsHealthCommands.refresh;
     case "embed-news-stories":
       return newsHealthCommands.embed;
-    case "configure-auth-secret":
     case "configure-refresh-secret":
     case "ready":
       return null;
@@ -320,7 +302,6 @@ const getNewsHealthCommandForNextStep = (nextStep: NewsHealthNextStep) => {
 
 const newsHealthNextStepLabels: Record<NewsHealthNextStep, string> = {
   "apply-database-schema": "Apply database schema",
-  "configure-auth-secret": "Configure auth secret",
   "configure-refresh-secret": "Configure refresh secret",
   "embed-news-stories": "Generate embeddings",
   "inspect-ingestion-run": "Inspect ingestion run",
@@ -347,12 +328,10 @@ const getNewsHealthOperatorNextStep = ({
 });
 
 export const handleNewsHealthRequest = async ({
-  authSecret,
   getDeskStatus,
   getSchemaReadiness,
   refreshSecret,
 }: HandleNewsHealthRequestInput) => {
-  const authConfigured = Boolean(authSecret?.trim());
   const refreshConfigured = Boolean(refreshSecret?.trim());
   const expectedSourceCatalog = expectedNewsSourceCatalog;
   const [status, schemaReadinessResult] = await Promise.all([
@@ -364,21 +343,18 @@ export const handleNewsHealthRequest = async ({
   const schemaReadiness =
     schemaReadinessResult ?? getDefaultNewsSchemaReadiness(status);
   const checks = getNewsHealthChecks({
-    authConfigured,
     expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,
     status,
   });
   const actionRequired = getNewsHealthActions({
-    authConfigured,
     expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,
     status,
   });
   const nextStep = getNewsHealthNextStep({
-    authConfigured,
     expectedSourceCatalog,
     refreshConfigured,
     schemaReadiness,
@@ -388,7 +364,6 @@ export const handleNewsHealthRequest = async ({
 
   return Response.json({
     actionRequired,
-    authConfigured,
     checks,
     commands: {
       ...newsHealthCommands,

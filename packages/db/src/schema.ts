@@ -1,4 +1,4 @@
-import { relations, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { index, pgEnum, pgTable, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -52,20 +52,6 @@ export const newsEmbeddingStatusValues = [
   "skipped",
 ] as const;
 
-export const newsSignalTypeValues = [
-  "source_credibility",
-  "recency",
-  "social_velocity",
-  "product_launch",
-  "funding_amount",
-  "yc_batch",
-  "big_tech",
-  "model_release",
-  "concept_novelty",
-  "internal_relevance",
-  "manual_boost",
-] as const;
-
 export const ingestionRunTypeValues = [
   "manual_import",
   "rss",
@@ -97,7 +83,6 @@ export const NewsEmbeddingStatus = pgEnum(
   "news_embedding_status",
   newsEmbeddingStatusValues,
 );
-export const NewsSignalType = pgEnum("news_signal_type", newsSignalTypeValues);
 export const IngestionRunType = pgEnum(
   "ingestion_run_type",
   ingestionRunTypeValues,
@@ -215,25 +200,6 @@ export const NewsItemVector = pgTable(
   ],
 );
 
-export const NewsSignal = pgTable("news_signal", (t) => ({
-  id: t.uuid().notNull().primaryKey().defaultRandom(),
-  newsItemId: t
-    .uuid()
-    .notNull()
-    .references(() => NewsItem.id, { onDelete: "cascade" }),
-  signalType: NewsSignalType().notNull(),
-  signalValue: t.integer().notNull(),
-  metadata: t
-    .jsonb()
-    .$type<Record<string, unknown>>()
-    .default(sql`'{}'::jsonb`)
-    .notNull(),
-  observedAt: t
-    .timestamp({ mode: "date", withTimezone: true })
-    .defaultNow()
-    .notNull(),
-}));
-
 export const IngestionRun = pgTable("ingestion_run", (t) => ({
   id: t.uuid().notNull().primaryKey().defaultRandom(),
   sourceId: t.uuid().references(() => NewsSource.id, { onDelete: "set null" }),
@@ -316,67 +282,6 @@ export const NewsReaderInteraction = pgTable(
   }),
 );
 
-export const NewsSourceRelations = relations(NewsSource, ({ many }) => ({
-  items: many(NewsItem),
-  ingestionRuns: many(IngestionRun),
-}));
-
-export const NewsItemRelations = relations(NewsItem, ({ many, one }) => ({
-  source: one(NewsSource, {
-    fields: [NewsItem.sourceId],
-    references: [NewsSource.id],
-  }),
-  readerInteractions: many(NewsReaderInteraction),
-  signals: many(NewsSignal),
-  vectors: many(NewsItemVector),
-}));
-
-export const NewsItemVectorRelations = relations(NewsItemVector, ({ one }) => ({
-  item: one(NewsItem, {
-    fields: [NewsItemVector.newsItemId],
-    references: [NewsItem.id],
-  }),
-}));
-
-export const NewsSignalRelations = relations(NewsSignal, ({ one }) => ({
-  item: one(NewsItem, {
-    fields: [NewsSignal.newsItemId],
-    references: [NewsItem.id],
-  }),
-}));
-
-export const IngestionRunRelations = relations(IngestionRun, ({ one }) => ({
-  source: one(NewsSource, {
-    fields: [IngestionRun.sourceId],
-    references: [NewsSource.id],
-  }),
-}));
-
-export const NewsReaderProfileRelations = relations(
-  NewsReaderProfile,
-  ({ many, one }) => ({
-    interactions: many(NewsReaderInteraction),
-    user: one(user, {
-      fields: [NewsReaderProfile.userId],
-      references: [user.id],
-    }),
-  }),
-);
-
-export const NewsReaderInteractionRelations = relations(
-  NewsReaderInteraction,
-  ({ one }) => ({
-    item: one(NewsItem, {
-      fields: [NewsReaderInteraction.newsItemId],
-      references: [NewsItem.id],
-    }),
-    profile: one(NewsReaderProfile, {
-      fields: [NewsReaderInteraction.readerProfileId],
-      references: [NewsReaderProfile.id],
-    }),
-  }),
-);
-
 export const NewsCategorySchema = z.enum(newsCategoryValues);
 export const NewsStatusSchema = z.enum(newsStatusValues);
 export const NewsEmbeddingStatusSchema = z.enum(newsEmbeddingStatusValues);
@@ -432,54 +337,6 @@ export const CreateNewsItemVectorSchema = createInsertSchema(NewsItemVector, {
 }).omit({
   createdAt: true,
   id: true,
-});
-
-export const CreateNewsSignalSchema = createInsertSchema(NewsSignal, {
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  signalType: z.enum(newsSignalTypeValues),
-  signalValue: z.number().int(),
-}).omit({
-  id: true,
-  observedAt: true,
-});
-
-export const CreateIngestionRunSchema = createInsertSchema(IngestionRun, {
-  itemsCreated: z.number().int().min(0).optional(),
-  itemsSeen: z.number().int().min(0).optional(),
-  itemsUpdated: z.number().int().min(0).optional(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  runType: z.enum(ingestionRunTypeValues),
-  status: z.enum(ingestionRunStatusValues).optional(),
-}).omit({
-  id: true,
-  startedAt: true,
-});
-
-export const CreateNewsReaderProfileSchema = createInsertSchema(
-  NewsReaderProfile,
-  {
-    preferredCategories: z.array(z.string().min(1).max(80)).optional(),
-    preferredEntities: z.array(z.string().min(1).max(160)).optional(),
-    preferredSources: z.array(z.string().min(1).max(160)).optional(),
-    readerKey: z.string().trim().min(8).max(200),
-    noveltyBias: z.number().min(0).max(2).optional(),
-    recencyBias: z.number().min(0).max(2).optional(),
-  },
-).omit({
-  createdAt: true,
-  id: true,
-  updatedAt: true,
-});
-
-export const CreateNewsReaderInteractionSchema = createInsertSchema(
-  NewsReaderInteraction,
-  {
-    action: NewsReaderInteractionActionSchema,
-    metadata: z.record(z.string(), z.unknown()).optional(),
-  },
-).omit({
-  id: true,
-  occurredAt: true,
 });
 
 export * from "./auth-schema";

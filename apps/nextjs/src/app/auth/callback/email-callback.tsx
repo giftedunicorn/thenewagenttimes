@@ -3,7 +3,6 @@
 import type { FormEvent } from "react";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { Trans, useLingui } from "@lingui/react/macro";
 
 import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
@@ -17,7 +16,6 @@ type CallbackStatus = "error" | "loading" | "needs-email";
 export function EmailCallback() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<CallbackStatus>("loading");
-  const { t } = useLingui();
 
   const completeSignIn = useCallback(async (address: string) => {
     try {
@@ -64,16 +62,16 @@ export function EmailCallback() {
     <main className="grid min-h-[100dvh] place-items-center bg-[#faf9f6] px-4 text-[#171717] dark:bg-[#0d0d0d] dark:text-[#f5f3ed]">
       <section className="w-full max-w-md border border-[#171717] bg-white p-6 shadow-xl sm:p-8 dark:border-[#f5f3ed] dark:bg-[#151515]">
         <p className="font-mono text-xs font-bold tracking-[0.18em] text-[#8b1e18] uppercase dark:text-[#ff8378]">
-          <Trans>The New AI Times</Trans>
+          The New AI Times
         </p>
 
         {status === "loading" ? (
           <>
             <h1 className="mt-3 font-serif text-3xl font-black">
-              <Trans>Signing you in</Trans>
+              Signing you in
             </h1>
             <p className="mt-3 text-sm text-[#625f59] dark:text-[#b9b5ad]">
-              <Trans>Please wait while we verify your secure link.</Trans>
+              Please wait while we verify your secure link.
             </p>
           </>
         ) : null}
@@ -81,19 +79,17 @@ export function EmailCallback() {
         {status === "needs-email" ? (
           <>
             <h1 className="mt-3 font-serif text-3xl font-black">
-              <Trans>Confirm your email</Trans>
+              Confirm your email
             </h1>
             <p className="mt-3 text-sm leading-6 text-[#625f59] dark:text-[#b9b5ad]">
-              <Trans>
-                Enter the email address that received this sign-in link.
-              </Trans>
+              Enter the email address that received this sign-in link.
             </p>
             <form className="mt-5 space-y-3" onSubmit={handleSubmit}>
               <Input
-                aria-label={t`Email address`}
+                aria-label="Email address"
                 autoComplete="email"
                 className="h-11 rounded-none"
-                placeholder={t`Email address`}
+                placeholder="Email address"
                 type="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
@@ -103,7 +99,7 @@ export function EmailCallback() {
                 disabled={!isValidLoginEmail(email)}
                 type="submit"
               >
-                <Trans>Finish signing in</Trans>
+                Finish signing in
               </Button>
             </form>
           </>
@@ -112,19 +108,17 @@ export function EmailCallback() {
         {status === "error" ? (
           <>
             <h1 className="mt-3 font-serif text-3xl font-black">
-              <Trans>This sign-in link is no longer valid</Trans>
+              This sign-in link is no longer valid
             </h1>
             <p className="mt-3 text-sm leading-6 text-[#625f59] dark:text-[#b9b5ad]">
-              <Trans>Return home and request a fresh secure link.</Trans>
+              Return home and request a fresh secure link.
             </p>
             <Button
               asChild
               className="mt-5 h-11 w-full rounded-none"
               variant="outline"
             >
-              <Link href="/">
-                <Trans>Return home</Trans>
-              </Link>
+              <Link href="/">Return home</Link>
             </Button>
           </>
         ) : null}

@@ -19,7 +19,6 @@ Docs under `docs/` are static reference material and may drift or lag behind the
 - **不要 MVP 糊弄，做对的架构。** 不要默认提"先 A 凑合"的方案。先问"现在项目里有什么能复用的"。
 - **Before evaluating refactor/migration value, ask WHY.** Forward-looking goals (reuse, new surfaces) reframe the answer.
 - Do not use `pnpm -F @acme/db build` as a verification shortcut without permission; its `prebuild` runs migrations. Prefer `pnpm -F @acme/db typecheck` and focused lint/tests.
-- Never run `lingui:extract` / `pnpm extract` / any i18n message-catalog regeneration unless the user explicitly asks. Don't decide on your own that "the strings changed so I should re-extract."
 
 ## Compression Rules
 
@@ -50,7 +49,10 @@ When compressing, preserve in priority order:
 
 ## UI & Frontend Rules
 
-- UI changes: responsive design, dark/light mode, and i18n (`<Trans>` / `` t` ``) are **not optional** — always include them.
+- UI changes: responsive design and dark/light mode are **not optional**.
+- The product is currently English-only. Do not add an i18n runtime, catalogs,
+  locale routing, or translation macros unless the user explicitly requests
+  internationalization.
 
 ## SEO & Link Design Rules
 
@@ -65,13 +67,6 @@ When compressing, preserve in priority order:
 ## tRPC (Client-Side)
 
 Use `useTRPC()` + `useQuery(trpc.*.*.queryOptions(...))` from @tanstack/react-query. Do NOT use `api.*.*.useQuery()`. Mutations: `trpc.*.*.useMutation()`.
-
-## i18n (@lingui)
-
-- JSX: `<Trans>Hello</Trans>` | Attributes: `` t`Search...` `` | Variables: define `msg`, render `_()`
-- `<Trans>` and `t` only accept static strings, never wrap variables
-- Never edit `.po` files — scripts auto-sync
-- Imports: `msg` from `@lingui/core/macro`, `Trans/useLingui` from `@lingui/react/macro`
 
 ## Modals (NiceModal)
 

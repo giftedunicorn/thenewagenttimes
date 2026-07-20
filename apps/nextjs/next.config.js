@@ -5,6 +5,7 @@ import { createJiti } from "jiti";
 const jiti = createJiti(import.meta.url);
 const appRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(appRoot, "../..");
+const firebaseAuthDomain = process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
 
 // Import env files to validate at build time. Use jiti so we can load .ts files in here.
 await jiti.import("./src/env");
@@ -14,6 +15,16 @@ const config = {
   output: "standalone",
   outputFileTracingRoot: repoRoot,
   turbopack: { root: repoRoot },
+  async rewrites() {
+    return firebaseAuthDomain
+      ? [
+          {
+            source: "/__/auth/:path*",
+            destination: `https://${firebaseAuthDomain}/__/auth/:path*`,
+          },
+        ]
+      : [];
+  },
 
   /** Enables hot reloading for local packages without a build step */
   transpilePackages: [

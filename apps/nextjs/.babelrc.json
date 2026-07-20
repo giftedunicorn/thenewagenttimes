@@ -1,0 +1,11 @@
+{
+  "plugins": [
+    [
+      "@lingui/babel-plugin-lingui-macro",
+      {
+        "stripMessageField": false
+      }
+    ]
+  ],
+  "presets": ["next/babel"]
+}

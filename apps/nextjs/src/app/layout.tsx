@@ -5,7 +5,7 @@ import { ThemeProvider } from "@acme/ui/theme";
 import { Toaster } from "@acme/ui/toast";
 
 import { env } from "~/env";
-import { TRPCReactProvider } from "~/trpc/react";
+import { AppProviders } from "~/providers/app-providers";
 import { newsStructuredDataDefaultBaseUrl } from "./_components/news-structured-data";
 
 import "~/app/styles.css";
@@ -75,7 +75,7 @@ export default function RootLayout(props: { children: React.ReactNode }) {
         )}
       >
         <ThemeProvider>
-          <TRPCReactProvider>{props.children}</TRPCReactProvider>
+          <AppProviders>{props.children}</AppProviders>
           <Toaster />
         </ThemeProvider>
       </body>

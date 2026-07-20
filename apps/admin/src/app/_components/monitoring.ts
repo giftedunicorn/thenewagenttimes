@@ -1,0 +1,2 @@
+export const AUTO_REFRESH_INTERVAL_MS = 30_000;
+export const SEARCH_DEBOUNCE_MS = 300;

@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./firebase-session": "./src/firebase-admin-session.ts",
     "./middleware": "./src/middleware.ts",
     "./client": "./src/client.ts",
     "./env": "./env.ts"
@@ -22,6 +23,7 @@
     "@better-auth/expo": "catalog:",
     "@t3-oss/env-core": "^0.13.8",
     "better-auth": "catalog:",
+    "firebase-admin": "^13.6.0",
     "zod": "catalog:"
   },
   "devDependencies": {

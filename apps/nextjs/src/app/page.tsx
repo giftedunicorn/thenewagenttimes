@@ -9,9 +9,7 @@ export default async function HomePage() {
 
   return (
     <NewsHome
-      authConfigured={Boolean(
-        (env.BETTER_AUTH_SECRET ?? env.AUTH_SECRET)?.trim(),
-      )}
+      authConfigured={Boolean(env.NEXT_PUBLIC_FIREBASE_PROJECT_ID.trim())}
       generatedAt={new Date().toISOString()}
       deskStatus={data.deskStatus}
       initialItems={data.items}

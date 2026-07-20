@@ -1,5 +1,6 @@
 import { reactStartCookies } from "better-auth/react-start";
 
+import type { SessionReader } from "@acme/auth";
 import { initAuth } from "@acme/auth";
 
 import { env } from "~/env";
@@ -14,3 +15,19 @@ export const auth = initAuth({
 
   extraPlugins: [reactStartCookies()],
 });
+
+export const getAppSession: SessionReader = async (headers) => {
+  const result = await auth.api.getSession({ headers });
+  if (!result) return null;
+
+  return {
+    expiresAt: result.session.expiresAt,
+    user: {
+      email: result.user.email,
+      emailVerified: result.user.emailVerified,
+      id: result.user.id,
+      image: result.user.image ?? null,
+      name: result.user.name,
+    },
+  };
+};

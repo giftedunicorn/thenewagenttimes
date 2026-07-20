@@ -243,29 +243,27 @@ describe("Railway Next.js deployment config", () => {
     expect(appIcon).not.toContain("T3");
   });
 
-  test("Next.js auth production URL fallback uses The New AI Times domain", async () => {
+  test("Next.js auth verifies Firebase sessions with the configured project", async () => {
     const authServer = await readFile(
       path.join(repoRoot, "apps/nextjs/src/auth/server.ts"),
       "utf8",
     );
 
-    expect(authServer).toContain("thenewaitimes.com");
-    expect(authServer).not.toContain("turbo.t3.gg");
+    expect(authServer).toContain("createFirebaseAdminSessionReader");
+    expect(authServer).toContain("env.NEXT_PUBLIC_FIREBASE_PROJECT_ID");
+    expect(authServer).not.toContain("initAuth");
   });
 
-  test("Next.js auth URLs use Railway public domains outside Vercel", async () => {
-    const authServer = await readFile(
-      path.join(repoRoot, "apps/nextjs/src/auth/server.ts"),
+  test("Next.js proxies same-origin Firebase redirect handlers", async () => {
+    const nextConfig = await readFile(
+      path.join(repoRoot, "apps/nextjs/next.config.js"),
       "utf8",
     );
 
-    expect(authServer).toContain("env.RAILWAY_PUBLIC_DOMAIN");
-    expect(authServer).toContain("const deploymentDomain");
-    expect(authServer).toContain(
-      "const railwayBaseUrl = toHttpsUrl(env.RAILWAY_PUBLIC_DOMAIN);",
-    );
-    expect(authServer).toContain(
-      ': (railwayBaseUrl ?? "http://localhost:3000")',
+    expect(nextConfig).toContain("firebaseAuthDomain");
+    expect(nextConfig).toContain('source: "/__/auth/:path*"');
+    expect(nextConfig).toContain(
+      "destination: `https://${firebaseAuthDomain}/__/auth/:path*`",
     );
   });
 

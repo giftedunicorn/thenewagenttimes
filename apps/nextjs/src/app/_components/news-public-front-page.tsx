@@ -5,6 +5,7 @@ import { Button } from "@acme/ui/button";
 import { Input } from "@acme/ui/input";
 
 import type { NewsFeedMode } from "./news-home-model";
+import { AuthMenu } from "./auth-menu";
 import {
   formatNewsEditionDate,
   formatNewsTime,
@@ -148,9 +149,12 @@ export function NewsPublicFrontPageView({
           <div className="grid gap-3">
             <div className="flex items-center justify-between gap-3 text-xs">
               <span>{formatNewsEditionDate(generatedAt)}</span>
-              <span className="font-mono font-semibold uppercase">
-                {isPreview ? "Preview edition" : "Live edition"}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="hidden font-mono font-semibold uppercase sm:inline">
+                  {isPreview ? "Preview edition" : "Live edition"}
+                </span>
+                <AuthMenu />
+              </div>
             </div>
             <form
               action="/search"

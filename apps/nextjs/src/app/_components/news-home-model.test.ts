@@ -44286,7 +44286,7 @@ describe("getNewsDeskSourceHealthDiagnostics", () => {
 });
 
 describe("getNewsProductionReadinessChecklist", () => {
-  it("prioritizes auth secret setup before refresh and schema work", () => {
+  it("prioritizes Firebase auth setup before refresh and schema work", () => {
     const status = {
       health: "unavailable",
       activeSources: 0,
@@ -44303,9 +44303,9 @@ describe("getNewsProductionReadinessChecklist", () => {
         status,
       }).map((item) => [item.label, item.state, item.detail]),
     ).toContainEqual([
-      "Configure auth secret",
+      "Configure Firebase auth",
       "current",
-      "Set BETTER_AUTH_SECRET or AUTH_SECRET before deploying production auth.",
+      "Set the Firebase project configuration before deploying production auth.",
     ]);
     expect(
       getNewsProductionReadinessNextStep({
@@ -44315,7 +44315,7 @@ describe("getNewsProductionReadinessChecklist", () => {
       }),
     ).toEqual({
       command: null,
-      label: "Configure auth secret",
+      label: "Configure Firebase auth",
     });
   });
 

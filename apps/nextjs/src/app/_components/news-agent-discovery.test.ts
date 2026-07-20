@@ -26,7 +26,7 @@ describe("getNewsLlmsText", () => {
 
     expect(llmsText).toContain("# The New AI Times");
     expect(llmsText).toContain(
-      "> AI news aggregation, editorial briefing, search, feeds, and reader-personalization surfaces.",
+      "> Public AI news, editorial briefings, search, and machine-readable feeds.",
     );
     expect(llmsText).toContain(
       "- [Front Page](https://thenewaitimes.test/): Personalized AI news edition with For You ranking.",
@@ -38,17 +38,10 @@ describe("getNewsLlmsText", () => {
       "- [Coverage Threads](https://thenewaitimes.test/threads): Follow clustered AI stories across sources and verification state.",
     );
     expect(llmsText).toContain(
-      "- [Reader Center](https://thenewaitimes.test/reader): Inspect and tune local reader preferences.",
+      "- [Entities](https://thenewaitimes.test/entities): Browse people, companies, models, and products covered in AI news.",
     );
-    expect(llmsText).toContain(
-      "- [Following](https://thenewaitimes.test/reader/following): Manage followed topics, sources, entities, and angles.",
-    );
-    expect(llmsText).toContain(
-      "- [Reader Library](https://thenewaitimes.test/reader/library): Review saved, read, hidden, positive, and search memory.",
-    );
-    expect(llmsText).toContain(
-      "- [Reader Onboarding](https://thenewaitimes.test/reader/onboarding): Seed a new local For You profile.",
-    );
+    expect(llmsText).not.toContain("Reader Personalization");
+    expect(llmsText).not.toContain("https://thenewaitimes.test/reader");
     expect(llmsText).toContain(
       "- [JSON Feed](https://thenewaitimes.test/feed.json): Machine-readable feed for modern news readers.",
     );

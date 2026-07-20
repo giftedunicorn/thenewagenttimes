@@ -37,7 +37,7 @@ const createSitemapItem = ({
 });
 
 describe("getNewsSitemapEntries", () => {
-  it("builds discoverable sitemap entries for home, core surfaces, feeds, machine discovery, topics, entities, sources, and stories", () => {
+  it("builds sitemap entries for canonical public HTML pages", () => {
     const entries = getNewsSitemapEntries({
       baseUrl: "https://thenewaitimes.test",
       items: [
@@ -80,60 +80,6 @@ describe("getNewsSitemapEntries", () => {
         lastModified: "2026-07-06T10:05:00.000Z",
         priority: 0.85,
         url: "https://thenewaitimes.test/threads",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.7,
-        url: "https://thenewaitimes.test/search",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.65,
-        url: "https://thenewaitimes.test/reader",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.55,
-        url: "https://thenewaitimes.test/reader/following",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.55,
-        url: "https://thenewaitimes.test/reader/library",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.45,
-        url: "https://thenewaitimes.test/reader/onboarding",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.6,
-        url: "https://thenewaitimes.test/rss.xml",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.6,
-        url: "https://thenewaitimes.test/feed.json",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.5,
-        url: "https://thenewaitimes.test/llms.txt",
-      },
-      {
-        changeFrequency: "hourly",
-        lastModified: "2026-07-06T10:05:00.000Z",
-        priority: 0.5,
-        url: "https://thenewaitimes.test/opensearch.xml",
       },
       {
         changeFrequency: "hourly",
@@ -236,7 +182,7 @@ describe("getNewsSitemapEntries", () => {
     ).toEqual({
       rules: {
         allow: "/",
-        disallow: "/api/",
+        disallow: ["/api/", "/auth/"],
         userAgent: "*",
       },
       sitemap: "https://thenewaitimes.test/sitemap.xml",

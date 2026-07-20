@@ -24,6 +24,7 @@
     "news:ingest:hacker-news": "pnpm -F @acme/ingestion ingest:hacker-news",
     "news:ingest:yc-ai": "pnpm -F @acme/ingestion ingest:yc-ai",
     "news:ingest:active": "pnpm -F @acme/ingestion ingest:news:active",
+    "news:backfill-images": "pnpm -F @acme/ingestion backfill:images",
     "news:refresh:rss": "pnpm -F @acme/ingestion refresh:rss",
     "news:refresh": "pnpm -F @acme/ingestion refresh:news",
     "news:health:remote": "pnpm -F @acme/ingestion health:remote",

@@ -2,6 +2,8 @@ export * from "./arxiv";
 export * from "./embedding";
 export * from "./github";
 export * from "./hacker-news";
+export * from "./image-backfill";
+export * from "./news-image";
 export * from "./normalize";
 export * from "./pipeline";
 export * from "./remote-health";

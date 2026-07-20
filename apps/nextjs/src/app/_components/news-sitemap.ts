@@ -163,60 +163,6 @@ export const getNewsSitemapEntries = ({
     getSitemapEntry({
       baseUrl,
       lastModified: latestPublishedAt,
-      path: "/search",
-      priority: 0.7,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/reader",
-      priority: 0.65,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/reader/following",
-      priority: 0.55,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/reader/library",
-      priority: 0.55,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/reader/onboarding",
-      priority: 0.45,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/rss.xml",
-      priority: 0.6,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/feed.json",
-      priority: 0.6,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/llms.txt",
-      priority: 0.5,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
-      path: "/opensearch.xml",
-      priority: 0.5,
-    }),
-    getSitemapEntry({
-      baseUrl,
-      lastModified: latestPublishedAt,
       path: "/topics",
       priority: 0.8,
     }),
@@ -283,7 +229,7 @@ export const getNewsRobotsPolicy = ({
 } = {}): MetadataRoute.Robots => ({
   rules: {
     allow: "/",
-    disallow: "/api/",
+    disallow: ["/api/", "/auth/"],
     userAgent: "*",
   },
   sitemap: getNewsStructuredDataUrl({ baseUrl, path: "/sitemap.xml" }),

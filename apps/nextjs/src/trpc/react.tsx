@@ -13,7 +13,9 @@ import SuperJSON from "superjson";
 
 import type { AppRouter } from "@acme/api";
 
+import { createFirebaseAuthorizationHeaders } from "~/auth/firebase-client";
 import { env } from "~/env";
+import { getFirebaseAuth } from "~/utils/firebase-config";
 import { createQueryClient } from "./query-client";
 
 let clientQueryClientSingleton: QueryClient | undefined = undefined;
@@ -43,10 +45,9 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
         httpBatchStreamLink({
           transformer: SuperJSON,
           url: getBaseUrl() + "/api/trpc",
-          headers() {
-            const headers = new Headers();
-            headers.set("x-trpc-source", "nextjs-react");
-            return headers;
+          async headers() {
+            const auth = await getFirebaseAuth();
+            return createFirebaseAuthorizationHeaders(auth.currentUser);
           },
         }),
       ],

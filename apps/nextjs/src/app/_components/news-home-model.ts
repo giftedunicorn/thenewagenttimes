@@ -32256,11 +32256,11 @@ export const getNewsProductionReadinessChecklist = ({
     label: "Protect refresh endpoint",
     state: refreshConfigured ? "done" : "current",
   } satisfies NewsProductionReadinessItem;
-  const authSecretItem = {
+  const firebaseAuthItem = {
     detail: authConfigured
-      ? "Production auth secret is configured."
-      : "Set BETTER_AUTH_SECRET or AUTH_SECRET before deploying production auth.",
-    label: "Configure auth secret",
+      ? "Firebase authentication is configured."
+      : "Set the Firebase project configuration before deploying production auth.",
+    label: "Configure Firebase auth",
     state: authConfigured ? "done" : "current",
   } satisfies NewsProductionReadinessItem;
   const firstRefreshItem = {
@@ -32296,7 +32296,7 @@ export const getNewsProductionReadinessChecklist = ({
     state: liveReady ? "done" : "pending",
   } satisfies NewsProductionReadinessItem;
   const orderedSetupItems = [
-    ...(!authConfigured ? [authSecretItem] : []),
+    ...(!authConfigured ? [firebaseAuthItem] : []),
     ...(refreshConfigured
       ? [schemaItem, sourcesItem, refreshSecretItem]
       : [refreshSecretItem, schemaItem, sourcesItem]),
@@ -32313,7 +32313,7 @@ export const getNewsProductionReadinessChecklist = ({
 
 const newsProductionReadinessCommands: Record<string, string | null> = {
   "Apply database schema": "pnpm run db:predeploy",
-  "Configure auth secret": null,
+  "Configure Firebase auth": null,
   "Generate embeddings": null,
   "Keep edition fresh": null,
   "Live stories": null,

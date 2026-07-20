@@ -9,6 +9,7 @@ import {
   getNewsDeskStatus,
   getNewsEditionPageData,
   getNewsHomeData,
+  getNewsHomeFeedData,
   getNewsRunSkipDiagnosticsFromMetadata,
   getNewsSchemaReadiness,
   getNewsSemanticSimilarityMatches,
@@ -86,6 +87,7 @@ const newsDbMock = vi.hoisted(() => {
     reset: () => {
       queuedResults.length = 0;
       whereCalls.length = 0;
+      newsDbMock.select.mockClear();
     },
     select: vi.fn(
       () =>
@@ -309,6 +311,29 @@ describe("getNewsHomeData", () => {
 
     warnSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe("getNewsHomeFeedData", () => {
+  it("returns live stories without requesting desk status", async () => {
+    newsDbMock.reset();
+    newsDbMock.queueResults({ resolve: [liveNewsRow] });
+
+    const data = await getNewsHomeFeedData();
+
+    expect(data.status).toBe("ready");
+    expect(data.items[0]?.id).toBe(liveNewsRow.id);
+    expect(newsDbMock.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns the unavailable preview when the feed query fails", async () => {
+    newsDbMock.reset();
+
+    const data = await getNewsHomeFeedData();
+
+    expect(data.status).toBe("unavailable");
+    expect(data.items[0]?.id).toBe("preview-model-shift");
+    expect(newsDbMock.select).toHaveBeenCalledTimes(1);
   });
 });
 

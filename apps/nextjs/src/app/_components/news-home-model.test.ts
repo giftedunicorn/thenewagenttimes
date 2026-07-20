@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RankedNewsItem } from "@acme/validators";
 
@@ -5869,6 +5869,15 @@ describe("selectStoredNewsReaderMemoryItems", () => {
 });
 
 describe("selectStoredNewsPositiveFeedbackItems", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-02T10:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("keeps explicit and read positive feedback entries from storage", () => {
     expect(
       selectStoredNewsPositiveFeedbackItems([

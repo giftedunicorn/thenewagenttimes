@@ -1,0 +1,45 @@
+# ---- subprojects excluded from graph ----
+
+apps/admin/
+apps/buyerwork/
+docs/
+packages/admin-api/
+
+# ---- tool configs (not source code) ----
+
+.claude/
+.codex/
+
+# ---- generated type declarations ----
+
+\*.d.ts
+
+# ---- test files (no architectural signal) ----
+
+**tests**/
+_.test.ts
+_.test.tsx
+_.spec.ts
+_.spec.tsx
+\*.snap
+
+# ---- image & asset files (binary, no code structure) ----
+
+_.png
+_.webp
+_.jpg
+_.jpeg
+_.gif
+_.svg
+\*.ico
+
+# ---- compiled JS output (TS monorepo — .js/.mjs/.cjs are build artifacts) ----
+
+_.js
+_.mjs
+\*.cjs
+
+# ---- misc noise ----
+
+_.gz
+_.log

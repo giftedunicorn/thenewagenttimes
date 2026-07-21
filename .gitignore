@@ -40,3 +40,6 @@ dist/
 # turbo
 .turbo
 .worktrees/
+
+# graphify generated artifacts — local-only, never committed
+graphify-out/

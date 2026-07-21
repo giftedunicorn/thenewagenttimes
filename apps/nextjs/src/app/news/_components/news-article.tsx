@@ -69,7 +69,6 @@ import {
   getNewsArticleGuardrailSignalState,
   getNewsArticleGuardrailStorageUpdate,
   getNewsArticleHeroVisual,
-  getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
   getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
@@ -93,7 +92,6 @@ import {
   selectNewsArticleEligibleRelatedItems,
   selectNewsArticleReadMilestone,
   shouldApplyNewsArticleLocalProfileFromMilestone,
-  shouldApplyNewsArticleServerProfileFromInteraction,
   shouldPersistNewsArticleReaderSignals,
   shouldTrackNewsArticleReaderSignals,
 } from "./news-article-model";
@@ -331,20 +329,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
 
     await Promise.all(invalidations);
   };
-  const recordInteraction = useMutation(
-    trpc.news.recordInteraction.mutationOptions({
-      onSuccess: async (serverProfile, interaction) => {
-        if (shouldApplyNewsArticleServerProfileFromInteraction(interaction)) {
-          const nextProfile =
-            stripPersistedNewsPreferenceProfile(serverProfile);
-          setProfile(nextProfile);
-          writeStoredProfile(nextProfile);
-        }
-
-        await invalidateReaderSignalQueries();
-      },
-    }),
-  );
   const updateProfile = useMutation(
     trpc.news.updateProfile.mutationOptions({
       onSuccess: async (serverProfile) => {
@@ -557,21 +541,9 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
       });
     }
 
-    if (canPersistReaderSignals) {
-      recordInteraction.mutate({
-        visitorKey,
-        newsItemId: article.id,
-        action: "view",
-        metadata: {
-          readMilestone: milestone.key,
-          readPercent: milestone.readPercent,
-          surface: "article",
-        },
-      });
-    }
     // This should run once per article open after the reader key is available.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [article.id, canPersistReaderSignals, canTrackReaderSignals, visitorKey]);
+  }, [article.id, canTrackReaderSignals, visitorKey]);
 
   useEffect(() => {
     if (!canTrackReaderSignals || !visitorKey) return;
@@ -619,18 +591,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
             }),
           });
           return trainingState.profile;
-        });
-      }
-      if (canPersistReaderSignals) {
-        recordInteraction.mutate({
-          visitorKey,
-          newsItemId: article.id,
-          action: "view",
-          metadata: {
-            readMilestone: milestone.key,
-            readPercent: milestone.readPercent,
-            surface: "article",
-          },
         });
       }
     };
@@ -710,7 +670,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
   }, [
     article.id,
     articleReadDepthCheckpoints,
-    canPersistReaderSignals,
     canTrackReaderSignals,
     visitorKey,
   ]);
@@ -1030,15 +989,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
     }
 
     if (canPersistReaderSignals && visitorKey) {
-      if (!sourceFollowState.isFollowing) {
-        recordInteraction.mutate({
-          visitorKey,
-          newsItemId: article.id,
-          action: "click_source",
-          metadata: getNewsArticleInteractionMetadata("click_source"),
-        });
-      }
-
       updateProfile.mutate({
         profile: toNewsServerPreferenceProfileInput(nextProfile),
         visitorKey,
@@ -1160,15 +1110,6 @@ export function NewsArticle({ article, related }: NewsArticleProps) {
         setLocalGuardrailItems(storageUpdate.guardrailItems);
         setLocalSavedItems(storageUpdate.savedItems);
       }
-    }
-
-    if (canPersistReaderSignals && visitorKey) {
-      recordInteraction.mutate({
-        visitorKey,
-        newsItemId: article.id,
-        action,
-        metadata: getNewsArticleInteractionMetadata(action),
-      });
     }
   };
 

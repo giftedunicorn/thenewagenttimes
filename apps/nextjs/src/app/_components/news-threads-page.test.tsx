@@ -611,68 +611,18 @@ describe("selectNewsCoverageThreads", () => {
     expect(source).not.toContain("{ enabled: Boolean(visitorKey) }");
   });
 
-  it("syncs less-liked thread feedback to server guardrails for every story", async () => {
+  it("keeps less-liked thread feedback local without interaction reporting", async () => {
     const source = await readFile(
       new URL("./news-threads-page.tsx", import.meta.url),
       "utf8",
     );
 
-    expect(source).toContain("trpc.news.recordInteraction.mutationOptions");
-    expect(source).toContain("trpc.news.guardrails.pathFilter()");
-    expect(source).toContain("shouldPersistNewsHomeItemReaderSignals");
-    expect(source).toContain("persistThreadLessFeedback");
-    const feedbackBlocks = Array.from(
-      source.matchAll(
-        /const persistThreadLessFeedback = \(thread: NewsCoverageThread\) => \{[\s\S]*?const lessThread/g,
-      ),
-      (match) => match[0],
-    );
-
-    expect(feedbackBlocks).toHaveLength(2);
-    for (const feedbackBlock of feedbackBlocks) {
-      const guardIndex = feedbackBlock.indexOf(
-        "!shouldPersistNewsHomeItemReaderSignals({",
-      );
-      const mutationIndex = feedbackBlock.indexOf("recordInteraction.mutate({");
-
-      expect(feedbackBlock).toContain(
-        "thread.stories.forEach((story, index) => {",
-      );
-      expect(guardIndex).toBeGreaterThanOrEqual(0);
-      expect(mutationIndex).toBeGreaterThan(guardIndex);
-      expect(feedbackBlock).toContain("canPersistProfile: true");
-      expect(feedbackBlock).toContain('isPreview: status !== "ready"');
-      expect(feedbackBlock).toContain("itemId: story.id");
-      expect(feedbackBlock).toContain("visitorKey");
-      expect(feedbackBlock).toContain('action: "hide"');
-      expect(feedbackBlock).toContain("newsItemId: story.id");
-      expect(feedbackBlock).toContain("threadKey: thread.key");
-      expect(feedbackBlock).toContain("rankSlot: index + 1");
-    }
-    expect(source.match(/persistThreadLessFeedback\(thread\)/g)?.length).toBe(
-      2,
-    );
-  });
-
-  it("refreshes positive feedback after persisted thread Less feedback", async () => {
-    const source = await readFile(
-      new URL("./news-threads-page.tsx", import.meta.url),
-      "utf8",
-    );
-    const serverProfileBlocks = Array.from(
-      source.matchAll(
-        /const applyServerProfile = async \([\s\S]*?const recordInteraction = useMutation/g,
-      ),
-      (match) => match[0],
-    );
-
-    expect(serverProfileBlocks).toHaveLength(2);
-    for (const serverProfileBlock of serverProfileBlocks) {
-      expect(serverProfileBlock).toContain("trpc.news.guardrails.pathFilter()");
-      expect(serverProfileBlock).toContain(
-        "trpc.news.positiveFeedback.pathFilter()",
-      );
-    }
+    expect(source).not.toContain("recordInteraction");
+    expect(source).not.toContain("persistThreadLessFeedback");
+    expect(source.match(/writeStoredNewsReaderMemoryItems/g)?.length).toBe(2);
+    expect(
+      source.match(/getNewsCoverageThreadGuardrailItems/g)?.length,
+    ).toBeGreaterThanOrEqual(2);
   });
 
   it("hydrates thread ranking from local and server guardrail memory", async () => {

@@ -49,7 +49,6 @@ import { TRPCReactProvider, useTRPC } from "~/trpc/react";
 import {
   buildNewsHomeFeedInput,
   buildNewsHomeForYouApiRequestBody,
-  buildNewsHomeInteractionMetadata,
   buildNewsHomeLoadMoreFeedInput,
   buildNewsHomeReaderInteraction,
   buildNewsHomeSessionIntentFilter,
@@ -92,7 +91,6 @@ import {
   selectNegativeFeedbackAdjustedNewsHomeItems,
   selectNewsFeedModeItems,
   selectNewsHomeBaseFeedItems,
-  selectNewsHomeExposureRecords,
   selectNewsHomeItems,
   selectNewsHomePositiveFeedbackAnchors,
   selectNewsHomePositiveFeedbackMemoryItems,
@@ -118,7 +116,6 @@ import { selectNewsPublicFrontPage } from "./news-public-front-page-model";
 import {
   newsGuardrailStorageKey as guardrailStorageKey,
   newsHistoryStorageKey as historyStorageKey,
-  newsHomeExposureStorageKey as homeExposureStorageKey,
   readStoredNewsReaderMemoryItems as readStoredMemoryItems,
   readStoredNewsSearchMemoryItems,
   readStoredNewsPositiveFeedbackItems as readStoredPositiveFeedbackItems,
@@ -193,7 +190,6 @@ interface NewsHomeProps {
 
 interface NewsHomeForYouApiNextRequest {
   collaborativeSignals?: readonly NewsCollaborativeSignal[];
-  recentExposureItems?: readonly RecentExposureNewsItem[];
   readingHistoryItems?: readonly RecentExposureNewsItem[];
   semanticSimilarityMatches?: readonly NewsSemanticSimilarityMatch[];
 }
@@ -389,69 +385,7 @@ const toLocalGuardrailMemoryItem = ({
   title: item.title,
 });
 
-const toLocalHomeExposureMemoryItem = ({
-  item,
-  viewedAt,
-}: {
-  item: NewsHomeItem;
-  viewedAt: string;
-}): NewsReaderMemoryItem => ({
-  canonicalUrl: item.canonicalUrl,
-  category: item.category,
-  ...(item.clusterKey ? { clusterKey: item.clusterKey } : {}),
-  entities: [...item.entities],
-  id: item.id,
-  originalUrl: item.originalUrl,
-  sourceName: item.sourceName,
-  sourceSlug: item.sourceSlug,
-  surface: "home_exposure",
-  tags: [...item.tags],
-  title: item.title,
-  viewedAt,
-});
-
-const readNewsForYouApiExposureItems = (
-  items: readonly RecentExposureNewsItem[] | undefined,
-): NewsReaderMemoryItem[] => {
-  if (!items) return [];
-
-  return items.flatMap((item) => {
-    const viewedAt = item.occurredAt;
-
-    if (!item.id || !viewedAt || !Number.isFinite(Date.parse(viewedAt))) {
-      return [];
-    }
-
-    return [
-      {
-        category: item.category,
-        entities: [...item.entities],
-        id: item.id,
-        sourceName: item.sourceSlug,
-        sourceSlug: item.sourceSlug,
-        readPercent: item.readPercent,
-        surface: item.surface === "article" ? "article" : "home_exposure",
-        tags: [...(item.tags ?? [])],
-        title: item.title ?? item.id,
-        viewedAt,
-        ...(item.canonicalUrl !== undefined
-          ? { canonicalUrl: item.canonicalUrl }
-          : {}),
-        ...(typeof item.clusterKey === "string"
-          ? { clusterKey: item.clusterKey }
-          : {}),
-        ...(item.originalUrl !== undefined
-          ? { originalUrl: item.originalUrl }
-          : {}),
-      },
-    ];
-  });
-};
-
 const readStoredHistoryItems = () => readStoredMemoryItems(historyStorageKey);
-
-const readStoredHomeExposureItems = () =>
-  readStoredMemoryItems(homeExposureStorageKey);
 
 const readStoredSavedItems = () => readStoredMemoryItems(savedStorageKey);
 
@@ -532,9 +466,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
   const [localHistoryItems, setLocalHistoryItems] = useState<
     NewsReaderMemoryItem[]
   >([]);
-  const [localHomeExposureItems, setLocalHomeExposureItems] = useState<
-    NewsReaderMemoryItem[]
-  >([]);
   const [localGuardrailItems, setLocalGuardrailItems] = useState<
     NewsReaderMemoryItem[]
   >([]);
@@ -568,7 +499,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
   const feedEndRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
   const pendingForYouLoadMoreRetryRef = useRef(false);
-  const recordedHomeExposureItemsRef = useRef<NewsReaderMemoryItem[]>([]);
   const serverProfileSyncSnapshotRef = useRef<string | null>(null);
   const fallbackItems = initialItems.length > 0 ? initialItems : previewItems;
   const canPersistProfile = shouldPersistNewsReaderProfile({
@@ -643,38 +573,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
       });
     },
     [canPersistProfile, recordSearchMemory, visitorKey],
-  );
-  const applyForYouApiExposureMemory = useCallback(
-    (recentExposureItems: readonly RecentExposureNewsItem[] | undefined) => {
-      const nextExposureItems =
-        readNewsForYouApiExposureItems(recentExposureItems);
-      const unseenExposureItems = nextExposureItems.filter(
-        (item) =>
-          !selectActiveNewsReaderMemoryItem({
-            item,
-            memoryItems: recordedHomeExposureItemsRef.current,
-          }),
-      );
-
-      if (unseenExposureItems.length === 0) return;
-
-      recordedHomeExposureItemsRef.current = mergeNewsReaderMemoryItems({
-        limit: 24,
-        localItems: unseenExposureItems,
-        serverItems: recordedHomeExposureItemsRef.current,
-      });
-      setLocalHomeExposureItems((currentItems) => {
-        const nextItems = mergeNewsReaderMemoryItems({
-          limit: 24,
-          localItems: unseenExposureItems,
-          serverItems: currentItems,
-        });
-
-        writeStoredMemoryItems(homeExposureStorageKey, nextItems);
-        return nextItems;
-      });
-    },
-    [],
   );
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
@@ -765,26 +663,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
       return nextProfile;
     },
     [],
-  );
-  const recordInteraction = useMutation(
-    trpc.news.recordInteraction.mutationOptions({
-      onSuccess: async (serverProfile) => {
-        applyServerProfile(serverProfile);
-        await Promise.all([
-          queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
-          queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
-          queryClient.invalidateQueries(trpc.news.saved.pathFilter()),
-          queryClient.invalidateQueries(trpc.news.history.pathFilter()),
-          queryClient.invalidateQueries(
-            trpc.news.positiveFeedback.pathFilter(),
-          ),
-          queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
-        ]);
-      },
-    }),
-  );
-  const { mutate: recordHomeExposure } = useMutation(
-    trpc.news.recordInteraction.mutationOptions(),
   );
   const restoreGuardrail = useMutation(
     trpc.news.restoreGuardrail.mutationOptions({
@@ -909,15 +787,8 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
   }, [guardrailItems, localHistoryItems, serverHistoryItems]);
   const recentExposureMemoryItems = useMemo(
     () =>
-      mergeNewsReaderMemoryItems({
-        limit: 80,
-        localItems: localHomeExposureItems,
-        serverItems: historyItems.map((item) => ({
-          ...item,
-          surface: "article",
-        })),
-      }),
-    [historyItems, localHomeExposureItems],
+      historyItems.map((item) => ({ ...item, surface: "article" as const })),
+    [historyItems],
   );
   const positiveFeedbackMemoryItems = useMemo(() => {
     return selectNewsHomePositiveFeedbackMemoryItems({
@@ -1033,12 +904,9 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
   useEffect(() => {
     if (primaryFeedRoute !== "forYou" || !forYouApiQuery.data) return;
 
-    applyForYouApiExposureMemory(
-      forYouApiQuery.data.nextRequest?.recentExposureItems,
-    );
     setForYouApiNextRequest(forYouApiQuery.data.nextRequest ?? null);
     setHasMoreItems(forYouApiQuery.data.hasMore);
-  }, [applyForYouApiExposureMemory, forYouApiQuery.data, primaryFeedRoute]);
+  }, [forYouApiQuery.data, primaryFeedRoute]);
   const serverRecommendedItems = useMemo(
     () =>
       primaryFeedRoute === "feed"
@@ -1110,13 +978,11 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
 
   useEffect(() => {
     const storedGuardrails = readStoredGuardrailItems();
-    const storedHomeExposureItems = readStoredHomeExposureItems();
     const storedRestoredGuardrailItemIds = readStoredRestoredGuardrailItemIds();
     const storedRestoredGuardrailIds = new Set(storedRestoredGuardrailItemIds);
 
     setProfile(readStoredProfile());
     setForYouObjective(readStoredNewsForYouObjective());
-    setLocalHomeExposureItems(storedHomeExposureItems);
     setLocalHistoryItems(readStoredHistoryItems());
     setLocalSavedItems(readStoredSavedItems());
     setLocalGuardrailItems(storedGuardrails);
@@ -1129,7 +995,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
         .map((item) => item.id),
     );
     setVisitorKey(readOrCreateNewsVisitorKey());
-    recordedHomeExposureItemsRef.current = storedHomeExposureItems;
     setReaderLocalHour(new Date().getHours());
     setReaderStateHydrated(true);
   }, []);
@@ -1167,14 +1032,12 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
 
     return subscribeToNewsReaderMemoryStorage(() => {
       const storedGuardrails = readStoredGuardrailItems();
-      const storedHomeExposureItems = readStoredHomeExposureItems();
       const storedRestoredGuardrailItemIds =
         readStoredRestoredGuardrailItemIds();
       const storedRestoredGuardrailIds = new Set(
         storedRestoredGuardrailItemIds,
       );
 
-      setLocalHomeExposureItems(storedHomeExposureItems);
       setLocalHistoryItems(readStoredHistoryItems());
       setLocalSavedItems(readStoredSavedItems());
       setLocalGuardrailItems(storedGuardrails);
@@ -1186,7 +1049,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
           .filter((item) => !storedRestoredGuardrailIds.has(item.id))
           .map((item) => item.id),
       );
-      recordedHomeExposureItemsRef.current = storedHomeExposureItems;
     });
   }, [readerStateHydrated]);
 
@@ -1433,29 +1295,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
         return nextItems;
       });
     }
-
-    if (
-      visitorKey &&
-      shouldPersistNewsHomeItemReaderSignals({
-        canPersistProfile,
-        isPreview,
-        itemId: item.id,
-        visitorKey,
-      })
-    ) {
-      recordInteraction.mutate({
-        visitorKey,
-        newsItemId: item.id,
-        action,
-        metadata: buildNewsHomeInteractionMetadata({
-          action,
-          feedMode,
-          intent: activeFeedIntent,
-          item,
-          rankSlot,
-        }),
-      });
-    }
   };
 
   const restoreGuardrailItem = (item: NewsReaderMemoryItem) => {
@@ -1688,9 +1527,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
           }),
         );
 
-        applyForYouApiExposureMemory(
-          forYouApiPayload.nextRequest?.recentExposureItems,
-        );
         setForYouApiNextRequest(forYouApiPayload.nextRequest ?? null);
         nextHasMoreItems = forYouApiPayload.hasMore;
         nextItems = forYouApiPayload.items;
@@ -1718,7 +1554,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
     activeAngleTag,
     activeCategory,
     activeSourceSlug,
-    applyForYouApiExposureMemory,
     collaborativeRankingSignals,
     feedMode,
     forYouApiNextRequest,
@@ -1927,62 +1762,6 @@ function NewsHomeContent({ initialItems, status, generatedAt }: NewsHomeProps) {
     positiveFeedbackAnchors,
     readerLocalHour,
     searchMemoryItems,
-  ]);
-
-  useEffect(() => {
-    const records = selectNewsHomeExposureRecords({
-      feedMode,
-      isPreview,
-      items: rankedItems,
-      limit: 6,
-      recordedItems: mergeNewsReaderMemoryItems({
-        limit: 24,
-        localItems: localHomeExposureItems,
-        serverItems: recordedHomeExposureItemsRef.current,
-      }),
-      visitorKey,
-    });
-
-    if (records.length === 0) return;
-
-    const exposedIds = new Set(records.map((record) => record.newsItemId));
-    const exposedAt = new Date().toISOString();
-    const nextExposureItems = rankedItems
-      .filter((item) => exposedIds.has(item.id))
-      .map((item) =>
-        toLocalHomeExposureMemoryItem({
-          item,
-          viewedAt: exposedAt,
-        }),
-      );
-
-    recordedHomeExposureItemsRef.current = mergeNewsReaderMemoryItems({
-      limit: 24,
-      localItems: nextExposureItems,
-      serverItems: recordedHomeExposureItemsRef.current,
-    });
-    setLocalHomeExposureItems((currentItems) => {
-      const nextItems = mergeNewsReaderMemoryItems({
-        limit: 24,
-        localItems: nextExposureItems,
-        serverItems: currentItems,
-      });
-
-      writeStoredMemoryItems(homeExposureStorageKey, nextItems);
-      return nextItems;
-    });
-
-    if (canPersistProfile) {
-      records.forEach((record) => recordHomeExposure(record));
-    }
-  }, [
-    canPersistProfile,
-    feedMode,
-    isPreview,
-    localHomeExposureItems,
-    rankedItems,
-    recordHomeExposure,
-    visitorKey,
   ]);
 
   const publicFrontPage = useMemo(

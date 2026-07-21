@@ -479,14 +479,10 @@ describe("NewsEditionPage", () => {
     expect(actionsSource).toContain("newsSavedStorageKey");
     expect(actionsSource).toContain("newsGuardrailStorageKey");
     expect(actionsSource).toContain("useTRPC");
-    expect(actionsSource).toContain("trpc.news.recordInteraction");
+    expect(actionsSource).not.toContain("recordInteraction");
     expect(actionsSource).toContain("trpc.news.restoreGuardrail");
     expect(actionsSource).toContain("trpc.news.removeSaved");
-    expect(actionsSource).toContain("shouldPersistNewsHomeItemReaderSignals");
     expect(actionsSource).toContain("readOrCreateNewsVisitorKey");
-    expect(actionsSource).toContain('"edition_feedback"');
-    expect(actionsSource).toContain('"edition_source"');
-    expect(actionsSource).toContain('"edition_read"');
   });
 
   it("renders an edition search form that routes searches through the search page", () => {

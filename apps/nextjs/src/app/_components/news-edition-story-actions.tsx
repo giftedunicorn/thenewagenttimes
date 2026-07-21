@@ -225,23 +225,6 @@ const isPositiveEditionStoryAction = (
   "click_source" | "save" | "share"
 > => action === "click_source" || action === "save" || action === "share";
 
-const buildNewsEditionStoryInteractionMetadata = ({
-  action,
-  rankSlot,
-}: {
-  action: ReaderInteractionAction;
-  rankSlot: number;
-}) => ({
-  feedMode: "for_you" as const,
-  rankSlot: Number.isFinite(rankSlot) ? Math.max(0, Math.trunc(rankSlot)) : 0,
-  surface:
-    action === "view"
-      ? ("edition_read" as const)
-      : action === "click_source"
-        ? ("edition_source" as const)
-        : ("edition_feedback" as const),
-});
-
 const readStoredProfile = () =>
   parseStoredNewsPreferenceProfile({
     defaultProfile: createDefaultNewsPreferenceProfile(),
@@ -327,11 +310,6 @@ export function NewsEditionStoryActions({
     );
     await invalidateReaderQueries();
   };
-  const recordInteraction = useMutation(
-    trpc.news.recordInteraction.mutationOptions({
-      onSuccess: applyServerProfile,
-    }),
-  );
   const restoreGuardrail = useMutation(
     trpc.news.restoreGuardrail.mutationOptions({
       onSuccess: applyServerProfile,
@@ -383,20 +361,6 @@ export function NewsEditionStoryActions({
       itemId: item.id,
       visitorKey,
     });
-
-  const persistStoryInteraction = (action: ReaderInteractionAction) => {
-    if (!visitorKey || !canPersistStoryAction()) return;
-
-    recordInteraction.mutate({
-      action,
-      metadata: buildNewsEditionStoryInteractionMetadata({
-        action,
-        rankSlot,
-      }),
-      newsItemId: item.id,
-      visitorKey,
-    });
-  };
 
   const persistSavedRemoval = () => {
     if (!visitorKey || !canPersistStoryAction()) return;
@@ -463,8 +427,6 @@ export function NewsEditionStoryActions({
     }
 
     writeProfileForAction({ action, item, rankSlot });
-    persistStoryInteraction(action);
-
     if (action === "view") {
       writeStoredNewsReaderMemoryItems(
         newsHistoryStorageKey,

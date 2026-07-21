@@ -114,7 +114,7 @@ describe("NewsHome discovery navigation", () => {
       "const recordHomeSearchIntent = useCallback(",
     );
     const recordSearchIntentEnd = source.indexOf(
-      "  const applyForYouApiExposureMemory = useCallback(",
+      "  const profileQuery = useQuery(",
       recordSearchIntentStart,
     );
     const recordSearchIntentBlock = source.slice(
@@ -169,19 +169,15 @@ describe("NewsHome discovery navigation", () => {
     expect(applyExploreSearchBlock).toContain("query: trimmedSearchDraft,");
   });
 
-  it("persists home exposure memory locally before cooldown guidance runs", async () => {
+  it("does not persist automatic homepage exposure memory", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
 
-    expect(source).toContain("homeExposureStorageKey");
-    expect(source).toContain("readStoredHomeExposureItems");
-    expect(source).toContain("setLocalHomeExposureItems");
-    expect(source).toContain("toLocalHomeExposureMemoryItem");
-    expect(source).toContain("writeStoredMemoryItems(homeExposureStorageKey");
-    expect(source).toMatch(
-      /recordedItems: mergeNewsReaderMemoryItems\(\{[\s\S]*?localItems: localHomeExposureItems,[\s\S]*?serverItems: recordedHomeExposureItemsRef\.current,[\s\S]*?\}\)/,
-    );
+    expect(source).not.toContain("homeExposureStorageKey");
+    expect(source).not.toContain("readStoredHomeExposureItems");
+    expect(source).not.toContain("localHomeExposureItems");
+    expect(source).not.toContain("recordHomeExposure");
   });
 
   it("clears local saved and positive anchors when Less is recorded", async () => {
@@ -268,17 +264,12 @@ describe("NewsHome discovery navigation", () => {
       "const toLocalGuardrailMemoryItem = (",
       savedHelperStart,
     );
-    const helperStart = source.indexOf(
-      "const toLocalHomeExposureMemoryItem = (",
-    );
-    const helperEnd = source.indexOf(
-      "const readNewsForYouApiExposureItems = (",
-      helperStart,
-    );
     const savedHelperBlock = source.slice(savedHelperStart, savedHelperEnd);
-    const helperBlock = source.slice(helperStart, helperEnd);
     const guardrailHelperStart = savedHelperEnd;
-    const guardrailHelperEnd = helperStart;
+    const guardrailHelperEnd = source.indexOf(
+      "const readStoredHistoryItems =",
+      guardrailHelperStart,
+    );
     const guardrailHelperBlock = source.slice(
       guardrailHelperStart,
       guardrailHelperEnd,
@@ -294,30 +285,6 @@ describe("NewsHome discovery navigation", () => {
     expect(guardrailHelperBlock).toContain(
       "...(item.clusterKey ? { clusterKey: item.clusterKey } : {})",
     );
-    expect(helperStart).toBeGreaterThanOrEqual(0);
-    expect(helperEnd).toBeGreaterThan(helperStart);
-    expect(helperBlock).toContain(
-      "...(item.clusterKey ? { clusterKey: item.clusterKey } : {})",
-    );
-  });
-
-  it("preserves API exposure cluster keys when hydrating local For You memory", async () => {
-    const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
-      encoding: "utf8",
-    });
-    const readExposureStart = source.indexOf(
-      "const readNewsForYouApiExposureItems = (",
-    );
-    const readExposureEnd = source.indexOf(
-      "const readStoredHistoryItems =",
-      readExposureStart,
-    );
-    const readExposureBlock = source.slice(readExposureStart, readExposureEnd);
-
-    expect(readExposureStart).toBeGreaterThanOrEqual(0);
-    expect(readExposureEnd).toBeGreaterThan(readExposureStart);
-    expect(readExposureBlock).toContain('typeof item.clusterKey === "string"');
-    expect(readExposureBlock).toContain("clusterKey: item.clusterKey");
   });
 
   it("posts local reader memory to the For You API when loading more stories", async () => {
@@ -419,7 +386,7 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("posts merged reading exposure memory to the For You API", async () => {
+  it("posts article history as recent reader memory to the For You API", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
@@ -445,7 +412,7 @@ describe("NewsHome discovery navigation", () => {
     );
 
     expect(source).toMatch(
-      /const recentExposureMemoryItems = useMemo\([\s\S]*?mergeNewsReaderMemoryItems\(\{[\s\S]*?limit: 80,[\s\S]*?localItems: localHomeExposureItems,[\s\S]*?serverItems: historyItems\.map\(\(item\) => \(\{[\s\S]*?surface: "article"[\s\S]*?\}\)\),[\s\S]*?\}\)/,
+      /const recentExposureMemoryItems = useMemo\(\s*\(\) =>\s*historyItems\.map\(\(item\) => \(\{ \.\.\.item, surface: "article" as const \}\)\),\s*\[historyItems\],\s*\)/,
     );
     expect(primaryRequestBlock).toContain(
       "recentExposureItems: recentExposureMemoryItems",
@@ -455,7 +422,7 @@ describe("NewsHome discovery navigation", () => {
     );
   });
 
-  it("stores For You API next exposure memory before later pages are requested", async () => {
+  it("stores For You API pagination context before later pages are requested", async () => {
     const source = await readFile(new URL("./news-home.tsx", import.meta.url), {
       encoding: "utf8",
     });
@@ -473,17 +440,12 @@ describe("NewsHome discovery navigation", () => {
 
     expect(source).toContain("NewsHomeForYouApiNextRequest");
     expect(source).toContain("fetchNewsHomeForYouApiPayload");
-    expect(source).toContain("readNewsForYouApiExposureItems");
-    expect(source).toContain("readPercent: item.readPercent");
-    expect(source).toContain("applyForYouApiExposureMemory");
-    expect(source).toContain("unseenExposureItems");
+    expect(source).not.toContain("readNewsForYouApiExposureItems");
+    expect(source).not.toContain("applyForYouApiExposureMemory");
     expect(primaryForYouEffectStart).toBeGreaterThanOrEqual(0);
     expect(primaryForYouEffectEnd).toBeGreaterThan(primaryForYouEffectStart);
-    expect(source).toMatch(
-      /selectActiveNewsReaderMemoryItem\(\{[\s\S]*?memoryItems: recordedHomeExposureItemsRef\.current/,
-    );
-    expect(primaryForYouEffectBlock).toMatch(
-      /applyForYouApiExposureMemory\(\s*forYouApiQuery\.data\.nextRequest\?\.recentExposureItems,\s*\)/,
+    expect(primaryForYouEffectBlock).toContain(
+      "setForYouApiNextRequest(forYouApiQuery.data.nextRequest ?? null)",
     );
     expect(primaryForYouEffectBlock).toContain(
       "setHasMoreItems(forYouApiQuery.data.hasMore)",
@@ -491,8 +453,8 @@ describe("NewsHome discovery navigation", () => {
     expect(source).toMatch(
       /const forYouApiPayload =\s*await fetchNewsHomeForYouApiPayload/,
     );
-    expect(source).toMatch(
-      /applyForYouApiExposureMemory\(\s*forYouApiPayload\.nextRequest\?\.recentExposureItems,\s*\)/,
+    expect(source).toContain(
+      "setForYouApiNextRequest(forYouApiPayload.nextRequest ?? null)",
     );
     expect(source).toContain("nextItems = forYouApiPayload.items");
     expect(source).toContain("nextHasMoreItems = forYouApiPayload.hasMore");
@@ -575,12 +537,7 @@ describe("NewsHome discovery navigation", () => {
     expect(source).toContain(
       "queryFn: () => fetchNewsHomeForYouApiPayload(forYouApiRequestBody)",
     );
-    expect(source).toContain(
-      "const { mutate: recordHomeExposure } = useMutation(",
-    );
-    expect(source).toContain(
-      "records.forEach((record) => recordHomeExposure(record));",
-    );
+    expect(source).not.toContain("recordHomeExposure");
     expect(source).toContain("readerStateHydrated");
     expect(source).toContain("forYouApiQuery.data?.items ?? []");
     expect(fetchPayloadStart).toBeGreaterThanOrEqual(0);
@@ -770,7 +727,7 @@ describe("NewsHome discovery navigation", () => {
     });
 
     expect(source).toMatch(
-      /return subscribeToNewsReaderMemoryStorage\(\(\) => \{[\s\S]*?const storedGuardrails = readStoredGuardrailItems\(\);[\s\S]*?const storedHomeExposureItems = readStoredHomeExposureItems\(\);[\s\S]*?const storedRestoredGuardrailItemIds =[\s\S]*?readStoredRestoredGuardrailItemIds\(\);[\s\S]*?setLocalHomeExposureItems\(storedHomeExposureItems\);[\s\S]*?setLocalHistoryItems\(readStoredHistoryItems\(\)\);[\s\S]*?setLocalSavedItems\(readStoredSavedItems\(\)\);[\s\S]*?setLocalGuardrailItems\(storedGuardrails\);[\s\S]*?setPositiveFeedbackItems\(readStoredPositiveFeedbackItems\(\)\);[\s\S]*?setSearchMemoryItems\(readStoredSearchItems\(\)\);[\s\S]*?setRestoredGuardrailItemIds\(storedRestoredGuardrailItemIds\);[\s\S]*?setHiddenItemIds\(/,
+      /return subscribeToNewsReaderMemoryStorage\(\(\) => \{[\s\S]*?const storedGuardrails = readStoredGuardrailItems\(\);[\s\S]*?const storedRestoredGuardrailItemIds =[\s\S]*?readStoredRestoredGuardrailItemIds\(\);[\s\S]*?setLocalHistoryItems\(readStoredHistoryItems\(\)\);[\s\S]*?setLocalSavedItems\(readStoredSavedItems\(\)\);[\s\S]*?setLocalGuardrailItems\(storedGuardrails\);[\s\S]*?setPositiveFeedbackItems\(readStoredPositiveFeedbackItems\(\)\);[\s\S]*?setSearchMemoryItems\(readStoredSearchItems\(\)\);[\s\S]*?setRestoredGuardrailItemIds\(storedRestoredGuardrailItemIds\);[\s\S]*?setHiddenItemIds\(/,
     );
   });
 });

@@ -256,7 +256,7 @@ describe("NewsArticle", () => {
       "const invalidateReaderSignalQueries = async () => {",
     );
     const invalidationEnd = source.indexOf(
-      "  const recordInteraction = useMutation(",
+      "  const updateProfile = useMutation(",
       invalidationStart,
     );
     const invalidationBlock = source.slice(invalidationStart, invalidationEnd);

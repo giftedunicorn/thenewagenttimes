@@ -10,7 +10,6 @@ import {
   getNewsArticleGuardrailSignalState,
   getNewsArticleGuardrailStorageUpdate,
   getNewsArticleHeroVisual,
-  getNewsArticleInteractionMetadata,
   getNewsArticleLearningImpact,
   getNewsArticleLocalGuardrailItem,
   getNewsArticleLocalHistoryItem,
@@ -37,7 +36,6 @@ import {
   selectNewsArticleEligibleRelatedItems,
   selectNewsArticleReadMilestone,
   shouldApplyNewsArticleLocalProfileFromMilestone,
-  shouldApplyNewsArticleServerProfileFromInteraction,
   shouldPersistNewsArticleReaderSignals,
   shouldTrackNewsArticleReaderSignals,
   shouldTrainNewsArticleProfileFromReadPercent,
@@ -1086,25 +1084,7 @@ describe("getNewsArticleHeroVisual", () => {
   });
 });
 
-describe("shouldApplyNewsArticleServerProfileFromInteraction", () => {
-  it("separates article source clicks from article feedback metadata", () => {
-    expect(getNewsArticleInteractionMetadata("click_source")).toEqual({
-      surface: "article_source",
-    });
-    expect(getNewsArticleInteractionMetadata("save")).toEqual({
-      surface: "article_feedback",
-    });
-    expect(getNewsArticleInteractionMetadata("share")).toEqual({
-      surface: "article_feedback",
-    });
-    expect(getNewsArticleInteractionMetadata("hide")).toEqual({
-      surface: "article_feedback",
-    });
-    expect(getNewsArticleInteractionMetadata("view")).toEqual({
-      surface: "article",
-    });
-  });
-
+describe("shouldApplyNewsArticleLocalProfileFromMilestone", () => {
   it("applies local profile updates once an article read starts training", () => {
     expect(
       shouldApplyNewsArticleLocalProfileFromMilestone({
@@ -1125,33 +1105,6 @@ describe("shouldApplyNewsArticleServerProfileFromInteraction", () => {
         readPercent: 0.86,
         shouldShowFeedback: true,
         shouldTrainProfile: true,
-      }),
-    ).toBe(true);
-  });
-
-  it("ignores shallow article-open responses that do not train reader memory", () => {
-    expect(
-      shouldApplyNewsArticleServerProfileFromInteraction({
-        action: "view",
-        metadata: { readPercent: 0.2, surface: "article" },
-      }),
-    ).toBe(false);
-    expect(
-      shouldApplyNewsArticleServerProfileFromInteraction({
-        action: "view",
-        metadata: { readPercent: 0.42, surface: "article" },
-      }),
-    ).toBe(true);
-    expect(
-      shouldApplyNewsArticleServerProfileFromInteraction({
-        action: "view",
-        metadata: { readPercent: 0.9, surface: "article" },
-      }),
-    ).toBe(true);
-    expect(
-      shouldApplyNewsArticleServerProfileFromInteraction({
-        action: "save",
-        metadata: { surface: "article" },
       }),
     ).toBe(true);
   });
@@ -1525,10 +1478,7 @@ describe("NewsArticle source follow action", () => {
     expect(followSourceBlock).toContain(
       "setLocalGuardrailItems(storageUpdate.guardrailItems)",
     );
-    expect(followSourceBlock).toContain("recordInteraction.mutate({");
-    expect(followSourceBlock).toContain(
-      'metadata: getNewsArticleInteractionMetadata("click_source")',
-    );
+    expect(followSourceBlock).not.toContain("recordInteraction");
   });
 });
 

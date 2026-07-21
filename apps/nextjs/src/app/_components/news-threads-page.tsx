@@ -25,8 +25,6 @@ import {
   mergeNewsReaderMemoryItems,
   selectActiveNewsReaderMemoryItem,
   selectHydratedNewsPreferenceProfile,
-  shouldPersistNewsHomeItemReaderSignals,
-  stripPersistedNewsPreferenceProfile,
 } from "./news-home-model";
 import {
   newsGuardrailStorageKey,
@@ -1042,24 +1040,6 @@ export function NewsCoverageThreadsPage({
       },
     }),
   );
-  const applyServerProfile = async (
-    serverProfile: Parameters<typeof stripPersistedNewsPreferenceProfile>[0],
-  ) => {
-    writeStoredNewsPreferenceProfile(
-      stripPersistedNewsPreferenceProfile(serverProfile),
-    );
-    await Promise.all([
-      queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
-      queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
-      queryClient.invalidateQueries(trpc.news.positiveFeedback.pathFilter()),
-      queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
-    ]);
-  };
-  const recordInteraction = useMutation(
-    trpc.news.recordInteraction.mutationOptions({
-      onSuccess: applyServerProfile,
-    }),
-  );
   const profileQuery = useQuery(
     trpc.news.profile.queryOptions(
       { visitorKey: visitorKey ?? undefined },
@@ -1149,39 +1129,11 @@ export function NewsCoverageThreadsPage({
       visitorKey,
     });
   };
-  const persistThreadLessFeedback = (thread: NewsCoverageThread) => {
-    if (!visitorKey) return;
-
-    thread.stories.forEach((story, index) => {
-      if (
-        !shouldPersistNewsHomeItemReaderSignals({
-          canPersistProfile: true,
-          isPreview: status !== "ready",
-          itemId: story.id,
-          visitorKey,
-        })
-      ) {
-        return;
-      }
-
-      recordInteraction.mutate({
-        action: "hide",
-        newsItemId: story.id,
-        metadata: {
-          surface: "thread",
-          threadKey: thread.key,
-          rankSlot: index + 1,
-        },
-        visitorKey,
-      });
-    });
-  };
   const lessThread = (thread: NewsCoverageThread) => {
     writeNewsCoverageThreadGuardrails(thread);
     setLocalGuardrailItems(
       readStoredNewsReaderMemoryItems(newsGuardrailStorageKey),
     );
-    persistThreadLessFeedback(thread);
   };
 
   return (
@@ -1217,24 +1169,6 @@ export function NewsCoverageThreadDetailPage({
           queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
         ]);
       },
-    }),
-  );
-  const applyServerProfile = async (
-    serverProfile: Parameters<typeof stripPersistedNewsPreferenceProfile>[0],
-  ) => {
-    writeStoredNewsPreferenceProfile(
-      stripPersistedNewsPreferenceProfile(serverProfile),
-    );
-    await Promise.all([
-      queryClient.invalidateQueries(trpc.news.forYou.pathFilter()),
-      queryClient.invalidateQueries(trpc.news.profile.pathFilter()),
-      queryClient.invalidateQueries(trpc.news.positiveFeedback.pathFilter()),
-      queryClient.invalidateQueries(trpc.news.guardrails.pathFilter()),
-    ]);
-  };
-  const recordInteraction = useMutation(
-    trpc.news.recordInteraction.mutationOptions({
-      onSuccess: applyServerProfile,
     }),
   );
   const profileQuery = useQuery(
@@ -1331,39 +1265,11 @@ export function NewsCoverageThreadDetailPage({
       visitorKey,
     });
   };
-  const persistThreadLessFeedback = (thread: NewsCoverageThread) => {
-    if (!visitorKey) return;
-
-    thread.stories.forEach((story, index) => {
-      if (
-        !shouldPersistNewsHomeItemReaderSignals({
-          canPersistProfile: true,
-          isPreview: status !== "ready",
-          itemId: story.id,
-          visitorKey,
-        })
-      ) {
-        return;
-      }
-
-      recordInteraction.mutate({
-        action: "hide",
-        newsItemId: story.id,
-        metadata: {
-          surface: "thread",
-          threadKey: thread.key,
-          rankSlot: index + 1,
-        },
-        visitorKey,
-      });
-    });
-  };
   const lessThread = (thread: NewsCoverageThread) => {
     writeNewsCoverageThreadGuardrails(thread);
     setLocalGuardrailItems(
       readStoredNewsReaderMemoryItems(newsGuardrailStorageKey),
     );
-    persistThreadLessFeedback(thread);
   };
 
   if (!detail) {

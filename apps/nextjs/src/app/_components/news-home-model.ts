@@ -1,4 +1,3 @@
-import type { newsCategoryValues } from "@acme/db/schema";
 import type {
   NewsCollaborativeSignal,
   NewsPreferenceProfile,
@@ -37,31 +36,6 @@ import {
   shouldTrainReaderProfileFromInteraction,
   summarizeNewsRecommendation,
 } from "@acme/validators";
-
-type NewsHomeInteractionIntentCategory = (typeof newsCategoryValues)[number];
-
-const newsHomeInteractionIntentCategories = [
-  "funding",
-  "product_hunt",
-  "model_release",
-  "new_concept",
-  "hot_take",
-  "agent_product",
-  "big_tech",
-  "musk_ai",
-  "yc_ai",
-  "research",
-  "policy",
-  "security",
-  "open_source",
-  "market_map",
-  "other",
-] as const satisfies readonly NewsHomeInteractionIntentCategory[];
-
-const isNewsHomeInteractionIntentCategory = (
-  category: string,
-): category is NewsHomeInteractionIntentCategory =>
-  (newsHomeInteractionIntentCategories as readonly string[]).includes(category);
 
 export interface NewsHomeItem extends RecommendableNewsItem {
   summary: string;
@@ -1474,19 +1448,6 @@ export const getNewsHomeLoadMoreQueryRoute = ({
 
 export const getNewsHomePrimaryQueryRoute = getNewsHomeLoadMoreQueryRoute;
 
-export interface NewsHomeInteractionMetadata {
-  [key: string]: unknown;
-  feedMode: NewsFeedMode;
-  intentCategory?: NewsHomeInteractionIntentCategory;
-  intentQuery?: string;
-  intentSourceSlug?: string;
-  intentTag?: string;
-  matchedSignals: string[];
-  personalizedScore: number;
-  rankSlot: number;
-  surface: "home_feedback" | "home_read" | "home_source";
-}
-
 const toNewsHomeRankSlot = (rankSlot: number) => {
   if (!Number.isFinite(rankSlot)) return 0;
 
@@ -1513,62 +1474,6 @@ const getUniqueNewsHomeInteractionSignals = (
   }
 
   return uniqueSignals.slice(0, 12);
-};
-
-const addNewsHomeIntentMetadata = ({
-  intent,
-  metadata,
-}: {
-  intent: NewsSessionIntentFilter | undefined;
-  metadata: Partial<NewsHomeInteractionMetadata>;
-}) => {
-  if (!intent) return metadata;
-
-  const category = intent.category?.trim();
-  const query = intent.query.trim();
-  const sourceSlug = intent.sourceSlug?.trim();
-  const tag = intent.tag?.trim();
-
-  if (category && isNewsHomeInteractionIntentCategory(category)) {
-    metadata.intentCategory = category;
-  }
-  if (query) metadata.intentQuery = query;
-  if (sourceSlug) metadata.intentSourceSlug = sourceSlug;
-  if (tag) metadata.intentTag = tag;
-
-  return metadata;
-};
-
-export const buildNewsHomeInteractionMetadata = ({
-  action,
-  feedMode,
-  intent,
-  item,
-  rankSlot,
-}: {
-  action: ReaderInteractionAction;
-  feedMode: NewsFeedMode;
-  intent?: NewsSessionIntentFilter;
-  item: RankedNewsItem<NewsHomeItem>;
-  rankSlot: number;
-}): NewsHomeInteractionMetadata => {
-  const metadata = addNewsHomeIntentMetadata({
-    intent,
-    metadata: {
-      feedMode,
-      matchedSignals: getUniqueNewsHomeInteractionSignals(item.matchedSignals),
-      personalizedScore: item.personalizedScore,
-      rankSlot: toNewsHomeRankSlot(rankSlot),
-      surface:
-        action === "view"
-          ? "home_read"
-          : action === "click_source"
-            ? "home_source"
-            : "home_feedback",
-    },
-  });
-
-  return metadata as NewsHomeInteractionMetadata;
 };
 
 export const buildNewsHomeReaderInteraction = ({
@@ -30583,27 +30488,8 @@ export const selectReaderFreshNewsHomeItems = ({
     historyItems,
   );
 
-export interface NewsHomeExposureRecord {
-  action: "view";
-  metadata: {
-    exposure: true;
-    exposureSlot: number;
-    feedMode: NewsFeedMode;
-    matchedSignals: string[];
-    personalizedScore: number;
-    rankSlot: number;
-    surface: "home_exposure";
-  };
-  newsItemId: string;
-  visitorKey: string;
-}
-
 type NewsExposureCooldownReference = { id: string } & NewsUrlReference &
   Partial<NewsHomeItem>;
-
-type NewsHomeExposureReference = { id: string } & NewsUrlReference & {
-    clusterKey?: string | null;
-  };
 
 const normalizeNewsHomeExposureUrl = (url: string | null | undefined) => {
   if (!url) return null;
@@ -30649,67 +30535,6 @@ const getNewsHomeExposureClusterKey = (item: { clusterKey?: string | null }) =>
 
 const newsHomeDatabaseIdPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export const selectNewsHomeExposureRecords = ({
-  feedMode,
-  isPreview,
-  items,
-  limit,
-  recordedItems,
-  visitorKey,
-}: {
-  feedMode: NewsFeedMode;
-  isPreview: boolean;
-  items: readonly RankedNewsItem<NewsHomeItem>[];
-  limit: number;
-  recordedItems: readonly NewsHomeExposureReference[];
-  visitorKey: string | null;
-}): NewsHomeExposureRecord[] => {
-  if (isPreview || !visitorKey || limit <= 0) return [];
-
-  const recordedUrlKeys = new Set(
-    recordedItems.flatMap(getNewsHomeExposureUrlKeys),
-  );
-  const recordedClusterKeys = new Set(
-    recordedItems
-      .map(getNewsHomeExposureClusterKey)
-      .filter((clusterKey): clusterKey is string => clusterKey !== null),
-  );
-  const hasRecordedCluster = (item: NewsHomeItem) => {
-    const clusterKey = getNewsHomeExposureClusterKey(item);
-
-    return clusterKey ? recordedClusterKeys.has(clusterKey) : false;
-  };
-
-  return filterHiddenNewsItems(
-    items.map((item, homeRankSlot) => ({ ...item, homeRankSlot })),
-    recordedItems.map((item) => item.id),
-  )
-    .filter((item) =>
-      getNewsHomeExposureUrlKeys(item).every(
-        (urlKey) => !recordedUrlKeys.has(urlKey),
-      ),
-    )
-    .filter((item) => !hasRecordedCluster(item))
-    .filter((item) => newsHomeDatabaseIdPattern.test(item.id))
-    .slice(0, limit)
-    .map((item, exposureSlot) => ({
-      action: "view",
-      metadata: {
-        exposure: true,
-        exposureSlot,
-        feedMode,
-        matchedSignals: getUniqueNewsHomeInteractionSignals(
-          item.matchedSignals,
-        ),
-        personalizedScore: item.personalizedScore,
-        rankSlot: toNewsHomeRankSlot(item.homeRankSlot),
-        surface: "home_exposure",
-      },
-      newsItemId: item.id,
-      visitorKey,
-    }));
-};
 
 const toNewsExposureCooldownStory = ({
   item,

@@ -55,7 +55,6 @@ import {
   shouldTrainNewsProfileFromInteraction,
   summarizeNewsReaderProfileSignals,
   toNewsCollaborativeSignal,
-  toNewsReaderProfileInteraction,
 } from "./news";
 
 interface SqlDebugChunk {

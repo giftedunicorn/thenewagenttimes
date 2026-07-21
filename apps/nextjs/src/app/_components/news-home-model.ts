@@ -16,7 +16,6 @@ import type {
 import {
   dedupeNewsItems,
   filterBlockedNewsItems,
-  filterHiddenNewsItems,
   getNewsDedupeUrlKeys,
   getNewsRecommendationReasons as getSharedNewsRecommendationReasons,
   normalizeNewsPreferenceProfile,

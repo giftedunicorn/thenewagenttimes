@@ -34,7 +34,6 @@ import {
   NewsItem,
   NewsItemVector,
   NewsReaderInteraction,
-  NewsReaderInteractionActionSchema,
   NewsReaderProfile,
   NewsSource,
 } from "@acme/db/schema";
@@ -203,7 +202,6 @@ export const NewsForYouInputSchema = NewsFeedFilterInputSchema.extend({
 });
 
 const NewsFeedModeSchema = z.enum(["for_you", "latest", "trending"]);
-type NewsFeedMode = z.infer<typeof NewsFeedModeSchema>;
 const NewsArticleReadMilestoneSchema = z.enum([
   "opened",
   "meaningful_read",
@@ -267,7 +265,7 @@ const NewsInteractionMetadataSchema = z
   .passthrough();
 
 interface NewsInteractionInput {
-  action: z.infer<typeof NewsReaderInteractionActionSchema>;
+  action: typeof NewsReaderInteraction.$inferSelect.action;
   metadata?: z.infer<typeof NewsInteractionMetadataSchema>;
 }
 

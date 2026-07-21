@@ -266,16 +266,10 @@ const NewsInteractionMetadataSchema = z
   })
   .passthrough();
 
-export const NewsRecordInteractionInputSchema = z.object({
-  visitorKey: optionalVisitorKey,
-  newsItemId: z.string().uuid(),
-  action: NewsReaderInteractionActionSchema,
-  metadata: NewsInteractionMetadataSchema.optional(),
-});
-
-type NewsRecordInteractionInput = z.infer<
-  typeof NewsRecordInteractionInputSchema
->;
+interface NewsInteractionInput {
+  action: z.infer<typeof NewsReaderInteractionActionSchema>;
+  metadata?: z.infer<typeof NewsInteractionMetadataSchema>;
+}
 
 export const NewsRestoreGuardrailInputSchema =
   NewsReaderProfileInputSchema.extend({
@@ -320,7 +314,7 @@ export const NewsRemoveSearchMemoryInputSchema =
 export const shouldTrainNewsProfileFromInteraction = ({
   action,
   metadata,
-}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+}: Pick<NewsInteractionInput, "action" | "metadata">) => {
   if (action !== "view") return true;
   if (metadata?.surface?.trim().toLowerCase() !== "article") return false;
   if (metadata.readPercent === undefined) return false;
@@ -334,7 +328,7 @@ export const shouldTrainNewsProfileFromInteraction = ({
 export const shouldIncludeNewsInteractionInReadingHistory = ({
   action,
   metadata,
-}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+}: Pick<NewsInteractionInput, "action" | "metadata">) => {
   if (action !== "view") return false;
   if (metadata?.surface?.trim().toLowerCase() !== "article") return false;
   if (metadata.readPercent === undefined) return false;
@@ -348,7 +342,7 @@ export const shouldIncludeNewsInteractionInReadingHistory = ({
 export const shouldIncludeNewsInteractionAsPositiveFeedback = ({
   action,
   metadata,
-}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+}: Pick<NewsInteractionInput, "action" | "metadata">) => {
   if (action === "click_source" || action === "save" || action === "share") {
     return true;
   }
@@ -365,40 +359,11 @@ export const shouldIncludeNewsInteractionAsPositiveFeedback = ({
 export const toNewsReaderProfileInteraction = ({
   action,
   metadata,
-}: Pick<
-  NewsRecordInteractionInput,
-  "action" | "metadata"
->): ReaderInteraction => ({
+}: Pick<NewsInteractionInput, "action" | "metadata">): ReaderInteraction => ({
   action,
   rankSlot: metadata?.rankSlot,
   readPercent: metadata?.readPercent,
 });
-
-export const shouldDedupeNewsHomeExposureInteraction = ({
-  action,
-  metadata,
-}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
-  if (action !== "view") return false;
-  if (metadata?.exposure !== true) return false;
-
-  const surface = metadata.surface?.trim().toLowerCase();
-
-  return (
-    surface === "home" ||
-    surface === "home_exposure" ||
-    surface === "mobile_home"
-  );
-};
-
-type NewsDurableFeedbackAction = Extract<
-  NewsRecordInteractionInput["action"],
-  "hide" | "save"
->;
-
-export const shouldDedupeNewsDurableFeedbackInteraction = (
-  input: Pick<NewsRecordInteractionInput, "action">,
-): input is { action: NewsDurableFeedbackAction } =>
-  input.action === "save" || input.action === "hide";
 
 interface NewsViewedHistoryRow {
   canonicalUrl: string | null;
@@ -616,7 +581,7 @@ export const selectNewsViewedHistory = (
 export const getNewsSemanticFeedbackStrength = ({
   action,
   metadata,
-}: Pick<NewsRecordInteractionInput, "action" | "metadata">) => {
+}: Pick<NewsInteractionInput, "action" | "metadata">) => {
   if (action === "share") return 3;
   if (action === "save") return 2;
   if (action === "click_source") return 1;
@@ -737,10 +702,10 @@ type NewsRouterDb = Awaited<ReturnType<typeof createTRPCContext>>["db"];
 type NewsReaderProfileRow = typeof NewsReaderProfile.$inferSelect;
 
 export interface NewsReaderProfileSignalInteraction {
-  action: NewsRecordInteractionInput["action"];
+  action: NewsInteractionInput["action"];
   category: z.infer<typeof NewsCategorySchema>;
   entities: readonly string[];
-  metadata?: NewsRecordInteractionInput["metadata"];
+  metadata?: NewsInteractionInput["metadata"];
   occurredAt: string;
   sourceSlug: string;
   tags?: readonly string[];
@@ -835,7 +800,7 @@ const toTopSignalCounts = (
     .map(({ count, key }) => ({ count, key }));
 
 const getInteractionMetadataRankSlot = (
-  metadata: NewsRecordInteractionInput["metadata"] | undefined,
+  metadata: NewsInteractionInput["metadata"] | undefined,
 ) => {
   const surface = metadata?.surface
     ? normalizeNewsInteractionMetadataKey(metadata.surface)
@@ -860,7 +825,7 @@ const getAverageHomeRankSlot = (rankSlots: readonly number[]) => {
 const isArticleReadWithDepth = ({
   action,
   metadata,
-}: Pick<NewsRecordInteractionInput, "action" | "metadata">) =>
+}: Pick<NewsInteractionInput, "action" | "metadata">) =>
   action === "view" &&
   metadata?.surface?.trim().toLowerCase() === "article" &&
   typeof metadata.readPercent === "number";
@@ -1497,9 +1462,6 @@ const compactConditions = (
   return definedConditions.length > 0 ? and(...definedConditions) : undefined;
 };
 
-export const getNewsHomeExposureDedupeWindowStart = (now = new Date()) =>
-  new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
 const normalizeNewsHomeExposureClusterKey = (
   clusterKey: string | null | undefined,
 ) => {
@@ -1595,45 +1557,6 @@ const buildNewsInteractionStoryIdentityCondition = ({
   return (
     or(...storyIdentityConditions) ??
     eq(NewsReaderInteraction.newsItemId, newsItemId)
-  );
-};
-
-export const buildNewsHomeExposureDedupeCondition = ({
-  canonicalUrl,
-  clusterKey,
-  feedMode,
-  newsItemId,
-  originalUrl,
-  readerProfileId,
-  since,
-}: {
-  canonicalUrl?: string | null;
-  clusterKey?: string | null;
-  feedMode: NewsFeedMode | undefined;
-  newsItemId: string;
-  originalUrl?: string | null;
-  readerProfileId: string;
-  since: Date;
-}): SQL<unknown> => {
-  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
-    canonicalUrl,
-    clusterKey,
-    newsItemId,
-    originalUrl,
-  });
-
-  return (
-    compactConditions([
-      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
-      storyIdentityCondition,
-      sql`${NewsReaderInteraction.action} = 'view'`,
-      sql`${NewsReaderInteraction.occurredAt} >= ${since}`,
-      sql`${NewsReaderInteraction.metadata}->>'exposure' = 'true'`,
-      sql`trim(lower(${NewsReaderInteraction.metadata}->>'surface')) in ('home', 'home_exposure', 'home-exposure', 'mobile_home', 'mobile-home')`,
-      feedMode
-        ? sql`${NewsReaderInteraction.metadata}->>'feedMode' = ${feedMode}`
-        : undefined,
-    ]) ?? sql`false`
   );
 };
 
@@ -2147,89 +2070,6 @@ export const buildNewsSearchMemoryRemovalCondition = ({
     compactConditions([
       eq(NewsReaderInteraction.readerProfileId, readerProfileId),
       sql`${normalizedIntentQuery} = ${normalizedQuery}`,
-    ]) ?? sql`false`
-  );
-};
-
-const shouldCleanupNewsFeedbackConflict = ({
-  action,
-}: Pick<NewsRecordInteractionInput, "action">) =>
-  action === "hide" ||
-  action === "save" ||
-  action === "share" ||
-  action === "click_source";
-
-export const buildNewsFeedbackConflictCleanupCondition = ({
-  action,
-  canonicalUrl,
-  clusterKey,
-  newsItemId,
-  originalUrl,
-  readerProfileId,
-}: {
-  action: NewsRecordInteractionInput["action"];
-  canonicalUrl?: string | null;
-  clusterKey?: string | null;
-  newsItemId: string;
-  originalUrl?: string | null;
-  readerProfileId: string;
-}): SQL<unknown> => {
-  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
-    canonicalUrl,
-    clusterKey,
-    newsItemId,
-    originalUrl,
-  });
-  const conflictActionCondition =
-    action === "hide"
-      ? (or(
-          sql`${NewsReaderInteraction.action} in ('save', 'share', 'click_source')`,
-          sql`${NewsReaderInteraction.action} = 'view' and ${meaningfulNewsArticleReadCondition()}`,
-        ) ?? sql`false`)
-      : action === "save" || action === "share" || action === "click_source"
-        ? sql`${NewsReaderInteraction.action} = 'hide'`
-        : undefined;
-
-  if (!conflictActionCondition) return sql`false`;
-
-  return (
-    compactConditions([
-      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
-      storyIdentityCondition,
-      conflictActionCondition,
-    ]) ?? sql`false`
-  );
-};
-
-export const buildNewsDurableFeedbackDedupeCondition = ({
-  action,
-  canonicalUrl,
-  clusterKey,
-  newsItemId,
-  originalUrl,
-  readerProfileId,
-}: {
-  action: NewsDurableFeedbackAction;
-  canonicalUrl?: string | null;
-  clusterKey?: string | null;
-  newsItemId: string;
-  originalUrl?: string | null;
-  readerProfileId: string;
-}): SQL<unknown> => {
-  const storyIdentityCondition = buildNewsInteractionStoryIdentityCondition({
-    canonicalUrl,
-    clusterKey,
-    newsItemId,
-    originalUrl,
-  });
-
-  return (
-    compactConditions([
-      eq(NewsReaderInteraction.readerProfileId, readerProfileId),
-      storyIdentityCondition,
-      action === "save"
-        ? sql`${NewsReaderInteraction.action} = 'save'`
-        : sql`${NewsReaderInteraction.action} = 'hide'`,
     ]) ?? sql`false`
   );
 };
@@ -3360,190 +3200,6 @@ export const newsRouter = {
           };
         }),
       ).slice(0, input.limit);
-    }),
-
-  recordInteraction: publicProcedure
-    .input(NewsRecordInteractionInputSchema)
-    .mutation(async ({ ctx, input }) => {
-      const identity = resolveReaderIdentity(
-        ctx.session?.user.id,
-        input.visitorKey,
-      );
-
-      if (!identity) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "A reader identity is required to store news preferences.",
-        });
-      }
-
-      const [item] = await ctx.db
-        .select({
-          id: NewsItem.id,
-          title: NewsItem.title,
-          canonicalUrl: NewsItem.canonicalUrl,
-          clusterKey: NewsItem.clusterKey,
-          originalUrl: NewsItem.originalUrl,
-          publishedAt: NewsItem.publishedAt,
-          category: NewsItem.category,
-          tags: NewsItem.tags,
-          entities: NewsItem.entities,
-          sourceScore: NewsItem.sourceScore,
-          trendScore: NewsItem.trendScore,
-          sourceSlug: NewsSource.slug,
-        })
-        .from(NewsItem)
-        .innerJoin(NewsSource, eq(NewsItem.sourceId, NewsSource.id))
-        .where(
-          compactConditions([
-            eq(NewsItem.id, input.newsItemId),
-            eq(NewsItem.status, "published"),
-          ]),
-        )
-        .limit(1);
-
-      if (!item) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Published news item not found.",
-        });
-      }
-
-      const [existingProfile] = await ctx.db
-        .select()
-        .from(NewsReaderProfile)
-        .where(eq(NewsReaderProfile.readerKey, identity.readerKey))
-        .limit(1);
-
-      const conflictCleanupProfile =
-        existingProfile && shouldCleanupNewsFeedbackConflict(input)
-          ? await removeNewsReaderInteractionAndRollbackProfile({
-              db: ctx.db,
-              profile: existingProfile,
-              removalCondition: buildNewsFeedbackConflictCleanupCondition({
-                action: input.action,
-                canonicalUrl: item.canonicalUrl,
-                clusterKey: item.clusterKey,
-                newsItemId: input.newsItemId,
-                originalUrl: item.originalUrl,
-                readerProfileId: existingProfile.id,
-              }),
-            })
-          : toPreferenceProfile(existingProfile);
-      const currentProfile = conflictCleanupProfile;
-      const duplicateDurableFeedback =
-        existingProfile && shouldDedupeNewsDurableFeedbackInteraction(input)
-          ? await ctx.db
-              .select({ id: NewsReaderInteraction.id })
-              .from(NewsReaderInteraction)
-              .where(
-                buildNewsDurableFeedbackDedupeCondition({
-                  action: input.action,
-                  canonicalUrl: item.canonicalUrl,
-                  clusterKey: item.clusterKey,
-                  newsItemId: input.newsItemId,
-                  originalUrl: item.originalUrl,
-                  readerProfileId: existingProfile.id,
-                }),
-              )
-              .limit(1)
-          : [];
-      const shouldSkipDurableFeedback = duplicateDurableFeedback.length > 0;
-      const nextProfile =
-        !shouldSkipDurableFeedback &&
-        shouldTrainNewsProfileFromInteraction(input)
-          ? updateReaderProfileWithInteraction(
-              currentProfile,
-              {
-                ...item,
-                publishedAt: item.publishedAt.toISOString(),
-              },
-              toNewsReaderProfileInteraction(input),
-            )
-          : currentProfile;
-
-      const [profile] = await ctx.db
-        .insert(NewsReaderProfile)
-        .values({
-          readerKey: identity.readerKey,
-          userId: identity.userId,
-          preferredCategories: [...nextProfile.preferredCategories],
-          preferredSources: [...nextProfile.preferredSources],
-          preferredEntities: [...nextProfile.preferredEntities],
-          noveltyBias: nextProfile.noveltyBias,
-          recencyBias: nextProfile.recencyBias,
-        })
-        .onConflictDoUpdate({
-          target: NewsReaderProfile.readerKey,
-          set: {
-            userId: identity.userId,
-            preferredCategories: [...nextProfile.preferredCategories],
-            preferredSources: [...nextProfile.preferredSources],
-            preferredEntities: [...nextProfile.preferredEntities],
-            noveltyBias: nextProfile.noveltyBias,
-            recencyBias: nextProfile.recencyBias,
-            updatedAt: sql`now()`,
-          },
-        })
-        .returning();
-
-      if (!profile) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Unable to persist reader profile.",
-        });
-      }
-
-      const duplicateHomeExposure = shouldDedupeNewsHomeExposureInteraction(
-        input,
-      )
-        ? await ctx.db
-            .select({ id: NewsReaderInteraction.id })
-            .from(NewsReaderInteraction)
-            .where(
-              buildNewsHomeExposureDedupeCondition({
-                canonicalUrl: item.canonicalUrl,
-                clusterKey: item.clusterKey,
-                feedMode: input.metadata?.feedMode,
-                newsItemId: input.newsItemId,
-                originalUrl: item.originalUrl,
-                readerProfileId: profile.id,
-                since: getNewsHomeExposureDedupeWindowStart(),
-              }),
-            )
-            .limit(1)
-        : [];
-      const shouldStoreInteraction =
-        duplicateHomeExposure.length === 0 &&
-        duplicateDurableFeedback.length === 0;
-
-      if (shouldStoreInteraction) {
-        await ctx.db.insert(NewsReaderInteraction).values({
-          action: input.action,
-          metadata: buildNewsInteractionTrainingMetadata({
-            metadata: input.metadata,
-            profileAfter: nextProfile,
-            profileBefore: currentProfile,
-          }),
-          newsItemId: input.newsItemId,
-          readerProfileId: profile.id,
-        });
-      }
-
-      return buildNewsReaderMutationProfileResponse({
-        interaction: shouldStoreInteraction
-          ? {
-              action: input.action,
-              category: item.category,
-              entities: item.entities,
-              metadata: input.metadata,
-              occurredAt: new Date().toISOString(),
-              sourceSlug: item.sourceSlug,
-              tags: item.tags,
-            }
-          : undefined,
-        profile: toPreferenceProfile(profile),
-      });
     }),
 
   restoreGuardrail: publicProcedure

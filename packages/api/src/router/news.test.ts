@@ -5,8 +5,6 @@ import type { NewsForYouCandidate } from "./news";
 import {
   attachNewsRecommendationExplanations,
   buildNewsCollaborativeSignalCondition,
-  buildNewsDurableFeedbackDedupeCondition,
-  buildNewsFeedbackConflictCleanupCondition,
   buildNewsFeedCursorCondition,
   buildNewsFeedOrderByExpressions,
   buildNewsForYouCandidateConditions,
@@ -14,7 +12,6 @@ import {
   buildNewsForYouSessionIntent,
   buildNewsGuardrailRestoreCondition,
   buildNewsHistoryRemovalCondition,
-  buildNewsHomeExposureDedupeCondition,
   buildNewsInteractionTrainingMetadata,
   buildNewsPositiveFeedbackRemovalCondition,
   buildNewsPreferenceRollbackAfterInteractionRemoval,
@@ -28,7 +25,6 @@ import {
   getNewsCollaborativeSignalScore,
   getNewsCollaborativeSignalWindowStart,
   getNewsForYouCandidateLimit,
-  getNewsHomeExposureDedupeWindowStart,
   getNewsReaderProfileResetIdentity,
   getNewsSemanticFeedbackStrength,
   NewsFeedInputSchema,
@@ -36,7 +32,6 @@ import {
   NewsGuardrailsInputSchema,
   NewsHistoryInputSchema,
   NewsReaderProfileInputSchema,
-  NewsRecordInteractionInputSchema,
   NewsRecordSearchMemoryInputSchema,
   NewsRemoveHistoryInputSchema,
   NewsRemovePositiveFeedbackInputSchema,
@@ -55,8 +50,6 @@ import {
   selectNewsSearchMemoryItems,
   selectNewsViewedHistory,
   selectUniqueNewsCollectionItems,
-  shouldDedupeNewsDurableFeedbackInteraction,
-  shouldDedupeNewsHomeExposureInteraction,
   shouldIncludeNewsInteractionAsPositiveFeedback,
   shouldIncludeNewsInteractionInReadingHistory,
   shouldTrainNewsProfileFromInteraction,
@@ -551,269 +544,6 @@ describe("news router input contracts", () => {
     expect(result.success).toBe(true);
   });
 
-  it("requires useful anonymous reader keys before storing interactions", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "short",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "save",
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts the personalization interaction actions from the reader UI", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "visitor-test-123",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "click_source",
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("accepts bounded reading depth metadata for article views", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "visitor-test-123",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "view",
-      metadata: {
-        readMilestone: "deep_read",
-        readPercent: 0.82,
-        surface: "article",
-      },
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("rejects unknown article read milestones", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "visitor-test-123",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "view",
-      metadata: {
-        readMilestone: "almost_done",
-        readPercent: 0.82,
-        surface: "article",
-      },
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("accepts bounded home exposure metadata for feed fatigue", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "visitor-test-123",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "view",
-      metadata: {
-        exposure: true,
-        exposureSlot: 4,
-        feedMode: "for_you",
-        surface: "home",
-      },
-    });
-
-    expect(result.success).toBe(true);
-  });
-
-  it("canonicalizes interaction metadata surfaces before storing behavior context", () => {
-    expect(
-      NewsRecordInteractionInputSchema.parse({
-        visitorKey: "visitor-test-123",
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        action: "view",
-        metadata: {
-          readPercent: 0.82,
-          surface: " Article ",
-        },
-      }).metadata?.surface,
-    ).toBe("article");
-
-    expect(
-      NewsRecordInteractionInputSchema.parse({
-        visitorKey: "visitor-test-123",
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        action: "view",
-        metadata: {
-          exposure: true,
-          surface: "home-exposure",
-        },
-      }).metadata?.surface,
-    ).toBe("home_exposure");
-  });
-
-  it("validates home ranking context on reader interaction metadata", () => {
-    expect(
-      NewsRecordInteractionInputSchema.parse({
-        action: "save",
-        metadata: {
-          feedMode: "for_you",
-          intentCategory: "agent_product",
-          intentQuery: "  LangChain agents  ",
-          intentSourceSlug: " agent-desk ",
-          intentTag: "workflow automation",
-          matchedSignals: ["category", "semantic_feedback"],
-          personalizedScore: 147,
-          rankSlot: 2,
-          surface: "home",
-        },
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        visitorKey: "visitor-test-123",
-      }).metadata,
-    ).toEqual({
-      feedMode: "for_you",
-      intentCategory: "agent_product",
-      intentQuery: "LangChain agents",
-      intentSourceSlug: "agent-desk",
-      intentTag: "workflow_automation",
-      matchedSignals: ["category", "semantic_feedback"],
-      personalizedScore: 147,
-      rankSlot: 2,
-      surface: "home",
-    });
-
-    expect(
-      NewsRecordInteractionInputSchema.safeParse({
-        action: "save",
-        metadata: {
-          rankSlot: -1,
-          surface: "home",
-        },
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        visitorKey: "visitor-test-123",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("canonicalizes home ranking signals before storing interaction metadata", () => {
-    expect(
-      NewsRecordInteractionInputSchema.parse({
-        action: "save",
-        metadata: {
-          feedMode: "for_you",
-          matchedSignals: [
-            " Category ",
-            "CATEGORY",
-            "Semantic_Feedback",
-            "semantic_feedback",
-          ],
-          personalizedScore: 147,
-          rankSlot: 2,
-          surface: "home",
-        },
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        visitorKey: "visitor-test-123",
-      }).metadata?.matchedSignals,
-    ).toEqual(["category", "semantic_feedback"]);
-  });
-
-  it("canonicalizes home ranking signal separators before storing interaction metadata", () => {
-    expect(
-      NewsRecordInteractionInputSchema.parse({
-        action: "hide",
-        metadata: {
-          feedMode: "for_you",
-          matchedSignals: [
-            " Negative Feedback ",
-            "negative-feedback",
-            "Source Trust",
-          ],
-          personalizedScore: 42,
-          rankSlot: 8,
-          surface: "home",
-        },
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        visitorKey: "visitor-test-123",
-      }).metadata?.matchedSignals,
-    ).toEqual(["negative_feedback", "source_trust"]);
-  });
-
-  it("deduplicates noisy home ranking signals before applying the storage limit", () => {
-    expect(
-      NewsRecordInteractionInputSchema.parse({
-        action: "save",
-        metadata: {
-          feedMode: "for_you",
-          matchedSignals: [
-            " category ",
-            "CATEGORY",
-            "negative feedback",
-            "negative-feedback",
-            "source trust",
-            "Source Trust",
-            "semantic feedback",
-            "semantic-feedback",
-            "category",
-            "negative_feedback",
-            "source_trust",
-            "semantic_feedback",
-            " Category ",
-          ],
-          personalizedScore: 147,
-          rankSlot: 2,
-          surface: "home",
-        },
-        newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-        visitorKey: "visitor-test-123",
-      }).metadata?.matchedSignals,
-    ).toEqual([
-      "category",
-      "negative_feedback",
-      "source_trust",
-      "semantic_feedback",
-    ]);
-  });
-
-  it("maps home rank slot metadata into reader profile training input", () => {
-    expect(
-      toNewsReaderProfileInteraction({
-        action: "save",
-        metadata: {
-          feedMode: "for_you",
-          matchedSignals: ["category"],
-          personalizedScore: 147,
-          rankSlot: 12,
-          surface: "home",
-        },
-      }),
-    ).toEqual({
-      action: "save",
-      rankSlot: 12,
-      readPercent: undefined,
-    });
-  });
-
-  it("rejects out-of-range home exposure slots", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "visitor-test-123",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "view",
-      metadata: {
-        exposure: true,
-        exposureSlot: 51,
-        feedMode: "for_you",
-        surface: "home",
-      },
-    });
-
-    expect(result.success).toBe(false);
-  });
-
-  it("rejects out-of-range reading depth metadata", () => {
-    const result = NewsRecordInteractionInputSchema.safeParse({
-      visitorKey: "visitor-test-123",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      action: "view",
-      metadata: {
-        readPercent: 1.4,
-        surface: "article",
-      },
-    });
-
-    expect(result.success).toBe(false);
-  });
-
   it("accepts restoring one persisted Less guardrail", () => {
     const result = NewsRestoreGuardrailInputSchema.safeParse({
       visitorKey: "visitor-test-123",
@@ -1021,16 +751,10 @@ describe("news router cluster key data flow", () => {
         start: "  history: publicProcedure",
       },
       {
-        end: "  recordInteraction: publicProcedure",
+        end: "  restoreGuardrail: publicProcedure",
         minimumSelects: 1,
         name: "guardrails",
         start: "  guardrails: publicProcedure",
-      },
-      {
-        end: "  restoreGuardrail: publicProcedure",
-        minimumSelects: 1,
-        name: "interaction training item",
-        start: "  recordInteraction: publicProcedure",
       },
       {
         end: "} satisfies TRPCRouterRecord;",
@@ -1052,91 +776,6 @@ describe("news router cluster key data flow", () => {
         block.name,
       ).toBeGreaterThanOrEqual(block.minimumSelects);
     }
-  });
-
-  it("passes the interaction story cluster into home exposure dedupe", async () => {
-    const source = await readFile(
-      new URL("./news.ts", import.meta.url),
-      "utf8",
-    );
-    const recordInteractionBlock = getSourceBlock({
-      end: "  restoreGuardrail: publicProcedure",
-      source,
-      start: "  recordInteraction: publicProcedure",
-    });
-
-    expect(recordInteractionBlock).toContain("clusterKey: item.clusterKey");
-  });
-
-  it("passes the interaction story URLs into home exposure dedupe", async () => {
-    const source = await readFile(
-      new URL("./news.ts", import.meta.url),
-      "utf8",
-    );
-    const recordInteractionBlock = getSourceBlock({
-      end: "  restoreGuardrail: publicProcedure",
-      source,
-      start: "  recordInteraction: publicProcedure",
-    });
-
-    expect(recordInteractionBlock).toContain("canonicalUrl: item.canonicalUrl");
-    expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
-  });
-
-  it("checks duplicate stateful feedback before applying profile training", async () => {
-    const source = await readFile(
-      new URL("./news.ts", import.meta.url),
-      "utf8",
-    );
-    const recordInteractionBlock = getSourceBlock({
-      end: "  restoreGuardrail: publicProcedure",
-      source,
-      start: "  recordInteraction: publicProcedure",
-    });
-    const duplicateCheckIndex = recordInteractionBlock.indexOf(
-      "const duplicateDurableFeedback",
-    );
-    const profileTrainingIndex =
-      recordInteractionBlock.indexOf("const nextProfile");
-
-    expect(duplicateCheckIndex).toBeGreaterThanOrEqual(0);
-    expect(profileTrainingIndex).toBeGreaterThan(duplicateCheckIndex);
-    expect(recordInteractionBlock).toContain(
-      "shouldDedupeNewsDurableFeedbackInteraction(input)",
-    );
-    expect(recordInteractionBlock).toContain("canonicalUrl: item.canonicalUrl");
-    expect(recordInteractionBlock).toContain("clusterKey: item.clusterKey");
-    expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
-  });
-
-  it("removes persisted conflicting feedback before training the new interaction", async () => {
-    const source = await readFile(
-      new URL("./news.ts", import.meta.url),
-      "utf8",
-    );
-    const recordInteractionBlock = getSourceBlock({
-      end: "  restoreGuardrail: publicProcedure",
-      source,
-      start: "  recordInteraction: publicProcedure",
-    });
-    const cleanupIndex = recordInteractionBlock.indexOf(
-      "const conflictCleanupProfile",
-    );
-    const profileTrainingIndex =
-      recordInteractionBlock.indexOf("const nextProfile");
-
-    expect(cleanupIndex).toBeGreaterThanOrEqual(0);
-    expect(profileTrainingIndex).toBeGreaterThan(cleanupIndex);
-    expect(recordInteractionBlock).toContain(
-      "removeNewsReaderInteractionAndRollbackProfile",
-    );
-    expect(recordInteractionBlock).toContain(
-      "buildNewsFeedbackConflictCleanupCondition({",
-    );
-    expect(recordInteractionBlock).toContain("action: input.action");
-    expect(recordInteractionBlock).toContain("canonicalUrl: item.canonicalUrl");
-    expect(recordInteractionBlock).toContain("clusterKey: item.clusterKey");
-    expect(recordInteractionBlock).toContain("originalUrl: item.originalUrl");
   });
 
   it("passes story identity into saved, history, positive feedback, and guardrail removal conditions", async () => {
@@ -1533,75 +1172,6 @@ describe("shouldIncludeNewsInteractionInReadingHistory", () => {
       shouldIncludeNewsInteractionInReadingHistory({
         action: "save",
         metadata: { surface: "home" },
-      }),
-    ).toBe(false);
-  });
-});
-
-describe("shouldDedupeNewsHomeExposureInteraction", () => {
-  it("deduplicates automatic home exposure views across both home surfaces", () => {
-    expect(
-      shouldDedupeNewsHomeExposureInteraction({
-        action: "view",
-        metadata: {
-          exposure: true,
-          exposureSlot: 2,
-          feedMode: "for_you",
-          surface: "home",
-        },
-      }),
-    ).toBe(true);
-    expect(
-      shouldDedupeNewsHomeExposureInteraction({
-        action: "view",
-        metadata: {
-          exposure: true,
-          exposureSlot: 2,
-          feedMode: "for_you",
-          surface: "home_exposure",
-        },
-      }),
-    ).toBe(true);
-    expect(
-      shouldDedupeNewsHomeExposureInteraction({
-        action: "view",
-        metadata: {
-          exposure: true,
-          exposureSlot: 2,
-          feedMode: "for_you",
-          surface: "mobile_home",
-        },
-      }),
-    ).toBe(true);
-  });
-
-  it("keeps explicit feedback and article reads persistable", () => {
-    expect(
-      shouldDedupeNewsHomeExposureInteraction({
-        action: "save",
-        metadata: {
-          exposure: true,
-          feedMode: "for_you",
-          surface: "home_exposure",
-        },
-      }),
-    ).toBe(false);
-    expect(
-      shouldDedupeNewsHomeExposureInteraction({
-        action: "view",
-        metadata: {
-          readPercent: 0.85,
-          surface: "article",
-        },
-      }),
-    ).toBe(false);
-    expect(
-      shouldDedupeNewsHomeExposureInteraction({
-        action: "view",
-        metadata: {
-          feedMode: "for_you",
-          surface: "home_exposure",
-        },
       }),
     ).toBe(false);
   });
@@ -2106,130 +1676,6 @@ describe("buildNewsCollaborativeSignalCondition", () => {
   });
 });
 
-describe("buildNewsHomeExposureDedupeCondition", () => {
-  it("derives a deterministic 24-hour home exposure dedupe window", () => {
-    expect(
-      getNewsHomeExposureDedupeWindowStart(
-        new Date("2026-07-02T09:30:00.000Z"),
-      ).toISOString(),
-    ).toBe("2026-07-01T09:30:00.000Z");
-  });
-
-  it("targets one reader, one story, one feed mode, and automatic home exposure views", () => {
-    const condition = buildNewsHomeExposureDedupeCondition({
-      feedMode: "for_you",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      readerProfileId: "reader-profile-123",
-      since: new Date("2026-07-01T00:00:00.000Z"),
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("readerProfileId");
-    expect(sqlText).toContain("newsItemId");
-    expect(sqlText).toContain("action");
-    expect(sqlText).toContain("view");
-    expect(sqlText).toContain("exposure");
-    expect(sqlText).toContain("home");
-    expect(sqlText).toContain("home_exposure");
-    expect(sqlText).toContain("feedMode");
-    expect(sqlText).toContain("for_you");
-  });
-
-  it("matches legacy padded and hyphenated home exposure surfaces during dedupe", () => {
-    const condition = buildNewsHomeExposureDedupeCondition({
-      feedMode: "for_you",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      readerProfileId: "reader-profile-123",
-      since: new Date("2026-07-01T00:00:00.000Z"),
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("trim");
-    expect(sqlText).toContain("home-exposure");
-  });
-
-  it("matches mobile home exposure surfaces during dedupe", () => {
-    const condition = buildNewsHomeExposureDedupeCondition({
-      feedMode: undefined,
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      readerProfileId: "reader-profile-123",
-      since: new Date("2026-07-01T00:00:00.000Z"),
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("mobile_home");
-    expect(sqlText).toContain("mobile-home");
-  });
-
-  it("keeps feed mode optional for legacy exposure events", () => {
-    const condition = buildNewsHomeExposureDedupeCondition({
-      feedMode: undefined,
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      readerProfileId: "reader-profile-123",
-      since: new Date("2026-07-01T00:00:00.000Z"),
-    });
-
-    expect(collectSqlDebugText(condition)).not.toContain("feedMode");
-  });
-
-  it("can match prior home exposures from another item in the same story cluster", () => {
-    const condition = buildNewsHomeExposureDedupeCondition({
-      clusterKey: "2026-07-01:model_release:openai:gpt-6",
-      feedMode: "for_you",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      readerProfileId: "reader-profile-123",
-      since: new Date("2026-07-01T00:00:00.000Z"),
-    } as Parameters<typeof buildNewsHomeExposureDedupeCondition>[0] & {
-      clusterKey: string;
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("clusterKey");
-    expect(sqlText).toContain("2026-07-01:model_release:openai:gpt-6");
-  });
-
-  it("matches home exposure clusters case-insensitively", async () => {
-    const source = await readFile(new URL("./news.ts", import.meta.url), {
-      encoding: "utf8",
-    });
-    const conditionBlock = getSourceBlock({
-      end: "export const buildNewsTextSearchCondition",
-      source,
-      start: "export const buildNewsHomeExposureDedupeCondition",
-    });
-    const identityBlock = getSourceBlock({
-      end: "export const buildNewsHomeExposureDedupeCondition",
-      source,
-      start: "const buildNewsInteractionStoryIdentityCondition",
-    });
-
-    expect(conditionBlock).toContain(
-      "buildNewsInteractionStoryIdentityCondition",
-    );
-    expect(identityBlock).toContain("lower(${NewsItem.clusterKey})");
-    expect(identityBlock).toContain("= ${normalizedClusterKey}");
-  });
-
-  it("can match prior home exposures from another item with URL variants", () => {
-    const condition = buildNewsHomeExposureDedupeCondition({
-      canonicalUrl: "https://www.openai.com/news/gpt-6?utm=home#comments",
-      feedMode: "for_you",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      originalUrl: "http://openai.com/news/gpt-6/",
-      readerProfileId: "reader-profile-123",
-      since: new Date("2026-07-01T00:00:00.000Z"),
-    } as Parameters<typeof buildNewsHomeExposureDedupeCondition>[0] & {
-      canonicalUrl: string;
-      originalUrl: string;
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("canonicalUrl");
-    expect(sqlText).toContain("originalUrl");
-    expect(sqlText).toContain("openai.com/news/gpt-6");
-  });
-});
-
 describe("buildNewsGuardrailRestoreCondition", () => {
   it("targets only Less feedback for one reader and one story", () => {
     const condition = buildNewsGuardrailRestoreCondition({
@@ -2301,26 +1747,6 @@ describe("buildNewsSavedRemovalCondition", () => {
     expect(sqlText).toContain("originalUrl");
     expect(sqlText).toContain("openai.com/news/gpt-6");
     expect(sqlText).toContain("save");
-  });
-});
-
-describe("shouldDedupeNewsDurableFeedbackInteraction", () => {
-  it("deduplicates stateful save and Less feedback without muting repeat engagement signals", () => {
-    expect(shouldDedupeNewsDurableFeedbackInteraction({ action: "save" })).toBe(
-      true,
-    );
-    expect(shouldDedupeNewsDurableFeedbackInteraction({ action: "hide" })).toBe(
-      true,
-    );
-    expect(
-      shouldDedupeNewsDurableFeedbackInteraction({ action: "share" }),
-    ).toBe(false);
-    expect(
-      shouldDedupeNewsDurableFeedbackInteraction({ action: "click_source" }),
-    ).toBe(false);
-    expect(shouldDedupeNewsDurableFeedbackInteraction({ action: "view" })).toBe(
-      false,
-    );
   });
 });
 
@@ -2402,103 +1828,6 @@ describe("buildNewsSearchMemoryRemovalCondition", () => {
     expect(sqlText).toContain("intentquery");
     expect(sqlText).toContain("regexp_replace");
     expect(sqlText).toContain("agent product signals");
-  });
-});
-
-describe("buildNewsFeedbackConflictCleanupCondition", () => {
-  it("removes positive anchors for the same story when Less is recorded", () => {
-    const condition = buildNewsFeedbackConflictCleanupCondition({
-      action: "hide",
-      canonicalUrl: "https://www.example.com/story?utm=less#comments",
-      clusterKey: " Model Launch ",
-      newsItemId: "news-1",
-      originalUrl: "https://source.example.com/story?utm=wire",
-      readerProfileId: "profile-1",
-    });
-    const sqlText = collectSqlDebugText(condition).toLowerCase();
-
-    expect(sqlText).toContain("readerprofileid");
-    expect(sqlText).toContain("clusterkey");
-    expect(sqlText).toContain("canonicalurl");
-    expect(sqlText).toContain("originalurl");
-    expect(sqlText).toContain("save");
-    expect(sqlText).toContain("share");
-    expect(sqlText).toContain("click_source");
-    expect(sqlText).toContain("view");
-    expect(sqlText).toContain("readpercent");
-    expect(sqlText).toContain("0.35");
-  });
-
-  it("removes Less guardrails for the same story when positive feedback is recorded", () => {
-    const condition = buildNewsFeedbackConflictCleanupCondition({
-      action: "save",
-      canonicalUrl: "https://www.example.com/story?utm=save#comments",
-      clusterKey: " Model Launch ",
-      newsItemId: "news-1",
-      originalUrl: "https://source.example.com/story?utm=wire",
-      readerProfileId: "profile-1",
-    });
-    const sqlText = collectSqlDebugText(condition).toLowerCase();
-
-    expect(sqlText).toContain("readerprofileid");
-    expect(sqlText).toContain("clusterkey");
-    expect(sqlText).toContain("canonicalurl");
-    expect(sqlText).toContain("originalurl");
-    expect(sqlText).toContain("hide");
-    expect(sqlText).not.toContain("click_source");
-    expect(sqlText).not.toContain("readpercent");
-  });
-
-  it("does not build a broad cleanup condition for passive views", () => {
-    const condition = buildNewsFeedbackConflictCleanupCondition({
-      action: "view",
-      canonicalUrl: "https://www.example.com/story?utm=view#comments",
-      clusterKey: " Model Launch ",
-      newsItemId: "news-1",
-      originalUrl: "https://source.example.com/story?utm=wire",
-      readerProfileId: "profile-1",
-    });
-
-    expect(collectSqlDebugText(condition).toLowerCase()).toBe("false");
-  });
-});
-
-describe("buildNewsDurableFeedbackDedupeCondition", () => {
-  it("targets one reader, one story, and one stateful feedback action", () => {
-    const condition = buildNewsDurableFeedbackDedupeCondition({
-      action: "save",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      readerProfileId: "reader-profile-123",
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("readerProfileId");
-    expect(sqlText).toContain("newsItemId");
-    expect(sqlText).toContain("action");
-    expect(sqlText).toContain("save");
-    expect(sqlText).not.toContain("hide");
-  });
-
-  it("deduplicates saved feedback across URL and cluster variants of the same story", () => {
-    const condition = buildNewsDurableFeedbackDedupeCondition({
-      action: "save",
-      canonicalUrl: "https://www.openai.com/news/gpt-6?utm=home#comments",
-      clusterKey: "2026-07-01:model_release:openai:gpt-6",
-      newsItemId: "a68d9452-8f6d-4e74-9673-4d43fd809a2e",
-      originalUrl: "http://openai.com/news/gpt-6/",
-      readerProfileId: "reader-profile-123",
-    } as Parameters<typeof buildNewsDurableFeedbackDedupeCondition>[0] & {
-      canonicalUrl: string;
-      clusterKey: string;
-      originalUrl: string;
-    });
-    const sqlText = collectSqlDebugText(condition);
-
-    expect(sqlText).toContain("clusterKey");
-    expect(sqlText).toContain("canonicalUrl");
-    expect(sqlText).toContain("originalUrl");
-    expect(sqlText).toContain("openai.com/news/gpt-6");
-    expect(sqlText).toContain("save");
   });
 });
 

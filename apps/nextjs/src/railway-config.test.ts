@@ -20,6 +20,10 @@ interface RailwayConfig {
   };
 }
 
+interface CronConfig {
+  baseUrl: string;
+}
+
 const repoRoot = path.resolve(process.cwd(), "../..");
 
 const readJson = async <T>(relativePath: string): Promise<T> => {
@@ -80,6 +84,10 @@ describe("Railway Next.js deployment config", () => {
 
   test("cron runs as an HTTP-only scheduler configured by cron.json", async () => {
     const config = await readJson<RailwayConfig>("packages/cron/railway.json");
+    const cronConfig = await readJson<CronConfig>("packages/cron/cron.json");
+    const cronPackage = await readJson<PackageManifest>(
+      "packages/cron/package.json",
+    );
 
     expect(config.build?.buildCommand).toBe("pnpm --filter @acme/cron build");
     expect(config.deploy).toMatchObject({
@@ -88,6 +96,8 @@ describe("Railway Next.js deployment config", () => {
     });
     expect(config.deploy?.cronSchedule).toBeUndefined();
     expect(config.deploy?.preDeployCommand).toBeUndefined();
+    expect(cronConfig.baseUrl).toBe("http://localhost:3000");
+    expect(cronPackage.scripts?.start).toBe("node --import tsx src/index.ts");
   });
 
   test.each(["packages/api/railway.json", "packages/db/railway.json"])(

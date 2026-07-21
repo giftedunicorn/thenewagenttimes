@@ -17,7 +17,7 @@ describe("worker deployment wiring", () => {
     });
     expect(packageJson.scripts).toMatchObject({
       dev: "node --env-file-if-exists=../../.env --import tsx --watch src/index.ts",
-      start: "node --env-file-if-exists=../../.env --import tsx src/index.ts",
+      start: "node --import tsx src/index.ts",
     });
   });
 

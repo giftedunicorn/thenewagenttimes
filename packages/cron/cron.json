@@ -1,5 +1,5 @@
 {
-  "baseUrl": "http://thenewaitimes.railway.internal:8080",
+  "baseUrl": "http://localhost:3000",
   "jobs": [
     {
       "name": "news-refresh",
